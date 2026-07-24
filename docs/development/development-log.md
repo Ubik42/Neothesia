@@ -4,6 +4,68 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 043: Reopen generated exercises (DONE)
+
+### Outcome
+
+Completed exercises are no longer dead-end rows in Practice Library. They can
+be reopened directly without a MIDI file, and resume the learner's latest
+practice setup.
+
+### Implemented
+
+- Added optional `exercise_spec` source metadata to `SongPracticeSetup`.
+- Defaulted the field so existing practice-history files remain compatible.
+- Propagated generated-source metadata into `RecentSongSummary`.
+- Added source metadata to Practice Library's merged row model.
+- Distinguished three primary row actions:
+  - Practice for generated exercises;
+  - Open for available MIDI files;
+  - Locate for missing MIDI files.
+- Rendered generated rows with the available-source visual treatment.
+- Added a shared exercise-open path used by Technique Studio and Practice
+  Library.
+- Rebuilt the in-memory Type-1 MIDI from the exact saved specification.
+- Applied the existing saved track setup before launching.
+- Updated the last-used Technique Studio specification after reopening.
+- Added semantic home-to-library and recent-exercise actions.
+- Extended native automation to reopen the saved generated exercise and verify
+  restored hand mode.
+
+### Verification
+
+- Generated source setup/history file round trip.
+- Recent summary contains the same `ExerciseSpec` and no source path.
+- Legacy serialized setup without `exercise_spec` loads as `None`.
+- Real-process flow:
+  - completes C♯ 70 BPM;
+  - changes the saved practice scope to Right hand;
+  - returns to the menu;
+  - opens Practice Library;
+  - opens the most recent generated exercise;
+  - observes an active player with Right hand restored;
+  - returns and exits with code 0.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, sixty-five core tests and fifty-four
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `ed0f789`
+(`feat: reopen exercises from practice library`).
+
+### Known limitations
+
+- A normalized exercise stores the latest reconstructable tempo/hand variant;
+  named favourite variants are still needed for multiple saved presets.
+- Search uses the generated display name but has no dedicated exercise filter.
+- Existing pre-Cycle-043 generated rows have no reconstructable source
+  metadata and cannot be inferred safely.
+
 ## 2026-07-25 — Cycle 042: Continuous exercise tempo progression (DONE)
 
 ### Outcome

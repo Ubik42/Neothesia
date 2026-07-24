@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 043 — Reopen generated exercises
+
+State: **DONE**
+
+Delivered:
+
+- added backward-compatible generated-source metadata to saved song setups;
+- surfaced generated specifications in recent Practice Library summaries;
+- treated generated exercises as available without a filesystem path;
+- labeled generated rows with the direct `Practice` action;
+- rebuilt exercises synchronously from their saved specification;
+- restored saved tracks, hand mode, speed and loop state before playback;
+- retained Open/Locate behavior for file-backed MIDI;
+- added semantic navigation and reopen actions for native automation;
+- completed `EX-001E`.
+
+Verification:
+
+- generated source metadata survives disk round trip;
+- older setup records without source metadata remain readable;
+- recent-library summaries expose the generated spec and no fake path;
+- native automation completes and saves C♯ 70 BPM;
+- it returns to Practice Library and reopens the exercise without a picker;
+- the reopened player restores the latest Right-hand setup;
+- two MIDI-file tests, sixty-five practice/core tests and fifty-four
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `ed0f789`.
+
 ### Cycle 042 — Continuous exercise tempo progression
 
 State: **DONE**

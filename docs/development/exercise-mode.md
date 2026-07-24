@@ -47,7 +47,7 @@ apex once. Melodic moments last one beat; chord moments last two beats.
 rendering. The next layers are:
 
 1. ~~convert a plan to an in-memory Type-1 MIDI with named right/left tracks;~~
-2. identify generated exercises separately from file-backed repertoire;
+2. ~~identify generated exercises separately from file-backed repertoire;~~
 3. ~~add a focused preset editor and preview to the home screen;~~
 4. ~~pass the generated `Song` into the existing player;~~
 5. ~~save exercise progress by normalized specification identity;~~
@@ -81,6 +81,14 @@ Every completed exercise attempt also records its effective BPM after the
 player speed multiplier is applied. History rows show real BPM plus the
 multiplier, and the trend prefers BPM change when that evidence exists. Legacy
 song attempts without BPM data continue to display multiplier-only speed.
+
+## Practice Library
+
+The latest complete generated specification is stored with the song setup in
+practice history. Practice Library recognizes this as an available generated
+source, labels its primary action **Practice**, rebuilds it without a file
+picker and restores the saved tracks, hand mode, speed and loop. File-backed
+MIDI keeps its existing Open/Locate behavior.
 
 Fingering is deliberately absent from the generator today. Generic
 one-pattern-fits-all scale fingering would teach incorrect crossings in several
