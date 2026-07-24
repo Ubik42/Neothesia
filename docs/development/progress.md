@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 044 — Multi-pass exercise sessions
+
+State: **DONE**
+
+Delivered:
+
+- added repetition count to the serializable exercise specification;
+- offered one, two, four and eight complete passes in Technique Studio;
+- repeated whole phrases without changing their internal note order;
+- included repeat count in generated names while keeping one-pass names clean;
+- treated repeat count as an attempt dimension, not a new learning target;
+- validated a safe one-to-eight core range;
+- defaulted older saved specifications to one repetition;
+- added stable semantic actions for both repetition arrows;
+- completed `EX-001F`.
+
+Verification:
+
+- four-pass arpeggio has exactly four times the one-pass moments;
+- every repeated phrase begins with the exact original sequence;
+- one- and four-pass variants share practice identity;
+- zero and nine repetitions are rejected;
+- legacy specifications deserialize with one repetition;
+- UI selectors wrap 1 → 2 → 4 → 8 in both directions;
+- native automation exercises both arrows and confirms one pass is persisted;
+- two MIDI-file tests, sixty-seven practice/core tests and fifty-four
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `53cb2f8`.
+
 ### Cycle 043 — Reopen generated exercises
 
 State: **DONE**

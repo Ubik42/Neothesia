@@ -4,6 +4,64 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 044: Multi-pass exercise sessions (DONE)
+
+### Outcome
+
+Technique exercises can now run for enough repetitions to establish a stable
+motor pattern and collect meaningful timing evidence, instead of ending after
+a single short pass.
+
+### Implemented
+
+- Added `repetitions` to `ExerciseSpec`.
+- Defaulted saved specifications from earlier versions to one pass.
+- Validated one through eight repetitions in the core.
+- Exposed learner-focused 1, 2, 4 and 8 choices in Technique Studio.
+- Used the previously empty eighth selector slot for Repeat.
+- Added previous and next semantic controls.
+- Repeated the fully constructed musical phrase before assigning hand notes.
+- Preserved each phrase's tonic-to-tonic boundary.
+- Added `x2`, `x4` or `x8` to generated names; omitted `x1` noise.
+- Excluded repetition count from normalized practice identity so longer
+  evidence sessions continue the same learning history.
+- Persisted repeat count automatically through the existing settings and
+  generated-source history structures.
+- Extended native smoke coverage to operate both repetition controls and
+  inspect the persisted one-pass value.
+
+### Verification
+
+- Exact four-times phrase-length test.
+- Repeated prefix equals the entire original phrase.
+- Equal practice identity for one and four passes.
+- Display-name repeat suffix test.
+- Rejection tests for zero and nine repetitions.
+- Legacy RON specification defaults to one pass.
+- Bidirectional 1/2/4/8 selector boundary tests.
+- Semantic ID uniqueness test includes both new controls.
+- Existing full generated-exercise completion, persistence and library-reopen
+  smoke remains green.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, sixty-seven core tests and fifty-four
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `53cb2f8`
+(`feat: add exercise repetitions`).
+
+### Known limitations
+
+- Repetitions have no configurable rest or count-in between passes yet.
+- The completion view aggregates the full session; pass-by-pass consistency
+  will require phrase-boundary evidence in the matcher.
+- Named favourite variants remain under `EX-002`.
+
 ## 2026-07-25 — Cycle 043: Reopen generated exercises (DONE)
 
 ### Outcome

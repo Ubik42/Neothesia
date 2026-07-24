@@ -27,6 +27,7 @@ An exercise is defined by:
 - ascending, descending or up-and-down direction;
 - right, left or both hands;
 - one to three octaves;
+- one, two, four or eight complete repetitions;
 - 20–240 BPM.
 
 The initial register is C4–B4 for the right hand and C2–B2 for the left. Every
@@ -40,6 +41,8 @@ functional dominant.
 
 Both hands move in parallel two octaves apart. Up-and-down exercises play the
 apex once. Melodic moments last one beat; chord moments last two beats.
+Repetition duplicates the complete phrase, including its return to the tonic,
+so each pass has the same musical boundary and scoring shape.
 
 ## Integration boundary
 
@@ -73,8 +76,9 @@ tonic, octave span or tempo from crashing the selector.
 
 Exercise history is keyed by the musical target: tonic, tonality, pattern,
 direction and octave span. Tempo and hand scope are attempt dimensions rather
-than separate songs. Moving the same scale from 60 to 80 BPM, or progressing
-from separate hands to both hands, therefore keeps one continuous history.
+than separate songs. Repetition count is also an attempt dimension. Moving the
+same scale from 60 to 80 BPM, progressing from separate hands to both hands, or
+collecting a longer four-pass sample therefore keeps one continuous history.
 Different keys and patterns never share an identity.
 
 Every completed exercise attempt also records its effective BPM after the

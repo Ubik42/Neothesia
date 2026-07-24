@@ -71,6 +71,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `EX-001C` Persist the last exercise and add bidirectional selectors.
 - [x] `EX-001D` Unify tempo/hand progression and record effective BPM.
 - [x] `EX-001E` Reopen generated exercises from Practice Library.
+- [x] `EX-001F` Add one-, two-, four- and eight-pass exercise sessions.
 - [x] `EX-001` Add scales, arpeggios and chord exercise mode.
 - [ ] `EX-002` Persist favourite exercise presets and recent exercise variants.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
