@@ -10,6 +10,42 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 082 — Bounded repeat playback plans
+
+State: **DONE**
+
+Delivered:
+
+- generated performed measure visits without mutating written score order;
+- expanded forward/backward repeats, implicit repeats from the part start and
+  optional repeat counts;
+- selected numbered endings by the active repeat pass while still processing a
+  skipped ending's backward-repeat control;
+- assigned deterministic part/source-measure/occurrence identities to every
+  performed visit;
+- capped repeat passes and total visits independently;
+- returned explicit incomplete diagnostics for caps, malformed endings,
+  unknown navigation and unsupported nested repeats;
+- completed `MUS-001G2`.
+
+Verification:
+
+- a two-measure repeat expands to `1,2,1,2` before continuing;
+- first and second endings produce `1,2,3,1,2,4,5`;
+- a requested 99-pass repeat is capped, and a separate three-visit limit stops
+  expansion deterministically;
+- an unnumbered textual ending remains playable but diagnostic;
+- 132 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `0f596fe`.
+
+Next:
+
+- `MUS-001G3`: project repeated event occurrences onto flattened performed
+  score time and feed those occurrences to score/MIDI alignment;
+- add cross-part plan-consistency diagnostics before grand-staff rendering.
+
 ### Cycle 081 — MusicXML repeat and ending semantics
 
 State: **DONE**

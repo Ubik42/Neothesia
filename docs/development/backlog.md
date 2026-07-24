@@ -80,7 +80,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-001G` Support non-linear score playback order for alignment.
 - [x] `MUS-001G1` Preserve barline location, forward/backward repeats, repeat
   count and numbered-ending semantics.
-- [ ] `MUS-001G2` Expand common repeats and first/second endings into a bounded,
+- [x] `MUS-001G2` Expand common repeats and first/second endings into a bounded,
   diagnostic playback plan.
 - [ ] `MUS-001G3` Project repeated score-event occurrences onto flattened MIDI
   time without changing their stable source identities.

@@ -4,6 +4,54 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 082: Bounded repeat playback plans (DONE)
+
+### Outcome
+
+Written measure order and performed measure order are now separate, explicit
+concepts. Common repeats and first/second endings can be flattened safely for
+future MIDI alignment while every visit still points back to the immutable
+source measure.
+
+### Implemented
+
+- Added configurable limits for total visits and repeat passes.
+- Added deterministic measure visits containing part ID, source measure
+  ordinal, occurrence ordinal and active repeat pass.
+- Expanded explicit forward/backward repeats and backward repeats with an
+  implicit part-start boundary.
+- Honored optional MusicXML repeat counts with a conservative default of two
+  passes.
+- Built ending membership from start/stop/discontinue spans and filtered visits
+  by active pass.
+- Kept navigation controls active inside skipped endings so the second pass can
+  leave a first ending and reach the second ending correctly.
+- Returned diagnostics and `complete=false` for capped counts, visit limits,
+  malformed/unknown endings and currently unsupported nested repeats.
+
+### Verification
+
+- Default repeat order is `0,1,0,1,2`.
+- First/second-ending order is `0,1,2,0,1,3,4`, with pass two attached to the
+  second ending.
+- A 99-pass source is capped at four and then stopped at a separate three-visit
+  test limit.
+- A textual `finale` ending is retained as playable written order and reported
+  as incomplete instead of being dropped.
+- 132 core, 64 application and four MIDI-file tests pass.
+- The pinned compatibility corpus, Clippy, release build, both native smokes,
+  formatting and diff checks pass with only pre-existing warnings.
+
+Implementation commit: `0f596fe` (`feat: expand MusicXML repeat playback plans`).
+
+### Known limitations
+
+- Nested repeats are diagnosed but not expanded.
+- Da capo, dal segno, coda and fine are not modeled.
+- The plan contains measure visits; repeated note/event occurrence timing is
+  the next slice.
+- Multiple score parts are not yet checked for equal navigation plans.
+
 ## 2026-07-25 — Cycle 081: MusicXML repeat and ending semantics (DONE)
 
 ### Outcome

@@ -66,11 +66,16 @@ preserves its barlines, forward/backward repeats, repeat count and numbered
 ending markers. Ending labels retain both their raw text and bounded parsed
 passes, so unusual exporter values are inspectable rather than silently lost.
 
-The next layer will produce a separate bounded playback plan. It must give each
-visit an occurrence identity while retaining the stable source measure/event
-identity, diagnose malformed navigation, and never mutate or duplicate the
-imported semantic score. Da capo, dal segno, coda and fine require a later
-explicit navigation model.
+A separate bounded playback plan now gives each performed measure visit a
+deterministic occurrence identity while retaining the stable source-measure
+identity. Common repeats and numbered endings are expanded without mutating or
+duplicating the imported semantic score. Independent pass and visit caps make
+malformed input finite; diagnostics mark capped counts, malformed endings,
+unknown navigation and currently unsupported nested repeats.
+
+Repeated event occurrences still need flattened score times before the MIDI
+matcher can consume this plan. Da capo, dal segno, coda and fine require a
+later explicit navigation model.
 
 ## Renderer decision
 
