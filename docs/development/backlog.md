@@ -8,7 +8,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `PRA-002` Make wait-for-notes the default with an obvious in-player toggle.
 - [x] `VIS-001` Show one-based measure numbers.
 - [x] `VIS-002` Add optional quarter-note subdivision lines.
-- [ ] `QA-001` Run open/play/wait/loop/exit smoke test on a real two-hand MIDI.
+- [x] `QA-001` Run open/play/wait/loop/exit smoke test on a real two-hand MIDI.
 - [x] `DOC-001` Establish roadmap, backlog, progress and cycle log.
 
 ## NEXT — M1 practice intelligence
@@ -77,6 +77,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `UI-R04` Return accepted/rejected results for debug semantic actions.
 - [x] `UI-R05` Expose the debug harness through a loopback-only local driver.
 - [x] `UI-R06` Check in an isolated real-process practice smoke runner.
+- [x] `UI-R07` Cover loop activation and scope restart in the native smoke run.
 - [ ] `UI-R02` Evaluate a React library/analytics panel only after its API exists.
 - [ ] `MUS-R01` Compare direct MusicXML rendering with an embedded notation engine.
 

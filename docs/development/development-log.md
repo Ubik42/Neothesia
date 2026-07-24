@@ -4,6 +4,66 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 034: Native loop and restart coverage (DONE)
+
+### Outcome
+
+The checked-in native smoke run now proves the full baseline interaction path:
+open a real two-hand MIDI, start it, inspect and toggle wait mode, enable a
+measure-snapped loop, restart that practice scope, disable the loop, return to
+the menu and exit cleanly.
+
+### Implemented
+
+- Extracted loop toggling from the rendered button into shared product logic.
+- Kept loop disable behavior for count-in cancellation, attempt reset, Tempo
+  Coach reset and playback resume unchanged.
+- Assigned `practice.player.loop` to the visible repeat control.
+- Added `practice.player.restart` for current-scope restart.
+- Restarted the loop take when looping and the whole-song take otherwise.
+- Added the `R` shortcut and a confirmation toast.
+- Added loop active, start/end measures, count-in and pause state to the Debug
+  snapshot.
+- Added stable nullable numeric encoding to the local driver JSON.
+- Extended the PowerShell smoke runner to assert:
+  - loop activation;
+  - a valid measure range;
+  - range preservation across restart;
+  - loop deactivation.
+- Updated the shortcut page and native automation contract.
+- Marked `QA-001` complete based on real-process evidence.
+
+### Verification
+
+- Ran the checked-in smoke script against “Look at the Sky - Porter Robinson,
+  original key, auto-aligned.”
+- Observed wait mode `True → False`.
+- Observed hands `Both → Right`.
+- Observed loop range `1–2`.
+- Observed `LoopRestarted = True`.
+- Observed `LoopDisabled = True`.
+- Observed exit code `0`.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-eight
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `f49cd2c`
+(`test: cover loop practice in native smoke`).
+
+### Known limitations
+
+- The smoke run validates state transitions but does not inject performed MIDI
+  notes or wait for a completed loop attempt.
+- Completion tabs and completion Retry still require a deterministic
+  performance-input fixture.
+- GPU screenshot comparison remains future work.
+
 ## 2026-07-25 — Cycle 033: Reusable native practice smoke runner (DONE)
 
 ### Outcome

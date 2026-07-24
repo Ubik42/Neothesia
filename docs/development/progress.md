@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 034 — Native loop and restart coverage
+
+State: **DONE**
+
+Delivered:
+
+- routed the visible loop control and semantic action through one shared
+  implementation;
+- added stable loop-toggle and current-scope restart actions;
+- added `R` as a learner-facing current-scope restart shortcut;
+- exposed loop activation, measure range, count-in and pause state in Debug
+  snapshots;
+- extended the real-process smoke runner through loop enable, loop-preserving
+  restart and loop disable;
+- documented the shortcut and automation contract;
+- closed `QA-001`.
+
+Verification:
+
+- the prepared two-hand “Look at the Sky” MIDI opens and starts in the real
+  application;
+- wait mode reports `true → false`;
+- default loop reports measures `1–2`;
+- restart preserves measures `1–2` and keeps the loop active;
+- the second loop toggle disables it;
+- return to menu and clean exit code `0` pass;
+- two MIDI-file tests, fifty practice/core tests and forty-eight application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `f49cd2c`.
+
 ### Cycle 033 — Reusable native practice smoke runner
 
 State: **DONE**
