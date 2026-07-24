@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 061 — Native song metadata editor
+
+State: **DONE**
+
+Delivered:
+
+- added an **Info** action beside every available local MIDI in Practice
+  Library;
+- added a native seven-field editor for title, performer, composer, collection,
+  difficulty, comma-separated tags and study notes;
+- supported mouse field selection plus Tab, Shift+Tab, arrows, Backspace,
+  Delete, Enter, Escape and Ctrl+S;
+- saved through the content-bound atomic sidecar API;
+- refreshed title, credit and search immediately after a successful save;
+- showed persistence errors in place without discarding the edit;
+- completed `LIB-002C` and parent `LIB-002`.
+
+Verification:
+
+- editor conversion trims optional scalar values and parses comma-separated
+  tags;
+- field navigation clamps safely at both ends;
+- core round-trip, identity mismatch and atomic replacement tests continue to
+  cover the actual save boundary;
+- ninety core, sixty-two application and two MIDI-file tests pass;
+- Clippy, release build, native Technique Studio smoke, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `8fc184e`.
+
 ### Cycle 060 — Portable song metadata foundation
 
 State: **DONE**

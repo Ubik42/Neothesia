@@ -63,12 +63,21 @@ The scan summary reports loaded and invalid sidecars separately. A damaged,
 unsupported or content-mismatched sidecar is ignored without making the MIDI
 unavailable.
 
+## Edit inside Practice Library
+
+1. Open **Practice Library**.
+2. Select **Info** beside a local MIDI.
+3. Click a field and type its value.
+4. Use `Tab`, `Shift+Tab` or the arrow keys to change fields.
+5. Press `Backspace` to edit or `Delete` to clear the active field.
+6. Select **Save information** or press `Ctrl+S`.
+
+Tags are entered as a comma-separated list. Saving returns to the library and
+refreshes the title, credit and search index. **Cancel**, `Escape` and the mouse
+back button discard the unsaved edit.
+
 ## Persistence guarantees
 
 Neothesia writes a complete temporary file in the same directory, flushes it,
 then atomically replaces the previous sidecar. A failed save removes the
 temporary file and leaves the previous metadata intact.
-
-The model and storage API are complete. The native in-app metadata editor is a
-separate backlog item; until it lands, sidecar creation is considered a
-developer-facing capability rather than a finished learner workflow.

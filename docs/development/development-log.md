@@ -4,6 +4,55 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 061: Native song metadata editor (DONE)
+
+### Outcome
+
+Portable repertoire metadata is now a learner-facing workflow rather than a
+file format. A piece can be renamed, credited, tagged and annotated from
+Practice Library, then found immediately through those values.
+
+### Implemented
+
+- Added an **Info** button for every available non-generated library MIDI.
+- Added a focused Song information page with seven editable fields.
+- Added mouse selection and complete keyboard navigation/editing.
+- Parsed comma-separated tags while retaining free text for study notes.
+- Routed saving through `save_song_metadata`, preserving content binding and
+  atomic replacement.
+- Kept failed saves on the editor page with an actionable error.
+- Returned successful saves to Practice Library and forced a fresh scan.
+- Cleared unsaved editor state on Cancel, Escape and mouse back.
+- Completed `LIB-002C` and parent `LIB-002`.
+
+### Verification
+
+- Two editor tests cover field conversion/tag parsing and bounded navigation.
+- Existing sidecar tests exercise the persistence path used by the editor.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `powershell -ExecutionPolicy Bypass -File
+  .\scripts\debug-practice-smoke.ps1 -ExerciseFixture`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, ninety core tests and sixty-two
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `8fc184e`
+(`feat: add native song metadata editor`).
+
+### Known limitations
+
+- The editor is single-line; long study notes scroll conceptually through the
+  stored value but are visually truncated in the field button.
+- Generated Technique Studio exercises have stable source metadata but no
+  adjacent MIDI until exported, so their Info action remains unavailable.
+- Duplicate MIDI copies can still have conflicting sidecars; scan precedence
+  is deterministic but conflict resolution is not interactive.
+
 ## 2026-07-25 — Cycle 060: Portable song metadata foundation (DONE)
 
 ### Outcome
