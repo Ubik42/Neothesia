@@ -82,8 +82,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   count and numbered-ending semantics.
 - [x] `MUS-001G2` Expand common repeats and first/second endings into a bounded,
   diagnostic playback plan.
-- [ ] `MUS-001G3` Project repeated score-event occurrences onto flattened MIDI
+- [x] `MUS-001G3` Project repeated score-event occurrences onto flattened MIDI
   time without changing their stable source identities.
+- [ ] `MUS-001G4` Align repeated pitched occurrences to MIDI note identities
+  and verify compatible navigation across piano parts.
 - [x] `MUS-002` Add manual finger hints in portable sidecars.
 - [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall

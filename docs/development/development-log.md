@@ -4,6 +4,50 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 083: Repeated event occurrence timing (DONE)
+
+### Outcome
+
+Repeated written notes now become distinct performed occurrences on the same
+clock as the MIDI player. A renderer or matcher can distinguish “the C in
+measure 1 on pass one” from the same source note on pass two without inventing
+a second source identity.
+
+### Implemented
+
+- Added cumulative performed score time to every included measure visit.
+- Advanced performed time only for measures actually played, so skipped first
+  endings do not consume time on later passes.
+- Expanded source notes and directions into performed occurrences.
+- Identified occurrences with stable source `ScoreEventId` plus the containing
+  measure-visit occurrence ordinal.
+- Calculated each event's measure-relative onset before adding the performed
+  visit start.
+- Projected repeated event starts and ends through the paired MIDI PPQ and
+  tempo map.
+- Preserved exact pulse projection and explicit unprojected occurrence IDs.
+
+### Verification
+
+- A repeated one-quarter measure creates two note occurrences with one stable
+  source ID and distinct visit IDs zero and one.
+- Flattened score onset advances from quarter zero to quarter one.
+- At default 120 BPM, projected onset advances from 0 to 500 ms and both note
+  durations are 500 ms.
+- 134 core, 64 application and four MIDI-file tests pass.
+- The pinned compatibility corpus, Clippy, release build, both native smokes,
+  formatting and diff checks pass with only pre-existing warnings.
+
+Implementation commit: `618c456` (`feat: project repeated score occurrences`).
+
+### Known limitations
+
+- Pitched repeated occurrences are not yet passed to the MIDI-note matcher.
+- Multiple parts can describe conflicting repeat navigation and are not yet
+  compared.
+- Nested repeats and textual jump navigation retain the prior explicit
+  diagnostics.
+
 ## 2026-07-25 — Cycle 082: Bounded repeat playback plans (DONE)
 
 ### Outcome

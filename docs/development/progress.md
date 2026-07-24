@@ -10,6 +10,40 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 083 — Repeated event occurrence timing
+
+State: **DONE**
+
+Delivered:
+
+- attached exact cumulative performed score time to every measure visit;
+- expanded notes and directions into repeated event occurrences;
+- identified every occurrence by stable source event ID plus measure-visit
+  occurrence ID;
+- derived event onset relative to its source measure, preserving pickups and
+  polyphonic cursor semantics;
+- projected occurrence start/end through the paired MIDI PPQ and tempo map;
+- retained exact/inexact pulse evidence and explicit unprojected occurrences;
+- completed `MUS-001G3`.
+
+Verification:
+
+- one repeated quarter-note measure produces two occurrences with the same
+  source ID and visit IDs zero/one;
+- their flattened score starts are quarter 0 and quarter 1;
+- at 120 BPM their MIDI-clock starts are 0 and 500 ms, both with 500 ms
+  duration;
+- 134 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `618c456`.
+
+Next:
+
+- `MUS-001G4`: feed pitched occurrences to the gap-aware MIDI matcher and
+  compare navigation plans across piano parts;
+- keep the old linear projection API available for scores without navigation.
+
 ### Cycle 082 — Bounded repeat playback plans
 
 State: **DONE**

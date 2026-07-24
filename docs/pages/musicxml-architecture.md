@@ -73,9 +73,15 @@ duplicating the imported semantic score. Independent pass and visit caps make
 malformed input finite; diagnostics mark capped counts, malformed endings,
 unknown navigation and currently unsupported nested repeats.
 
-Repeated event occurrences still need flattened score times before the MIDI
-matcher can consume this plan. Da capo, dal segno, coda and fine require a
-later explicit navigation model.
+Each included visit now carries cumulative performed score time. Notes and
+directions expand into occurrence records identified by stable source event ID
+plus measure-visit occurrence ID; their measure-relative onsets are projected
+through the paired MIDI PPQ and tempo map. This correctly gives repeated source
+notes distinct player-clock times without duplicating source semantics.
+
+The gap-aware MIDI-note matcher does not yet consume these repeated
+occurrences, and piano parts are not yet checked for compatible navigation. Da
+capo, dal segno, coda and fine require a later explicit navigation model.
 
 ## Renderer decision
 
