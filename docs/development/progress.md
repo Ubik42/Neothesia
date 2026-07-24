@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 032 — Loopback debug practice driver
+
+State: **DONE**
+
+Delivered:
+
+- exposed the debug harness to local test processes through an opt-in TCP
+  driver;
+- restricted binding to IPv4/IPv6 loopback addresses and capped command size;
+- added JSON action acknowledgements and practice snapshots with timeouts;
+- added a semantic menu-start action so an automation run can enter a
+  command-line-loaded song without coordinate clicks;
+- kept the driver off by default and compile-time absent from release builds;
+- documented configuration, commands, results and security boundary.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-eight application
+  tests pass;
+- protocol parsing, JSON scalar formatting and loopback enforcement are tested;
+- a real Debug process loaded the prepared “Look at the Sky” MIDI, accepted
+  menu start, reported wait mode on, accepted the wait toggle, reported it off,
+  and accepted return to menu;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes without the driver module;
+- implementation commit: `eaf40f3`.
+
 ### Cycle 031 — Confirmed semantic action dispatch
 
 State: **DONE**

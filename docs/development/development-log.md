@@ -4,6 +4,64 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 032: Loopback debug practice driver (DONE)
+
+### Outcome
+
+A separate local test process can now launch a Debug build, enter a loaded
+song, operate stable practice controls and assert semantic state. The path no
+longer depends on mouse coordinates or translated labels.
+
+### Implemented
+
+- Added an opt-in TCP debug driver controlled by
+  `NEOTHESIA_DEBUG_DRIVER_ADDR`.
+- Allowed only explicit IPv4 or IPv6 loopback socket addresses.
+- Kept the listener disabled when the environment variable is absent.
+- Limited commands to 4096 bytes and action/snapshot waits to two seconds.
+- Added newline-delimited `ACTION <id>` and `SNAPSHOT` commands.
+- Returned compact JSON results suitable for an external smoke-test process.
+- Added `practice.menu.start` to the stable semantic catalogue and visible Play
+  control.
+- Let the menu accept start only when a song is actually loaded.
+- Kept the entire listener module and its startup path out of release builds.
+- Documented the protocol and its intentionally narrow security boundary.
+
+### Verification
+
+- Tested valid commands, malformed commands and stable JSON scalar output.
+- Tested acceptance of `127.0.0.1` and `::1`.
+- Tested rejection of wildcard and LAN addresses.
+- Ran a real Debug application with “Look at the Sky - Porter Robinson,
+  original key, auto-aligned”:
+  - menu snapshot returned `null`, as designed;
+  - `practice.menu.start` returned accepted;
+  - player snapshot reported wait mode on and both hands;
+  - `practice.player.wait` returned accepted;
+  - the next snapshot reported wait mode off;
+  - `practice.player.back` returned accepted.
+- Removed the temporary practice-history file created by the smoke run.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-eight
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `eaf40f3`
+(`feat: expose local debug practice driver`).
+
+### Known limitations
+
+- The smoke sequence is proven manually from a test process but is not yet a
+  checked-in reusable launcher.
+- The driver does not capture rendered frames.
+- Calibration and recommendation actions remain click-only.
+- The protocol is intentionally single-command-per-connection and local-only.
+
 ## 2026-07-25 — Cycle 031: Confirmed semantic action dispatch (DONE)
 
 ### Outcome
