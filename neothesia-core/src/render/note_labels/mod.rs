@@ -8,7 +8,6 @@ use crate::utils::Point;
 use super::{KeyboardRenderer, TextRenderer, waterfall::NoteList};
 
 type FingeringKey = (Duration, u8, u8, usize);
-type FingeringSelection = (FingeringKey, Option<u8>);
 
 #[derive(Default)]
 struct LabelsCache {
@@ -121,7 +120,8 @@ pub struct NoteLabels {
     fingerings: HashMap<FingeringKey, u8>,
     fingering_crossings: HashSet<FingeringKey>,
     fingerings_enabled: bool,
-    fingering_selection: Option<FingeringSelection>,
+    fingering_selection: Option<FingeringKey>,
+    fingering_previews: HashMap<FingeringKey, u8>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -186,6 +186,7 @@ impl NoteLabels {
             fingering_crossings,
             fingerings_enabled,
             fingering_selection: None,
+            fingering_previews: HashMap::new(),
         }
     }
 
@@ -223,15 +224,30 @@ impl NoteLabels {
     }
 
     pub fn set_fingering_selection(&mut self, key: FingeringKey, preview_finger: Option<u8>) {
-        self.fingering_selection = Some((
-            key,
-            preview_finger.filter(|finger| (1..=5).contains(finger)),
-        ));
+        self.fingering_selection = Some(key);
+        self.fingering_previews.clear();
+        if let Some(finger) = preview_finger.filter(|finger| (1..=5).contains(finger)) {
+            self.fingering_previews.insert(key, finger);
+        }
+        self.fingerings_enabled = true;
+    }
+
+    pub fn set_fingering_preview(
+        &mut self,
+        selected: FingeringKey,
+        previews: impl IntoIterator<Item = (FingeringKey, u8)>,
+    ) {
+        self.fingering_selection = Some(selected);
+        self.fingering_previews = previews
+            .into_iter()
+            .filter(|(_, finger)| (1..=5).contains(finger))
+            .collect();
         self.fingerings_enabled = true;
     }
 
     pub fn clear_fingering_selection(&mut self) {
         self.fingering_selection = None;
+        self.fingering_previews.clear();
         if self.fingerings.is_empty() {
             self.fingerings_enabled = false;
         }
@@ -266,10 +282,9 @@ impl NoteLabels {
                 .filter(|note| layout.range.contains(note.note) && note.channel != 9)
                 .filter_map(|note| {
                     let note_key = (note.start, note.note, note.channel, note.track_id);
-                    let selected = selection.is_some_and(|(key, _)| key == note_key);
-                    let preview = selection
-                        .filter(|(key, _)| *key == note_key)
-                        .and_then(|(_, finger)| finger);
+                    let selected = selection.is_some_and(|key| key == note_key);
+                    let preview = self.fingering_previews.get(&note_key).copied();
+                    let previewed = preview.is_some();
                     let glyph = fingering_glyph(
                         self.fingerings.get(&note_key).copied(),
                         selected,
@@ -293,16 +308,18 @@ impl NoteLabels {
                     let y = self.pos.y
                         - (note.start.as_secs_f32() - time) * animation_speed
                         - label_width;
-                    Some((buffer, x, y, crossing, selected))
+                    Some((buffer, x, y, crossing, selected, previewed))
                 })
-                .take_while(|(_buffer, _x, y, _crossing, _selected)| *y > 0.0)
-                .skip_while(|(_buffer, _x, y, _crossing, _selected)| *y > keyboard.pos().y)
-                .map(|(buffer, x, y, crossing, selected)| {
+                .take_while(|(_buffer, _x, y, _crossing, _selected, _previewed)| *y > 0.0)
+                .skip_while(|(_buffer, _x, y, _crossing, _selected, _previewed)| {
+                    *y > keyboard.pos().y
+                })
+                .map(|(buffer, x, y, crossing, selected, previewed)| {
                     text_area((
                         buffer,
                         x,
                         y,
-                        if selected {
+                        if selected || previewed {
                             glyphon::Color::rgb(80, 220, 255)
                         } else if crossing {
                             glyphon::Color::rgb(255, 196, 64)

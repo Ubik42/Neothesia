@@ -315,8 +315,9 @@ try {
         Assert-True (
             $suggest.ok -and $suggest.accepted -and
             [int]$suggested.suggested_finger -eq 1 -and
+            [int]$suggested.suggested_fingering_count -eq 3 -and
             [int]$suggested.suggestion_confidence_percent -eq 78
-        ) "Right-hand C-major chord did not preview finger 1 at 78% confidence"
+        ) "Right-hand C-major chord did not preview all three fingers at 78% confidence"
 
         $assign = Invoke-DebugDriver (
             "ACTION practice.player.fingering-accept"
@@ -327,9 +328,9 @@ try {
             $assigned.fingering_editor_active -and
             $assigned.fingerings_available -and
             $assigned.fingerings_enabled -and
-            [int]$assigned.fingering_count -eq 1 -and
-            [int]$assigned.manual_fingering_count -eq 1
-        ) "Accepting the suggestion did not update live guidance"
+            [int]$assigned.fingering_count -eq 3 -and
+            [int]$assigned.manual_fingering_count -eq 3
+        ) "Accepting the chord suggestion did not update all three live hints"
 
         $closeFingeringEditor = Invoke-DebugDriver (
             "ACTION practice.player.fingering-editor"
@@ -353,15 +354,16 @@ try {
         $sidecarText = [System.IO.File]::ReadAllText($sidecarPath)
         Assert-True (
             $sidecarText -match "fingerings:\s*\[" -and
-            $sidecarText -match "track_id:" -and
-            $sidecarText -match "note_index:" -and
-            $sidecarText -match "finger:\s*[1-5]"
-        ) "Saved sidecar did not contain the accepted exact-note hint"
+            ([regex]::Matches($sidecarText, "track_id:")).Count -eq 3 -and
+            ([regex]::Matches($sidecarText, "note_index:")).Count -eq 3 -and
+            ([regex]::Matches($sidecarText, "finger:\s*[1-5]")).Count -eq 3
+        ) "Saved sidecar did not contain all three accepted chord hints"
 
         return [pscustomobject]@{
             Midi = $midi
             EditorPaused = [bool]$editing.paused
             SuggestedFinger = [int]$suggested.suggested_finger
+            SuggestedCount = [int]$suggested.suggested_fingering_count
             SuggestionConfidence = [int]$suggested.suggestion_confidence_percent
             FingeringCount = [int]$assigned.fingering_count
             ManualFingeringCount = [int]$assigned.manual_fingering_count

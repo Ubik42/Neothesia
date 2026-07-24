@@ -208,10 +208,16 @@ struct FingeringTarget {
 }
 
 #[derive(Debug, Clone)]
+struct FingeringPreview {
+    selected: usize,
+    assignments: Vec<(FingeringTarget, FingerSuggestion)>,
+}
+
+#[derive(Debug, Clone)]
 struct FingeringEditor {
     targets: Vec<FingeringTarget>,
     selected: usize,
-    suggestion: Option<(usize, FingerSuggestion)>,
+    suggestion: Option<FingeringPreview>,
 }
 
 impl FingeringEditor {
@@ -554,14 +560,29 @@ impl PlayingScene {
     }
 
     fn refresh_fingering_selection(&mut self, target: FingeringTarget) {
-        let preview = self
-            .pending_fingering_suggestion()
-            .map(|suggestion| suggestion.finger);
+        let selected_key = fingering_key(target);
+        let previews = self
+            .fingering_editor
+            .as_ref()
+            .and_then(|editor| {
+                editor
+                    .suggestion
+                    .as_ref()
+                    .filter(|preview| preview.selected == editor.selected)
+            })
+            .map(|preview| {
+                preview
+                    .assignments
+                    .iter()
+                    .map(|(target, suggestion)| (fingering_key(*target), suggestion.finger))
+                    .collect::<Vec<_>>()
+            });
         if let Some(labels) = self.note_labels.as_mut() {
-            labels.set_fingering_selection(
-                (target.start, target.pitch, target.channel, target.track_id),
-                preview,
-            );
+            if let Some(previews) = previews {
+                labels.set_fingering_preview(selected_key, previews);
+            } else {
+                labels.set_fingering_selection(selected_key, None);
+            }
         }
     }
 
@@ -610,7 +631,7 @@ impl PlayingScene {
             return false;
         }
 
-        let key = (target.start, target.pitch, target.channel, target.track_id);
+        let key = fingering_key(target);
         let song = self.player.song_mut();
         song.manual_fingering_hints = hints;
         if let Some(finger) = finger {
@@ -684,25 +705,70 @@ impl PlayingScene {
                     .flatten(),
             })
             .collect();
-        let Some(suggestion) =
-            suggest_fingerings_with_profile(&notes, hand, ctx.config.hand_span_profile())
-                .get(target.note_index)
-                .copied()
-                .flatten()
-        else {
+        let suggestions =
+            suggest_fingerings_with_profile(&notes, hand, ctx.config.hand_span_profile());
+        let Some(suggestion) = suggestions.get(target.note_index).copied().flatten() else {
             self.toast_manager
                 .toast("No suggestion: unsupported chord size, duplicate pitch or anchor conflict");
             return false;
         };
+        let onset = track.notes[target.note_index].start;
+        let mut assignments: Vec<_> = track
+            .notes
+            .iter()
+            .enumerate()
+            .filter(|(_, note)| note.start == onset)
+            .filter_map(|(note_index, note)| {
+                Some((
+                    FingeringTarget {
+                        track_id: target.track_id,
+                        note_index,
+                        start: note.start,
+                        pitch: note.note,
+                        channel: note.channel,
+                    },
+                    suggestions.get(note_index).copied().flatten()?,
+                ))
+            })
+            .collect();
+        if assignments.is_empty()
+            || assignments.len()
+                != track
+                    .notes
+                    .iter()
+                    .filter(|note| note.start == onset)
+                    .count()
+        {
+            self.toast_manager
+                .toast("No suggestion: the chord could not form one complete hand shape");
+            return false;
+        }
+        assignments.sort_by_key(|(target, _)| (target.pitch, target.note_index));
         let selected = self.fingering_editor.as_ref().unwrap().selected;
-        self.fingering_editor.as_mut().unwrap().suggestion = Some((selected, suggestion));
+        self.fingering_editor.as_mut().unwrap().suggestion = Some(FingeringPreview {
+            selected,
+            assignments: assignments.clone(),
+        });
         self.refresh_fingering_selection(target);
-        self.toast_manager.toast(format!(
-            "SUGGEST {} · {}% · {} · Enter accepts",
-            suggestion.finger,
-            suggestion.confidence_percent,
-            suggestion.reason.explanation(hand)
-        ));
+        let shape = assignments
+            .iter()
+            .map(|(_, suggestion)| suggestion.finger.to_string())
+            .collect::<Vec<_>>()
+            .join("–");
+        self.toast_manager.toast(if assignments.len() > 1 {
+            format!(
+                "SUGGEST CHORD {shape} · {}% · {} · Enter accepts all {}",
+                suggestion.confidence_percent,
+                suggestion.reason.explanation(hand),
+                assignments.len()
+            )
+        } else {
+            format!(
+                "SUGGEST {shape} · {}% · {} · Enter accepts",
+                suggestion.confidence_percent,
+                suggestion.reason.explanation(hand)
+            )
+        });
         true
     }
 
@@ -710,21 +776,89 @@ impl PlayingScene {
         let Some(editor) = self.fingering_editor.as_ref() else {
             return false;
         };
-        let Some((selected, suggestion)) = editor.suggestion else {
+        let Some(preview) = editor.suggestion.as_ref() else {
             self.toast_manager
                 .toast("Press G to preview a suggestion before accepting it");
             return false;
         };
-        if selected != editor.selected {
+        if preview.selected != editor.selected {
             return false;
         }
-        self.set_selected_finger(Some(suggestion.finger))
+        let assignments = preview.assignments.clone();
+        self.set_suggested_fingers(&assignments)
     }
 
+    #[cfg(debug_assertions)]
     fn pending_fingering_suggestion(&self) -> Option<FingerSuggestion> {
         let editor = self.fingering_editor.as_ref()?;
-        let (selected, suggestion) = editor.suggestion?;
-        (selected == editor.selected).then_some(suggestion)
+        let preview = editor.suggestion.as_ref()?;
+        if preview.selected != editor.selected {
+            return None;
+        }
+        let target = editor.target();
+        preview
+            .assignments
+            .iter()
+            .find_map(|(assignment, suggestion)| (*assignment == target).then_some(*suggestion))
+    }
+
+    #[cfg(debug_assertions)]
+    fn pending_fingering_suggestion_count(&self) -> usize {
+        let Some(editor) = self.fingering_editor.as_ref() else {
+            return 0;
+        };
+        editor
+            .suggestion
+            .as_ref()
+            .filter(|preview| preview.selected == editor.selected)
+            .map_or(0, |preview| preview.assignments.len())
+    }
+
+    fn set_suggested_fingers(
+        &mut self,
+        assignments: &[(FingeringTarget, FingerSuggestion)],
+    ) -> bool {
+        if assignments.is_empty() {
+            return false;
+        }
+        let song = self.player.song();
+        let Some(path) = song.file.source_path.clone() else {
+            return false;
+        };
+        let mut hints = song.manual_fingering_hints.clone();
+        for (target, suggestion) in assignments {
+            hints = replace_finger_hint(hints, *target, Some(suggestion.finger));
+        }
+        if let Err(error) = save_song_fingerings(&path, &song.file.content_id, hints.clone()) {
+            self.toast_manager
+                .toast(format!("Could not save finger hints: {error}"));
+            return false;
+        }
+
+        let song = self.player.song_mut();
+        song.manual_fingering_hints = hints;
+        for (target, suggestion) in assignments {
+            let key = fingering_key(*target);
+            song.fingerings.insert(key, suggestion.finger);
+            if let Some(labels) = self.note_labels.as_mut() {
+                labels.set_fingering(key, Some(suggestion.finger));
+            }
+        }
+        if let Some(editor) = self.fingering_editor.as_mut() {
+            let last = editor
+                .targets
+                .iter()
+                .rposition(|target| {
+                    assignments
+                        .iter()
+                        .any(|(assignment, _)| assignment == target)
+                })
+                .unwrap_or(editor.selected);
+            editor.selected = (last + 1).min(editor.targets.len() - 1);
+            editor.suggestion = None;
+        }
+        self.seek_to_fingering_target();
+        true
     }
 
     fn fingering_state(&self) -> (bool, bool) {
@@ -1966,6 +2100,10 @@ fn format_midi_pitch(pitch: u8) -> String {
     )
 }
 
+fn fingering_key(target: FingeringTarget) -> (Duration, u8, u8, usize) {
+    (target.start, target.pitch, target.channel, target.track_id)
+}
+
 fn replace_finger_hint(
     mut hints: Vec<FingerHint>,
     target: FingeringTarget,
@@ -2340,6 +2478,7 @@ impl Scene for PlayingScene {
             suggested_finger: self
                 .pending_fingering_suggestion()
                 .map(|suggestion| usize::from(suggestion.finger)),
+            suggested_fingering_count: self.pending_fingering_suggestion_count(),
             suggestion_confidence_percent: self
                 .pending_fingering_suggestion()
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
