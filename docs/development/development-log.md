@@ -4,6 +4,53 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 015: Per-song practice setup (DONE)
+
+### Outcome
+
+Reopening the same MIDI now resumes the learner's working context instead of
+silently returning to generic defaults. Renaming or moving the file does not
+break the association because the setup uses MIDI content identity.
+
+### Implemented
+
+- Added serializable track, loop and song-setup records.
+- Stored setup alongside versioned practice history using the existing atomic
+  writer and corruption quarantine.
+- Restored mute/automatic/human track roles and waterfall visibility.
+- Restored exact playback speed, including zero-speed study state.
+- Stored loop boundaries as inclusive one-based measure numbers.
+- Restored active loops with count-in and retained disabled loop ranges.
+- Saved player changes at every explicit interaction point and adaptive-coach
+  speed change.
+- Guarded track restoration by exact track-ID structure.
+- Guarded loop restoration against invalid or stale measure ranges.
+- Maintained compatibility with files that predate setup and hand-scope fields.
+
+### Verification
+
+- Added content-identity, rename, track-structure, loop-boundary and migration
+  tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `f1a566f`
+(`feat: restore per-song practice setup`).
+
+### Known limitations
+
+- Saved songs do not yet appear in a library browser; reopening still starts
+  from the file picker or last-opened path.
+- Track layouts are restored only for an exact track-ID structure. A changed
+  MIDI is correctly treated as a different song.
+- History/setup reset and export controls remain future work.
+
 ## 2026-07-25 — Cycle 014: In-player hand practice modes (DONE)
 
 ### Outcome

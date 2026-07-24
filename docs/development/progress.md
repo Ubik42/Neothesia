@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 015 — Per-song practice setup
+
+State: **DONE**
+
+Delivered:
+
+- persisted track play roles and visibility for each MIDI content identity;
+- persisted each song's playback speed, loop enabled state and inclusive
+  measure range;
+- restored saved track choices before entering track selection or playback;
+- restored an active loop with a fresh count-in, or retained an inactive loop
+  range for the next time it is enabled;
+- saved changes from hand switching, speed buttons, keyboard speed controls,
+  adaptive coaching, loop toggles and loop-handle edits;
+- rejected saved track layouts that no longer match the MIDI structure;
+- rejected zero, reversed and out-of-range saved measure loops;
+- extended the existing atomic history file without breaking older files.
+
+Verification:
+
+- two MIDI-file tests, twenty-six practice/core tests and thirty-two application
+  tests pass;
+- tests cover content-based setup persistence, renamed files, exact track
+  restoration, structural rejection, loop restoration and legacy migration;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `f1a566f`.
+
 ### Cycle 014 — In-player hand practice modes
 
 State: **DONE**
@@ -404,14 +432,14 @@ Acceptance checklist:
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
-| Library | Minimal | File picker and recent path only |
+| Library | Minimal | Per-song setup exists; browser and search remain |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 015 by preserving each song's practice setup. Restore the selected
-hand/track roles, loop range and speed after reopening the same MIDI, while
-remaining robust when the file is moved, renamed or structurally changed.
+Begin Cycle 016 by exposing saved repertoire inside the app: show recently
+practised songs and their latest status, then establish the data/API boundary
+needed for a searchable watched-folder library.
 
 ## Known constraints
 
