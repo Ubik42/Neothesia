@@ -15,6 +15,8 @@ second.
   standalone workflow and acceptance checklist
 - [Song metadata sidecars](../pages/song-metadata-sidecars.md) — portable,
   content-bound repertoire metadata
+- [Explainable fingering suggestions](../pages/fingering-suggestions.md) —
+  preview/accept cost model and honest scope
 
 ## Working agreement
 

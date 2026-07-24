@@ -93,6 +93,8 @@ back button discard the unsaved edit.
    ordered from low to high, so chord fingers can be entered one at a time.
 5. Press `1` through `5` to assign a finger. The selection advances
    automatically.
+   Alternatively, press `G` to preview an
+   [explainable suggestion](fingering-suggestions.md), then `Enter` to accept.
 6. Press `Delete` or `Backspace` to clear the selected hint.
 7. Select **Edit: ON**, press `Ctrl+I`, or press `Escape` to leave edit mode.
 

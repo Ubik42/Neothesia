@@ -4,6 +4,68 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 063: Explainable fingering suggestions (DONE)
+
+### Outcome
+
+Finger edit can now offer a reasoned starting point without taking authorship
+away from the learner. `G` previews one suggestion and explains it; Enter
+accepts, while direct 1–5 input remains equally available.
+
+### Implemented
+
+- Added `neothesia_core::fingering` as a window/audio/storage-free domain
+  module.
+- Used dynamic programming across all five fingers to minimize a documented
+  transition/static cost.
+- Distinguished right- and left-hand natural motion.
+- Penalized changed-finger repeats, contrary motion without a crossing,
+  excessive finger-pair spans, same-finger pitch changes and awkward black-key
+  thumb/pinky use.
+- Recognized in-position, thumb-under, finger-over and position-shift reasons.
+- Added confidence tiers while explicitly avoiding probability language.
+- Used neighboring manual hints as hard anchors.
+- Left simultaneous chord onsets and hand-ambiguous tracks without a
+  suggestion.
+- Added G preview and Enter acceptance inside paused Finger edit.
+- Preserved the existing atomic save path only after acceptance.
+- Exposed suggestion finger and confidence through the debug snapshot.
+- Upgraded the real-process fixture to prove preview precedes persistence.
+- Added a research/behavior guide with primary paper and university-teaching
+  references.
+- Completed the explainable prototype `MUS-003`; retained personalized
+  polyphonic expansion as `MUS-003D`.
+
+### Verification
+
+- Six domain tests cover five-note hand positions, C-major thumb turn, repeats,
+  anchors, chords, black keys, explanations and confidence bounds.
+- The FingeringFixture real process reports suggested finger 3 at 65%, then
+  persists exactly one accepted hint.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `scripts/debug-practice-smoke.ps1 -ExerciseFixture`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, ninety-eight core tests and
+sixty-six application tests. Both real-process smokes pass. Clippy and release
+builds report only the repository's pre-existing platform-helper and
+`unused_mut` warnings.
+
+Implementation commit: `8a85c3c`
+(`feat: add explainable fingering suggestions`).
+
+### Known limitations
+
+- Confidence is a transparent heuristic tier, not learned calibration.
+- Hand span is a conservative fixed profile.
+- Chords, held-note substitutions, phrasing and articulation are outside this
+  prototype.
+- The lowest-cost path is one plausible option, not the unique correct
+  fingering; teacher and learner edits remain authoritative.
+
 ## 2026-07-25 — Cycle 062: Portable manual finger hints (DONE)
 
 ### Outcome

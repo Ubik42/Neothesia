@@ -59,7 +59,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall
   guidance layer.
 - [x] `MUS-002C` Add a native paused, sequential finger-annotation workflow.
-- [ ] `MUS-003` Prototype explainable fingering suggestions.
+- [x] `MUS-003` Prototype explainable fingering suggestions.
+- [x] `MUS-003A` Add a deterministic hand-aware dynamic-programming cost model.
+- [x] `MUS-003B` Explain every modeled suggestion and expose confidence tiers.
+- [x] `MUS-003C` Add explicit preview/accept behavior to manual finger editing.
+- [ ] `MUS-003D` Add hand-span profiles and polyphonic chord-state suggestions.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
 - [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.

@@ -10,6 +10,41 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 063 — Explainable fingering suggestion prototype
+
+State: **DONE**
+
+Delivered:
+
+- added a deterministic five-finger dynamic program for left/right-hand
+  monophonic passages;
+- modeled repeated notes, natural finger order, conservative span, black-key
+  thumb cost, crossings and large position shifts;
+- treated existing manual hints as hard contextual anchors while reevaluating
+  the selected note;
+- attached a plain-language reason and bounded confidence tier to every
+  suggestion;
+- refused chord and ambiguous-hand suggestions instead of guessing;
+- added `G` preview and explicit Enter acceptance to Finger edit;
+- exposed pending suggestion/confidence to semantic automation;
+- documented the research basis, cost terms and honest boundary;
+- completed `MUS-003A` through `MUS-003C` and prototype parent `MUS-003`;
+  retained `MUS-003D` for personalized/polyphonic expansion.
+
+Verification:
+
+- five-note positions follow opposite natural ordering in the two hands;
+- a C-major octave produces the classical right-hand 1–2–3–1–2–3–4–5 turn;
+- repeats retain a finger and manual anchors remain fixed;
+- black-key tests avoid unnecessary thumb use;
+- chords produce no false suggestion;
+- real-process automation previews finger 3 at 65% before separately accepting
+  and persisting it;
+- ninety-eight core, sixty-six application and two MIDI-file tests pass;
+- Clippy, release build, manual-fingering and Technique Studio native smokes,
+  formatting and diff checks pass with only pre-existing warnings;
+- implementation commit: `8a85c3c`.
+
 ### Cycle 062 — Portable manual finger hints
 
 State: **DONE**
