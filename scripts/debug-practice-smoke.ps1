@@ -199,6 +199,12 @@ try {
         Assert-True (
             $selectMelodicMinor.ok -and $selectMelodicMinor.accepted
         ) "Exercise selector did not reach melodic minor"
+        $selectArpeggio = Invoke-DebugDriver (
+            "ACTION practice.exercise.pattern.next"
+        )
+        Assert-True (
+            $selectArpeggio.ok -and $selectArpeggio.accepted
+        ) "Exercise selector did not reach arpeggio"
         $nextTempo = Invoke-DebugDriver "ACTION practice.exercise.tempo.next"
         Assert-True (
             $nextTempo.ok -and $nextTempo.accepted
@@ -251,7 +257,7 @@ try {
     if ($ExerciseFixture) {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
-        ) "Reviewed G-sharp melodic-minor fingering was not enabled by default"
+        ) "Reviewed G-sharp minor-arpeggio fingering was not enabled by default"
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
@@ -533,7 +539,8 @@ try {
             "last exercise" = "last_exercise_spec"
             "G-sharp tonic" = "tonic:\s*8"
             "minor tonality" = "tonality:\s*Minor"
-            "melodic form" = "minor_form:\s*Melodic"
+            "natural form reset" = "minor_form:\s*Natural"
+            "arpeggio pattern" = "pattern:\s*Arpeggio"
             "two repetitions" = "repetitions:\s*2"
             "70 BPM" = "tempo_bpm:\s*70"
             "fingering preference" = "exercise_fingerings:\s*true"
@@ -556,7 +563,7 @@ try {
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
         $exercisePersistence = (
-            "G-sharp melodic minor 70 BPM two-pass preset and attempt saved"
+            "G-sharp minor arpeggio 70 BPM two-pass preset and attempt saved"
         )
     }
 
