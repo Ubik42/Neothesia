@@ -258,16 +258,32 @@ impl ExercisePlan {
 
     /// Returns reviewed fingering for the exact generated note sequence.
     ///
-    /// Supported tables cover every major and all three minor forms in every
-    /// key. Unsupported patterns deliberately return `None` rather than
-    /// guessing.
+    /// Supported guidance covers every scale form, major/minor arpeggios and
+    /// root-position primary chords in every key.
     pub fn fingerings(&self) -> Option<ExerciseFingerings> {
         let is_reviewed_major = self.spec.tonality == ExerciseTonality::Major;
         let is_reviewed_minor = self.spec.tonality == ExerciseTonality::Minor;
-        if self.spec.pattern == ExercisePattern::PrimaryChords
-            || (!is_reviewed_major && !is_reviewed_minor)
-        {
+        if !is_reviewed_major && !is_reviewed_minor {
             return None;
+        }
+        if self.spec.pattern == ExercisePattern::PrimaryChords {
+            let chord_count = self.moments.len();
+            let right = if self.spec.hands == ExerciseHands::Left {
+                Vec::new()
+            } else {
+                [1, 3, 5].repeat(chord_count)
+            };
+            let left = if self.spec.hands == ExerciseHands::Right {
+                Vec::new()
+            } else {
+                [5, 3, 1].repeat(chord_count)
+            };
+            return Some(ExerciseFingerings {
+                right_crossings: vec![false; right.len()],
+                left_crossings: vec![false; left.len()],
+                right,
+                left,
+            });
         }
         let fingering_for = |part| match self.spec.pattern {
             ExercisePattern::Scale => (
@@ -295,7 +311,7 @@ impl ExercisePlan {
                 );
                 (ascending.clone(), ascending)
             }
-            ExercisePattern::PrimaryChords => unreachable!("filtered above"),
+            ExercisePattern::PrimaryChords => unreachable!("handled above"),
         };
         let (right_ascending, right_descending) = fingering_for(PracticePart::RightHand);
         let right = directional_fingering(
@@ -1091,18 +1107,23 @@ mod tests {
     }
 
     #[test]
-    fn fingering_is_explicitly_unavailable_for_primary_chords() {
-        let keyboard = KeyboardRange::standard_88_keys();
-        let chords = ExercisePlan::generate(
+    fn primary_chords_use_stable_root_position_fingering_without_turns() {
+        let fingerings = ExercisePlan::generate(
             ExerciseSpec {
                 pattern: ExercisePattern::PrimaryChords,
+                hands: ExerciseHands::Both,
                 ..Default::default()
             },
-            &keyboard,
+            &KeyboardRange::standard_88_keys(),
         )
+        .unwrap()
+        .fingerings()
         .unwrap();
 
-        assert!(chords.fingerings().is_none());
+        assert_eq!(fingerings.right, [1, 3, 5].repeat(7));
+        assert_eq!(fingerings.left, [5, 3, 1].repeat(7));
+        assert!(fingerings.right_crossings.iter().all(|marked| !marked));
+        assert!(fingerings.left_crossings.iter().all(|marked| !marked));
     }
 
     #[test]

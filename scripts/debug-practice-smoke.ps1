@@ -205,6 +205,12 @@ try {
         Assert-True (
             $selectArpeggio.ok -and $selectArpeggio.accepted
         ) "Exercise selector did not reach arpeggio"
+        $selectPrimaryChords = Invoke-DebugDriver (
+            "ACTION practice.exercise.pattern.next"
+        )
+        Assert-True (
+            $selectPrimaryChords.ok -and $selectPrimaryChords.accepted
+        ) "Exercise selector did not reach primary chords"
         $nextTempo = Invoke-DebugDriver "ACTION practice.exercise.tempo.next"
         Assert-True (
             $nextTempo.ok -and $nextTempo.accepted
@@ -257,10 +263,10 @@ try {
     if ($ExerciseFixture) {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
-        ) "Reviewed G-sharp minor-arpeggio fingering was not enabled by default"
+        ) "Reviewed G-sharp minor primary-chord fingering was not enabled by default"
         Assert-True (
-            [int]$player.fingering_crossing_count -gt 0
-        ) "Reviewed exercise did not expose any highlighted hand turns"
+            [int]$player.fingering_crossing_count -eq 0
+        ) "Block-chord fingering incorrectly exposed hand-turn highlights"
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
@@ -543,7 +549,7 @@ try {
             "G-sharp tonic" = "tonic:\s*8"
             "minor tonality" = "tonality:\s*Minor"
             "natural form reset" = "minor_form:\s*Natural"
-            "arpeggio pattern" = "pattern:\s*Arpeggio"
+            "primary-chord pattern" = "pattern:\s*PrimaryChords"
             "two repetitions" = "repetitions:\s*2"
             "70 BPM" = "tempo_bpm:\s*70"
             "fingering preference" = "exercise_fingerings:\s*true"
@@ -566,7 +572,7 @@ try {
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
         $exercisePersistence = (
-            "G-sharp minor arpeggio 70 BPM two-pass preset and attempt saved"
+            "G-sharp minor primary chords 70 BPM two-pass preset and attempt saved"
         )
     }
 
