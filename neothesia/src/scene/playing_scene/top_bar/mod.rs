@@ -144,6 +144,20 @@ impl TopBar {
             this.player.set_wait_for_notes(enabled);
             ctx.config.set_wait_for_notes(enabled);
         }
+
+        if wait_for_notes {
+            let snapshot = this.player.practice_snapshot();
+            nuon::label()
+                .x(158.0)
+                .size(210.0, 30.0)
+                .font_size(14.0)
+                .text(format!(
+                    "Correct {}   Wrong {}   Waiting {}",
+                    snapshot.matched_notes, snapshot.wrong_notes, snapshot.required_notes
+                ))
+                .text_justify(nuon::TextJustify::Center)
+                .build(ui);
+        }
     }
 
     fn panel_center(_this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {

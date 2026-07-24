@@ -162,6 +162,8 @@ impl PlayingScene {
 
     #[profiling::function]
     fn update_midi_player(&mut self, ctx: &Context, delta: Duration) -> f32 {
+        self.player.tick_practice_clock(delta);
+
         if self.top_bar.is_looper_active() && self.player.time() > self.top_bar.loop_end_timestamp()
         {
             self.player.set_time(self.top_bar.loop_start_timestamp());
