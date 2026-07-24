@@ -21,7 +21,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `PRA-015` Show an end-of-attempt summary.
 - [x] `PRA-016` Aggregate results by measure and hand.
 - [x] `PRA-017` Add count-in and attempt reset for loop practice.
-- [ ] `PRA-018` Add threshold-based adaptive tempo with explicit opt-in.
+- [x] `PRA-018` Add threshold-based adaptive tempo with explicit opt-in.
 - [x] `PRA-019` Compare the current, last and best loop attempts.
 - [ ] `DATA-010` Persist versioned practice sessions atomically.
 

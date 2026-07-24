@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 006 — Adaptive tempo coach
+
+State: **DONE**
+
+Delivered:
+
+- added an explicit, persisted `Coach: ON/OFF` control that defaults off;
+- exposed mastery target plus minimum and maximum coached speed in settings;
+- required two consecutive mastered loop takes before raising speed by 5%;
+- required both configured note accuracy and 70% on-time notes for mastery;
+- reduced speed by 5% only below the 70% safety threshold;
+- held speed for moderate attempts and at configured limits;
+- reset the mastery streak after manual speed changes, range changes or coach
+  toggles;
+- displayed a three-second explanation for every hold, increase or decrease;
+- replaced the old 10%-quantized playback math with precise proportional
+  timing, so 75% and 105% now play at their displayed speeds.
+
+Verification:
+
+- fourteen practice-domain tests and sixteen application tests pass;
+- coach tests cover mastery streak, regression, holding and limits;
+- playback timing tests prove 75% and 105% scale exactly;
+- legacy configuration receives safe opt-in defaults through Serde defaults;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `be7e77e`.
+
 ### Cycle 005 — Structured loop practice
 
 State: **DONE**
@@ -152,9 +180,9 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin `PRA-018`: add an explicit adaptive-tempo practice option. It should raise
-speed only after a configurable mastery threshold, hold or reduce it after a
-weak take, impose safe bounds, and always show why the speed changed.
+Begin `DATA-010`: persist versioned practice sessions atomically. Start with a
+stable local schema and song identity so completed attempts, weak measures,
+speed and hand results survive restart without coupling storage to the GPU UI.
 
 ## Known constraints
 
@@ -164,4 +192,5 @@ weak take, impose safe bounds, and always show why the speed changed.
 - Hand inference is intentionally conservative for arrangements with more than
   two playable note tracks.
 - Loop count-in is visual only; an optional metronome click remains future work.
+- Adaptive coaching currently operates only on structured loop attempts.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

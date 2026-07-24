@@ -4,6 +4,47 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 006: Adaptive tempo coach (DONE)
+
+### Outcome
+
+Loop practice can now progress speed conservatively without taking control away
+from the learner. Every automatic decision is bounded, explainable and optional.
+
+### Implemented
+
+- Added persisted adaptive-coach configuration with an opt-in default.
+- Added a prominent in-player coach switch.
+- Added settings for mastery accuracy and coached speed limits.
+- Required two consecutive mastered takes before a 5% increase.
+- Required both note accuracy and on-time consistency for mastery.
+- Added a 5% regression only for attempts below the safety threshold.
+- Held speed for intermediate results and at configured bounds.
+- Reset the coach streak whenever the user manually changes speed.
+- Added explicit messages explaining each decision for three seconds.
+- Fixed playback scaling so 5% steps are not truncated into 10% buckets.
+- Rejected non-finite manual speed values in configuration.
+
+### Verification
+
+- Added deterministic coach-decision and exact-speed tests.
+- `cargo test -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing platform
+helper and `unused_mut` warnings.
+
+Implementation commit: `be7e77e` (`feat: add adaptive tempo coaching`).
+
+### Known limitations
+
+- Coaching is intentionally limited to structured loop attempts.
+- Session history and coach progression are not yet persisted per song.
+- Decision explanations are textual; richer visual trend feedback is planned.
+
 ## 2026-07-25 — Cycle 005: Structured loop practice (DONE)
 
 ### Outcome
