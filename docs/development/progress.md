@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 052 — All natural-minor fingering tables
+
+State: **DONE**
+
+Delivered:
+
+- completed per-hand fingering coverage for all twelve natural-minor keys;
+- added explicit C♯, E♭, F♯, G♯ and B♭ black-root two-octave tables;
+- retained reviewed white-root patterns and the existing C-minor family;
+- distinguished A♭ major from G♯ minor in selectors and generated titles;
+- kept unreviewed non-C harmonic/melodic minor forms safely unavailable;
+- changed native smoke coverage from B major to G♯ natural minor;
+- completed `EX-003E`.
+
+Verification:
+
+- exact fifteen-note right/left sequences cover every black-root natural minor;
+- all twelve natural-minor keys report reviewed guidance;
+- eighty-one core, fifty-seven application and two MIDI-file tests pass;
+- native automation completes and persists a G♯ natural-minor two-pass attempt;
+- normal Clippy and release build pass with only pre-existing warnings;
+- strict warning denial remains blocked by those pre-existing warnings;
+- implementation commit: `ae8101a`.
+
 ### Cycle 051 — Persistent fingering visibility
 
 State: **DONE**

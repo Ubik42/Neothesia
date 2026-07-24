@@ -4,6 +4,61 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 052: All natural-minor fingering tables (DONE)
+
+### Outcome
+
+Technique Studio now teaches reviewed finger numbers for natural minor in every
+key. Learners can move beyond C minor without receiving a parallel-major
+crossing that happens to fit the pitch count but not the keyboard shape.
+
+### Implemented
+
+- Expanded reviewed eligibility from C minor to all twelve natural-minor keys.
+- Added explicit right- and left-hand patterns for C♯, E♭, F♯, G♯ and B♭
+  natural minor.
+- Preserved the established white-root patterns and all three C-minor forms.
+- Applied every table through one to three octaves, both directions and every
+  repetition using the existing sequence-aware fingering boundary.
+- Spelled pitch class 8 as A♭ in major and G♯ in minor in both UI and generated
+  names.
+- Kept non-C harmonic/melodic minor and non-scale patterns unavailable rather
+  than guessing.
+- Moved real-process exercise coverage to G♯ natural minor and checked its two
+  hand tonic pitches, visibility toggle, settings, preset and attempt history.
+- Completed `EX-003E`.
+
+The per-key patterns were reviewed against
+[Piano-ology's natural-minor charts](https://piano-ology.com/wp-content/uploads/2024/01/piano-ology-piano-technique-fingering-charts-natural-minor-scales.pdf)
+on 2026-07-25.
+
+### Verification
+
+- Exact two-octave right/left assertions for every black-root natural minor.
+- Availability assertion for all twelve natural-minor pitch classes.
+- Display-name assertions distinguish A♭ major from G♯ minor.
+- Real-process G♯ natural-minor exercise smoke completes two passes at 70 BPM,
+  toggles guidance off/on and verifies persistence.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-one core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings. An
+additional strict `-D warnings` run stops on those same unchanged warnings.
+
+Implementation commit: `ae8101a`
+(`feat: add all natural minor fingerings`).
+
+### Known limitations
+
+- Harmonic- and melodic-minor tables beyond C remain intentionally unavailable.
+- Fingerings are reviewed defaults, not anatomy-specific alternatives.
+- The current renderer does not yet explain thumb crossings or substitutions.
+
 ## 2026-07-25 — Cycle 051: Persistent fingering visibility (DONE)
 
 ### Outcome

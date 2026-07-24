@@ -80,6 +80,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `EX-003B` Cover the reviewed C/G/D/A/E/F major teaching group.
 - [x] `EX-003C` Complete reviewed fingering tables for all twelve major keys.
 - [x] `EX-003D` Persist fingering visibility and expose it in Settings.
+- [x] `EX-003E` Complete reviewed natural-minor fingering tables for all twelve
+  keys.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
 
 ## RESEARCH — architecture spikes
