@@ -72,7 +72,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 
 - [ ] `AUD-R01` Compare maintained Rust VST3 host libraries with Pianoteq.
 - [ ] `AUD-R02` Prototype the block audio boundary behind a feature flag.
-- [ ] `UI-R01` Define semantic UI action IDs for reliable automation.
+- [x] `UI-R01` Define semantic UI action IDs for reliable automation.
 - [ ] `UI-R02` Evaluate a React library/analytics panel only after its API exists.
 - [ ] `MUS-R01` Compare direct MusicXML rendering with an embedded notation engine.
 

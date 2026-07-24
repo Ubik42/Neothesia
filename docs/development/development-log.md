@@ -4,6 +4,53 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 029: Stable practice action identities (DONE)
+
+### Outcome
+
+Core practice controls now have stable semantic identities independent of
+English labels and screen coordinates. This establishes the first dependable
+boundary for native UI automation.
+
+### Implemented
+
+- Defined a namespaced practice action catalogue.
+- Assigned IDs to player back, wait, adaptive coach and hand-mode controls.
+- Assigned IDs to all three completion tabs.
+- Assigned IDs to calibration, note-loop, rhythm-loop, retry and back actions.
+- Kept the same hand-mode ID across responsive toolbar placements.
+- Added a uniqueness and namespace test for the complete catalogue.
+- Added `docs/development/ui-automation.md` as the automation contract.
+- Documented that Nuon IDs are currently in-process identities, not a
+  fabricated Windows accessibility implementation.
+- Defined the next debug-only activation/state/screenshot boundary.
+
+### Verification
+
+- Verified every catalogue ID is unique and begins with `practice.`.
+- Existing button behaviour, completion navigation and responsive layout tests
+  pass with explicit IDs.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-four
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `a549e07`
+(`feat: add stable practice action identities`).
+
+### Known limitations
+
+- IDs are not externally discoverable yet.
+- There is no debug command channel to activate an action by ID.
+- Semantic state assertions and deterministic GPU screenshots remain future
+  layers.
+- OS accessibility still depends on future Nuon platform integration.
+
 ## 2026-07-25 — Cycle 028: Completion feedback information architecture (DONE)
 
 ### Outcome

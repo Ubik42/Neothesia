@@ -10,6 +10,27 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 029 — Stable practice action identities
+
+State: **DONE**
+
+Delivered:
+
+- established a unique `practice.*` semantic action namespace;
+- identified core player controls, completion tabs and completion actions;
+- kept IDs stable across responsive placements and changing visible labels;
+- added a catalogue uniqueness test;
+- documented the present in-process boundary and future automation layers.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-four application
+  tests pass;
+- catalogue namespace/uniqueness and all existing interaction tests pass;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `a549e07`.
+
 ### Cycle 028 — Completion feedback information architecture
 
 State: **DONE**
@@ -769,10 +790,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 029 with semantic practice UI identities. Assign stable IDs to the
-completion tabs and practice actions, define a small uniqueness-tested action
-catalogue, and use it as the first dependable boundary for automated native UI
-smoke tests.
+Begin Cycle 030 with a debug-only semantic action harness. Route action IDs
+through the normal application event loop, expose a minimal read-only practice
+state snapshot, and prove tab/toggle/retry flows without coordinate clicks or
+shipping a control channel in release builds.
 
 ## Known constraints
 
