@@ -16,6 +16,7 @@ mod tracks;
 use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
+use neothesia_core::library::SongMetadata;
 use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
 
@@ -336,27 +337,26 @@ impl MenuScene {
             .filter(|song| song.review.is_some_and(|review| review.is_due))
             .count();
         for song in history_songs {
-            if library_text_matches(&query, &song.display_name, song.source_path.as_deref()) {
-                rows.insert(
-                    song.content_id.clone(),
-                    LibraryRow {
-                        content_id: song.content_id,
-                        display_name: song.display_name,
-                        source_path: song.source_path,
-                        exercise_spec: song.exercise_spec,
-                        session_count: song.session_count,
-                        latest_accuracy: song.latest_accuracy,
-                        last_used_unix_ms: song.last_used_unix_ms,
-                        favorite: song.favorite,
-                        queue_position: song.queue_position,
-                        recommended_measures: song.recommended_measures,
-                        review: song.review,
-                    },
-                );
-            }
+            rows.insert(
+                song.content_id.clone(),
+                LibraryRow {
+                    content_id: song.content_id,
+                    display_name: song.display_name,
+                    metadata: SongMetadata::default(),
+                    source_path: song.source_path,
+                    exercise_spec: song.exercise_spec,
+                    session_count: song.session_count,
+                    latest_accuracy: song.latest_accuracy,
+                    last_used_unix_ms: song.last_used_unix_ms,
+                    favorite: song.favorite,
+                    queue_position: song.queue_position,
+                    recommended_measures: song.recommended_measures,
+                    review: song.review,
+                },
+            );
         }
         if let Some(index) = &self.state.library_index {
-            for song in index.search(&query) {
+            for song in &index.songs {
                 let available_path = song
                     .source_paths
                     .iter()
@@ -367,10 +367,15 @@ impl MenuScene {
                         if available_path.is_some() {
                             row.source_path = available_path.clone();
                         }
+                        if song.metadata.title.is_some() {
+                            row.display_name = song.display_name.clone();
+                        }
+                        row.metadata = song.metadata.clone();
                     })
                     .or_insert_with(|| LibraryRow {
                         content_id: song.content_id.clone(),
                         display_name: song.display_name.clone(),
+                        metadata: song.metadata.clone(),
                         source_path: available_path,
                         exercise_spec: None,
                         session_count: 0,
@@ -383,6 +388,7 @@ impl MenuScene {
                     });
             }
         }
+        rows.retain(|_, song| library_row_matches(&query, song));
         let mut rows: Vec<_> = rows.into_values().collect();
         match self.state.library_view {
             LibraryView::Queue => {
@@ -574,9 +580,13 @@ impl MenuScene {
                                 })
                                 .unwrap_or_default();
                             let review = song.review.map(format_review_status).unwrap_or_default();
+                            let credit = metadata_credit(&song.metadata)
+                                .map(|credit| format!(" · {}", truncate_menu_label(&credit, 24)))
+                                .unwrap_or_default();
                             let label = format!(
-                                "{}  ·  {} session{}{}{}{}  ·  {}",
+                                "{}{}  ·  {} session{}{}{}{}  ·  {}",
                                 truncate_menu_label(&song.display_name, 54),
+                                credit,
                                 song.session_count,
                                 if song.session_count == 1 { "" } else { "s" },
                                 accuracy,
@@ -756,16 +766,25 @@ impl MenuScene {
                 let unique = index.songs.len();
                 let seen = index.midi_files_seen;
                 let unreadable = index.unreadable_files;
+                let metadata = index.metadata_files_seen;
+                let invalid_metadata = index.invalid_metadata_files;
                 state.library_index = Some(index);
                 state.library_scanning = false;
                 state.library_message = Some(format!(
-                    "Indexed {unique} unique piece{} from {seen} MIDI file{}{}.",
+                    "Indexed {unique} unique piece{} from {seen} MIDI file{}; \
+                     loaded {metadata} metadata sidecar{}{}{}.",
                     if unique == 1 { "" } else { "s" },
                     if seen == 1 { "" } else { "s" },
+                    if metadata == 1 { "" } else { "s" },
                     if unreadable == 0 {
                         String::new()
                     } else {
-                        format!("; skipped {unreadable} unreadable")
+                        format!("; skipped {unreadable} unreadable MIDI")
+                    },
+                    if invalid_metadata == 0 {
+                        String::new()
+                    } else {
+                        format!("; ignored {invalid_metadata} invalid metadata")
                     }
                 ));
             }));
@@ -801,6 +820,7 @@ impl MenuScene {
 struct LibraryRow {
     content_id: String,
     display_name: String,
+    metadata: SongMetadata,
     source_path: Option<PathBuf>,
     exercise_spec: Option<neothesia_core::exercise::ExerciseSpec>,
     session_count: usize,
@@ -829,7 +849,7 @@ async fn choose_library_folder() -> Option<PathBuf> {
     Some(folder.path().to_path_buf())
 }
 
-fn library_text_matches(query: &str, name: &str, path: Option<&std::path::Path>) -> bool {
+fn library_row_matches(query: &str, song: &LibraryRow) -> bool {
     let terms: Vec<_> = query
         .split_whitespace()
         .map(str::to_lowercase)
@@ -838,13 +858,46 @@ fn library_text_matches(query: &str, name: &str, path: Option<&std::path::Path>)
     if terms.is_empty() {
         return true;
     }
-    let searchable = format!(
-        "{} {}",
-        name.to_lowercase(),
-        path.map(|path| path.to_string_lossy().to_lowercase())
+    let metadata = &song.metadata;
+    let searchable = [
+        song.display_name.to_lowercase(),
+        metadata
+            .artist
+            .as_deref()
             .unwrap_or_default()
-    );
+            .to_lowercase(),
+        metadata
+            .composer
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase(),
+        metadata
+            .collection
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase(),
+        metadata
+            .difficulty
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase(),
+        metadata.tags.join(" ").to_lowercase(),
+        metadata.notes.as_deref().unwrap_or_default().to_lowercase(),
+        song.source_path
+            .as_deref()
+            .map(|path| path.to_string_lossy().to_lowercase())
+            .unwrap_or_default(),
+    ]
+    .join(" ");
     terms.iter().all(|term| searchable.contains(term))
+}
+
+fn metadata_credit(metadata: &SongMetadata) -> Option<String> {
+    metadata
+        .artist
+        .as_deref()
+        .or(metadata.composer.as_deref())
+        .map(str::to_owned)
 }
 
 fn format_review_status(review: ReviewStatus) -> String {
@@ -1067,7 +1120,8 @@ impl Scene for MenuScene {
 #[cfg(test)]
 mod tests {
     use super::{
-        ReviewReason, ReviewStatus, format_review_status, library_text_matches, truncate_menu_label,
+        LibraryRow, ReviewReason, ReviewStatus, SongMetadata, format_review_status,
+        library_row_matches, metadata_credit, truncate_menu_label,
     };
 
     #[test]
@@ -1077,18 +1131,34 @@ mod tests {
     }
 
     #[test]
-    fn library_search_requires_every_term() {
-        let path = std::path::Path::new("D:/Piano/Debussy/Clair de Lune.mid");
-        assert!(library_text_matches(
-            "debussy lune",
-            "Clair de Lune.mid",
-            Some(path)
-        ));
-        assert!(!library_text_matches(
-            "debussy moonlight",
-            "Clair de Lune.mid",
-            Some(path)
-        ));
+    fn library_search_requires_every_term_across_metadata() {
+        let song = LibraryRow {
+            content_id: "id".into(),
+            display_name: "Clair de Lune".into(),
+            metadata: SongMetadata {
+                artist: Some("Walter Gieseking".into()),
+                composer: Some("Claude Debussy".into()),
+                tags: vec!["Impressionism".into()],
+                ..Default::default()
+            },
+            source_path: Some("D:/Piano/Suite bergamasque/Track 3.mid".into()),
+            exercise_spec: None,
+            session_count: 0,
+            latest_accuracy: None,
+            last_used_unix_ms: 0,
+            favorite: false,
+            queue_position: None,
+            recommended_measures: None,
+            review: None,
+        };
+        assert!(library_row_matches("debussy lune", &song));
+        assert!(library_row_matches("gieseking impressionism", &song));
+        assert!(library_row_matches("suite track", &song));
+        assert!(!library_row_matches("debussy moonlight", &song));
+        assert_eq!(
+            metadata_credit(&song.metadata).as_deref(),
+            Some("Walter Gieseking")
+        );
     }
 
     #[test]
