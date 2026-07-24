@@ -1,6 +1,6 @@
 mod state;
 use bytes::Bytes;
-use state::{Page, UiState};
+use state::{LibraryView, Page, UiState};
 
 mod midi_picker;
 use midi_picker::{locate_saved_midi, open_midi_file_picker, open_saved_midi};
@@ -14,6 +14,7 @@ mod tracks;
 use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
+use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
 
 use winit::{
@@ -310,6 +311,10 @@ impl MenuScene {
             .iter()
             .filter(|song| song.queue_position.is_some())
             .count();
+        let due_count = history_songs
+            .iter()
+            .filter(|song| song.review.is_some_and(|review| review.is_due))
+            .count();
         for song in history_songs {
             if library_text_matches(&query, &song.display_name, song.source_path.as_deref()) {
                 rows.insert(
@@ -324,6 +329,7 @@ impl MenuScene {
                         favorite: song.favorite,
                         queue_position: song.queue_position,
                         recommended_measures: song.recommended_measures,
+                        review: song.review,
                     },
                 );
             }
@@ -351,21 +357,34 @@ impl MenuScene {
                         favorite: false,
                         queue_position: None,
                         recommended_measures: None,
+                        review: None,
                     });
             }
         }
         let mut rows: Vec<_> = rows.into_values().collect();
-        if self.state.library_queue_only {
-            rows.retain(|song| song.queue_position.is_some());
-            rows.sort_by(|left, right| left.queue_position.cmp(&right.queue_position));
-        } else {
-            rows.sort_by(|left, right| {
-                right
-                    .favorite
-                    .cmp(&left.favorite)
-                    .then_with(|| right.last_used_unix_ms.cmp(&left.last_used_unix_ms))
-                    .then_with(|| left.display_name.cmp(&right.display_name))
-            });
+        match self.state.library_view {
+            LibraryView::Queue => {
+                rows.retain(|song| song.queue_position.is_some());
+                rows.sort_by(|left, right| left.queue_position.cmp(&right.queue_position));
+            }
+            LibraryView::Due => {
+                rows.retain(|song| song.review.is_some_and(|review| review.is_due));
+                rows.sort_by(|left, right| {
+                    left.review
+                        .map(|review| review.due_at_unix_ms)
+                        .cmp(&right.review.map(|review| review.due_at_unix_ms))
+                        .then_with(|| left.display_name.cmp(&right.display_name))
+                });
+            }
+            LibraryView::All => {
+                rows.sort_by(|left, right| {
+                    right
+                        .favorite
+                        .cmp(&left.favorite)
+                        .then_with(|| right.last_used_unix_ms.cmp(&left.last_used_unix_ms))
+                        .then_with(|| left.display_name.cmp(&right.display_name))
+                });
+            }
         }
 
         nuon::label()
@@ -405,7 +424,7 @@ impl MenuScene {
         nuon::label()
             .x(30.0)
             .y(60.0)
-            .size(win_w - 200.0, 28.0)
+            .size(win_w - 240.0, 28.0)
             .font_size(15.0)
             .color([178, 175, 190])
             .text(format!(
@@ -423,15 +442,15 @@ impl MenuScene {
             ))
             .build(ui);
         if nuon::button()
-            .x(win_w - 150.0)
+            .x(win_w - 210.0)
             .y(62.0)
-            .size(120.0, 28.0)
-            .label(if self.state.library_queue_only {
-                format!("All Pieces ({queued_count})")
+            .size(86.0, 28.0)
+            .label(if self.state.library_view == LibraryView::Queue {
+                "All".to_owned()
             } else {
-                format!("Queue ({queued_count})")
+                format!("Queue {queued_count}")
             })
-            .color(if self.state.library_queue_only {
+            .color(if self.state.library_view == LibraryView::Queue {
                 [109, 78, 164]
             } else {
                 [74, 68, 88]
@@ -441,7 +460,37 @@ impl MenuScene {
             .border_radius([6.0; 4])
             .build(ui)
         {
-            self.state.library_queue_only = !self.state.library_queue_only;
+            self.state.library_view = if self.state.library_view == LibraryView::Queue {
+                LibraryView::All
+            } else {
+                LibraryView::Queue
+            };
+            self.library_scroll = nuon::ScrollState::new();
+        }
+        if nuon::button()
+            .x(win_w - 116.0)
+            .y(62.0)
+            .size(86.0, 28.0)
+            .label(if self.state.library_view == LibraryView::Due {
+                "All".to_owned()
+            } else {
+                format!("Due {due_count}")
+            })
+            .color(if self.state.library_view == LibraryView::Due {
+                [150, 83, 71]
+            } else {
+                [74, 68, 88]
+            })
+            .hover_color([174, 99, 84])
+            .preseed_color([194, 112, 95])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            self.state.library_view = if self.state.library_view == LibraryView::Due {
+                LibraryView::All
+            } else {
+                LibraryView::Due
+            };
             self.library_scroll = nuon::ScrollState::new();
         }
 
@@ -494,17 +543,19 @@ impl MenuScene {
                                     }
                                 })
                                 .unwrap_or_default();
+                            let review = song.review.map(format_review_status).unwrap_or_default();
                             let label = format!(
-                                "{}  ·  {} session{}{}{}  ·  {}",
+                                "{}  ·  {} session{}{}{}{}  ·  {}",
                                 truncate_menu_label(&song.display_name, 54),
                                 song.session_count,
                                 if song.session_count == 1 { "" } else { "s" },
                                 accuracy,
                                 recommendation,
+                                review,
                                 action
                             );
                             let row_x = nuon::center_x(win_w, row_w);
-                            let reorder_width = if self.state.library_queue_only {
+                            let reorder_width = if self.state.library_view == LibraryView::Queue {
                                 90.0
                             } else {
                                 0.0
@@ -615,7 +666,7 @@ impl MenuScene {
                                     }
                                 }
                             }
-                            if self.state.library_queue_only {
+                            if self.state.library_view == LibraryView::Queue {
                                 for (offset, direction, label) in
                                     [(148.0, -1, "↑"), (192.0, 1, "↓")]
                                 {
@@ -724,6 +775,7 @@ struct LibraryRow {
     favorite: bool,
     queue_position: Option<usize>,
     recommended_measures: Option<(usize, usize)>,
+    review: Option<ReviewStatus>,
 }
 
 async fn scan_library(roots: Vec<PathBuf>) -> neothesia_core::library::LibraryIndex {
@@ -759,6 +811,22 @@ fn library_text_matches(query: &str, name: &str, path: Option<&std::path::Path>)
             .unwrap_or_default()
     );
     terms.iter().all(|term| searchable.contains(term))
+}
+
+fn format_review_status(review: ReviewStatus) -> String {
+    if review.is_due {
+        return match review.reason {
+            ReviewReason::NeedsEvidence => " · due: needs measured take".to_owned(),
+            ReviewReason::NeedsReinforcement => " · due: reinforce".to_owned(),
+            ReviewReason::FirstMastery | ReviewReason::Consolidating | ReviewReason::Stable => {
+                " · due: retention check".to_owned()
+            }
+        };
+    }
+    format!(
+        " · review in {}d ({} mastered)",
+        review.days_until_due, review.mastery_streak
+    )
 }
 
 fn truncate_menu_label(label: &str, max_chars: usize) -> String {
@@ -915,7 +983,9 @@ impl Scene for MenuScene {
 
 #[cfg(test)]
 mod tests {
-    use super::{library_text_matches, truncate_menu_label};
+    use super::{
+        ReviewReason, ReviewStatus, format_review_status, library_text_matches, truncate_menu_label,
+    };
 
     #[test]
     fn library_titles_are_shortened_without_splitting_unicode() {
@@ -936,5 +1006,30 @@ mod tests {
             "Clair de Lune.mid",
             Some(path)
         ));
+    }
+
+    #[test]
+    fn review_labels_explain_due_and_waiting_states() {
+        let waiting = ReviewStatus {
+            due_at_unix_ms: 1,
+            is_due: false,
+            interval_days: 3,
+            days_until_due: 2,
+            mastery_streak: 2,
+            latest_accuracy: Some(0.95),
+            reason: ReviewReason::Consolidating,
+        };
+        assert_eq!(
+            format_review_status(waiting),
+            " · review in 2d (2 mastered)"
+        );
+        assert_eq!(
+            format_review_status(ReviewStatus {
+                is_due: true,
+                reason: ReviewReason::NeedsReinforcement,
+                ..waiting
+            }),
+            " · due: reinforce"
+        );
     }
 }

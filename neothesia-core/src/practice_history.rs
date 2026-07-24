@@ -148,9 +148,73 @@ pub struct RecentSongSummary {
     pub favorite: bool,
     pub queue_position: Option<usize>,
     pub recommended_measures: Option<(usize, usize)>,
+    pub review: Option<ReviewStatus>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ReviewReason {
+    NeedsEvidence,
+    NeedsReinforcement,
+    FirstMastery,
+    Consolidating,
+    Stable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReviewStatus {
+    pub due_at_unix_ms: u64,
+    pub is_due: bool,
+    pub interval_days: u16,
+    pub days_until_due: u16,
+    pub mastery_streak: usize,
+    pub latest_accuracy: Option<f32>,
+    pub reason: ReviewReason,
 }
 
 impl SongPracticeHistory {
+    pub fn review_status(&self, now_unix_ms: u64) -> Option<ReviewStatus> {
+        let latest = self.sessions.last()?;
+        let scope = (latest.kind, latest.hands);
+        let mastery_streak = self
+            .sessions
+            .iter()
+            .rev()
+            .filter(|session| (session.kind, session.hands) == scope)
+            .take_while(|session| session_is_mastered(session))
+            .count();
+        let latest_accuracy = latest.summary.overall.accuracy();
+        let (interval_days, reason) = if latest_accuracy.is_none() {
+            (0, ReviewReason::NeedsEvidence)
+        } else if mastery_streak == 0 {
+            (0, ReviewReason::NeedsReinforcement)
+        } else if mastery_streak == 1 {
+            (1, ReviewReason::FirstMastery)
+        } else if mastery_streak == 2 {
+            (3, ReviewReason::Consolidating)
+        } else if mastery_streak < 5 {
+            (7, ReviewReason::Stable)
+        } else {
+            (14, ReviewReason::Stable)
+        };
+        let due_at_unix_ms = latest
+            .recorded_at_unix_ms
+            .saturating_add(u64::from(interval_days) * 24 * 60 * 60 * 1_000);
+        let day_ms = 24 * 60 * 60 * 1_000_u64;
+        let days_until_due = due_at_unix_ms
+            .saturating_sub(now_unix_ms)
+            .div_ceil(day_ms)
+            .min(u64::from(u16::MAX)) as u16;
+        Some(ReviewStatus {
+            due_at_unix_ms,
+            is_due: now_unix_ms >= due_at_unix_ms,
+            interval_days,
+            days_until_due,
+            mastery_streak,
+            latest_accuracy,
+            reason,
+        })
+    }
+
     pub fn weak_measures(&self, limit: usize) -> Vec<WeakMeasure> {
         self.weak_measures_for_scope(None, limit)
     }
@@ -287,6 +351,19 @@ fn is_reliable_weakness(measure: &WeakMeasure) -> bool {
     measure.attempts >= 2 && measure.judged_notes >= 8 && measure.accuracy < 0.9
 }
 
+fn session_is_mastered(session: &PracticeSession) -> bool {
+    let snapshot = session.summary.overall;
+    let Some(accuracy) = snapshot.accuracy() else {
+        return false;
+    };
+    let on_time_ratio = if snapshot.matched_notes != 0 {
+        snapshot.on_time_notes as f32 / snapshot.matched_notes as f32
+    } else {
+        0.0
+    };
+    accuracy >= 0.9 && on_time_ratio >= 0.7
+}
+
 fn first_last_delta(mut values: impl Iterator<Item = f32>) -> Option<f32> {
     let first = values.next()?;
     let mut last = first;
@@ -395,6 +472,7 @@ impl PracticeHistoryStore {
     }
 
     pub fn recent_songs(&self, limit: usize) -> Vec<RecentSongSummary> {
+        let now_unix_ms = unix_time_ms();
         let mut songs: Vec<_> = self
             .songs()
             .iter()
@@ -430,6 +508,7 @@ impl PracticeHistoryStore {
                     recommended_measures: song
                         .recommended_passage()
                         .map(|passage| (passage.start_measure, passage.end_measure)),
+                    review: song.review_status(now_unix_ms),
                 })
             })
             .collect();
@@ -1076,6 +1155,52 @@ mod tests {
         assert!((overview.accuracy_delta.unwrap() - 0.3).abs() < f32::EPSILON);
         assert!((overview.speed_delta.unwrap() - 0.1).abs() < f32::EPSILON);
         assert!((overview.weak_measures[0].accuracy - 0.65).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn spaced_review_uses_mastery_streak_and_explains_due_state() {
+        let day = 24 * 60 * 60 * 1_000_u64;
+        let mastered = |recorded_at_unix_ms| {
+            let mut item = session(2, 10, 0);
+            item.recorded_at_unix_ms = recorded_at_unix_ms;
+            item.summary.overall.on_time_notes = 8;
+            item
+        };
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            setup: None,
+            library: SongLibraryState::default(),
+            sessions: vec![mastered(day), mastered(day * 2), mastered(day * 3)],
+        };
+
+        let waiting = history.review_status(day * 9).unwrap();
+        assert_eq!(waiting.reason, ReviewReason::Stable);
+        assert_eq!(waiting.mastery_streak, 3);
+        assert_eq!(waiting.interval_days, 7);
+        assert_eq!(waiting.days_until_due, 1);
+        assert!(!waiting.is_due);
+
+        let due = history.review_status(day * 10).unwrap();
+        assert!(due.is_due);
+        assert_eq!(due.days_until_due, 0);
+    }
+
+    #[test]
+    fn weak_latest_take_is_due_immediately() {
+        let mut weak = session(2, 7, 3);
+        weak.recorded_at_unix_ms = 100;
+        weak.summary.overall.on_time_notes = 7;
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            setup: None,
+            library: SongLibraryState::default(),
+            sessions: vec![weak],
+        };
+
+        let review = history.review_status(100).unwrap();
+        assert!(review.is_due);
+        assert_eq!(review.interval_days, 0);
+        assert_eq!(review.reason, ReviewReason::NeedsReinforcement);
     }
 
     #[test]
