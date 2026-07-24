@@ -333,6 +333,9 @@ mod tests {
         assert_eq!(playback.adaptive_tempo_min, 0.5);
         assert_eq!(playback.adaptive_tempo_max, 1.0);
 
+        let DevicesConfig::V1(devices) = DevicesConfig::default();
+        assert_eq!(devices.output.as_deref(), Some("Buildin Synth"));
+
         let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
         assert!(appearance.measure_numbers);
         assert!(!appearance.beat_guidelines);

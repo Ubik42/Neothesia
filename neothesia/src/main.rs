@@ -38,6 +38,7 @@ pub enum NeothesiaEvent {
     FreePlay(Option<song::Song>),
     /// Go to main menu scene
     MainMenu(Option<song::Song>),
+    MainMenuSettings(Option<song::Song>),
     MidiInput {
         /// The MIDI channel that this message is associated with.
         channel: u8,
@@ -154,6 +155,10 @@ impl Neothesia {
             }
             NeothesiaEvent::MainMenu(song) => {
                 let to = menu_scene::MenuScene::new(&mut self.context, song);
+                self.game_scene = Box::new(to);
+            }
+            NeothesiaEvent::MainMenuSettings(song) => {
+                let to = menu_scene::MenuScene::new_settings(&mut self.context, song);
                 self.game_scene = Box::new(to);
             }
             NeothesiaEvent::MidiInput { channel, message } => {

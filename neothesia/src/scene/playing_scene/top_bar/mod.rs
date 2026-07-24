@@ -189,6 +189,51 @@ impl TopBar {
             this.emergency_panic();
         }
 
+        let win_w = ctx.window_state.logical_size.width;
+        let compact_output = win_w < 960.0;
+        let output = ctx.output_manager.descriptor();
+        let output_label = if compact_output {
+            output.backend_name().to_owned()
+        } else {
+            truncate_label(&output.status_name(), 24)
+        };
+        let output_color = if output.is_dummy() {
+            [143, 48, 61]
+        } else if output.is_midi() {
+            [52, 111, 169]
+        } else {
+            [52, 132, 92]
+        };
+        let output_w = if compact_output { 100.0 } else { 188.0 };
+        if nuon::button()
+            .x(win_w - 186.0 - output_w)
+            .size(output_w, 30.0)
+            .label(output_label)
+            .color(output_color)
+            .hover_color(if output.is_dummy() {
+                [178, 58, 72]
+            } else if output.is_midi() {
+                [67, 136, 199]
+            } else {
+                [67, 157, 112]
+            })
+            .preseed_color(if output.is_dummy() {
+                [198, 68, 82]
+            } else if output.is_midi() {
+                [77, 146, 209]
+            } else {
+                [77, 167, 122]
+            })
+            .border_radius([5.0; 4])
+            .build(&mut ui)
+        {
+            ctx.proxy
+                .send_event(NeothesiaEvent::MainMenuSettings(Some(
+                    this.player.song().clone(),
+                )))
+                .ok();
+        }
+
         if let Some(count_in) = this.top_bar.count_in {
             let win_w = ctx.window_state.logical_size.width;
             let win_h = ctx.window_state.logical_size.height;
@@ -304,30 +349,32 @@ impl TopBar {
             });
         }
 
-        let snapshot = this.player.practice_snapshot();
-        let status = if this.top_bar.looper_active {
-            format!(
-                "Take {}   Last {}   Best {}",
-                this.top_bar.attempts.current_attempt(),
-                attempt_accuracy(this.top_bar.attempts.last()),
-                attempt_accuracy(this.top_bar.attempts.best())
-            )
-        } else {
-            format!(
-                "Hit {}   Wrong {}   Missed {}   Need {}",
-                snapshot.matched_notes,
-                snapshot.wrong_notes,
-                snapshot.missed_notes,
-                snapshot.required_notes
-            )
-        };
-        nuon::label()
-            .x(264.0)
-            .size(220.0, 30.0)
-            .font_size(14.0)
-            .text(status)
-            .text_justify(nuon::TextJustify::Center)
-            .build(ui);
+        if ctx.window_state.logical_size.width >= 1_060.0 {
+            let snapshot = this.player.practice_snapshot();
+            let status = if this.top_bar.looper_active {
+                format!(
+                    "Take {}   Last {}   Best {}",
+                    this.top_bar.attempts.current_attempt(),
+                    attempt_accuracy(this.top_bar.attempts.last()),
+                    attempt_accuracy(this.top_bar.attempts.best())
+                )
+            } else {
+                format!(
+                    "Hit {}   Wrong {}   Missed {}   Need {}",
+                    snapshot.matched_notes,
+                    snapshot.wrong_notes,
+                    snapshot.missed_notes,
+                    snapshot.required_notes
+                )
+            };
+            nuon::label()
+                .x(264.0)
+                .size(220.0, 30.0)
+                .font_size(14.0)
+                .text(status)
+                .text_justify(nuon::TextJustify::Center)
+                .build(ui);
+        }
     }
 
     fn panel_center(_this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {
@@ -765,6 +812,17 @@ fn attempt_accuracy(summary: Option<&AttemptSummary>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
+fn truncate_label(label: &str, max_chars: usize) -> String {
+    let count = label.chars().count();
+    if count <= max_chars {
+        return label.to_owned();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut shortened: String = label.chars().take(keep).collect();
+    shortened.push('…');
+    shortened
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,5 +883,11 @@ mod tests {
             measure_range_from_boundaries(&boundaries, 2, 3),
             Some((Duration::from_secs(4), Duration::from_secs(8)))
         );
+    }
+
+    #[test]
+    fn output_badge_truncation_is_unicode_safe() {
+        assert_eq!(truncate_label("MIDI · Pianoteq Route", 13), "MIDI · Piano…");
+        assert_eq!(truncate_label("SoundFont", 12), "SoundFont");
     }
 }

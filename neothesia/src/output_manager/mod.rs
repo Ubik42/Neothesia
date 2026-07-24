@@ -41,6 +41,24 @@ impl OutputDescriptor {
     pub fn is_synth(&self) -> bool {
         matches!(self, OutputDescriptor::Synth(_))
     }
+
+    pub fn backend_name(&self) -> &'static str {
+        match self {
+            #[cfg(feature = "synth")]
+            OutputDescriptor::Synth(_) => "SoundFont",
+            OutputDescriptor::MidiOut(_) => "MIDI OUT",
+            OutputDescriptor::DummyOutput => "NO OUTPUT",
+        }
+    }
+
+    pub fn status_name(&self) -> String {
+        match self {
+            #[cfg(feature = "synth")]
+            OutputDescriptor::Synth(_) => "SoundFont · Built-in piano".to_owned(),
+            OutputDescriptor::MidiOut(info) => format!("MIDI · {info}"),
+            OutputDescriptor::DummyOutput => "No output · Click to fix".to_owned(),
+        }
+    }
 }
 
 impl Display for OutputDescriptor {
@@ -210,5 +228,30 @@ impl OutputManager {
 
     pub fn connection(&self) -> &OutputConnection {
         &self.output_connection.1
+    }
+
+    pub fn descriptor(&self) -> &OutputDescriptor {
+        &self.output_connection.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_status_distinguishes_silent_and_builtin_backends() {
+        assert_eq!(OutputDescriptor::DummyOutput.backend_name(), "NO OUTPUT");
+        assert_eq!(
+            OutputDescriptor::DummyOutput.status_name(),
+            "No output · Click to fix"
+        );
+
+        #[cfg(feature = "synth")]
+        {
+            let synth = OutputDescriptor::Synth(None);
+            assert_eq!(synth.backend_name(), "SoundFont");
+            assert_eq!(synth.status_name(), "SoundFont · Built-in piano");
+        }
     }
 }

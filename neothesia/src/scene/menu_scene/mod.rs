@@ -113,6 +113,12 @@ impl MenuScene {
         }
     }
 
+    pub fn new_settings(ctx: &mut Context, song: Option<Song>) -> Self {
+        let mut scene = Self::new(ctx, song);
+        scene.state.go_to(Page::Settings);
+        scene
+    }
+
     fn main_ui(&mut self, ctx: &mut Context) {
         if self.state.is_loading() {
             let width = ctx.window_state.logical_size.width;
