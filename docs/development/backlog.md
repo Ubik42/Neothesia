@@ -50,7 +50,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-002` Add manual finger hints in portable sidecars.
 - [ ] `MUS-003` Prototype explainable fingering suggestions.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
-- [ ] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
+- [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.
 - [x] `PRA-021` Add persistent manual input-latency compensation.
 - [x] `PRA-022` Add evidence-based guided input-latency calibration.

@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 037 — Pedal timing and dynamics contour
+
+State: **DONE**
+
+Delivered:
+
+- timestamped score and performed sustain transitions on the shared practice
+  clock;
+- compared pedal-down and pedal-up moves separately using robust median offset
+  and median absolute deviation;
+- required four fully paired transitions, equal transition counts and at most
+  120 ms spread before presenting a stable pedal profile;
+- aggregated chord velocities by exact score onset before comparing consecutive
+  dynamic directions;
+- classified shaped steps as followed, flat or opposite;
+- required six shaped steps before presenting contour evidence;
+- expanded Technique expression feedback to five compact, explicit lines;
+- preserved old practice-history compatibility through field defaults;
+- closed `MUS-005`.
+
+Verification:
+
+- deterministic evidence produces six of six aligned contour steps;
+- four paired pedal moves at +40 ms produce median `40 ms late`, spread `0`;
+- transition mismatch and insufficient evidence produce guarded copy;
+- legacy expression data loads with zeroed new evidence;
+- two MIDI-file tests, fifty-one practice/core tests and forty-nine application
+  tests pass;
+- deterministic completion smoke passes all tabs and Retry;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `3f99cde`.
+
 ### Cycle 036 — Deterministic native completion flow
 
 State: **DONE**

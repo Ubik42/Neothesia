@@ -4,6 +4,83 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 037: Pedal timing and dynamics contour (DONE)
+
+### Outcome
+
+Technique feedback now describes whether sustain changes tend to land early or
+late and whether performed dynamics follow the score's rising/falling shape.
+Both signals use explicit evidence thresholds and avoid treating raw MIDI
+values as an absolute musical verdict.
+
+### Implemented
+
+- Added timestamps to user and score CC64 evidence.
+- Detected sustain transitions only when values cross the half-pedal threshold.
+- Kept raw controller-change and continuous-value counts intact.
+- Paired pedal-down events with pedal-down references and pedal-up events with
+  pedal-up references.
+- Calculated signed user-minus-score transition offsets.
+- Summarized offsets with median and median absolute deviation.
+- Persisted paired sample count, transition counts, median offset and spread.
+- Required:
+  - at least four paired transitions;
+  - equal user/score transition counts;
+  - every target transition to have a pair;
+  - no more than 120 ms median deviation.
+- Reported insufficient samples, mismatched transitions and unstable timing
+  separately.
+- Grouped matched note velocities by exact score onset.
+- Averaged chord members before comparing consecutive dynamic points.
+- Ignored target changes smaller than six velocity units.
+- Classified played changes smaller than three units as flat.
+- Counted aligned, flat and opposite directions.
+- Required six shaped steps for learner-facing contour feedback.
+- Added two new Technique lines without overlapping completion actions at the
+  minimum panel height.
+- Added backward-compatible defaults to every persisted field.
+- Marked `MUS-005` complete.
+
+### Verification
+
+- A seven-onset crescendo/decrescendo fixture produces:
+  - six shaped steps;
+  - six aligned;
+  - zero flat;
+  - zero opposite.
+- Chord members at the same onset are averaged rather than treated as separate
+  contour steps.
+- Four target/user sustain transitions offset by +40 ms produce:
+  - four timing pairs;
+  - median 40 ms late;
+  - zero median deviation.
+- UI copy tests cover stable contour/timing, incomplete references and
+  transition mismatch.
+- Legacy expression RON loads with zero contour/timing fields.
+- Re-ran the deterministic native completion fixture; Overview, Technique,
+  History, Retry and clean exit all pass.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty-one core tests and forty-nine
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `3f99cde`
+(`feat: add pedal timing and dynamics contour`).
+
+### Known limitations
+
+- MIDI sustain references are performance data, not engraved pedal notation.
+- The profile does not yet distinguish flutter, half-pedal depth or
+  repedalling intent.
+- Dynamic direction follows MIDI velocity shape and cannot infer phrasing where
+  the source MIDI is mechanically flat.
+- Evidence remains descriptive; it does not assign a pedal or dynamics grade.
+
 ## 2026-07-25 — Cycle 036: Deterministic native completion flow (DONE)
 
 ### Outcome
