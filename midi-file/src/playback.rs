@@ -87,6 +87,11 @@ impl PlaybackState {
     pub fn set_time(&mut self, time: Duration) {
         self.reset();
         self.running = time;
+        for (track, state) in self.tracks.iter().zip(self.track_states.iter_mut()) {
+            state.seen_events = track
+                .events
+                .partition_point(|event| event.timestamp + self.leed_in < self.running);
+        }
     }
 
     pub fn is_finished(&self) -> bool {

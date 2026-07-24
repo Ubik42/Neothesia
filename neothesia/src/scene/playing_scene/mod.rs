@@ -165,12 +165,28 @@ impl PlayingScene {
 
     #[profiling::function]
     fn update_midi_player(&mut self, ctx: &Context, delta: Duration) -> f32 {
+        if self.top_bar.update_count_in(delta) {
+            self.player.resume();
+        }
+
+        if self.top_bar.is_counting_in() {
+            return self.player.time_without_lead_in() + ctx.config.animation_offset();
+        }
+
         self.player.tick_practice_clock(delta);
 
-        if self.top_bar.is_looper_active() && self.player.time() > self.top_bar.loop_end_timestamp()
+        if self.top_bar.is_looper_active()
+            && self.player.time() >= self.top_bar.loop_end_timestamp()
         {
+            let summary = self.player.finish_practice();
+            self.top_bar.record_attempt(summary);
+            self.player.reset_practice_attempt();
             self.player.set_time(self.top_bar.loop_start_timestamp());
             self.keyboard.reset_notes();
+            self.player.pause();
+            let count_in = self.top_bar.count_in_duration(&self.player);
+            self.top_bar.start_count_in(count_in);
+            return self.player.time_without_lead_in() + ctx.config.animation_offset();
         }
 
         if self.player.should_advance() {

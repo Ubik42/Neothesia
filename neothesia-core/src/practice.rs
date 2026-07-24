@@ -157,6 +157,60 @@ pub struct AttemptSummary {
     pub parts: Vec<PartSummary>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AttemptHistory {
+    completed: usize,
+    last: Option<AttemptSummary>,
+    best: Option<AttemptSummary>,
+}
+
+impl AttemptHistory {
+    pub fn record(&mut self, summary: AttemptSummary) {
+        self.completed += 1;
+        if self
+            .best
+            .as_ref()
+            .is_none_or(|best| is_better_attempt(&summary, best))
+        {
+            self.best = Some(summary.clone());
+        }
+        self.last = Some(summary);
+    }
+
+    /// One-based number of the attempt currently being practised.
+    pub fn current_attempt(&self) -> usize {
+        self.completed + 1
+    }
+
+    pub fn completed(&self) -> usize {
+        self.completed
+    }
+
+    pub fn last(&self) -> Option<&AttemptSummary> {
+        self.last.as_ref()
+    }
+
+    pub fn best(&self) -> Option<&AttemptSummary> {
+        self.best.as_ref()
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn is_better_attempt(candidate: &AttemptSummary, best: &AttemptSummary) -> bool {
+    let candidate_accuracy = candidate.overall.accuracy().unwrap_or(0.0);
+    let best_accuracy = best.overall.accuracy().unwrap_or(0.0);
+
+    candidate_accuracy > best_accuracy
+        || (candidate_accuracy == best_accuracy
+            && candidate.overall.on_time_notes > best.overall.on_time_notes)
+        || (candidate_accuracy == best_accuracy
+            && candidate.overall.on_time_notes == best.overall.on_time_notes
+            && candidate.overall.matched_notes > best.overall.matched_notes)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct NotePress {
     timestamp: Duration,
@@ -679,5 +733,48 @@ mod tests {
             .unwrap();
         assert_eq!(left_hand.breakdown.missed_notes, 1);
         assert_eq!(left_hand.breakdown.wrong_notes, 1);
+    }
+
+    #[test]
+    fn attempt_history_keeps_last_and_best_results() {
+        let summary = |matched, on_time, wrong, missed| AttemptSummary {
+            overall: PracticeSnapshot {
+                matched_notes: matched,
+                on_time_notes: on_time,
+                wrong_notes: wrong,
+                missed_notes: missed,
+                ..PracticeSnapshot::default()
+            },
+            ..AttemptSummary::default()
+        };
+
+        let mut history = AttemptHistory::default();
+        history.record(summary(8, 5, 2, 0));
+        history.record(summary(9, 6, 1, 0));
+        history.record(summary(8, 8, 2, 0));
+
+        assert_eq!(history.completed(), 3);
+        assert_eq!(history.current_attempt(), 4);
+        assert_eq!(history.last().unwrap().overall.on_time_notes, 8);
+        assert_eq!(history.best().unwrap().overall.matched_notes, 9);
+    }
+
+    #[test]
+    fn attempt_history_uses_on_time_notes_as_accuracy_tiebreaker() {
+        let mut history = AttemptHistory::default();
+        let attempt = |on_time| AttemptSummary {
+            overall: PracticeSnapshot {
+                matched_notes: 8,
+                on_time_notes: on_time,
+                wrong_notes: 2,
+                ..PracticeSnapshot::default()
+            },
+            ..AttemptSummary::default()
+        };
+
+        history.record(attempt(4));
+        history.record(attempt(7));
+
+        assert_eq!(history.best().unwrap().overall.on_time_notes, 7);
     }
 }

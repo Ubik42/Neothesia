@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{NeothesiaEvent, context::Context, icons};
+use neothesia_core::practice::{AttemptHistory, AttemptSummary};
 
 use super::{
     PlayingScene,
@@ -18,6 +19,35 @@ pub struct TopBar {
     looper_active: bool,
     loop_start: Duration,
     loop_end: Duration,
+    count_in: Option<CountIn>,
+    attempts: AttemptHistory,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CountIn {
+    total: Duration,
+    remaining: Duration,
+}
+
+impl CountIn {
+    fn new(total: Duration) -> Self {
+        Self {
+            total,
+            remaining: total,
+        }
+    }
+
+    fn update(&mut self, delta: Duration) -> bool {
+        self.remaining = self.remaining.saturating_sub(delta);
+        self.remaining.is_zero()
+    }
+
+    fn number(self) -> u8 {
+        if self.total.is_zero() {
+            return 1;
+        }
+        ((self.remaining.as_secs_f32() / self.total.as_secs_f32() * 4.0).ceil() as u8).clamp(1, 4)
+    }
 }
 
 impl TopBar {
@@ -38,6 +68,8 @@ impl TopBar {
             looper_active: false,
             loop_start: Duration::ZERO,
             loop_end: Duration::ZERO,
+            count_in: None,
+            attempts: AttemptHistory::default(),
         }
     }
 
@@ -51,6 +83,33 @@ impl TopBar {
 
     pub fn loop_end_timestamp(&self) -> Duration {
         self.loop_end
+    }
+
+    pub fn is_counting_in(&self) -> bool {
+        self.count_in.is_some()
+    }
+
+    pub fn update_count_in(&mut self, delta: Duration) -> bool {
+        let Some(count_in) = self.count_in.as_mut() else {
+            return false;
+        };
+        if count_in.update(delta) {
+            self.count_in = None;
+            return true;
+        }
+        false
+    }
+
+    pub fn start_count_in(&mut self, duration: Duration) {
+        self.count_in = Some(CountIn::new(duration));
+    }
+
+    pub fn record_attempt(&mut self, summary: AttemptSummary) {
+        self.attempts.record(summary);
+    }
+
+    pub fn count_in_duration(&self, player: &super::midi_player::MidiPlayer) -> Duration {
+        count_in_duration(&measure_boundaries(player), self.loop_start)
     }
 
     #[profiling::function]
@@ -88,6 +147,36 @@ impl TopBar {
             .build(&mut ui, |ui| {
                 Self::panel(this, ctx, ui);
             });
+
+        if let Some(count_in) = this.top_bar.count_in {
+            let win_w = ctx.window_state.logical_size.width;
+            let win_h = ctx.window_state.logical_size.height;
+            let card_w = 220.0;
+            let card_h = 170.0;
+            nuon::translate()
+                .x(nuon::center_x(win_w, card_w))
+                .y(nuon::center_y(win_h, card_h) - 40.0)
+                .build(&mut ui, |ui| {
+                    nuon::quad()
+                        .size(card_w, card_h)
+                        .color([25, 22, 32, 235])
+                        .border_radius([18.0; 4])
+                        .build(ui);
+                    nuon::label()
+                        .y(20.0)
+                        .size(card_w, 34.0)
+                        .font_size(18.0)
+                        .text("Get ready")
+                        .build(ui);
+                    nuon::label()
+                        .y(52.0)
+                        .size(card_w, 96.0)
+                        .font_size(72.0)
+                        .bold(true)
+                        .text(count_in.number().to_string())
+                        .build(ui);
+                });
+        }
 
         this.nuon = ui;
     }
@@ -146,17 +235,27 @@ impl TopBar {
         }
 
         let snapshot = this.player.practice_snapshot();
-        nuon::label()
-            .x(158.0)
-            .size(300.0, 30.0)
-            .font_size(14.0)
-            .text(format!(
+        let status = if this.top_bar.looper_active {
+            format!(
+                "Take {}   Last {}   Best {}",
+                this.top_bar.attempts.current_attempt(),
+                attempt_accuracy(this.top_bar.attempts.last()),
+                attempt_accuracy(this.top_bar.attempts.best())
+            )
+        } else {
+            format!(
                 "Hit {}   Wrong {}   Missed {}   Need {}",
                 snapshot.matched_notes,
                 snapshot.wrong_notes,
                 snapshot.missed_notes,
                 snapshot.required_notes
-            ))
+            )
+        };
+        nuon::label()
+            .x(158.0)
+            .size(300.0, 30.0)
+            .font_size(14.0)
+            .text(status)
             .text_justify(nuon::TextJustify::Center)
             .build(ui);
     }
@@ -229,15 +328,21 @@ impl TopBar {
                 nuon::translate().x(-30.0).add_to_current(ui);
 
                 if Self::button().icon(icons::repeat_icon()).build(ui) {
-                    this.top_bar.looper_active = !this.top_bar.looper_active;
-
-                    // Looper enabled for the first time
-                    if this.top_bar.looper_active
-                        && this.top_bar.loop_start.is_zero()
-                        && this.top_bar.loop_end.is_zero()
-                    {
-                        this.top_bar.loop_start = this.player.time();
-                        this.top_bar.loop_end = this.player.time() + Duration::from_secs(5);
+                    if this.top_bar.looper_active {
+                        let was_counting_in = this.top_bar.count_in.take().is_some();
+                        this.top_bar.looper_active = false;
+                        this.top_bar.attempts.clear();
+                        this.player.reset_practice_attempt();
+                        if was_counting_in {
+                            this.player.resume();
+                        }
+                    } else {
+                        this.top_bar.looper_active = true;
+                        if this.top_bar.loop_start.is_zero() && this.top_bar.loop_end.is_zero() {
+                            (this.top_bar.loop_start, this.top_bar.loop_end) =
+                                default_loop_range(this);
+                        }
+                        begin_loop_take(this, true);
                     }
                 }
 
@@ -327,15 +432,16 @@ impl TopBar {
         w: f32,
         h: f32,
     ) -> impl FnOnce(&mut nuon::Ui) + 'a {
-        let loop_start = this.top_bar.loop_start;
-        let loop_start = this.player.time_to_percentage(&loop_start) * w;
+        let loop_start_time = this.top_bar.loop_start;
+        let loop_start = this.player.time_to_percentage(&loop_start_time) * w;
 
-        let loop_end = this.top_bar.loop_end;
-        let loop_end = this.player.time_to_percentage(&loop_end) * w;
+        let loop_end_time = this.top_bar.loop_end;
+        let loop_end = this.player.time_to_percentage(&loop_end_time) * w;
 
         let loop_h = h + 10.0;
 
         let looper_active = this.top_bar.looper_active;
+        let measure_label = loop_measure_label(this);
 
         let (loop_start_ev, loop_end_ev) = if looper_active {
             let loop_start_ev = nuon::click_area("LooperStart")
@@ -359,7 +465,11 @@ impl TopBar {
             let p = x / w;
 
             if p * w < loop_end - 10.0 {
-                this.top_bar.loop_start = this.player.percentage_to_time(p);
+                let candidate = this.player.percentage_to_time(p);
+                let snapped = snap_to_measure(this, candidate);
+                if snapped < this.top_bar.loop_end {
+                    this.top_bar.loop_start = snapped;
+                }
             }
         }
 
@@ -369,8 +479,19 @@ impl TopBar {
             let p = x / w;
 
             if p * w > loop_start + 10.0 {
-                this.top_bar.loop_end = this.player.percentage_to_time(p);
+                let candidate = this.player.percentage_to_time(p);
+                let snapped = snap_to_measure(this, candidate);
+                if snapped > this.top_bar.loop_start {
+                    this.top_bar.loop_end = snapped;
+                }
             }
+        }
+
+        if looper_active
+            && (matches!(loop_start_ev, nuon::ClickAreaEvent::PressEnd { .. })
+                || matches!(loop_end_ev, nuon::ClickAreaEvent::PressEnd { .. }))
+        {
+            begin_loop_take(this, true);
         }
 
         // render
@@ -388,6 +509,18 @@ impl TopBar {
                 .height(loop_h)
                 .color([255, 56, 187, 90])
                 .build(ui);
+
+            if loop_end - loop_start > 100.0 {
+                nuon::label()
+                    .x(loop_start + 8.0)
+                    .y(8.0)
+                    .size(loop_end - loop_start - 16.0, 24.0)
+                    .font_size(13.0)
+                    .bold(true)
+                    .color([255, 220, 244])
+                    .text(measure_label)
+                    .build(ui);
+            }
 
             nuon::quad()
                 .x(loop_start)
@@ -413,5 +546,155 @@ impl TopBar {
                 })
                 .build(ui);
         }
+    }
+}
+
+fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {
+    if clear_history {
+        scene.top_bar.attempts.clear();
+    }
+    let boundaries = measure_boundaries(&scene.player);
+    let count_in = count_in_duration(&boundaries, scene.top_bar.loop_start);
+
+    scene.player.reset_practice_attempt();
+    scene.player.set_time(scene.top_bar.loop_start);
+    scene.keyboard.reset_notes();
+    scene.player.pause();
+    scene.top_bar.start_count_in(count_in);
+}
+
+fn default_loop_range(scene: &PlayingScene) -> (Duration, Duration) {
+    let boundaries = measure_boundaries(&scene.player);
+    if boundaries.len() < 2 {
+        return (Duration::ZERO, scene.player.length());
+    }
+
+    let current = scene.player.time();
+    let start_index = boundaries
+        .partition_point(|boundary| *boundary <= current)
+        .saturating_sub(1)
+        .min(boundaries.len() - 2);
+    let end_index = (start_index + 2).min(boundaries.len() - 1);
+
+    (boundaries[start_index], boundaries[end_index])
+}
+
+fn measure_boundaries(player: &super::midi_player::MidiPlayer) -> Vec<Duration> {
+    let lead_in = *player.leed_in();
+    let length = player.length();
+    let mut boundaries: Vec<_> = player
+        .song()
+        .file
+        .measures
+        .iter()
+        .map(|measure| lead_in + *measure)
+        .filter(|boundary| *boundary <= length)
+        .collect();
+
+    if boundaries.first().is_none_or(|first| *first > lead_in) {
+        boundaries.insert(0, lead_in);
+    }
+    if boundaries.last().is_none_or(|last| *last < length) {
+        boundaries.push(length);
+    }
+    boundaries.dedup();
+    boundaries
+}
+
+fn snap_to_measure(scene: &PlayingScene, time: Duration) -> Duration {
+    snap_duration(&measure_boundaries(&scene.player), time)
+}
+
+fn loop_measure_label(scene: &PlayingScene) -> String {
+    let measures = &scene.player.song().file.measures;
+    let lead_in = *scene.player.leed_in();
+    let score_start = scene.top_bar.loop_start.saturating_sub(lead_in);
+    let score_end = scene.top_bar.loop_end.saturating_sub(lead_in);
+    let first = measures
+        .partition_point(|measure| *measure <= score_start)
+        .max(1);
+    let last = measures
+        .partition_point(|measure| *measure < score_end)
+        .max(first);
+
+    if first == last {
+        format!("Measure {first}")
+    } else {
+        format!("Measures {first}-{last}")
+    }
+}
+
+fn snap_duration(boundaries: &[Duration], time: Duration) -> Duration {
+    boundaries
+        .iter()
+        .min_by_key(|boundary| boundary.abs_diff(time))
+        .copied()
+        .unwrap_or(time)
+}
+
+fn count_in_duration(boundaries: &[Duration], start: Duration) -> Duration {
+    let start_index = boundaries
+        .partition_point(|boundary| *boundary <= start)
+        .saturating_sub(1);
+    boundaries
+        .get(start_index + 1)
+        .map(|next| next.saturating_sub(start))
+        .filter(|duration| !duration.is_zero())
+        .unwrap_or(Duration::from_secs(2))
+        .clamp(Duration::from_secs(1), Duration::from_secs(6))
+}
+
+fn attempt_accuracy(summary: Option<&AttemptSummary>) -> String {
+    summary
+        .and_then(|summary| summary.overall.accuracy())
+        .map(|accuracy| format!("{}%", (accuracy * 100.0).round() as u32))
+        .unwrap_or_else(|| "--".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapping_chooses_the_nearest_measure_boundary() {
+        let boundaries = [
+            Duration::from_secs(3),
+            Duration::from_secs(5),
+            Duration::from_secs(7),
+        ];
+
+        assert_eq!(
+            snap_duration(&boundaries, Duration::from_millis(5_700)),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            snap_duration(&boundaries, Duration::from_millis(6_300)),
+            Duration::from_secs(7)
+        );
+    }
+
+    #[test]
+    fn count_in_uses_one_measure_and_has_safe_limits() {
+        let regular = [Duration::ZERO, Duration::from_secs(2)];
+        assert_eq!(
+            count_in_duration(&regular, Duration::ZERO),
+            Duration::from_secs(2)
+        );
+
+        let very_slow = [Duration::ZERO, Duration::from_secs(12)];
+        assert_eq!(
+            count_in_duration(&very_slow, Duration::ZERO),
+            Duration::from_secs(6)
+        );
+    }
+
+    #[test]
+    fn count_in_advances_from_four_to_one() {
+        let mut count_in = CountIn::new(Duration::from_secs(4));
+        assert_eq!(count_in.number(), 4);
+        assert!(!count_in.update(Duration::from_millis(2_100)));
+        assert_eq!(count_in.number(), 2);
+        assert!(count_in.update(Duration::from_secs(2)));
+        assert_eq!(count_in.number(), 1);
     }
 }

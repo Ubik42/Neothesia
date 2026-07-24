@@ -151,4 +151,28 @@ mod tests {
         assert!(midi.beats.len() > midi.measures.len());
         assert!(midi.beats.windows(2).all(|pair| pair[0] < pair[1]));
     }
+
+    #[test]
+    fn seeking_keeps_events_exactly_on_the_target_boundary() {
+        let midi = MidiFile::new("../test.mid").unwrap();
+        let lead_in = std::time::Duration::from_secs(3);
+        let first_timestamp = midi
+            .tracks
+            .iter()
+            .flat_map(|track| track.events.iter())
+            .map(|event| event.timestamp)
+            .min()
+            .unwrap();
+        let mut playback = PlaybackState::new(lead_in, midi.tracks);
+
+        playback.set_time(lead_in + first_timestamp);
+        let events = playback.update(std::time::Duration::ZERO);
+
+        assert!(!events.is_empty());
+        assert!(
+            events
+                .iter()
+                .all(|event| event.timestamp == first_timestamp)
+        );
+    }
 }

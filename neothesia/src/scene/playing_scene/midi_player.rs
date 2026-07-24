@@ -169,10 +169,6 @@ impl MidiPlayer {
     pub fn set_time(&mut self, time: Duration) {
         self.playback.set_time(time);
 
-        // Discard all of the events till that point
-        let events = self.playback.update(Duration::ZERO);
-        std::mem::drop(events);
-
         self.clear();
         self.practice.clear_pending();
         self.send_midi_programs_for_timestamp(&time);
@@ -274,6 +270,10 @@ impl MidiPlayer {
         self.session_time = Duration::ZERO;
         self.set_time(Duration::ZERO);
         self.resume();
+    }
+
+    pub fn reset_practice_attempt(&mut self) {
+        self.practice.reset();
     }
 
     pub fn user_midi_event(&mut self, channel: u8, message: &MidiMessage) {
