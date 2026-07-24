@@ -4,6 +4,51 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 018: Favourites and ordered practice queue (DONE)
+
+### Outcome
+
+The local library now supports an intentional daily practice list instead of
+being only a searchable catalogue. Learners can pin repertoire, build a short
+ordered queue and see the latest measured result or reliable weak passage
+before opening a piece.
+
+### Implemented
+
+- Added backward-compatible per-song library organization state.
+- Added persistent favourite mutation and favourite-first library ordering.
+- Added queue insertion, removal, normalization and boundary-safe movement.
+- Added a focused Queue/All Pieces view toggle.
+- Added row-level favourite and queue actions.
+- Added explicit up/down controls in queue view.
+- Created organization records for indexed songs before their first practice.
+- Preserved known source paths for organized but unopened songs.
+- Included reliable weak-measure recommendations in library rows.
+- Kept all organization anchored to content identity.
+
+### Verification
+
+- Added persistence, queue-order, normalization, boundary and migration tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `936b95c`
+(`feat: add favourites and practice queue`).
+
+### Known limitations
+
+- Queue ordering is manual; spaced-review due work is not inserted
+  automatically.
+- There is no bulk clear or drag-and-drop ordering yet.
+- Favourites currently affect ordering but do not have a separate-only filter.
+- Musical metadata still comes from filenames and paths.
+
 ## 2026-07-25 — Cycle 017: Watched-folder indexing and search (DONE)
 
 ### Outcome

@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 018 — Favourites and ordered practice queue
+
+State: **DONE**
+
+Delivered:
+
+- added persistent favourites keyed by MIDI content identity;
+- sorted favourites ahead of ordinary pieces in the full library;
+- added a persistent ordered practice queue with add and remove actions;
+- added a focused queue view with explicit up/down reordering;
+- normalized queue positions after removal so ordering stays compact and
+  deterministic;
+- retained organization for moved files through the existing content identity
+  and source-path repair model;
+- displayed latest accuracy and reliable weak-measure recommendations directly
+  on library/queue rows;
+- allowed newly indexed, never-opened songs to be favourited or queued;
+- migrated older history files to empty organization state.
+
+Verification:
+
+- two MIDI-file tests, thirty-three practice/core tests and thirty-four
+  application tests pass;
+- tests cover persistent favourites, queue insertion/removal/reordering,
+  boundary moves, position normalization and legacy migration;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `936b95c`.
+
 ### Cycle 017 — Watched-folder indexing and search
 
 State: **DONE**
@@ -490,15 +519,14 @@ Acceptance checklist:
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
-| Library | Working | Watched folders, search, history merge and relocation repair |
+| Library | Working | Search, favourites, ordered queue and relocation repair |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 018 with deliberate-practice organization: favourites and a small
-ordered practice queue whose items retain their content identity even when
-files move. Make queue actions visible in the library and connect each item to
-its latest result and recommended weak passage.
+Begin Cycle 019 with explainable spaced review. Derive a conservative due date
+from repeated passage stability, show why a piece is due, and let the learner
+add due work to the existing queue without opaque engagement scoring.
 
 ## Known constraints
 

@@ -44,7 +44,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `LIB-001` Scan watched folders and build a searchable local library.
 - [ ] `LIB-002` Add stable content-based song identity and metadata sidecars.
 - [x] `LIB-003` Save per-song hand/track, loop and speed settings.
-- [ ] `LIB-004` Add recent, favourite and practice-queue views.
+- [x] `LIB-004` Add recent, favourite and practice-queue views.
 - [x] `LIB-005` Add a recent-practice library with verified missing-file repair.
 - [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
 - [ ] `MUS-002` Add manual finger hints in portable sidecars.
