@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 054 — Direction-aware melodic-minor fingering
+
+State: **DONE**
+
+Delivered:
+
+- completed per-hand melodic-minor coverage for all twelve keys;
+- separated ascending and descending fingering sources;
+- used melodic-minor tables upward and natural-minor tables downward;
+- joined both forms at one apex for up-and-down exercises;
+- changed native smoke coverage to G♯ melodic minor;
+- completed `EX-003G`.
+
+Verification:
+
+- exact fifteen-note ascending tables cover all twelve melodic minors;
+- B♭ verifies distinct ascending-melodic and descending-natural fingering;
+- eighty-four core, fifty-seven application and two MIDI-file tests pass;
+- native automation completes and persists a G♯ melodic-minor two-pass attempt;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `fe85447`.
+
 ### Cycle 053 — All harmonic-minor fingering tables
 
 State: **DONE**

@@ -84,6 +84,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
   keys.
 - [x] `EX-003F` Complete reviewed harmonic-minor fingering tables for all
   twelve keys.
+- [x] `EX-003G` Complete direction-aware melodic-minor fingering tables for all
+  twelve keys.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
 
 ## RESEARCH — architecture spikes

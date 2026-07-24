@@ -4,6 +4,59 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 054: Direction-aware melodic-minor fingering (DONE)
+
+### Outcome
+
+Every melodic-minor key now has reviewed finger guidance that follows the
+classical change of form: melodic minor upward and natural minor downward.
+Up-and-down practice no longer assumes that reversing the ascending fingers is
+always correct.
+
+### Implemented
+
+- Added explicit right/left melodic-minor tables for all twelve keys.
+- Split directional fingering into ascending and descending source sequences.
+- Selected the melodic-minor table for ascent and the matching reviewed
+  natural-minor table for descent.
+- Joined both sources at a single apex and retained repetition behavior.
+- Added the distinct B♭ right-hand start and direction change.
+- Upgraded native smoke to select and persist G♯ melodic minor.
+- Completed `EX-003G`.
+
+Ascending patterns were reviewed against
+[Hear and Play's twelve-key melodic-minor guide](https://hearandplay.com/main/the-fingering-of-the-melodic-minor-scale/)
+on 2026-07-25. Descending patterns reuse the already reviewed natural-minor
+tables because the generated classical form descends naturally.
+
+### Verification
+
+- Exact two-octave ascending right/left assertions for all twelve keys.
+- B♭ up-and-down assertion proves that ascent and descent use different tables
+  and share the apex only once.
+- Real-process G♯ melodic-minor smoke completes two passes at 70 BPM, toggles
+  guidance off/on and verifies preset/settings/history persistence.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-four core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `fe85447`
+(`feat: add all melodic minor fingerings`).
+
+### Known limitations
+
+- Arpeggio and primary-chord patterns do not yet display reviewed fingers.
+- The player still shows numbers rather than crossing explanations or
+  anatomy-specific alternatives.
+- Direction-aware tables are deterministic defaults; per-user substitutions
+  remain future work.
+
 ## 2026-07-25 — Cycle 053: All harmonic-minor fingering tables (DONE)
 
 ### Outcome
