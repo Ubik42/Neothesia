@@ -50,7 +50,7 @@ impl MenuScene {
                 selector_card(
                     ui,
                     "Key",
-                    tonic_name(spec.tonic),
+                    tonic_name(spec.tonic, spec.tonality),
                     practice_ui_ids::EXERCISE_KEY_PREVIOUS,
                     practice_ui_ids::EXERCISE_KEY_NEXT,
                 ),
@@ -498,7 +498,7 @@ fn preset_name(presets: &[ExerciseSpec], current: ExerciseSpec, empty: &str) -> 
         "{}/{} · {} {}",
         selected + 1,
         presets.len(),
-        tonic_name(spec.tonic),
+        tonic_name(spec.tonic, spec.tonality),
         pattern_name(spec.pattern)
     )
 }
@@ -545,10 +545,23 @@ fn selector_card(
     }
 }
 
-fn tonic_name(tonic: u8) -> &'static str {
-    [
-        "C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B",
-    ][tonic as usize]
+fn tonic_name(tonic: u8, tonality: ExerciseTonality) -> &'static str {
+    match (tonic, tonality) {
+        (0, _) => "C",
+        (1, ExerciseTonality::Major) => "D♭",
+        (1, ExerciseTonality::Minor) => "C♯",
+        (2, _) => "D",
+        (3, _) => "E♭",
+        (4, _) => "E",
+        (5, _) => "F",
+        (6, _) => "F♯",
+        (7, _) => "G",
+        (8, _) => "A♭",
+        (9, _) => "A",
+        (10, _) => "B♭",
+        (11, _) => "B",
+        _ => unreachable!("selector tonic must be a pitch class"),
+    }
 }
 
 fn tonality_name(tonality: ExerciseTonality, minor_form: ExerciseMinorForm) -> &'static str {
@@ -731,6 +744,8 @@ mod tests {
         assert_eq!(spec.tonic, 11);
         apply_selection(&mut spec, ExerciseField::Key, SelectionDelta::Next);
         assert_eq!(spec.tonic, 0);
+        assert_eq!(tonic_name(1, ExerciseTonality::Major), "D♭");
+        assert_eq!(tonic_name(1, ExerciseTonality::Minor), "C♯");
         apply_selection(&mut spec, ExerciseField::Octaves, SelectionDelta::Previous);
         assert_eq!(spec.octaves, 3);
 

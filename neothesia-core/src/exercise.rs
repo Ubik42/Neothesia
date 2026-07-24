@@ -191,9 +191,7 @@ impl ExercisePlan {
     }
 
     pub fn display_name(&self) -> String {
-        let tonic = [
-            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-        ][self.spec.tonic as usize];
+        let tonic = tonic_display_name(self.spec.tonic, self.spec.tonality);
         let tonality = match (self.spec.tonality, self.spec.minor_form) {
             (ExerciseTonality::Major, _) => "Major",
             (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => "Natural Minor",
@@ -262,8 +260,7 @@ impl ExercisePlan {
     /// minor family. Unsupported keys and patterns deliberately return `None`
     /// rather than guessing.
     pub fn fingerings(&self) -> Option<ExerciseFingerings> {
-        let is_reviewed_major = self.spec.tonality == ExerciseTonality::Major
-            && matches!(self.spec.tonic, 0 | 2 | 4 | 5 | 7 | 9);
+        let is_reviewed_major = self.spec.tonality == ExerciseTonality::Major;
         let is_reviewed_c_minor =
             self.spec.tonality == ExerciseTonality::Minor && self.spec.tonic == 0;
         if self.spec.pattern != ExercisePattern::Scale
@@ -408,34 +405,64 @@ impl ExercisePlan {
 fn ascending_scale_fingering(tonic: u8, part: PracticePart, octaves: u8) -> Vec<u8> {
     let note_count = usize::from(octaves) * 7 + 1;
     match part {
-        PracticePart::RightHand if tonic == 5 => (0..note_count)
-            .map(|index| {
-                if index + 1 == note_count {
-                    4
-                } else {
-                    [1, 2, 3, 4, 1, 2, 3][index % 7]
-                }
-            })
-            .collect(),
-        PracticePart::RightHand => (0..note_count)
-            .map(|index| {
-                if index + 1 == note_count {
-                    5
-                } else {
-                    [1, 2, 3, 1, 2, 3, 4][index % 7]
-                }
-            })
-            .collect(),
-        PracticePart::LeftHand => (0..note_count)
-            .map(|index| {
-                if index == 0 {
-                    5
-                } else {
-                    [4, 3, 2, 1, 3, 2, 1][(index - 1) % 7]
-                }
-            })
-            .collect(),
+        PracticePart::RightHand => match tonic {
+            0 | 2 | 4 | 7 | 9 | 11 => {
+                scale_fingering(note_count, 1, &[2, 3, 1, 2, 3, 4, 1], Some(5))
+            }
+            1 => scale_fingering(note_count, 2, &[3, 1, 2, 3, 4, 1, 2], None),
+            3 => scale_fingering(note_count, 3, &[1, 2, 3, 4, 1, 2, 3], None),
+            5 => scale_fingering(note_count, 1, &[2, 3, 4, 1, 2, 3, 1], Some(4)),
+            6 => scale_fingering(note_count, 2, &[3, 4, 1, 2, 3, 1, 2], None),
+            8 => scale_fingering(note_count, 3, &[4, 1, 2, 3, 1, 2, 3], None),
+            10 => scale_fingering(note_count, 2, &[1, 2, 3, 1, 2, 3, 4], None),
+            _ => unreachable!("validated tonic must be a pitch class"),
+        },
+        PracticePart::LeftHand => match tonic {
+            0 | 2 | 4 | 5 | 7 | 9 => scale_fingering(note_count, 5, &[4, 3, 2, 1, 3, 2, 1], None),
+            11 => scale_fingering(note_count, 4, &[3, 2, 1, 4, 3, 2, 1], None),
+            1 | 3 | 8 | 10 => scale_fingering(note_count, 3, &[2, 1, 4, 3, 2, 1, 3], None),
+            6 => scale_fingering(note_count, 4, &[3, 2, 1, 3, 2, 1, 4], None),
+            _ => unreachable!("validated tonic must be a pitch class"),
+        },
         PracticePart::Other => Vec::new(),
+    }
+}
+
+fn scale_fingering(
+    note_count: usize,
+    start: u8,
+    continuation: &[u8; 7],
+    final_override: Option<u8>,
+) -> Vec<u8> {
+    (0..note_count)
+        .map(|index| {
+            if index == 0 {
+                start
+            } else if index + 1 == note_count {
+                final_override.unwrap_or(continuation[(index - 1) % 7])
+            } else {
+                continuation[(index - 1) % 7]
+            }
+        })
+        .collect()
+}
+
+fn tonic_display_name(tonic: u8, tonality: ExerciseTonality) -> &'static str {
+    match (tonic, tonality) {
+        (0, _) => "C",
+        (1, ExerciseTonality::Major) => "Db",
+        (1, ExerciseTonality::Minor) => "C#",
+        (2, _) => "D",
+        (3, _) => "Eb",
+        (4, _) => "E",
+        (5, _) => "F",
+        (6, _) => "F#",
+        (7, _) => "G",
+        (8, _) => "Ab",
+        (9, _) => "A",
+        (10, _) => "Bb",
+        (11, _) => "B",
+        _ => unreachable!("validated tonic must be a pitch class"),
     }
 }
 
@@ -723,11 +750,12 @@ mod tests {
     }
 
     #[test]
-    fn fingering_is_explicitly_unavailable_outside_reviewed_c_scales() {
+    fn fingering_is_explicitly_unavailable_for_unreviewed_minors_and_patterns() {
         let keyboard = KeyboardRange::standard_88_keys();
-        let other_key = ExercisePlan::generate(
+        let other_minor = ExercisePlan::generate(
             ExerciseSpec {
                 tonic: 1,
+                tonality: ExerciseTonality::Minor,
                 ..Default::default()
             },
             &keyboard,
@@ -742,7 +770,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(other_key.fingerings().is_none());
+        assert!(other_minor.fingerings().is_none());
         assert!(arpeggio.fingerings().is_none());
     }
 
@@ -847,6 +875,85 @@ mod tests {
             ExercisePlan::generate(spec, &KeyboardRange::new(48..=84)),
             Err(ExerciseError::OutsideKeyboardRange)
         );
+    }
+
+    #[test]
+    fn remaining_major_keys_use_reviewed_two_octave_tables() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let cases = [
+            (
+                1,
+                vec![2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (
+                3,
+                vec![3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (
+                6,
+                vec![2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2],
+                vec![4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4],
+            ),
+            (
+                8,
+                vec![3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (
+                10,
+                vec![2, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (
+                11,
+                vec![1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5],
+                vec![4, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1],
+            ),
+        ];
+
+        for (tonic, right, left) in cases {
+            let plan = ExercisePlan::generate(
+                ExerciseSpec {
+                    tonic,
+                    direction: ExerciseDirection::Ascending,
+                    hands: ExerciseHands::Both,
+                    octaves: 2,
+                    ..Default::default()
+                },
+                &keyboard,
+            )
+            .unwrap();
+            let fingering = plan.fingerings().unwrap();
+            assert_eq!(fingering.right, right, "right hand tonic {tonic}");
+            assert_eq!(fingering.left, left, "left hand tonic {tonic}");
+        }
+    }
+
+    #[test]
+    fn display_names_prefer_readable_flat_major_keys() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let d_flat_major = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 1,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+        let c_sharp_minor = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 1,
+                tonality: ExerciseTonality::Minor,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+
+        assert!(d_flat_major.display_name().starts_with("Db Major"));
+        assert!(c_sharp_minor.display_name().starts_with("C# Natural Minor"));
     }
 
     #[test]
