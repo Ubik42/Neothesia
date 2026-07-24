@@ -113,14 +113,19 @@ pub struct NoteLabels {
 }
 
 impl NoteLabels {
-    pub fn new(
+    pub fn new(pos: Point<f32>, notes: &NoteList, text_renderer: TextRenderer) -> Self {
+        Self::with_fingerings(pos, notes, text_renderer, true, HashMap::new(), false)
+    }
+
+    pub fn with_fingerings(
         pos: Point<f32>,
         notes: &NoteList,
         text_renderer: TextRenderer,
         note_names_enabled: bool,
         fingerings: HashMap<(Duration, u8, u8), u8>,
+        fingerings_enabled: bool,
     ) -> Self {
-        let fingerings_enabled = !fingerings.is_empty();
+        let fingerings_enabled = !fingerings.is_empty() && fingerings_enabled;
         Self {
             pos,
             notes: notes.clone(),

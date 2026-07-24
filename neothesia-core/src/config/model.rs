@@ -218,6 +218,9 @@ pub struct AppearanceConfigV1 {
     #[serde(default = "default_measure_numbers")]
     pub measure_numbers: bool,
 
+    #[serde(default = "default_exercise_fingerings")]
+    pub exercise_fingerings: bool,
+
     #[serde(default = "default_glow")]
     pub glow: bool,
 }
@@ -236,6 +239,7 @@ impl Default for AppearanceConfig {
             horizontal_guidelines: default_horizontal_guidelines(),
             beat_guidelines: default_beat_guidelines(),
             measure_numbers: default_measure_numbers(),
+            exercise_fingerings: default_exercise_fingerings(),
             glow: default_glow(),
         })
     }
@@ -309,6 +313,10 @@ fn default_measure_numbers() -> bool {
     true
 }
 
+fn default_exercise_fingerings() -> bool {
+    true
+}
+
 fn default_glow() -> bool {
     true
 }
@@ -370,7 +378,26 @@ mod tests {
 
         let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
         assert!(appearance.measure_numbers);
+        assert!(appearance.exercise_fingerings);
         assert!(!appearance.beat_guidelines);
+    }
+
+    #[test]
+    fn appearance_saved_before_fingering_guidance_defaults_to_visible() {
+        let appearance: AppearanceConfigV1 = ron::from_str(
+            r#"(
+                color_schema: [],
+                background_color: (0, 0, 0),
+                vertical_guidelines: true,
+                horizontal_guidelines: true,
+                beat_guidelines: false,
+                measure_numbers: true,
+                glow: true,
+            )"#,
+        )
+        .unwrap();
+
+        assert!(appearance.exercise_fingerings);
     }
 
     #[test]

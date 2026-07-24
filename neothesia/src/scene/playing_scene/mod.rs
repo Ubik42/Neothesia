@@ -233,14 +233,16 @@ impl PlayingScene {
         let text_renderer = ctx.text_renderer_factory.new_renderer();
 
         let has_exercise_fingerings = !song.exercise_fingerings.is_empty();
-        let note_labels =
-            (ctx.config.note_labels() || has_exercise_fingerings).then_some(NoteLabels::new(
+        let note_labels = (ctx.config.note_labels() || has_exercise_fingerings).then_some(
+            NoteLabels::with_fingerings(
                 *keyboard.pos(),
                 waterfall.notes(),
                 ctx.text_renderer_factory.new_renderer(),
                 ctx.config.note_labels(),
                 song.exercise_fingerings.clone(),
-            ));
+                ctx.config.exercise_fingerings(),
+            ),
+        );
 
         let mut player = MidiPlayer::new(
             ctx.output_manager.connection().clone(),
@@ -342,14 +344,17 @@ impl PlayingScene {
         });
     }
 
-    fn toggle_fingerings(&mut self) -> bool {
+    fn toggle_fingerings(&mut self, ctx: &mut Context) -> bool {
         let Some(labels) = self.note_labels.as_mut() else {
             return false;
         };
         if !labels.toggle_fingerings() {
             return false;
         }
-        self.toast_manager.toast(if labels.fingerings_enabled() {
+        let enabled = labels.fingerings_enabled();
+        ctx.config.set_exercise_fingerings(enabled);
+        ctx.config.save();
+        self.toast_manager.toast(if enabled {
             "Reviewed fingering ON"
         } else {
             "Reviewed fingering OFF"
@@ -1801,7 +1806,7 @@ impl Scene for PlayingScene {
             DebugPracticeAction::CycleHands => self.cycle_practice_hands(ctx),
             DebugPracticeAction::ToggleLoop => top_bar::toggle_loop(self, ctx),
             DebugPracticeAction::ToggleFingerings => {
-                if !self.toggle_fingerings() {
+                if !self.toggle_fingerings(ctx) {
                     return false;
                 }
             }

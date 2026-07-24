@@ -161,6 +161,14 @@ impl Config {
         self.appearance.measure_numbers = measure_numbers;
     }
 
+    pub fn exercise_fingerings(&self) -> bool {
+        self.appearance.exercise_fingerings
+    }
+
+    pub fn set_exercise_fingerings(&mut self, show: bool) {
+        self.appearance.exercise_fingerings = show;
+    }
+
     pub fn glow(&self) -> bool {
         self.appearance.glow
     }
@@ -524,6 +532,18 @@ mod tests {
             config.last_exercise_spec(),
             crate::exercise::ExerciseSpec::default()
         );
+    }
+
+    #[test]
+    fn exercise_fingering_visibility_round_trips() {
+        let mut config = Model::default().build();
+        config.set_exercise_fingerings(false);
+        let serialized = ron_options()
+            .to_string(&Model::from_config(config))
+            .unwrap();
+        let rebuilt: Model = ron_options().from_str(&serialized).unwrap();
+
+        assert!(!rebuilt.build().exercise_fingerings());
     }
 
     #[test]

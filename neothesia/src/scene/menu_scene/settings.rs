@@ -320,6 +320,18 @@ impl super::MenuScene {
                         {
                             ctx.config.set_note_labels(!ctx.config.note_labels());
                         }
+
+                        spacer(ui);
+
+                        if nuon::settings_row_toggler()
+                            .title("Exercise Fingerings")
+                            .subtitle("Show reviewed finger numbers on generated exercises")
+                            .value(ctx.config.exercise_fingerings())
+                            .build(ui, rows)
+                        {
+                            ctx.config
+                                .set_exercise_fingerings(!ctx.config.exercise_fingerings());
+                        }
                     });
             });
     }

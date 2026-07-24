@@ -507,15 +507,21 @@ try {
             [System.IO.File]::Exists($settingsPath)
         ) "Exercise run did not persist settings"
         $settingsText = [System.IO.File]::ReadAllText($settingsPath)
-        Assert-True (
-            $settingsText -match "last_exercise_spec" -and
-            $settingsText -match "tonic:\s*11" -and
-            $settingsText -match "minor_form:\s*Natural" -and
-            $settingsText -match "repetitions:\s*2" -and
-            $settingsText -match "tempo_bpm:\s*70" -and
-            $settingsText -match "recent_exercise_specs:\s*\[" -and
-            $settingsText -match "favourite_exercise_specs:\s*\["
-        ) "Selected, recent and favourite B exercise were not persisted"
+        $settingsChecks = [ordered]@{
+            "last exercise" = "last_exercise_spec"
+            "B tonic" = "tonic:\s*11"
+            "natural form" = "minor_form:\s*Natural"
+            "two repetitions" = "repetitions:\s*2"
+            "70 BPM" = "tempo_bpm:\s*70"
+            "fingering preference" = "exercise_fingerings:\s*true"
+            "recent exercises" = "recent_exercise_specs:\s*\["
+            "favourite exercises" = "favourite_exercise_specs:\s*\["
+        }
+        foreach ($check in $settingsChecks.GetEnumerator()) {
+            Assert-True (
+                $settingsText -match $check.Value
+            ) "Settings did not persist $($check.Key)"
+        }
         $historyPath = Join-Path $runDirectory "practice-history.ron"
         Assert-True (
             [System.IO.File]::Exists($historyPath)

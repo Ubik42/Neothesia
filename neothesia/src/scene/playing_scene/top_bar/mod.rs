@@ -562,7 +562,7 @@ impl TopBar {
                         .border_radius([5.0; 4])
                         .build(ui)
                     {
-                        this.toggle_fingerings();
+                        this.toggle_fingerings(ctx);
                     }
                 }
             });
