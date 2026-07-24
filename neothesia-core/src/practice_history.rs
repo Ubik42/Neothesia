@@ -52,14 +52,24 @@ pub struct WeakMeasure {
     pub measure: usize,
     pub accuracy: f32,
     pub judged_notes: usize,
+    pub attempts: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeakPassageRecommendation {
+    pub start_measure: usize,
+    pub end_measure: usize,
+    pub weakest_accuracy: f32,
+    pub judged_notes: usize,
+    pub attempts: usize,
 }
 
 impl SongPracticeHistory {
     pub fn weak_measures(&self, limit: usize) -> Vec<WeakMeasure> {
-        let mut measures = BTreeMap::<usize, PracticeBreakdown>::new();
+        let mut measures = BTreeMap::<usize, (PracticeBreakdown, usize)>::new();
         for session in &self.sessions {
             for item in &session.summary.measures {
-                let total = measures.entry(item.measure).or_default();
+                let (total, attempts) = measures.entry(item.measure).or_default();
                 total.target_notes += item.breakdown.target_notes;
                 total.matched_notes += item.breakdown.matched_notes;
                 total.on_time_notes += item.breakdown.on_time_notes;
@@ -67,18 +77,20 @@ impl SongPracticeHistory {
                 total.late_notes += item.breakdown.late_notes;
                 total.wrong_notes += item.breakdown.wrong_notes;
                 total.missed_notes += item.breakdown.missed_notes;
+                *attempts += 1;
             }
         }
 
         let mut weak: Vec<_> = measures
             .into_iter()
-            .filter_map(|(measure, breakdown)| {
+            .filter_map(|(measure, (breakdown, attempts))| {
                 let judged =
                     breakdown.matched_notes + breakdown.wrong_notes + breakdown.missed_notes;
                 Some(WeakMeasure {
                     measure,
                     accuracy: breakdown.accuracy()?,
                     judged_notes: judged,
+                    attempts,
                 })
             })
             .collect();
@@ -90,6 +102,23 @@ impl SongPracticeHistory {
         });
         weak.truncate(limit);
         weak
+    }
+
+    /// Returns a conservative two-measure practice target. A recommendation
+    /// needs repeated evidence so a single exploratory take cannot create a
+    /// persistent "weak" label.
+    pub fn recommended_passage(&self) -> Option<WeakPassageRecommendation> {
+        let weakest = self.weak_measures(usize::MAX).into_iter().find(|measure| {
+            measure.attempts >= 2 && measure.judged_notes >= 8 && measure.accuracy < 0.9
+        })?;
+
+        Some(WeakPassageRecommendation {
+            start_measure: weakest.measure,
+            end_measure: weakest.measure.saturating_add(1),
+            weakest_accuracy: weakest.accuracy,
+            judged_notes: weakest.judged_notes,
+            attempts: weakest.attempts,
+        })
     }
 }
 
@@ -384,8 +413,42 @@ mod tests {
 
         assert_eq!(weak[0].measure, 4);
         assert_eq!(weak[0].judged_notes, 20);
+        assert_eq!(weak[0].attempts, 2);
         assert!((weak[0].accuracy - 0.65).abs() < f32::EPSILON);
         assert_eq!(weak[1].measure, 7);
+    }
+
+    #[test]
+    fn passage_recommendation_requires_repeated_evidence() {
+        let mut history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![session(4, 4, 6), session(8, 9, 1)],
+        };
+
+        assert_eq!(history.recommended_passage(), None);
+
+        history.sessions.push(session(4, 6, 4));
+        let recommendation = history.recommended_passage().unwrap();
+        assert_eq!(recommendation.start_measure, 4);
+        assert_eq!(recommendation.end_measure, 5);
+        assert_eq!(recommendation.attempts, 2);
+        assert_eq!(recommendation.judged_notes, 20);
+        assert!((recommendation.weakest_accuracy - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn passage_recommendation_ignores_small_samples_and_mastered_measures() {
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![
+                session(2, 2, 0),
+                session(2, 1, 1),
+                session(6, 9, 1),
+                session(6, 9, 1),
+            ],
+        };
+
+        assert_eq!(history.recommended_passage(), None);
     }
 
     #[test]

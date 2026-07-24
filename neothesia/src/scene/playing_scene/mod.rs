@@ -286,13 +286,29 @@ impl PlayingScene {
                 .find(|item| item.part == part)
                 .and_then(|item| item.breakdown.accuracy())
         };
+        let recommendation = ctx
+            .practice_history
+            .song(&self.player.song().file.content_id)
+            .and_then(|history| history.recommended_passage())
+            .map(|mut recommendation| {
+                let measure_count = self.player.song().file.measures.len().max(1);
+                recommendation.start_measure = recommendation.start_measure.clamp(1, measure_count);
+                recommendation.end_measure = recommendation
+                    .end_measure
+                    .clamp(recommendation.start_measure, measure_count);
+                recommendation
+            });
 
         let mut action = None;
         let mut ui = std::mem::replace(&mut self.nuon, nuon::Ui::new());
         let win_w = ctx.window_state.logical_size.width;
         let win_h = ctx.window_state.logical_size.height;
         let panel_w = (win_w - 40.0).clamp(320.0, 720.0);
-        let panel_h = (win_h - 40.0).clamp(390.0, 470.0);
+        let panel_h = if recommendation.is_some() {
+            (win_h - 40.0).clamp(530.0, 560.0)
+        } else {
+            (win_h - 40.0).clamp(470.0, 520.0)
+        };
         let panel_x = nuon::center_x(win_w, panel_w);
         let panel_y = nuon::center_y(win_h, panel_h);
 
@@ -382,7 +398,7 @@ impl PlayingScene {
                 if let Some(session_count) = self.saved_session_count {
                     nuon::label()
                         .x(28.0)
-                        .y(344.0)
+                        .y(338.0)
                         .size(panel_w - 56.0, 28.0)
                         .font_size(14.0)
                         .color([143, 205, 171])
@@ -394,8 +410,47 @@ impl PlayingScene {
                 }
 
                 let button_gap = 12.0;
-                let button_w = (panel_w - 56.0 - button_gap) / 2.0;
                 let button_y = panel_h - 68.0;
+                let button_w = (panel_w - 56.0 - button_gap) / 2.0;
+
+                if let Some(recommendation) = recommendation {
+                    nuon::label()
+                        .x(28.0)
+                        .y(366.0)
+                        .size(panel_w - 56.0, 30.0)
+                        .font_size(14.0)
+                        .color([255, 205, 124])
+                        .text(format!(
+                            "Suggested: measures {}–{}  ·  {}% across {} notes / {} takes",
+                            recommendation.start_measure,
+                            recommendation.end_measure,
+                            percent(Some(recommendation.weakest_accuracy)),
+                            recommendation.judged_notes,
+                            recommendation.attempts
+                        ))
+                        .build(ui);
+
+                    if nuon::button()
+                        .x(28.0)
+                        .y(button_y - 56.0)
+                        .size(panel_w - 56.0, 44.0)
+                        .label(format!(
+                            "Practice suggested measures {}–{}",
+                            recommendation.start_measure, recommendation.end_measure
+                        ))
+                        .color([232, 144, 57])
+                        .hover_color([245, 163, 82])
+                        .preseed_color([255, 177, 96])
+                        .border_radius([8.0; 4])
+                        .build(ui)
+                    {
+                        action = Some(CompletionAction::PracticeWeak {
+                            start_measure: recommendation.start_measure,
+                            end_measure: recommendation.end_measure,
+                        });
+                    }
+                }
+
                 if nuon::button()
                     .x(28.0)
                     .y(button_y)
@@ -428,6 +483,15 @@ impl PlayingScene {
         self.nuon = ui;
 
         match action {
+            Some(CompletionAction::PracticeWeak {
+                start_measure,
+                end_measure,
+            }) => {
+                if top_bar::begin_measure_loop(self, start_measure, end_measure) {
+                    self.completion = None;
+                    self.saved_session_count = None;
+                }
+            }
             Some(CompletionAction::Retry) => {
                 self.player.restart_practice();
                 self.keyboard.reset_notes();
@@ -460,6 +524,10 @@ impl PlayingScene {
 
 #[derive(Debug, Clone, Copy)]
 enum CompletionAction {
+    PracticeWeak {
+        start_measure: usize,
+        end_measure: usize,
+    },
     Retry,
     Back,
 }

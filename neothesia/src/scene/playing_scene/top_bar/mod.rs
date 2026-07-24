@@ -620,6 +620,37 @@ fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {
     scene.top_bar.start_count_in(count_in);
 }
 
+pub(super) fn begin_measure_loop(
+    scene: &mut PlayingScene,
+    start_measure: usize,
+    end_measure: usize,
+) -> bool {
+    let boundaries = measure_boundaries(&scene.player);
+    let Some((start, end)) = measure_range_from_boundaries(&boundaries, start_measure, end_measure)
+    else {
+        return false;
+    };
+    scene.top_bar.loop_start = start;
+    scene.top_bar.loop_end = end;
+    scene.top_bar.looper_active = true;
+    begin_loop_take(scene, true);
+    true
+}
+
+fn measure_range_from_boundaries(
+    boundaries: &[Duration],
+    start_measure: usize,
+    end_measure: usize,
+) -> Option<(Duration, Duration)> {
+    let measure_count = boundaries.len().checked_sub(1)?;
+    if measure_count == 0 {
+        return None;
+    }
+    let start_measure = start_measure.clamp(1, measure_count);
+    let end_measure = end_measure.clamp(start_measure, measure_count);
+    Some((boundaries[start_measure - 1], boundaries[end_measure]))
+}
+
 fn default_loop_range(scene: &PlayingScene) -> (Duration, Duration) {
     let boundaries = measure_boundaries(&scene.player);
     if boundaries.len() < 2 {
@@ -762,5 +793,20 @@ mod tests {
         assert_eq!(count_in.number(), 2);
         assert!(count_in.update(Duration::from_secs(2)));
         assert_eq!(count_in.number(), 1);
+    }
+
+    #[test]
+    fn recommended_measure_range_maps_to_inclusive_boundaries() {
+        let boundaries = [
+            Duration::from_secs(2),
+            Duration::from_secs(4),
+            Duration::from_secs(6),
+            Duration::from_secs(8),
+        ];
+
+        assert_eq!(
+            measure_range_from_boundaries(&boundaries, 2, 3),
+            Some((Duration::from_secs(4), Duration::from_secs(8)))
+        );
     }
 }
