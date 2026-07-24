@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 016 — Recent practice library
+
+State: **DONE**
+
+Delivered:
+
+- added a dedicated Practice Library page to the native home screen;
+- listed recent pieces by actual practice/setup activity rather than filename;
+- showed session count and latest measured accuracy for each piece;
+- reopened available files directly from their saved source path;
+- detected missing files and offered a Locate recovery action;
+- verified relocated files by MIDI content hash before accepting them;
+- preserved the original history and setup when the wrong replacement is
+  selected;
+- updated the stored source path automatically after successful relocation;
+- shortened long and Unicode song titles safely in the compact list.
+
+Verification:
+
+- two MIDI-file tests, twenty-seven practice/core tests and thirty-three
+  application tests pass;
+- tests cover source-path capture, recent ordering, content identity, setup
+  persistence and Unicode-safe labels;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `e9338da`.
+
 ### Cycle 015 — Per-song practice setup
 
 State: **DONE**
@@ -432,14 +459,14 @@ Acceptance checklist:
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
-| Library | Minimal | Per-song setup exists; browser and search remain |
+| Library | Working baseline | Recent list and relocation repair; folder search remains |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 016 by exposing saved repertoire inside the app: show recently
-practised songs and their latest status, then establish the data/API boundary
-needed for a searchable watched-folder library.
+Begin Cycle 017 with watched-folder indexing and fast title/path search. Keep
+file parsing off the render thread, deduplicate by content identity, and surface
+missing or changed files without discarding their practice records.
 
 ## Known constraints
 

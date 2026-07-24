@@ -4,6 +4,52 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 016: Recent practice library (DONE)
+
+### Outcome
+
+Previously practised MIDI files are now reachable from inside Neothesia instead
+of relying on the operating-system picker every time. A moved file can be
+relinked safely, and choosing a different file cannot silently attach the old
+practice record to it.
+
+### Implemented
+
+- Added source-path provenance to parsed MIDI files and saved song setup.
+- Added last-used timestamps and a sorted recent-song query.
+- Added a scrollable Practice Library page and home-screen entry.
+- Displayed session count and latest accuracy.
+- Loaded recent songs away from the render thread.
+- Added missing-file detection and Locate recovery.
+- Compared the selected replacement's BLAKE3 content identity before opening.
+- Updated the source path only after successful verification.
+- Added clear in-page feedback for missing, unreadable and mismatched files.
+- Added Unicode-safe title shortening and a more compact home layout.
+
+### Verification
+
+- Added source-path, ordering and Unicode-label tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `e9338da`
+(`feat: add recent practice library`).
+
+### Known limitations
+
+- The library currently contains pieces that have already been opened; watched
+  folder discovery and text search are next.
+- Legacy records without a saved source path require one successful manual
+  reopen before they appear as directly available.
+- Favourites, queues, metadata editing and bulk missing-file repair remain
+  future work.
+
 ## 2026-07-25 — Cycle 015: Per-song practice setup (DONE)
 
 ### Outcome
