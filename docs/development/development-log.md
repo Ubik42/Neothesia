@@ -4,6 +4,46 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 081: MusicXML repeat and ending semantics (DONE)
+
+### Outcome
+
+Neothesia no longer discards the score facts needed to distinguish written
+measure order from performed order. Repeat barlines and numbered endings are
+available to learning and alignment code without introducing renderer types or
+prematurely guessing an ambiguous playback path.
+
+### Implemented
+
+- Added notation-neutral barline, repeat and ending types to every measure.
+- Preserved left/middle/right locations plus unknown future location values.
+- Preserved forward/backward repeat direction, optional repeat count and winged
+  engraving preference.
+- Preserved ending start/stop/discontinue, original number text and parsed pass
+  numbers.
+- Parsed comma-separated and ranged ending values such as `1, 3-4`.
+- Bounded parsed ending passes at 128 while retaining the complete raw value,
+  preventing hostile ranges from creating unbounded allocations.
+- Supported both empty and explicit MusicXML element forms.
+
+### Verification
+
+- The focused fixture retains all barline, repeat, count, wing and ending facts.
+- A missing barline location follows MusicXML's right-side default.
+- 128 core, 64 application and four MIDI-file tests pass.
+- The pinned eight-score compatibility audit is unchanged.
+- Clippy, release build, both native smoke suites, formatting and diff checks
+  pass with only pre-existing warnings.
+
+Implementation commit: `6d098f7` (`feat: preserve MusicXML repeat semantics`).
+
+### Known limitations
+
+- Measures are not yet expanded into performed visit order.
+- Da capo, dal segno, coda and fine navigation remain outside this slice.
+- Unknown ending labels remain available as raw text but cannot yet drive a
+  playback plan.
+
 ## 2026-07-25 — Cycle 080: Score-note to MIDI-note alignment (DONE)
 
 ### Outcome

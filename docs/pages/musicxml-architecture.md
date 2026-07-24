@@ -31,6 +31,8 @@ grand staff synchronized with the existing player clock
   explicit pulse-rounding and unprojected gaps.
 - confidence-bearing score-note to MIDI-note alignment with stable
   `track_id`/`note_index` identities and explicit gaps on both sides.
+- repeat barlines, repeat counts and numbered-ending spans, preserved before
+  any playback-order expansion.
 
 The model deliberately has no SVG, DOM, webview or wgpu layout types. Learning
 features must remain usable if the renderer changes later.
@@ -56,6 +58,19 @@ cell limit per pitch bounds memory; very large sequences use a deterministic
 chronological fallback. This core does not yet compensate global offset,
 transposition, repeats or endings, and the current player UI does not consume
 the mapping.
+
+## Written order and performed order
+
+`Part.measures` always remains in source-document order. Each measure now
+preserves its barlines, forward/backward repeats, repeat count and numbered
+ending markers. Ending labels retain both their raw text and bounded parsed
+passes, so unusual exporter values are inspectable rather than silently lost.
+
+The next layer will produce a separate bounded playback plan. It must give each
+visit an occurrence identity while retaining the stable source measure/event
+identity, diagnose malformed navigation, and never mutate or duplicate the
+imported semantic score. Da capo, dal segno, coda and fine require a later
+explicit navigation model.
 
 ## Renderer decision
 

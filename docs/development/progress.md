@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 081 — MusicXML repeat and ending semantics
+
+State: **DONE**
+
+Delivered:
+
+- preserved left, middle, right and unknown barline locations per measure;
+- modeled forward, backward and unknown repeat directions;
+- retained optional repeat counts and winged engraving preferences;
+- modeled numbered-ending start, stop, discontinue and unknown types;
+- preserved the original ending-number text while parsing comma lists and
+  ranges such as `1, 3-4` into bounded pass numbers;
+- completed `MUS-001G1` without coupling score semantics to playback expansion
+  or rendering.
+
+Verification:
+
+- a fixture retains a curved forward repeat, a four-pass double-curved backward
+  repeat, default right-barline location and ending passes 1/3/4;
+- 128 core, 64 application and four MIDI-file tests pass;
+- the eight-score compatibility audit remains unchanged;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `6d098f7`.
+
+Next:
+
+- `MUS-001G2`: generate a bounded playback plan for common repeats and numbered
+  endings, with explicit diagnostics for ambiguous or unsupported navigation;
+- retain stable source identities while giving every repeated visit its own
+  occurrence identity.
+
 ### Cycle 080 — Score-note to MIDI-note alignment
 
 State: **DONE**
