@@ -96,9 +96,12 @@ three octaves, reverse for descent and repeat with the generated phrase.
 
 Coverage is deliberately explicit and Technique Studio says whether the
 current selection has reviewed guidance before playback. Primary-chord patterns
-show no fingering control or numbers until separate chord and inversion tables
-are reviewed. This avoids silently teaching a generic crossing pattern where
-the accepted fingering differs.
+use root-position blocked-triad fingering: right hand 1–3–5 and left hand
+5–3–1. The progression contains root-position i/I, iv/IV and V chords rather
+than inversions, and blocked chords never receive scale-style hand-turn
+highlights. The convention follows the root-position guidance in
+[Baylor Piano Basics](https://openbooks.library.baylor.edu/pianobasics/chapter/triad-inversions/)
+(checked 2026-07-25).
 Note-name labels continue to work for imported MIDI and Free Play; on a
 supported generated exercise, enabled finger numbers take visual precedence.
 
@@ -197,6 +200,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Primary-chord fingering remains intentionally unavailable. That progression
-needs its own hand-, inversion- and voice-leading-specific plan rather than
-reusing scale or arpeggio crossings.
+The current primary-chord generator uses root-position blocks rather than
+voice-led inversions. Future cadence work should add an explicit voicing model
+before introducing inversion-specific fingering.

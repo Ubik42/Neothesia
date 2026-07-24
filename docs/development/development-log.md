@@ -4,6 +4,54 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 057: Primary-chord fingerings (DONE)
+
+### Outcome
+
+All three Technique Studio pattern families now display reviewed finger
+guidance. Primary-chord practice assigns every simultaneously played triad note
+to a finger without pretending that blocked hand shapes are scale crossings.
+
+### Implemented
+
+- Added right-hand 1–3–5 and left-hand 5–3–1 to every generated root-position
+  triad.
+- Applied the assignment to major I–IV–V–I and minor i–iv–V–i.
+- Preserved hand filtering, direction, octave count and repetition behavior.
+- Emitted explicit false crossing flags for all blocked notes.
+- Upgraded native smoke to G♯ minor primary chords and asserted zero turns.
+- Completed `EX-003J` and the parent `EX-003`.
+
+The root-position convention was checked against
+[Baylor Piano Basics](https://openbooks.library.baylor.edu/pianobasics/chapter/triad-inversions/)
+on 2026-07-25.
+
+### Verification
+
+- C-major one-octave up/down produces seven triads with exact right/left
+  assignments.
+- Every chord crossing flag remains false.
+- Real-process G♯ minor primary-chord smoke matches a six-note two-hand target,
+  toggles guidance and verifies preset/settings/history persistence.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-six core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `81dd7be`
+(`feat: add primary chord fingerings`).
+
+### Known limitations
+
+- Primary chords remain root-position blocks rather than voice-led inversions.
+- There is no cadence-specific hand movement explanation yet.
+- Fingerings remain pedagogical defaults rather than anatomy-specific variants.
+
 ## 2026-07-25 — Cycle 056: Hand-turn highlighting (DONE)
 
 ### Outcome

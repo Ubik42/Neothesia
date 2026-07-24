@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 057 — Primary-chord fingerings
+
+State: **DONE**
+
+Delivered:
+
+- added simultaneous right-hand 1–3–5 and left-hand 5–3–1 assignments;
+- covered every I–IV–V–I and i–iv–V–i generated chord in all keys;
+- kept blocked chords free of false scale-style turn highlights;
+- changed native smoke coverage to G♯ minor primary chords;
+- completed `EX-003J` and the parent `EX-003`.
+
+Verification:
+
+- up/down C-major progression produces seven correctly fingered triads;
+- chord crossings are explicitly all false;
+- eighty-six core, fifty-seven application and two MIDI-file tests pass;
+- native automation matches six simultaneous two-hand notes and persists the
+  G♯ minor primary-chord attempt;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `81dd7be`.
+
 ### Cycle 056 — Hand-turn highlighting
 
 State: **DONE**

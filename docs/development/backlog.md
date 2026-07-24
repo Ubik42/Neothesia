@@ -89,7 +89,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `EX-003H` Add reviewed major/minor arpeggio fingerings for all twelve
   keys.
 - [x] `EX-003I` Highlight hand-turn landing notes in reviewed exercises.
-- [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
+- [x] `EX-003J` Add root-position primary-chord fingerings.
+- [x] `EX-003` Add reviewed key- and hand-specific fingering guidance.
 
 ## RESEARCH — architecture spikes
 
