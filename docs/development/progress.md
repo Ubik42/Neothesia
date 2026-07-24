@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 022 — Input-latency compensation
+
+State: **DONE**
+
+Delivered:
+
+- added a persistent, signed practice input timing offset;
+- bounded it to ±250 ms and exposed 5 ms Settings adjustments;
+- shifted assessment timestamps without delaying or rewriting MIDI output;
+- preserved key-hold duration by applying one constant offset to both edges;
+- handled session-start underflow safely;
+- showed every active non-zero offset in the player status line;
+- migrated older settings to a neutral zero offset.
+
+Verification:
+
+- two MIDI-file tests, forty-one practice/core tests and thirty-eight
+  application tests pass;
+- tests cover defaults, legacy settings, clamp boundaries, positive/negative
+  arithmetic and an exact on-time player judgement after compensation;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `94fb28c`.
+
 ### Cycle 021 — Key-hold duration evidence
 
 State: **DONE**
@@ -606,10 +630,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 022 with input-latency compensation. Add a bounded, persistent
-offset that affects practice timing judgement only—never audio/MIDI
-forwarding—then make the active calibration visible and test early/on-time/late
-boundaries under positive and negative offsets.
+Begin Cycle 023 with a detailed timing profile. Preserve signed match offsets,
+then report median early/late bias and robust consistency from enough notes.
+This becomes the evidence layer for a later guided latency-calibration
+suggestion rather than guessing a correction from one take.
 
 ## Known constraints
 

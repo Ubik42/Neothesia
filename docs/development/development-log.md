@@ -4,6 +4,55 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 022: Input-latency compensation (DONE)
+
+### Outcome
+
+Pianists can now correct a consistent keyboard/driver timing delay without
+delaying sound or modifying MIDI sent to Pianoteq. Timing judgement uses the
+compensated timestamp; monitoring remains immediate.
+
+### Implemented
+
+- Added a persistent input timing offset with backward-compatible zero default.
+- Added a Settings control in 5 ms steps.
+- Bounded the adjustment to `-250..=250 ms`.
+- Applied positive offsets by moving judgement timestamps earlier.
+- Supported negative offsets for unusual routes that require later judgement.
+- Used saturating duration arithmetic at session start.
+- Applied the same constant offset to note-on and note-off so physical key-hold
+  duration is unchanged.
+- Kept raw live MIDI forwarding ahead of and independent from assessment.
+- Displayed every non-zero active offset in the player status line.
+
+### Verification
+
+- Added default, legacy-settings and clamp tests.
+- Added a real player-path test where a 200 ms arrival with `+120 ms`
+  compensation lands exactly on the 80 ms on-time boundary.
+- Covered positive underflow and negative adjustment explicitly.
+- Existing exact expressive-MIDI forwarding tests continue to pass.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, forty-one core tests and thirty-eight
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `94fb28c`
+(`feat: compensate practice input latency`).
+
+### Known limitations
+
+- The offset is manual; there is no guided tap-to-calibrate workflow yet.
+- One global value is used for every MIDI input/output route.
+- Audio output latency is intentionally not delayed or estimated.
+- A timing profile is still needed before the app can propose an offset from
+  repeated evidence.
+
 ## 2026-07-25 — Cycle 021: Key-hold duration evidence (DONE)
 
 ### Outcome
