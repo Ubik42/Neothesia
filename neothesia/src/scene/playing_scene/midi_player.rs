@@ -88,11 +88,11 @@ impl MidiPlayer {
                         .midi_event(u4::new(channel), event.message);
                 }
                 PlayerConfig::Human => {
-                    if self.wait_for_notes {
-                        if let Some((note, active)) = note_state(&event.message) {
-                            self.practice.score_note(self.session_time, note, active);
-                        }
+                    if let Some((note, active)) = note_state(&event.message) {
+                        self.practice.score_note(self.session_time, note, active);
+                    }
 
+                    if self.wait_for_notes {
                         // In Human mode note events from the file are targets for the player,
                         // not notes to be played by the synthesizer. Keep forwarding controller
                         // and other non-note events so the track still sounds as intended.
@@ -225,6 +225,9 @@ impl MidiPlayer {
         }
         self.session_time += delta;
         self.practice.tick(self.session_time);
+        if !self.wait_for_notes {
+            self.practice.finalize_missed(self.session_time);
+        }
     }
 
     pub fn should_advance(&self) -> bool {
@@ -291,8 +294,31 @@ mod tests {
 
         player.update(Duration::from_secs(10));
         assert!(!player.should_advance());
+        player.tick_practice_clock(Duration::from_secs(30));
+        assert_eq!(player.practice_snapshot().missed_notes, 0);
 
         player.set_wait_for_notes(false);
+        assert!(player.should_advance());
+    }
+
+    #[test]
+    fn flow_mode_finalizes_unplayed_targets_as_missed() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let mut player = MidiPlayer::new_with_lead_in(
+            OutputConnection::DummyOutput,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            false,
+            Duration::ZERO,
+        );
+
+        player.tick_practice_clock(Duration::from_secs(10));
+        player.update(Duration::from_secs(10));
+        player.tick_practice_clock(Duration::from_millis(501));
+
+        assert!(player.practice_snapshot().missed_notes > 0);
         assert!(player.should_advance());
     }
 }
