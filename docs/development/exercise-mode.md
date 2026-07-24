@@ -40,6 +40,9 @@ sequence, including ascending, descending and up-and-down direction, one to
 three octaves and every repetition. Finger numbers 1–5 are centered directly on
 the falling notes and are enabled by default when available. The player shows a
 clear **Fingers: ON/OFF** control.
+Landing notes that require a thumb-under or finger-over hand turn are gold;
+ordinary sequential notes remain white. Technique Studio explains this color
+before playback.
 
 That control is a persistent appearance preference, not a per-attempt
 temporary state. Changing it saves immediately and the same option appears as

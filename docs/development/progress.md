@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 056 — Hand-turn highlighting
+
+State: **DONE**
+
+Delivered:
+
+- detected thumb-under and finger-over landing notes per hand and direction;
+- carried crossing metadata from exercise plans through generated songs;
+- rendered hand-turn finger numbers in gold and ordinary numbers in white;
+- explained the color in Technique Studio;
+- exposed crossing count to native automation;
+- completed `EX-003I`.
+
+Verification:
+
+- C-major up/down assertions cover two right- and two left-hand turns;
+- generated-song mapping preserves exact timestamp/pitch/channel markers;
+- eighty-six core, fifty-seven application and two MIDI-file tests pass;
+- native G♯ minor-arpeggio automation verifies at least one rendered turn;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `667cbc8`.
+
 ### Cycle 055 — Reviewed arpeggio fingerings
 
 State: **DONE**

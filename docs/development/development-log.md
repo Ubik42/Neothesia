@@ -4,6 +4,54 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 056: Hand-turn highlighting (DONE)
+
+### Outcome
+
+Finger guidance now calls attention to the notes that require preparation.
+Thumb-under and finger-over landing numbers are gold, so the learner can see
+the technical turn rather than reading every finger number as equally difficult.
+
+### Implemented
+
+- Derived turn landings from pitch direction, finger direction and hand.
+- Covered both ascending and descending motion for right and left hands.
+- Stored turn flags alongside the existing finger sequences.
+- Mapped flags to exact generated MIDI timestamp/pitch/channel identities.
+- Added a backward-compatible renderer constructor and a richer guidance path.
+- Rendered turn numbers in warm gold while retaining white ordinary numbers.
+- Added a Technique Studio legend.
+- Exposed the mapped turn count through the debug snapshot and asserted it in
+  the real-process exercise smoke.
+- Completed `EX-003I`.
+
+### Verification
+
+- C-major up/down test identifies right-hand indices 3/12 and left-hand
+  indices 5/10.
+- Generated-song test verifies four mapped turns and exact representative keys.
+- Real-process G♯ minor-arpeggio smoke requires a positive turn count before
+  completing its two-pass workflow.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-six core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `667cbc8`
+(`feat: highlight exercise hand turns`).
+
+### Known limitations
+
+- Gold indicates where the hand turns but does not yet name thumb-under versus
+  finger-over separately.
+- Color is currently fixed rather than user-configurable.
+- Primary-chord finger guidance remains unavailable.
+
 ## 2026-07-25 — Cycle 055: Reviewed arpeggio fingerings (DONE)
 
 ### Outcome
