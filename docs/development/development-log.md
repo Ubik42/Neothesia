@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 074: Safe compressed MusicXML input (DONE)
+
+### Outcome
+
+Neothesia can now open the compressed `.mxl` form used by notation applications
+without extracting files to disk or trusting archive paths. The same semantic
+importer receives both raw and compressed scores.
+
+### Implemented
+
+- Detected ZIP signatures independently of filename extensions.
+- Read `META-INF/container.xml` and selected the declared full-score root.
+- Added stored and Deflate decompression with a deliberately narrow ZIP feature
+  set.
+- Added limits for archive bytes, entry count, container bytes and decompressed
+  MusicXML bytes.
+- Rejected absolute paths, parent traversal and Windows separators in declared
+  root files.
+- Added typed errors for invalid archives, missing containers/root files,
+  unsafe paths and size limits.
+- Treated the standard mimetype marker as a conformance diagnostic rather than
+  an unnecessary compatibility blocker.
+
+### Verification
+
+- Round-tripped the annotated two-staff piano fixture through a Deflate MXL.
+- Verified missing-mimetype warning behavior.
+- Verified traversal rejection before score lookup.
+- Verified a ZIP without `META-INF/container.xml` is not treated as a score.
+- 117 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, formatting and diff checks
+  pass with only pre-existing warnings.
+
+Implementation commit: `49843b7` (`feat: import compressed MusicXML safely`).
+
+### Known limitations
+
+- `score-timewise` remains an explicit unsupported error.
+- Only the root score is imported; alternate PDF/audio renditions and separate
+  part rootfiles are intentionally ignored.
+- Cross-exporter real-world fixture coverage is the next compatibility gate.
+
 ## 2026-07-25 — Cycle 073: MusicXML semantic foundation (DONE)
 
 ### Outcome

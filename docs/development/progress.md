@@ -10,6 +10,42 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 074 — Safe compressed MusicXML input
+
+State: **DONE**
+
+Delivered:
+
+- added file- and memory-level entry points that detect MXL by ZIP signature
+  instead of trusting an extension;
+- followed the standard `META-INF/container.xml` root-file declaration and
+  preferred the complete MusicXML media type;
+- supported stored and deflated MXL entries;
+- bounded archive bytes, entry count, container bytes and decompressed score
+  bytes;
+- rejected absolute, parent-traversing and Windows-separator root paths before
+  any score lookup;
+- accepted a missing/invalid mimetype marker for compatibility while recording
+  a visible conformance warning;
+- completed `MUS-001B1` and retained timewise/corpus work separately.
+
+Verification:
+
+- valid deflated MXL imports the same annotated piano score as raw MusicXML;
+- a missing mimetype produces a warning without discarding the score;
+- path traversal and missing-container archives fail with typed errors;
+- 117 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `49843b7`.
+
+Next:
+
+- `MUS-001B3`: build the cross-exporter fixture corpus before extending more
+  schema coverage;
+- use corpus failures to decide whether `MUS-001B2` timewise conversion has
+  practical priority.
+
 ### Cycle 073 — MusicXML semantic foundation
 
 State: **DONE**

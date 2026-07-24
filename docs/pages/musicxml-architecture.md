@@ -47,14 +47,16 @@ and [MuseScore MusicXML guidance](https://handbook.musescore.org/file-management
 
 ## Planned slices
 
-1. Add compressed MXL and a representative corpus of exported piano scores.
-2. Model repeats/endings, tuplets, transposition, pedal and ornament semantics
+1. Build a representative corpus of exported piano scores; bounded compressed
+   MXL input is already supported.
+2. Add score-timewise conversion when corpus evidence justifies its priority.
+3. Model repeats/endings, tuplets, transposition, pedal and ornament semantics
    needed by learning features.
-3. Give score notes and measures stable identities and align them with the
+4. Give score notes and measures stable identities and align them with the
    player's performance timeline.
-4. Measure Verovio import fidelity, SVG generation time, binary size and
+5. Measure Verovio import fidelity, SVG generation time, binary size and
    highlight latency outside the main application.
-5. Add a synchronized grand-staff proof of concept only after the spike meets
+6. Add a synchronized grand-staff proof of concept only after the spike meets
    explicit acceptance thresholds.
 
 The original MIDI remains untouched. Notation layers must stay independently

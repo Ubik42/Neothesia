@@ -56,8 +56,9 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
 - [x] `MUS-001A` Add a notation-neutral score model and a tested uncompressed
   partwise MusicXML importer.
-- [ ] `MUS-001B` Add compressed MXL input, timewise conversion and a
-  representative piano fixture corpus.
+- [x] `MUS-001B1` Add bounded compressed MXL input with container validation.
+- [ ] `MUS-001B2` Add score-timewise conversion.
+- [ ] `MUS-001B3` Add a representative cross-exporter piano fixture corpus.
 - [ ] `MUS-001C` Align imported score events with the performance timeline and
   expose stable note/measure identities.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
