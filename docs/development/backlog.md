@@ -74,6 +74,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-003G` Preview and atomically accept a complete suggested chord shape.
 - [ ] `MUS-003F` Model chord-to-chord voice leading, held-note substitutions
   and phrase context.
+- [x] `MUS-003F1` Optimize consecutive chord shapes together and preserve
+  common-tone fingers when ergonomically comparable.
+- [ ] `MUS-003F2` Model held-note finger substitutions explicitly.
+- [ ] `MUS-003F3` Use phrase, slur and articulation context.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
 - [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.

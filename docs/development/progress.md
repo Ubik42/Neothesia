@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 069 — Common-tone chord voice leading
+
+State: **DONE**
+
+Delivered:
+
+- grouped consecutive valid chord onsets into a candidate-state sequence;
+- used dynamic programming across all legal vertical shapes rather than a
+  greedy previous-chord choice;
+- preferred common tones to keep the same finger and reduced unnecessary
+  movement for fingers used in both chords;
+- added an explainable `ChordConnection` reason at an 84% communication tier;
+- segmented around unsupported/contradictory chords so one invalid group does
+  not suppress later valid suggestions;
+- calibrated the transition as a light tie-breaker after rejecting an
+  over-strong version that produced cramped shapes;
+- completed `MUS-003F1`; retained held-note and phrase work as F2/F3.
+
+Verification:
+
+- C–E–G → C–E–A keeps C on 1 and E on 3;
+- E–G–C and D–G–B independently disagree on the G finger, while joint planning
+  chooses ergonomic 1–3–5 for both and keeps G on 3;
+- existing scale turns, isolated chords, anchors, wide-span warnings and
+  refusal boundaries remain green;
+- 107 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `6c53e86`.
+
 ### Cycle 068 — Independent right/left-hand spans
 
 State: **DONE**

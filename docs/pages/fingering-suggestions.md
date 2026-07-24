@@ -94,6 +94,27 @@ updates all exact-note hints in memory and performs one atomic sidecar
 replacement, so a failed write cannot leave half a chord saved. Direct `1`–`5`
 input remains a single-note override.
 
+### Consecutive chords
+
+Adjacent chord onsets are optimized as a short state sequence instead of
+choosing every vertical shape independently. Each chord still contributes its
+full ergonomic shape cost. A smaller transition cost then:
+
+- prefers a common pitch to remain under the same finger;
+- penalizes unnecessary movement of a finger used in both shapes;
+- labels a retained common tone with the reason “keeps a common chord tone
+  under the same finger.”
+
+The transition term is intentionally a light tie-breaker. It must not turn an
+ordinary open hand shape into a cramped 1–2–3 merely to preserve a finger. For
+example, E–G–C and D–G–B are both allowed to use 1–3–5 so their common G remains
+under finger 3; the isolated first chord's also-plausible 1–2–5 loses only
+because the two vertical options are close.
+
+This is chord-to-chord voice-leading assistance, not held-note substitution.
+Without note-release, pedal and phrasing context the model does not claim that
+a common MIDI pitch is physically sustained between attacks.
+
 ## Hand-span personalization
 
 Open **Settings → Practice** and set **Right Hand Span** and **Left Hand Span**
@@ -143,7 +164,7 @@ hand ownership receive no suggestion.
 Future work can add:
 
 - finer anatomy calibration beyond three span categories;
-- chord-to-chord voice leading and held-note substitutions;
+- held-note substitutions and repeated-note alternation;
 - phrase/slur and articulation context;
 - comparison against expert-annotated datasets;
 - alternative suggestions instead of only the lowest-cost path.

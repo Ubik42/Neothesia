@@ -4,6 +4,59 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 069: Common-tone chord voice leading (DONE)
+
+### Outcome
+
+Consecutive chord suggestions now behave like a phrase of hand shapes rather
+than unrelated screenshots. When two ergonomic choices are close, a common
+tone can remain under the same finger and the preview explains that continuity.
+
+### Implemented
+
+- Generated every legal candidate for each consecutive chord onset.
+- Ran dynamic programming across the candidate sequence.
+- Kept the existing full vertical shape cost at every state.
+- Added a transition cost for changing a common pitch's finger and moving one
+  reused finger between pitches.
+- Added `ChordConnection` with the explanation “keeps a common chord tone under
+  the same finger.”
+- Split candidate runs around six-note, duplicate-pitch or anchor-conflict
+  groups, leaving those groups empty without poisoning later valid chords.
+- Calibrated common-tone change to a three-point penalty after testing stronger
+  values: stronger weights could choose a cramped 1–2–3 solely for continuity,
+  which is the wrong pedagogical trade.
+- Completed `MUS-003F1`; retained explicit held-note substitution and
+  phrase/articulation context.
+
+### Verification
+
+- C–E–G → C–E–A yields 1–3–5 → 1–3–5 and marks retained C/E tones.
+- In isolation, E–G–C assigns G=2 while D–G–B assigns G=3. Joint planning picks
+  the still-ergonomic 1–3–5 option for both and keeps G=3, proving the
+  transition term changes a real decision rather than only labeling a
+  coincidental match.
+- Twelve fingering-domain tests pass alongside every existing core/application
+  test.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- Whole-chord and Technique Studio real-process fixtures pass.
+
+All desktop gates passed: two MIDI-file tests, 107 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `6c53e86`
+(`feat: preserve common chord fingers`).
+
+### Known limitations
+
+- Consecutive means adjacent chord onset groups on one track; a monophonic note
+  between them starts a new segment.
+- Note duration, key release, sustain pedal and slur data do not yet determine
+  whether a common tone is physically held.
+- Repeated-note alternation and deliberate finger substitution are not modeled.
+
 ## 2026-07-25 — Cycle 068: Independent right/left-hand spans (DONE)
 
 ### Outcome
