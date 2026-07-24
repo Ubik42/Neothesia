@@ -4,6 +4,75 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 049: Common major-scale fingering group (DONE)
+
+### Outcome
+
+Reviewed falling-note fingering now covers the six major scales most often
+introduced first, including F major's important right-hand exception. Technique
+Studio also tells the learner whether guidance exists before an exercise starts.
+
+### Implemented
+
+- Checked the C/G/D/A/E shared fingering group against Baylor Piano Basics.
+- Checked F major's separate right-hand pattern against piano.org's dedicated
+  scale reference.
+- Expanded the fingering eligibility table to:
+  - C major;
+  - G major;
+  - D major;
+  - A major;
+  - E major;
+  - F major.
+- Applied the common two-hand C pattern to C/G/D/A/E.
+- Added F-major right hand `12341234`; retained common left hand
+  `54321321`.
+- Generalized multi-octave crossing without turning the intermediate tonic into
+  an endpoint finger.
+- Reused the existing direction and repetition transformer.
+- Kept all non-C minor scales unsupported until their distinct tables are
+  reviewed.
+- Added a green “Reviewed fingering available” or neutral “not yet reviewed”
+  line below the Technique Studio exercise preview.
+- Changed native smoke from C to F major to exercise the exceptional right-hand
+  branch.
+- Completed `EX-003B` without closing the all-key `EX-003` parent.
+
+### Verification
+
+- C/G/D/A/E two-octave right hand:
+  `1231234 12312345`.
+- C/G/D/A/E two-octave left hand:
+  `5432132 14321321`.
+- F two-octave right hand:
+  `1234123 12341234`.
+- F two-octave left hand:
+  `5432132 14321321`.
+- G minor returns no fingering rather than borrowing G major.
+- Real-process smoke selects F through semantic key controls.
+- F2/F4 are exposed as the first required two-hand tonic notes.
+- Guidance is available and default-on, toggles off and back on, and survives
+  the complete practice/preset/library flow.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, seventy-seven core tests and fifty-seven
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `2af19e5`
+(`feat: expand reviewed major scale fingerings`).
+
+### Known limitations
+
+- B and the five black-key-root major scales still await table-by-table review.
+- Minor coverage still stops at C.
+- Fingering preferences can vary with hand anatomy; the current UI presents a
+  standard teaching fingering, not an immutable rule.
+
 ## 2026-07-25 — Cycle 048: Reviewed fingering foundation (DONE)
 
 ### Outcome

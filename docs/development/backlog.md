@@ -77,6 +77,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `EX-001` Add scales, arpeggios and chord exercise mode.
 - [x] `EX-002` Persist favourite exercise presets and recent exercise variants.
 - [x] `EX-003A` Add the reviewed fingering model, renderer and C-scale family.
+- [x] `EX-003B` Cover the reviewed C/G/D/A/E/F major teaching group.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
 
 ## RESEARCH — architecture spikes

@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 049 — Common major-scale fingering group
+
+State: **DONE**
+
+Delivered:
+
+- verified the common C/G/D/A/E group against a university piano text;
+- verified F major's distinct right hand against a dedicated reference;
+- expanded reviewed guidance from C to six major keys;
+- retained standard fingering for both hands in C/G/D/A/E;
+- added F right-hand `1234–1234` with the standard left hand;
+- extended every table across directions, octaves and repetitions;
+- refused to inherit a parallel-major table for unreviewed minor keys;
+- added an availability line to the Technique Studio preview;
+- completed `EX-003B`.
+
+Verification:
+
+- exact two-octave standard right/left sequences for five major keys;
+- exact two-octave F-major right/left sequences;
+- G minor explicitly remains unsupported;
+- seventy-seven core tests and fifty-seven application tests pass;
+- native automation selects F major, verifies guidance defaults on, toggles it
+  both ways and completes the two-pass exercise;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `2af19e5`.
+
 ### Cycle 048 — Reviewed fingering foundation
 
 State: **DONE**

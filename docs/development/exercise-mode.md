@@ -34,18 +34,28 @@ settings default to empty preset lists.
 
 ## Fingering guidance
 
-Generated C major, natural-minor, harmonic-minor and melodic-minor scales carry
-reviewed finger numbers for both hands. The mapping follows the exact generated
-sequence, including ascending, descending and up-and-down direction, one to
-three octaves and every repetition. Finger numbers 1–5 are centered directly
-on the falling notes and are enabled by default when available. The player
-shows a clear **Fingers: ON/OFF** control.
+Generated C, G, D, A, E and F major scales plus C natural-minor,
+harmonic-minor and melodic-minor scales carry reviewed finger numbers for both
+hands. The mapping follows the exact generated sequence, including ascending,
+descending and up-and-down direction, one to three octaves and every
+repetition. Finger numbers 1–5 are centered directly on the falling notes and
+are enabled by default when available. The player shows a clear
+**Fingers: ON/OFF** control.
 
-Coverage is deliberately explicit. Other keys and non-scale patterns currently
-show no fingering control or numbers. This avoids silently teaching a generic
-crossing pattern in keys where the accepted fingering differs. Note-name labels
-continue to work for imported MIDI and Free Play; on a supported generated
-exercise, enabled finger numbers take visual precedence.
+C/G/D/A/E use the common `12312345` right-hand and `54321321` left-hand
+one-octave pattern. F major retains the common left hand but uses
+`12341234` in the right hand so finger 4 plays B♭. The reviewed basis is
+[Baylor Piano Basics](https://openbooks.library.baylor.edu/pianobasics/chapter/one-octave-major-scales/)
+for the shared five-key group and the
+[F major reference at piano.org](https://piano.org/scales/major/f/) for the
+exception (checked 2026-07-25).
+
+Coverage is deliberately explicit and Technique Studio says whether the current
+selection has reviewed guidance before playback. Other keys and non-scale
+patterns show no fingering control or numbers. This avoids silently teaching a
+generic crossing pattern in keys where the accepted fingering differs.
+Note-name labels continue to work for imported MIDI and Free Play; on a
+supported generated exercise, enabled finger numbers take visual precedence.
 
 ## Core specification
 
@@ -142,6 +152,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Fingering remains intentionally unavailable outside the reviewed C-scale
-family. Generic one-pattern-fits-all scale fingering would teach incorrect
-crossings in several keys.
+Fingering remains intentionally unavailable outside the reviewed major-key
+group and C-minor family. Generic one-pattern-fits-all scale fingering would
+teach incorrect crossings in several keys.
