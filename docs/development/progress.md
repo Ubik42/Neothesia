@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 051 — Persistent fingering visibility
+
+State: **DONE**
+
+Delivered:
+
+- added a backward-compatible appearance preference for exercise fingerings;
+- defaulted old and new settings to visible guidance;
+- initialized each generated exercise from the saved preference;
+- saved player toggle changes immediately;
+- added an Exercise Fingerings row to Settings;
+- restored note names when finger guidance is off and note labels are enabled;
+- preserved the existing public note-label constructor;
+- upgraded smoke persistence diagnostics to name the missing field;
+- completed `EX-003D`.
+
+Verification:
+
+- legacy appearance RON defaults fingerings on;
+- explicit off state survives settings serialization;
+- eighty-one core tests and fifty-seven application tests pass;
+- native automation toggles off/on, verifies both snapshots and inspects the
+  persisted final preference;
+- Clippy and release build report only pre-existing warnings;
+- the optional CLI target remains blocked on this machine by its pre-existing
+  system FFmpeg/vcpkg requirement, while its original renderer API remains
+  source-compatible;
+- implementation commit: `0d6c428`.
+
 ### Cycle 050 — All major-scale fingering tables
 
 State: **DONE**

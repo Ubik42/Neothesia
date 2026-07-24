@@ -79,6 +79,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `EX-003A` Add the reviewed fingering model, renderer and C-scale family.
 - [x] `EX-003B` Cover the reviewed C/G/D/A/E/F major teaching group.
 - [x] `EX-003C` Complete reviewed fingering tables for all twelve major keys.
+- [x] `EX-003D` Persist fingering visibility and expose it in Settings.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
 
 ## RESEARCH — architecture spikes

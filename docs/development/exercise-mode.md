@@ -41,6 +41,13 @@ one to three octaves and every repetition. Finger numbers 1–5 are centered
 directly on the falling notes and are enabled by default when available. The
 player shows a clear **Fingers: ON/OFF** control.
 
+That control is a persistent appearance preference, not a per-attempt
+temporary state. Changing it saves immediately and the same option appears as
+**Exercise Fingerings** in Settings. Older settings default to visible.
+Turning guidance off keeps it available for later re-enabling; if ordinary
+note-name labels are enabled, they become visible again while finger numbers
+are off.
+
 C/G/D/A/E use the common `12312345` right-hand and `54321321` left-hand
 one-octave pattern. F major retains the common left hand but uses
 `12341234` in the right hand so finger 4 plays B♭. The reviewed basis is

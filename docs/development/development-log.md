@@ -4,6 +4,66 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 051: Persistent fingering visibility (DONE)
+
+### Outcome
+
+The learner's finger-number choice now sticks. Turning guidance off for recall
+practice no longer resets on the next generated exercise or application launch,
+and the preference is discoverable outside the player.
+
+### Implemented
+
+- Added `exercise_fingerings` to versioned appearance settings.
+- Defaulted missing legacy values to `true`.
+- Added typed Config getter/setter methods.
+- Initialized the falling-note renderer from the stored preference.
+- Kept reviewed fingering availability separate from current visibility.
+- Saved every player toggle immediately.
+- Added **Exercise Fingerings** to the normal Settings page.
+- Let enabled note-name labels show through whenever finger numbers are off.
+- Preserved the existing three-argument `NoteLabels::new` API.
+- Added `NoteLabels::with_fingerings` for generated exercises instead of
+  forcing Free Play, CLI and downstream callers onto a new constructor.
+- Split smoke settings validation into named assertions for actionable failures.
+- Completed `EX-003D`.
+
+### Verification
+
+- Default appearance enables exercise fingerings.
+- Appearance RON from before the new field also enables them.
+- An explicit disabled preference survives Model serialization and rebuild.
+- Real-process B-major smoke verifies:
+  - guidance available and initially enabled;
+  - off action accepted and snapshot false;
+  - on action accepted and final settings true;
+  - the full completion/preset/library path remains green.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-one core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+An additional `neothesia-cli` check reached its always-on
+`ffmpeg-sys-next` build and stopped because this Windows environment has no
+vcpkg/pkg-config FFmpeg installation. The note-label public constructor was
+kept backward compatible, so this cycle does not require a CLI source change.
+
+Implementation commit: `0d6c428`
+(`feat: persist exercise fingering visibility`).
+
+### Known limitations
+
+- Visibility is global rather than stored per preset.
+- There is no keyboard shortcut yet; the top-bar and Settings controls are the
+  supported interfaces.
+- Settings changes save through the existing settings lifecycle, while player
+  changes save immediately.
+
 ## 2026-07-25 — Cycle 050: All major-scale fingering tables (DONE)
 
 ### Outcome
