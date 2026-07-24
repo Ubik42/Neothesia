@@ -74,6 +74,28 @@ pub struct Direction {
     pub dynamics: Vec<String>,
     pub words: Vec<String>,
     pub tempo_bpm: Option<String>,
+    pub pedals: Vec<PedalMark>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PedalMark {
+    pub kind: PedalType,
+    pub number: u16,
+    pub line: Option<bool>,
+    pub sign: Option<bool>,
+    pub abbreviated: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PedalType {
+    Start,
+    Stop,
+    Sostenuto,
+    Change,
+    Continue,
+    Discontinue,
+    Resume,
+    Other(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +457,7 @@ struct DirectionBuilder {
     dynamics: Vec<String>,
     words: Vec<String>,
     tempo_bpm: Option<String>,
+    pedals: Vec<PedalMark>,
 }
 
 #[derive(Default)]
@@ -577,6 +600,13 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     b"sound" if direction.is_some() => {
                         direction.as_mut().unwrap().tempo_bpm = attribute(&start, b"tempo")?;
                     }
+                    b"pedal" if direction.is_some() => {
+                        direction
+                            .as_mut()
+                            .unwrap()
+                            .pedals
+                            .push(parse_pedal(&start)?);
+                    }
                     name if note.is_some()
                         && parent_is(&path, 2, b"articulations")
                         && name != b"articulations" =>
@@ -596,7 +626,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .dynamics
                             .push(str::from_utf8(name)?.to_owned());
                     }
-                    b"transpose" | b"ornaments" | b"pedal" | b"wedge" => {
+                    b"transpose" | b"ornaments" | b"wedge" => {
                         warn_deferred(
                             &mut score.warnings,
                             current_part.as_ref(),
@@ -618,10 +648,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     score.version = attribute(&start, b"version")?;
                 }
                 let name = start.name();
-                if matches!(
-                    name.as_ref(),
-                    b"transpose" | b"ornaments" | b"pedal" | b"wedge"
-                ) {
+                if matches!(name.as_ref(), b"transpose" | b"ornaments" | b"wedge") {
                     warn_deferred(
                         &mut score.warnings,
                         current_part.as_ref(),
@@ -867,6 +894,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 dynamics: built.dynamics,
                                 words: built.words,
                                 tempo_bpm: built.tempo_bpm,
+                                pedals: built.pedals,
                             }));
                     }
                     b"backup" => {
@@ -954,6 +982,9 @@ fn handle_empty(
         b"sound" if direction.is_some() => {
             direction.as_mut().unwrap().tempo_bpm = attribute(start, b"tempo")?;
         }
+        b"pedal" if direction.is_some() => {
+            direction.as_mut().unwrap().pedals.push(parse_pedal(start)?);
+        }
         _ => {}
     }
     Ok(())
@@ -998,6 +1029,38 @@ fn push_tuplet(start: &BytesStart<'_>, tuplets: &mut Vec<TupletSpan>) -> Result<
     Ok(())
 }
 
+fn parse_pedal(start: &BytesStart<'_>) -> Result<PedalMark, ImportError> {
+    let value = attribute(start, b"type")?.unwrap_or_default();
+    let kind = match value.as_str() {
+        "start" => PedalType::Start,
+        "stop" => PedalType::Stop,
+        "sostenuto" => PedalType::Sostenuto,
+        "change" => PedalType::Change,
+        "continue" => PedalType::Continue,
+        "discontinue" => PedalType::Discontinue,
+        "resume" => PedalType::Resume,
+        _ => PedalType::Other(value),
+    };
+    Ok(PedalMark {
+        kind,
+        number: attribute(start, b"number")?
+            .map(|value| parse_u16("pedal number", &value))
+            .transpose()?
+            .unwrap_or(1),
+        line: yes_no_attribute(start, b"line")?,
+        sign: yes_no_attribute(start, b"sign")?,
+        abbreviated: yes_no_attribute(start, b"abbreviated")?,
+    })
+}
+
+fn yes_no_attribute(start: &BytesStart<'_>, name: &[u8]) -> Result<Option<bool>, ImportError> {
+    Ok(match attribute(start, name)?.as_deref() {
+        Some("yes") => Some(true),
+        Some("no") => Some(false),
+        _ => None,
+    })
+}
+
 fn span_attribute(start: &BytesStart<'_>) -> Result<SpanType, ImportError> {
     Ok(match attribute(start, b"type")?.as_deref() {
         Some("stop") => SpanType::Stop,
@@ -1031,11 +1094,6 @@ fn warn_deferred(
         _ => "score".into(),
     };
     let message = match element {
-        "time-modification" => {
-            "tuplet ratio is not represented yet; exact event duration is preserved"
-        }
-        "tuplet" => "tuplet bracket and number spans are not represented yet",
-        "pedal" => "pedal directions are not represented yet",
         "ornaments" => "ornament notation and playback are not represented yet",
         "transpose" => "written-to-sounding transposition is not represented yet",
         "wedge" => "crescendo and diminuendo wedge spans are not represented yet",
@@ -1269,17 +1327,40 @@ mod tests {
     }
 
     #[test]
-    fn reports_empty_deferred_direction_elements() {
+    fn preserves_empty_pedal_direction_elements() {
         let source = br#"<score-partwise>
 <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
 <part id="P1"><measure number="1">
-<direction><direction-type><pedal type="start"/></direction-type></direction>
+<direction><direction-type>
+<pedal type="start" number="2" line="yes" sign="yes" abbreviated="no"/>
+<pedal type="change" number="2" line="yes"/>
+</direction-type></direction>
 <note><rest/><duration>1</duration></note>
 </measure></part></score-partwise>"#;
         let score = import_musicxml(source).unwrap();
-        assert!(score.warnings.iter().any(|warning| {
-            warning.location == "P1 measure 1" && warning.message.starts_with("pedal directions")
-        }));
+        assert!(score.warnings.is_empty());
+        let ScoreEvent::Direction(direction) = &score.parts[0].measures[0].events[0] else {
+            panic!("pedal should remain a direction");
+        };
+        assert_eq!(
+            direction.pedals,
+            [
+                PedalMark {
+                    kind: PedalType::Start,
+                    number: 2,
+                    line: Some(true),
+                    sign: Some(true),
+                    abbreviated: Some(false),
+                },
+                PedalMark {
+                    kind: PedalType::Change,
+                    number: 2,
+                    line: Some(true),
+                    sign: None,
+                    abbreviated: None,
+                }
+            ]
+        );
     }
 
     #[test]
