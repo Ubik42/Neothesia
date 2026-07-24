@@ -159,10 +159,7 @@ fn send_message(
     channel: u4,
     message: midly::MidiMessage,
 ) -> bool {
-    inner.buf.clear();
-    LiveEvent::Midi { channel, message }
-        .write(&mut inner.buf)
-        .expect("serializing a channel MIDI message into memory cannot fail");
+    encode_message(channel, message, &mut inner.buf);
     match inner.conn.send(&inner.buf) {
         Ok(()) => true,
         Err(error) => {
@@ -170,6 +167,13 @@ fn send_message(
             false
         }
     }
+}
+
+fn encode_message(channel: u4, message: midly::MidiMessage, buffer: &mut Vec<u8>) {
+    buffer.clear();
+    LiveEvent::Midi { channel, message }
+        .write(buffer)
+        .expect("serializing a channel MIDI message into memory cannot fail");
 }
 
 #[derive(Clone, Debug, Eq)]
@@ -256,5 +260,26 @@ mod tests {
                 panic_messages().len()
             );
         }
+    }
+
+    #[test]
+    fn expressive_messages_serialize_without_losing_values() {
+        let channel = u4::new(2);
+        let mut bytes = Vec::new();
+
+        encode_message(channel, controller(SUSTAIN_PEDAL, 23), &mut bytes);
+        assert_eq!(bytes, [0xB2, SUSTAIN_PEDAL, 23]);
+
+        let bend = midly::PitchBend::from_int(1_337);
+        let raw = bend.0.as_int();
+        encode_message(channel, midly::MidiMessage::PitchBend { bend }, &mut bytes);
+        assert_eq!(bytes, [0xE2, (raw & 0x7F) as u8, (raw >> 7) as u8]);
+
+        encode_message(
+            channel,
+            midly::MidiMessage::ChannelAftertouch { vel: u7::new(77) },
+            &mut bytes,
+        );
+        assert_eq!(bytes, [0xD2, 77]);
     }
 }

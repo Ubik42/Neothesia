@@ -65,9 +65,9 @@ pub enum OutputConnection {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TestOutputEvent {
-    Midi,
+    Midi { channel: u4, message: MidiMessage },
     StopAll,
 }
 
@@ -79,7 +79,10 @@ impl OutputConnection {
             OutputConnection::Synth(b) => b.midi_event(channel, msg),
             OutputConnection::DummyOutput => {}
             #[cfg(test)]
-            OutputConnection::Test(events) => events.borrow_mut().push(TestOutputEvent::Midi),
+            OutputConnection::Test(events) => events.borrow_mut().push(TestOutputEvent::Midi {
+                channel,
+                message: msg,
+            }),
         }
     }
     pub fn set_gain(&self, gain: f32) {

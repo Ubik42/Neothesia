@@ -308,6 +308,10 @@ mod tests {
         output_manager::{OutputConnection, TestOutputEvent},
         song::Song,
     };
+    use midi_file::midly::{
+        Format, Header, MetaMessage, PitchBend, Smf, Timing, TrackEvent, TrackEventKind,
+        num::{u4, u7},
+    };
 
     #[test]
     fn wait_mode_can_release_a_blocked_practice_track() {
@@ -384,5 +388,140 @@ mod tests {
             .filter(|event| matches!(event, TestOutputEvent::StopAll))
             .count();
         assert_eq!(panic_count, 4);
+    }
+
+    #[test]
+    fn live_expressive_midi_is_forwarded_without_value_changes() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let (output, events) = OutputConnection::test();
+        let mut player = MidiPlayer::new_with_lead_in(
+            output,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+        events.borrow_mut().clear();
+        let messages = expressive_messages();
+
+        for message in messages {
+            player.user_midi_event(5, &message);
+        }
+
+        let expected: Vec<_> = messages
+            .into_iter()
+            .map(|message| TestOutputEvent::Midi {
+                channel: u4::new(5),
+                message,
+            })
+            .collect();
+        assert_eq!(events.borrow().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn human_track_expressive_midi_survives_wait_mode() {
+        let messages = expressive_messages();
+        let song = expressive_song(&messages);
+        let (output, events) = OutputConnection::test();
+        let mut player = MidiPlayer::new_with_lead_in(
+            output,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+        events.borrow_mut().clear();
+
+        player.update(Duration::from_secs(1));
+
+        let forwarded: Vec<_> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                TestOutputEvent::Midi { channel, message } => Some((*channel, *message)),
+                TestOutputEvent::StopAll => None,
+            })
+            .collect();
+        let expected: Vec<_> = messages
+            .into_iter()
+            .map(|message| (u4::new(2), message))
+            .collect();
+        assert_eq!(forwarded, expected);
+    }
+
+    fn expressive_messages() -> [MidiMessage; 4] {
+        [
+            MidiMessage::Controller {
+                controller: u7::new(64),
+                value: u7::new(23),
+            },
+            MidiMessage::Controller {
+                controller: u7::new(64),
+                value: u7::new(91),
+            },
+            MidiMessage::PitchBend {
+                bend: PitchBend::from_int(1_337),
+            },
+            MidiMessage::ChannelAftertouch { vel: u7::new(77) },
+        ]
+    }
+
+    fn expressive_song(messages: &[MidiMessage]) -> Song {
+        let mut track = vec![
+            TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Meta(MetaMessage::Tempo(500_000.into())),
+            },
+            TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Meta(MetaMessage::TimeSignature(4, 2, 24, 8)),
+            },
+            TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Midi {
+                    channel: u4::new(2),
+                    message: MidiMessage::NoteOn {
+                        key: u7::new(60),
+                        vel: u7::new(100),
+                    },
+                },
+            },
+        ];
+        for message in messages {
+            track.push(TrackEvent {
+                delta: 1.into(),
+                kind: TrackEventKind::Midi {
+                    channel: u4::new(2),
+                    message: *message,
+                },
+            });
+        }
+        track.extend([
+            TrackEvent {
+                delta: 480.into(),
+                kind: TrackEventKind::Midi {
+                    channel: u4::new(2),
+                    message: MidiMessage::NoteOff {
+                        key: u7::new(60),
+                        vel: u7::new(0),
+                    },
+                },
+            },
+            TrackEvent {
+                delta: 0.into(),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            },
+        ]);
+        let smf = Smf {
+            header: Header {
+                format: Format::SingleTrack,
+                timing: Timing::Metrical(480.into()),
+            },
+            tracks: vec![track],
+        };
+        Song::new(midi_file::MidiFile::from_smf("expressive.mid", &smf).unwrap())
     }
 }
