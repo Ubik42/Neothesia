@@ -556,7 +556,8 @@ fn tonic_name(tonic: u8, tonality: ExerciseTonality) -> &'static str {
         (5, _) => "F",
         (6, _) => "F♯",
         (7, _) => "G",
-        (8, _) => "A♭",
+        (8, ExerciseTonality::Major) => "A♭",
+        (8, ExerciseTonality::Minor) => "G♯",
         (9, _) => "A",
         (10, _) => "B♭",
         (11, _) => "B",
@@ -746,6 +747,8 @@ mod tests {
         assert_eq!(spec.tonic, 0);
         assert_eq!(tonic_name(1, ExerciseTonality::Major), "D♭");
         assert_eq!(tonic_name(1, ExerciseTonality::Minor), "C♯");
+        assert_eq!(tonic_name(8, ExerciseTonality::Major), "A♭");
+        assert_eq!(tonic_name(8, ExerciseTonality::Minor), "G♯");
         apply_selection(&mut spec, ExerciseField::Octaves, SelectionDelta::Previous);
         assert_eq!(spec.octaves, 3);
 

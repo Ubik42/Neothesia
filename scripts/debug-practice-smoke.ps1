@@ -163,10 +163,14 @@ try {
             $nextKey.ok -and $nextKey.accepted -and
             $previousKey.ok -and $previousKey.accepted
         ) "Exercise key selector did not move in both directions"
-        $selectB = Invoke-DebugDriver "ACTION practice.exercise.key.previous"
-        Assert-True (
-            $selectB.ok -and $selectB.accepted
-        ) "Exercise key selector did not reach B major"
+        for ($keyStep = 0; $keyStep -lt 4; $keyStep++) {
+            $selectGSharp = Invoke-DebugDriver (
+                "ACTION practice.exercise.key.previous"
+            )
+            Assert-True (
+                $selectGSharp.ok -and $selectGSharp.accepted
+            ) "Exercise key selector did not reach G-sharp"
+        }
         $previousTonality = Invoke-DebugDriver (
             "ACTION practice.exercise.tonality.previous"
         )
@@ -177,6 +181,12 @@ try {
             $previousTonality.ok -and $previousTonality.accepted -and
             $nextTonality.ok -and $nextTonality.accepted
         ) "Exercise minor-form selector did not move in both directions"
+        $selectNaturalMinor = Invoke-DebugDriver (
+            "ACTION practice.exercise.tonality.next"
+        )
+        Assert-True (
+            $selectNaturalMinor.ok -and $selectNaturalMinor.accepted
+        ) "Exercise selector did not reach natural minor"
         $nextTempo = Invoke-DebugDriver "ACTION practice.exercise.tempo.next"
         Assert-True (
             $nextTempo.ok -and $nextTempo.accepted
@@ -229,7 +239,7 @@ try {
     if ($ExerciseFixture) {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
-        ) "Reviewed B-major fingering was not enabled by default"
+        ) "Reviewed G-sharp natural-minor fingering was not enabled by default"
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
@@ -344,9 +354,9 @@ try {
     ) "Required-note count and pitch list disagree"
     if ($ExerciseFixture) {
         Assert-True (
-            @($waiting.required_note_pitches).Contains(47) -and
-            @($waiting.required_note_pitches).Contains(71)
-        ) "B exercise did not expose the selected two-hand tonic"
+            @($waiting.required_note_pitches).Contains(44) -and
+            @($waiting.required_note_pitches).Contains(68)
+        ) "G-sharp exercise did not expose the selected two-hand tonic"
     }
 
     $matchedBeforeInput = [int]$waiting.matched_notes
@@ -509,7 +519,8 @@ try {
         $settingsText = [System.IO.File]::ReadAllText($settingsPath)
         $settingsChecks = [ordered]@{
             "last exercise" = "last_exercise_spec"
-            "B tonic" = "tonic:\s*11"
+            "G-sharp tonic" = "tonic:\s*8"
+            "minor tonality" = "tonality:\s*Minor"
             "natural form" = "minor_form:\s*Natural"
             "two repetitions" = "repetitions:\s*2"
             "70 BPM" = "tempo_bpm:\s*70"
@@ -533,7 +544,7 @@ try {
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
         $exercisePersistence = (
-            "B 70 BPM two-pass recent/favourite preset and attempt saved"
+            "G-sharp natural minor 70 BPM two-pass preset and attempt saved"
         )
     }
 
