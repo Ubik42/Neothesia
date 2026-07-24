@@ -10,6 +10,31 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 021 — Key-hold duration evidence
+
+State: **DONE**
+
+Delivered:
+
+- paired matched live note-on/note-off events with parsed score durations;
+- handled both ordinary late matching and play/release-before-target matching;
+- computed a median duration ratio resistant to isolated long held notes;
+- exposed exact `<75%`, `75–125%` and `>125%` distribution counts;
+- required four completed notes before showing the comparison;
+- kept sustain-pedal use separate from physical key-hold evidence;
+- cleared incomplete duration state safely on transport resets;
+- migrated Cycle 020 expression histories with a default articulation summary.
+
+Verification:
+
+- two MIDI-file tests, thirty-nine practice/core tests and thirty-seven
+  application tests pass;
+- tests cover early release, shorter/equal/longer holds, median calculation,
+  parsed MIDI duration lookup, exact MIDI forwarding and nested legacy data;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `91fd14f`.
+
 ### Cycle 020 — Descriptive expression evidence
 
 State: **DONE**
@@ -581,10 +606,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 021 with note-duration and articulation evidence. Pair live note
-releases with matched score notes, tolerate sustain-pedal interaction, and show
-descriptive staccato/legato duration ratios before attempting any prescriptive
-articulation grading.
+Begin Cycle 022 with input-latency compensation. Add a bounded, persistent
+offset that affects practice timing judgement only—never audio/MIDI
+forwarding—then make the active calibration visible and test early/on-time/late
+boundaries under positive and negative offsets.
 
 ## Known constraints
 

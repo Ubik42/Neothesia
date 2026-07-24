@@ -4,6 +4,58 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 021: Key-hold duration evidence (DONE)
+
+### Outcome
+
+Completed takes now show how long matched keys were physically held relative
+to the reference MIDI. This makes staccato/legato investigation possible
+without pretending that raw MIDI duration alone determines good articulation.
+
+### Implemented
+
+- Carried each parsed reference note duration into its practice target.
+- Indexed duration lookup by track, pitch and score onset when opening a song.
+- Paired live note-on and note-off events with matched score occurrences.
+- Preserved duration evidence when a pianist played and released slightly
+  before the score onset.
+- Kept repeated-pitch occurrences in FIFO order.
+- Calculated a robust median key-hold ratio rather than an outlier-sensitive
+  mean.
+- Exposed transparent `<75%`, `75–125%` and `>125%` counts.
+- Required four completed notes before showing the aggregate comparison.
+- Explicitly excluded sustain-pedal extension from physical key-hold duration.
+- Cleared unfinished hold state on transport/panic resets.
+- Added backward compatibility for Cycle 020 expression records.
+
+### Verification
+
+- Extended deterministic matcher coverage with four known duration ratios.
+- Covered early-release pairing and median/band calculations.
+- Added nested expression-history compatibility coverage.
+- Extended the player integration test to prove parsed score duration, live
+  release timing and unmodified output messages travel through the real path.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, thirty-nine core tests and thirty-seven
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `91fd14f`
+(`feat: add key-hold duration evidence`).
+
+### Known limitations
+
+- The ratio describes physical key hold, not acoustic note length under sustain.
+- Reference MIDI note lengths may be quantized or edited and are not treated as
+  authoritative phrasing.
+- The three bands expose distribution; they are not a pass/fail grade.
+- Timing evidence still assumes that input-device latency is negligible.
+
 ## 2026-07-25 — Cycle 020: Descriptive expression evidence (DONE)
 
 ### Outcome
