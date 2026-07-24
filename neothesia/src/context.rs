@@ -4,7 +4,10 @@ use crate::{
     NeothesiaEvent, TransformUniform, config::Config, input_manager::InputManager,
     output_manager::OutputManager, utils::window::WindowState,
 };
-use neothesia_core::render::{QuadRendererFactory, TextRendererFactory};
+use neothesia_core::{
+    practice_history::PracticeHistoryStore,
+    render::{QuadRendererFactory, TextRendererFactory},
+};
 use wgpu_jumpstart::{Gpu, Uniform};
 use winit::event_loop::EventLoopProxy;
 
@@ -23,6 +26,7 @@ pub struct Context {
     pub output_manager: OutputManager,
     pub input_manager: InputManager,
     pub config: Config,
+    pub practice_history: PracticeHistoryStore,
 
     pub proxy: EventLoopProxy<NeothesiaEvent>,
 
@@ -53,6 +57,10 @@ impl Context {
         );
 
         let config = Config::new();
+        let practice_history = PracticeHistoryStore::load(
+            neothesia_core::utils::resources::practice_history_ron()
+                .unwrap_or_else(|| "practice-history.ron".into()),
+        );
 
         let text_renderer_factory = TextRendererFactory::new(&gpu);
         let quad_renderer_factory = QuadRendererFactory::new(&gpu, &transform_uniform);
@@ -69,6 +77,7 @@ impl Context {
             output_manager: Default::default(),
             input_manager: InputManager::new(proxy.clone()),
             config,
+            practice_history,
             proxy,
             frame_timestamp: std::time::Instant::now(),
 

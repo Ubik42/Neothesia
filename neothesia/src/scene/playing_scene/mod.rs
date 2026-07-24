@@ -2,6 +2,7 @@ use midi_file::midly::MidiMessage;
 use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticePart,
 };
+use neothesia_core::practice_history::{PracticeSession, PracticeSessionKind};
 use neothesia_core::render::{
     GlowRenderer, GuidelineRenderer, NoteLabels, QuadRenderer, TextRenderer,
 };
@@ -55,6 +56,7 @@ pub struct PlayingScene {
 
     top_bar: TopBar,
     completion: Option<AttemptSummary>,
+    saved_session_count: Option<usize>,
 }
 
 impl PlayingScene {
@@ -136,6 +138,7 @@ impl PlayingScene {
 
             top_bar: TopBar::new(),
             completion: None,
+            saved_session_count: None,
         }
     }
 
@@ -181,9 +184,24 @@ impl PlayingScene {
             && self.player.time() >= self.top_bar.loop_end_timestamp()
         {
             let summary = self.player.finish_practice();
+            let attempted_speed = ctx.config.speed_multiplier();
+            let (start_measure, end_measure) = self.top_bar.loop_measure_range(&self.player);
+            if let Err(error) = persist_practice_session(
+                ctx,
+                &self.player,
+                PracticeSessionKind::Loop {
+                    start_measure,
+                    end_measure,
+                },
+                attempted_speed,
+                summary.clone(),
+            ) {
+                self.toast_manager
+                    .toast(format!("Could not save practice history: {error}"));
+            }
             let coach_decision = self.top_bar.record_attempt(
                 summary,
-                ctx.config.speed_multiplier(),
+                attempted_speed,
                 ctx.config.adaptive_tempo_rules(),
                 ctx.config.adaptive_tempo(),
             );
@@ -361,6 +379,20 @@ impl PlayingScene {
                     .text(review)
                     .build(ui);
 
+                if let Some(session_count) = self.saved_session_count {
+                    nuon::label()
+                        .x(28.0)
+                        .y(344.0)
+                        .size(panel_w - 56.0, 28.0)
+                        .font_size(14.0)
+                        .color([143, 205, 171])
+                        .text(format!(
+                            "Saved locally  ·  {session_count} session{} for this MIDI",
+                            if session_count == 1 { "" } else { "s" }
+                        ))
+                        .build(ui);
+                }
+
                 let button_gap = 12.0;
                 let button_w = (panel_w - 56.0 - button_gap) / 2.0;
                 let button_y = panel_h - 68.0;
@@ -400,6 +432,7 @@ impl PlayingScene {
                 self.player.restart_practice();
                 self.keyboard.reset_notes();
                 self.completion = None;
+                self.saved_session_count = None;
             }
             Some(CompletionAction::Back) => {
                 ctx.proxy
@@ -439,6 +472,23 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
     accuracy
         .map(|accuracy| format!("{}%", percent(Some(accuracy))))
         .unwrap_or_else(|| "--".to_owned())
+}
+
+fn persist_practice_session(
+    ctx: &mut Context,
+    player: &MidiPlayer,
+    kind: PracticeSessionKind,
+    speed: f32,
+    summary: AttemptSummary,
+) -> Result<usize, neothesia_core::practice_history::PracticeHistoryError> {
+    let song_id = player.song().file.content_id.clone();
+    let display_name = player.song().file.name.clone();
+    ctx.practice_history.record_session(
+        &song_id,
+        &display_name,
+        PracticeSession::new(kind, speed, summary),
+    )?;
+    Ok(ctx.practice_history.session_count(&song_id))
 }
 
 fn scale_playback_delta(delta: Duration, speed: f32) -> Duration {
@@ -524,6 +574,21 @@ impl Scene for PlayingScene {
 
         if self.completion.is_none() && self.player.is_finished() && !self.player.is_paused() {
             let summary = self.player.finish_practice();
+            let speed = ctx.config.speed_multiplier();
+            self.saved_session_count = match persist_practice_session(
+                ctx,
+                &self.player,
+                PracticeSessionKind::WholeSong,
+                speed,
+                summary.clone(),
+            ) {
+                Ok(count) => Some(count),
+                Err(error) => {
+                    self.toast_manager
+                        .toast(format!("Could not save practice history: {error}"));
+                    None
+                }
+            };
             self.player.pause();
             self.completion = Some(summary);
         }

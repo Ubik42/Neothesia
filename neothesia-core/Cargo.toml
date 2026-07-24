@@ -9,6 +9,7 @@ neothesia-image.workspace = true
 bytes.workspace = true
 ron.workspace = true
 log.workspace = true
+thiserror.workspace = true
 bytemuck.workspace = true
 wgpu.workspace = true
 glyphon.workspace = true
@@ -18,6 +19,9 @@ midi-file.workspace = true
 profiling.workspace = true
 euclid.workspace = true
 dpi.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation.workspace = true

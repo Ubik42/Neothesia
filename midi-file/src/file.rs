@@ -5,6 +5,9 @@ use std::{fs, path::Path, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct MidiFile {
     pub name: String,
+    /// Stable content identity; moving or renaming the source file does not
+    /// change this value.
+    pub content_id: String,
     pub format: Format,
     pub tracks: Arc<[MidiTrack]>,
     pub program_track: ProgramTrack,
@@ -27,19 +30,24 @@ impl MidiFile {
             Err(_) => return Err(String::from("Could Not Open File")),
         };
 
+        let content_id = blake3::hash(&data).to_hex().to_string();
         let smf = match Smf::parse(&data) {
             Ok(smf) => smf,
             Err(_) => return Err(String::from("Midi Parsing Error (midly lib)")),
         };
 
-        Self::from_parsed_smf(name, &smf)
+        Self::from_parsed_smf(name, content_id, &smf)
     }
 
     pub fn from_smf(name: impl Into<String>, smf: &Smf<'_>) -> Result<Self, String> {
-        Self::from_parsed_smf(name.into(), smf)
+        let mut data = Vec::new();
+        smf.write_std(&mut data)
+            .map_err(|_| String::from("MIDI Serialization Error"))?;
+        let content_id = blake3::hash(&data).to_hex().to_string();
+        Self::from_parsed_smf(name.into(), content_id, smf)
     }
 
-    fn from_parsed_smf(name: String, smf: &Smf<'_>) -> Result<Self, String> {
+    fn from_parsed_smf(name: String, content_id: String, smf: &Smf<'_>) -> Result<Self, String> {
         let u_per_quarter_note: u16 = match smf.header.timing {
             Timing::Metrical(t) => t.as_int(),
             Timing::Timecode(_fps, _u) => {
@@ -118,6 +126,7 @@ impl MidiFile {
 
         Ok(Self {
             name,
+            content_id,
             format: smf.header.format,
             tracks: tracks.into(),
             program_track,

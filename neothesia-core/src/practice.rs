@@ -4,10 +4,13 @@ use std::{
 };
 
 use piano_layout::KeyboardRange;
+use serde::{Deserialize, Serialize};
 
 pub type NoteId = u8;
 
-#[derive(Debug, Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Debug, Clone, Copy, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
 pub enum PracticePart {
     LeftHand,
     RightHand,
@@ -83,7 +86,7 @@ pub struct PracticeResult {
     pub judgement: PracticeJudgement,
 }
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PracticeSnapshot {
     pub matched_notes: usize,
     pub on_time_notes: usize,
@@ -101,7 +104,7 @@ impl PracticeSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PracticeBreakdown {
     pub target_notes: usize,
     pub matched_notes: usize,
@@ -138,19 +141,19 @@ impl PracticeBreakdown {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MeasureSummary {
     pub measure: usize,
     pub breakdown: PracticeBreakdown,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PartSummary {
     pub part: PracticePart,
     pub breakdown: PracticeBreakdown,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
 pub struct AttemptSummary {
     pub overall: PracticeSnapshot,
     pub measures: Vec<MeasureSummary>,

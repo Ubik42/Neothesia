@@ -60,6 +60,22 @@ pub fn settings_ron() -> Option<PathBuf> {
     return bundled_resource_path("settings", "ron").map(PathBuf::from);
 }
 
+pub fn practice_history_ron() -> Option<PathBuf> {
+    #[cfg(all(target_family = "unix", not(target_os = "macos")))]
+    return xdg_config().map(|p| p.join("practice-history.ron"));
+
+    #[cfg(target_os = "windows")]
+    return Some(PathBuf::from("./practice-history.ron"));
+
+    #[cfg(target_os = "macos")]
+    return home().map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("Neothesia")
+            .join("practice-history.ron")
+    });
+}
+
 #[cfg(target_os = "macos")]
 fn bundled_resource_path(name: &str, extension: &str) -> Option<String> {
     use objc2_foundation::{NSBundle, NSString};

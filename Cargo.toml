@@ -57,6 +57,8 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["N
 ron = "0.12"
 serde = "1"
 raw-window-handle = "0.6.0"
+blake3 = "1"
+windows-sys = "0.61"
 
 profiling = "1.0"
 puffin = "0.20"

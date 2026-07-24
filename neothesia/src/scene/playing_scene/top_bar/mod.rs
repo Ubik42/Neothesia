@@ -132,6 +132,10 @@ impl TopBar {
         count_in_duration(&measure_boundaries(player), self.loop_start)
     }
 
+    pub fn loop_measure_range(&self, player: &super::midi_player::MidiPlayer) -> (usize, usize) {
+        loop_measure_range(player, self.loop_start, self.loop_end)
+    }
+
     #[profiling::function]
     pub fn update(scene: &mut PlayingScene, ctx: &mut Context) {
         let PlayingScene { top_bar, .. } = scene;
@@ -659,22 +663,31 @@ fn snap_to_measure(scene: &PlayingScene, time: Duration) -> Duration {
 }
 
 fn loop_measure_label(scene: &PlayingScene) -> String {
-    let measures = &scene.player.song().file.measures;
-    let lead_in = *scene.player.leed_in();
-    let score_start = scene.top_bar.loop_start.saturating_sub(lead_in);
-    let score_end = scene.top_bar.loop_end.saturating_sub(lead_in);
-    let first = measures
-        .partition_point(|measure| *measure <= score_start)
-        .max(1);
-    let last = measures
-        .partition_point(|measure| *measure < score_end)
-        .max(first);
+    let (first, last) = scene.top_bar.loop_measure_range(&scene.player);
 
     if first == last {
         format!("Measure {first}")
     } else {
         format!("Measures {first}-{last}")
     }
+}
+
+fn loop_measure_range(
+    player: &super::midi_player::MidiPlayer,
+    start: Duration,
+    end: Duration,
+) -> (usize, usize) {
+    let measures = &player.song().file.measures;
+    let lead_in = *player.leed_in();
+    let score_start = start.saturating_sub(lead_in);
+    let score_end = end.saturating_sub(lead_in);
+    let first = measures
+        .partition_point(|measure| *measure <= score_start)
+        .max(1);
+    let last = measures
+        .partition_point(|measure| *measure < score_end)
+        .max(first);
+    (first, last)
 }
 
 fn snap_duration(boundaries: &[Duration], time: Duration) -> Duration {

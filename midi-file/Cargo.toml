@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 midly.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
 midi-io.workspace = true
