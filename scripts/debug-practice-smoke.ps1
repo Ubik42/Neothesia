@@ -8,6 +8,9 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "ExerciseFixture")]
     [switch]$ExerciseFixture,
 
+    [Parameter(Mandatory = $true, ParameterSetName = "FingeringFixture")]
+    [switch]$FingeringFixture,
+
     [string]$Executable = "target\debug\neothesia.exe",
 
     [switch]$SkipBuild
@@ -46,7 +49,7 @@ $runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) (
 Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDirectory
 
 $midi = $null
-if ($CompletionFixture) {
+if ($CompletionFixture -or $FingeringFixture) {
     $midi = Join-Path $runDirectory "completion-fixture.mid"
     # Type-1, 480 PPQ, 4/4 at 120 BPM: one C5 right-hand note and one C3
     # left-hand note at beat two, followed by enough time to finish the take.
@@ -125,7 +128,10 @@ try {
     $startInfo.CreateNoWindow = $true
     $startInfo.Environment["NEOTHESIA_DEBUG_DRIVER_ADDR"] = "127.0.0.1:$port"
     if (-not $ExerciseFixture) {
-        $startInfo.ArgumentList.Add($midi)
+        # Windows PowerShell can run on a .NET version without
+        # ProcessStartInfo.ArgumentList. Quote the one positional MIDI path for
+        # both that runtime and modern PowerShell.
+        $startInfo.Arguments = '"' + $midi.Replace('"', '\"') + '"'
     }
     $process = [System.Diagnostics.Process]::Start($startInfo)
 
@@ -279,6 +285,70 @@ try {
             -not $fingeringOff.fingerings_enabled -and
             $toggleFingeringsOn.ok -and $toggleFingeringsOn.accepted
         ) "Reviewed fingering toggle did not work in both states"
+    }
+
+    if ($FingeringFixture) {
+        Assert-True (
+            -not $player.fingerings_available -and
+            [int]$player.manual_fingering_count -eq 0
+        ) "Fresh fingering fixture unexpectedly contained hints"
+        $openFingeringEditor = Invoke-DebugDriver (
+            "ACTION practice.player.fingering-editor"
+        )
+        $editing = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        Assert-True (
+            $openFingeringEditor.ok -and $openFingeringEditor.accepted -and
+            $editing.fingering_editor_active -and $editing.paused
+        ) "Finger editor did not open on a paused imported MIDI"
+
+        $assign = Invoke-DebugDriver (
+            "ACTION practice.player.fingering-assign-1"
+        )
+        $assigned = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        Assert-True (
+            $assign.ok -and $assign.accepted -and
+            $assigned.fingering_editor_active -and
+            $assigned.fingerings_available -and
+            $assigned.fingerings_enabled -and
+            [int]$assigned.fingering_count -eq 1 -and
+            [int]$assigned.manual_fingering_count -eq 1
+        ) "Assigning finger 1 did not update live guidance"
+
+        $closeFingeringEditor = Invoke-DebugDriver (
+            "ACTION practice.player.fingering-editor"
+        )
+        Assert-True (
+            $closeFingeringEditor.ok -and $closeFingeringEditor.accepted
+        ) "Finger editor did not close"
+        $back = Invoke-DebugDriver "ACTION practice.player.back"
+        Assert-True ($back.ok -and $back.accepted) "Return-to-menu action was rejected"
+        Start-Sleep -Milliseconds 100
+        $exit = Invoke-DebugDriver "EXIT"
+        Assert-True $exit.ok "Clean debug exit was not acknowledged"
+        if (-not $process.WaitForExit(5000)) {
+            throw "Neothesia did not exit within five seconds"
+        }
+
+        $sidecarPath = "$midi.neothesia.ron"
+        Assert-True (
+            [System.IO.File]::Exists($sidecarPath)
+        ) "Finger edit did not create an adjacent sidecar"
+        $sidecarText = [System.IO.File]::ReadAllText($sidecarPath)
+        Assert-True (
+            $sidecarText -match "fingerings:\s*\[" -and
+            $sidecarText -match "track_id:" -and
+            $sidecarText -match "note_index:" -and
+            $sidecarText -match "finger:\s*1"
+        ) "Saved sidecar did not contain the assigned exact-note hint"
+
+        return [pscustomobject]@{
+            Midi = $midi
+            EditorPaused = [bool]$editing.paused
+            FingeringCount = [int]$assigned.fingering_count
+            ManualFingeringCount = [int]$assigned.manual_fingering_count
+            Sidecar = $sidecarPath
+            ExitCode = $process.ExitCode
+        }
     }
 
     if ($CompletionFixture) {

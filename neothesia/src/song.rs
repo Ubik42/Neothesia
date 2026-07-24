@@ -1,5 +1,6 @@
 use midi_file::MidiTrack;
 use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
+use neothesia_core::library::{FingerHint, load_song_sidecar};
 use neothesia_core::practice::{PracticeHands, PracticePart};
 use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
 use std::collections::{HashMap, HashSet};
@@ -189,21 +190,25 @@ pub struct Song {
     pub config: SongConfig,
     pub exercise_spec: Option<ExerciseSpec>,
     pub exercise_phrase_duration: Option<Duration>,
-    pub exercise_fingerings: HashMap<(Duration, u8, u8), u8>,
-    pub exercise_fingering_crossings: HashSet<(Duration, u8, u8)>,
+    pub fingerings: HashMap<(Duration, u8, u8, usize), u8>,
+    pub fingering_crossings: HashSet<(Duration, u8, u8, usize)>,
+    pub manual_fingering_hints: Vec<FingerHint>,
 }
 
 impl Song {
     pub fn new(file: midi_file::MidiFile) -> Self {
         let config = SongConfig::new(&file.tracks);
-        Self {
+        let mut song = Self {
             file,
             config,
             exercise_spec: None,
             exercise_phrase_duration: None,
-            exercise_fingerings: HashMap::new(),
-            exercise_fingering_crossings: HashSet::new(),
-        }
+            fingerings: HashMap::new(),
+            fingering_crossings: HashSet::new(),
+            manual_fingering_hints: Vec::new(),
+        };
+        song.load_manual_fingerings();
+        song
     }
 
     pub fn from_exercise(plan: &ExercisePlan) -> Result<Self, String> {
@@ -222,10 +227,10 @@ impl Song {
                     _ => continue,
                 };
                 for ((note, finger), crossing) in track.notes.iter().zip(fingers).zip(crossings) {
-                    let key = (note.start, note.note, note.channel);
-                    song.exercise_fingerings.insert(key, *finger);
+                    let key = (note.start, note.note, note.channel, note.track_id);
+                    song.fingerings.insert(key, *finger);
                     if *crossing {
-                        song.exercise_fingering_crossings.insert(key);
+                        song.fingering_crossings.insert(key);
                     }
                 }
             }
@@ -242,6 +247,50 @@ impl Song {
             };
         }
         Ok(song)
+    }
+
+    fn load_manual_fingerings(&mut self) {
+        let Some(path) = self.file.source_path.as_deref() else {
+            return;
+        };
+        let sidecar = match load_song_sidecar(path, &self.file.content_id) {
+            Ok(sidecar) => sidecar,
+            Err(neothesia_core::library::MetadataError::Read(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return;
+            }
+            Err(error) => {
+                log::warn!(
+                    "Could not load finger hints for '{}': {error}",
+                    path.display()
+                );
+                return;
+            }
+        };
+
+        for hint in sidecar.fingerings {
+            let Some(note) = self
+                .file
+                .tracks
+                .iter()
+                .find(|track| track.track_id == hint.track_id)
+                .and_then(|track| track.notes.get(hint.note_index))
+            else {
+                log::warn!(
+                    "Ignoring finger hint for missing track {}, note {} in '{}'",
+                    hint.track_id,
+                    hint.note_index,
+                    path.display()
+                );
+                continue;
+            };
+            self.fingerings.insert(
+                (note.start, note.note, note.channel, note.track_id),
+                hint.finger,
+            );
+            self.manual_fingering_hints.push(hint);
+        }
     }
 
     pub fn effective_tempo_bpm(&self, speed: f32) -> Option<u16> {
@@ -278,6 +327,7 @@ impl Song {
 mod tests {
     use super::*;
     use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
+    use neothesia_core::library::save_song_fingerings;
     use piano_layout::KeyboardRange;
 
     #[test]
@@ -289,27 +339,20 @@ mod tests {
 
         assert_eq!(song.config.practice_hands(), Some(PracticeHands::Both));
         assert_eq!(song.config.tracks.len(), 3);
-        assert_eq!(song.exercise_fingerings.len(), 30);
-        assert_eq!(song.exercise_fingering_crossings.len(), 4);
+        assert_eq!(song.fingerings.len(), 30);
+        assert_eq!(song.fingering_crossings.len(), 4);
         assert!(
-            song.exercise_fingering_crossings
-                .contains(&(Duration::from_secs(3), 65, 0))
+            song.fingering_crossings
+                .contains(&(Duration::from_secs(3), 65, 0, 1))
         );
         assert!(
-            song.exercise_fingering_crossings
-                .contains(&(Duration::from_secs(5), 45, 1))
+            song.fingering_crossings
+                .contains(&(Duration::from_secs(5), 45, 1, 2))
         );
+        assert_eq!(song.fingerings.get(&(Duration::ZERO, 60, 0, 1)), Some(&1));
+        assert_eq!(song.fingerings.get(&(Duration::ZERO, 36, 1, 2)), Some(&5));
         assert_eq!(
-            song.exercise_fingerings.get(&(Duration::ZERO, 60, 0)),
-            Some(&1)
-        );
-        assert_eq!(
-            song.exercise_fingerings.get(&(Duration::ZERO, 36, 1)),
-            Some(&5)
-        );
-        assert_eq!(
-            song.exercise_fingerings
-                .get(&(Duration::from_secs(7), 72, 0)),
+            song.fingerings.get(&(Duration::from_secs(7), 72, 0, 1)),
             Some(&5)
         );
         assert_eq!(
@@ -328,6 +371,48 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn imported_song_maps_content_bound_finger_hints_to_exact_notes() {
+        let root = std::env::temp_dir().join(format!(
+            "neothesia-song-fingerings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let midi_path = root.join("Imported.mid");
+        std::fs::copy("../test.mid", &midi_path).unwrap();
+        let file = midi_file::MidiFile::new(&midi_path).unwrap();
+        let (track_id, note_index, expected_key) = file
+            .tracks
+            .iter()
+            .find_map(|track| {
+                track.notes.first().map(|note| {
+                    (
+                        track.track_id,
+                        0,
+                        (note.start, note.note, note.channel, note.track_id),
+                    )
+                })
+            })
+            .unwrap();
+        let hint = FingerHint {
+            track_id,
+            note_index,
+            finger: 4,
+        };
+        save_song_fingerings(&midi_path, &file.content_id, vec![hint]).unwrap();
+
+        let song = Song::new(midi_file::MidiFile::new(&midi_path).unwrap());
+        assert_eq!(song.manual_fingering_hints, [hint]);
+        assert_eq!(song.fingerings.get(&expected_key), Some(&4));
+        assert!(song.fingering_crossings.is_empty());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -192,8 +192,13 @@ impl TopBar {
                 Self::panel(this, ctx, ui);
             });
 
+        let status_y =
+            this.top_bar
+                .topbar_expand_animation
+                .animate_bool(0.0, 80.0, ctx.frame_timestamp);
         if nuon::button()
             .x(ctx.window_state.logical_size.width - 178.0)
+            .y(status_y)
             .size(80.0, 30.0)
             .label("PANIC  F12")
             .color([143, 48, 61])
@@ -223,6 +228,7 @@ impl TopBar {
         let output_w = if compact_output { 100.0 } else { 188.0 };
         if nuon::button()
             .x(win_w - 186.0 - output_w)
+            .y(status_y)
             .size(output_w, 30.0)
             .label(output_label)
             .color(output_color)
@@ -539,6 +545,23 @@ impl TopBar {
                     .build(ui)
                 {
                     this.player.pause_resume();
+                }
+
+                if this.can_edit_fingerings() {
+                    nuon::translate().x(-98.0).add_to_current(ui);
+                    let active = this.fingering_editor_active();
+                    if nuon::button()
+                        .id(super::practice_ui_ids::PLAYER_FINGERING_EDITOR)
+                        .size(92.0, 30.0)
+                        .label(if active { "Edit: ON" } else { "Edit fingers" })
+                        .color(if active { [150, 83, 71] } else { [74, 68, 88] })
+                        .hover_color([174, 99, 84])
+                        .preseed_color([194, 112, 95])
+                        .border_radius([5.0; 4])
+                        .build(ui)
+                    {
+                        this.toggle_fingering_editor(ctx);
+                    }
                 }
 
                 if this.fingering_state().0 {

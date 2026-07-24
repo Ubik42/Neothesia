@@ -324,8 +324,8 @@ impl super::MenuScene {
                         spacer(ui);
 
                         if nuon::settings_row_toggler()
-                            .title("Exercise Fingerings")
-                            .subtitle("Show reviewed finger numbers on generated exercises")
+                            .title("Finger Guidance")
+                            .subtitle("Show reviewed or manually saved finger numbers")
                             .value(ctx.config.exercise_fingerings())
                             .build(ui, rows)
                         {

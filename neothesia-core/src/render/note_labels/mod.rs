@@ -111,8 +111,8 @@ pub struct NoteLabels {
     labels_cache: LabelsCache,
     text_renderer: TextRenderer,
     note_names_enabled: bool,
-    fingerings: HashMap<(Duration, u8, u8), u8>,
-    fingering_crossings: HashSet<(Duration, u8, u8)>,
+    fingerings: HashMap<(Duration, u8, u8, usize), u8>,
+    fingering_crossings: HashSet<(Duration, u8, u8, usize)>,
     fingerings_enabled: bool,
 }
 
@@ -126,7 +126,7 @@ impl NoteLabels {
         notes: &NoteList,
         text_renderer: TextRenderer,
         note_names_enabled: bool,
-        fingerings: HashMap<(Duration, u8, u8), u8>,
+        fingerings: HashMap<(Duration, u8, u8, usize), u8>,
         fingerings_enabled: bool,
     ) -> Self {
         Self::with_fingering_guidance(
@@ -145,8 +145,8 @@ impl NoteLabels {
         notes: &NoteList,
         text_renderer: TextRenderer,
         note_names_enabled: bool,
-        fingerings: HashMap<(Duration, u8, u8), u8>,
-        fingering_crossings: HashSet<(Duration, u8, u8)>,
+        fingerings: HashMap<(Duration, u8, u8, usize), u8>,
+        fingering_crossings: HashSet<(Duration, u8, u8, usize)>,
         fingerings_enabled: bool,
     ) -> Self {
         let fingerings_enabled = !fingerings.is_empty() && fingerings_enabled;
@@ -182,6 +182,19 @@ impl NoteLabels {
         true
     }
 
+    pub fn set_fingering(&mut self, key: (Duration, u8, u8, usize), finger: Option<u8>) {
+        if let Some(finger) = finger.filter(|finger| (1..=5).contains(finger)) {
+            self.fingerings.insert(key, finger);
+            self.fingerings_enabled = true;
+        } else {
+            self.fingerings.remove(&key);
+            self.fingering_crossings.remove(&key);
+            if self.fingerings.is_empty() {
+                self.fingerings_enabled = false;
+            }
+        }
+    }
+
     pub fn set_pos(&mut self, pos: Point<f32>) {
         self.pos = pos;
     }
@@ -211,11 +224,14 @@ impl NoteLabels {
                 .filter_map(|note| {
                     let finger = self
                         .fingerings
-                        .get(&(note.start, note.note, note.channel))
+                        .get(&(note.start, note.note, note.channel, note.track_id))
                         .copied()?;
-                    let crossing =
-                        self.fingering_crossings
-                            .contains(&(note.start, note.note, note.channel));
+                    let crossing = self.fingering_crossings.contains(&(
+                        note.start,
+                        note.note,
+                        note.channel,
+                        note.track_id,
+                    ));
                     let key = &layout.keys[note.note as usize - range_start];
                     let finger_index = usize::from(finger.saturating_sub(1).min(4));
                     let kind_index = usize::from(key.kind().is_sharp());

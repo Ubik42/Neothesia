@@ -30,11 +30,26 @@ pub struct SongMetadata {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct FingerHint {
+    pub track_id: usize,
+    pub note_index: usize,
+    pub finger: u8,
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct SongSidecar {
+    pub metadata: SongMetadata,
+    pub fingerings: Vec<FingerHint>,
+}
+
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 struct MetadataSidecar {
     version: u16,
     content_id: String,
     metadata: SongMetadata,
+    #[serde(default)]
+    fingerings: Vec<FingerHint>,
 }
 
 #[derive(Debug, Error)]
@@ -47,6 +62,15 @@ pub enum MetadataError {
     UnsupportedVersion(u16),
     #[error("metadata belongs to MIDI content {actual}, expected {expected}")]
     ContentMismatch { expected: String, actual: String },
+    #[error(
+        "finger hint for track {track_id}, note {note_index} uses invalid finger {finger}; \
+         expected 1 through 5"
+    )]
+    InvalidFinger {
+        track_id: usize,
+        note_index: usize,
+        finger: u8,
+    },
     #[error("could not serialize metadata sidecar: {0}")]
     Serialize(#[source] ron::Error),
     #[error("could not save metadata sidecar: {0}")]
@@ -226,6 +250,13 @@ pub fn load_song_metadata(
     midi_path: &Path,
     expected_content_id: &str,
 ) -> Result<SongMetadata, MetadataError> {
+    Ok(load_song_sidecar(midi_path, expected_content_id)?.metadata)
+}
+
+pub fn load_song_sidecar(
+    midi_path: &Path,
+    expected_content_id: &str,
+) -> Result<SongSidecar, MetadataError> {
     let path = metadata_sidecar_path(midi_path);
     let contents = fs::read_to_string(path).map_err(MetadataError::Read)?;
     let sidecar: MetadataSidecar = ron::from_str(&contents).map_err(MetadataError::Parse)?;
@@ -238,7 +269,10 @@ pub fn load_song_metadata(
             actual: sidecar.content_id,
         });
     }
-    Ok(sidecar.metadata.normalized())
+    Ok(SongSidecar {
+        metadata: sidecar.metadata.normalized(),
+        fingerings: normalize_fingerings(sidecar.fingerings)?,
+    })
 }
 
 pub fn save_song_metadata(
@@ -246,11 +280,43 @@ pub fn save_song_metadata(
     content_id: &str,
     metadata: SongMetadata,
 ) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.metadata = metadata;
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+
+pub fn save_song_fingerings(
+    midi_path: &Path,
+    content_id: &str,
+    fingerings: Vec<FingerHint>,
+) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.fingerings = fingerings;
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+
+fn existing_sidecar_or_default(
+    midi_path: &Path,
+    content_id: &str,
+) -> Result<SongSidecar, MetadataError> {
+    if metadata_sidecar_path(midi_path).is_file() {
+        load_song_sidecar(midi_path, content_id)
+    } else {
+        Ok(SongSidecar::default())
+    }
+}
+
+fn save_song_sidecar(
+    midi_path: &Path,
+    content_id: &str,
+    sidecar: SongSidecar,
+) -> Result<PathBuf, MetadataError> {
     let path = metadata_sidecar_path(midi_path);
     let sidecar = MetadataSidecar {
         version: METADATA_VERSION,
         content_id: content_id.to_owned(),
-        metadata: metadata.normalized(),
+        metadata: sidecar.metadata.normalized(),
+        fingerings: normalize_fingerings(sidecar.fingerings)?,
     };
     let contents = ron::ser::to_string_pretty(
         &sidecar,
@@ -259,6 +325,21 @@ pub fn save_song_metadata(
     .map_err(MetadataError::Serialize)?;
     atomic_write(&path, contents.as_bytes()).map_err(MetadataError::Write)?;
     Ok(path)
+}
+
+fn normalize_fingerings(fingerings: Vec<FingerHint>) -> Result<Vec<FingerHint>, MetadataError> {
+    let mut by_note = BTreeMap::new();
+    for hint in fingerings {
+        if !(1..=5).contains(&hint.finger) {
+            return Err(MetadataError::InvalidFinger {
+                track_id: hint.track_id,
+                note_index: hint.note_index,
+                finger: hint.finger,
+            });
+        }
+        by_note.insert((hint.track_id, hint.note_index), hint);
+    }
+    Ok(by_note.into_values().collect())
 }
 
 fn searchable_text(display_name: &str, metadata: &SongMetadata, paths: &[PathBuf]) -> String {
@@ -653,6 +734,91 @@ mod tests {
                 .unwrap()
                 .flatten()
                 .all(|entry| !entry.file_name().to_string_lossy().contains(".tmp-"))
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_and_fingerings_preserve_each_other_across_separate_edits() {
+        let root = temp_directory("fingering-preserve");
+        let midi_path = root.join("Song.mid");
+        write_midi(&midi_path, 71);
+        let content_id = midi_file::MidiFile::new(&midi_path).unwrap().content_id;
+        let hints = vec![
+            FingerHint {
+                track_id: 1,
+                note_index: 4,
+                finger: 5,
+            },
+            FingerHint {
+                track_id: 0,
+                note_index: 0,
+                finger: 1,
+            },
+        ];
+        save_song_fingerings(&midi_path, &content_id, hints).unwrap();
+        save_song_metadata(
+            &midi_path,
+            &content_id,
+            SongMetadata {
+                title: Some("Named after fingering".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let sidecar = load_song_sidecar(&midi_path, &content_id).unwrap();
+        assert_eq!(
+            sidecar.metadata.title.as_deref(),
+            Some("Named after fingering")
+        );
+        assert_eq!(
+            sidecar.fingerings,
+            [
+                FingerHint {
+                    track_id: 0,
+                    note_index: 0,
+                    finger: 1,
+                },
+                FingerHint {
+                    track_id: 1,
+                    note_index: 4,
+                    finger: 5,
+                }
+            ]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_fingers_are_rejected_without_replacing_valid_hints() {
+        let root = temp_directory("fingering-invalid");
+        let midi_path = root.join("Song.mid");
+        write_midi(&midi_path, 72);
+        let content_id = midi_file::MidiFile::new(&midi_path).unwrap().content_id;
+        let valid = FingerHint {
+            track_id: 0,
+            note_index: 0,
+            finger: 3,
+        };
+        save_song_fingerings(&midi_path, &content_id, vec![valid]).unwrap();
+        let error = save_song_fingerings(
+            &midi_path,
+            &content_id,
+            vec![FingerHint { finger: 0, ..valid }],
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            MetadataError::InvalidFinger { finger: 0, .. }
+        ));
+        assert_eq!(
+            load_song_sidecar(&midi_path, &content_id)
+                .unwrap()
+                .fingerings,
+            [valid]
         );
 
         fs::remove_dir_all(root).unwrap();

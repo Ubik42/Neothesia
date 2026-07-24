@@ -1,4 +1,5 @@
 use midi_file::midly::MidiMessage;
+use neothesia_core::library::{FingerHint, save_song_fingerings};
 use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, ExpressionSummary, PracticeHands,
     PracticePart, TimingCalibrationStatus, timing_calibration_status,
@@ -53,6 +54,13 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_HANDS: &str = "practice.player.hands";
     pub const PLAYER_LOOP: &str = "practice.player.loop";
     pub const PLAYER_FINGERINGS: &str = "practice.player.fingerings";
+    pub const PLAYER_FINGERING_EDITOR: &str = "practice.player.fingering-editor";
+    #[cfg(any(debug_assertions, test))]
+    pub const PLAYER_FINGERING_NEXT: &str = "practice.player.fingering-next";
+    #[cfg(any(debug_assertions, test))]
+    pub const PLAYER_FINGERING_ASSIGN_1: &str = "practice.player.fingering-assign-1";
+    #[cfg(any(debug_assertions, test))]
+    pub const PLAYER_FINGERING_CLEAR: &str = "practice.player.fingering-clear";
     #[cfg(debug_assertions)]
     pub const PLAYER_RESTART: &str = "practice.player.restart";
     pub const COMPLETION_OVERVIEW: &str = "practice.completion.tab.overview";
@@ -98,6 +106,10 @@ pub(crate) mod practice_ui_ids {
         PLAYER_HANDS,
         PLAYER_LOOP,
         PLAYER_FINGERINGS,
+        PLAYER_FINGERING_EDITOR,
+        PLAYER_FINGERING_NEXT,
+        PLAYER_FINGERING_ASSIGN_1,
+        PLAYER_FINGERING_CLEAR,
         PLAYER_RESTART,
         COMPLETION_OVERVIEW,
         COMPLETION_TECHNIQUE,
@@ -119,6 +131,10 @@ enum DebugPracticeAction {
     CycleHands,
     ToggleLoop,
     ToggleFingerings,
+    ToggleFingeringEditor,
+    NextFingeringTarget,
+    AssignFingerOne,
+    ClearFinger,
     Restart,
     ShowOverview,
     ShowTechnique,
@@ -136,6 +152,10 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_HANDS => Some(Self::CycleHands),
             practice_ui_ids::PLAYER_LOOP => Some(Self::ToggleLoop),
             practice_ui_ids::PLAYER_FINGERINGS => Some(Self::ToggleFingerings),
+            practice_ui_ids::PLAYER_FINGERING_EDITOR => Some(Self::ToggleFingeringEditor),
+            practice_ui_ids::PLAYER_FINGERING_NEXT => Some(Self::NextFingeringTarget),
+            practice_ui_ids::PLAYER_FINGERING_ASSIGN_1 => Some(Self::AssignFingerOne),
+            practice_ui_ids::PLAYER_FINGERING_CLEAR => Some(Self::ClearFinger),
             practice_ui_ids::PLAYER_RESTART => Some(Self::Restart),
             practice_ui_ids::COMPLETION_OVERVIEW => Some(Self::ShowOverview),
             practice_ui_ids::COMPLETION_TECHNIQUE => Some(Self::ShowTechnique),
@@ -165,6 +185,82 @@ use toast_manager::ToastManager;
 mod animation;
 mod top_bar;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct FingeringTarget {
+    track_id: usize,
+    note_index: usize,
+    start: Duration,
+    pitch: u8,
+    channel: u8,
+}
+
+#[derive(Debug, Clone)]
+struct FingeringEditor {
+    targets: Vec<FingeringTarget>,
+    selected: usize,
+}
+
+impl FingeringEditor {
+    fn new(song: &Song, score_time: Duration) -> Option<Self> {
+        let visible_tracks: std::collections::HashSet<_> = song
+            .config
+            .tracks
+            .iter()
+            .filter(|track| track.visible)
+            .map(|track| track.track_id)
+            .collect();
+        let mut targets: Vec<_> = song
+            .file
+            .tracks
+            .iter()
+            .filter(|track| visible_tracks.contains(&track.track_id))
+            .flat_map(|track| {
+                track
+                    .notes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, note)| note.channel != 9)
+                    .map(|(note_index, note)| FingeringTarget {
+                        track_id: track.track_id,
+                        note_index,
+                        start: note.start,
+                        pitch: note.note,
+                        channel: note.channel,
+                    })
+            })
+            .collect();
+        targets.sort_by_key(|target| {
+            (
+                target.start,
+                target.pitch,
+                target.track_id,
+                target.note_index,
+            )
+        });
+        if targets.is_empty() {
+            return None;
+        }
+        let selected = targets
+            .partition_point(|target| target.start < score_time)
+            .min(targets.len() - 1);
+        Some(Self { targets, selected })
+    }
+
+    fn target(&self) -> FingeringTarget {
+        self.targets[self.selected]
+    }
+
+    fn move_relative(&mut self, offset: isize) -> bool {
+        let next = self
+            .selected
+            .saturating_add_signed(offset)
+            .min(self.targets.len() - 1);
+        let changed = next != self.selected;
+        self.selected = next;
+        changed
+    }
+}
+
 pub struct PlayingScene {
     keyboard: Keyboard,
     waterfall: WaterfallRenderer,
@@ -188,6 +284,7 @@ pub struct PlayingScene {
     completion: Option<AttemptSummary>,
     saved_session_count: Option<usize>,
     completion_view: CompletionView,
+    fingering_editor: Option<FingeringEditor>,
 }
 
 impl PlayingScene {
@@ -232,15 +329,15 @@ impl PlayingScene {
 
         let text_renderer = ctx.text_renderer_factory.new_renderer();
 
-        let has_exercise_fingerings = !song.exercise_fingerings.is_empty();
-        let note_labels = (ctx.config.note_labels() || has_exercise_fingerings).then_some(
+        let has_fingerings = !song.fingerings.is_empty();
+        let note_labels = (ctx.config.note_labels() || has_fingerings).then_some(
             NoteLabels::with_fingering_guidance(
                 *keyboard.pos(),
                 waterfall.notes(),
                 ctx.text_renderer_factory.new_renderer(),
                 ctx.config.note_labels(),
-                song.exercise_fingerings.clone(),
-                song.exercise_fingering_crossings.clone(),
+                song.fingerings.clone(),
+                song.fingering_crossings.clone(),
                 ctx.config.exercise_fingerings(),
             ),
         );
@@ -286,6 +383,7 @@ impl PlayingScene {
             completion: None,
             saved_session_count: None,
             completion_view: CompletionView::Overview,
+            fingering_editor: None,
         };
         if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
             top_bar::restore_loop_setup(&mut scene, loop_setup);
@@ -360,6 +458,142 @@ impl PlayingScene {
         } else {
             "Reviewed fingering OFF"
         });
+        true
+    }
+
+    fn can_edit_fingerings(&self) -> bool {
+        self.player.song().file.source_path.is_some() && self.player.song().exercise_spec.is_none()
+    }
+
+    fn fingering_editor_active(&self) -> bool {
+        self.fingering_editor.is_some()
+    }
+
+    fn toggle_fingering_editor(&mut self, ctx: &mut Context) -> bool {
+        if self.fingering_editor.take().is_some() {
+            self.toast_manager
+                .toast("Finger edit closed · saved hints remain visible");
+            return true;
+        }
+        if !self.can_edit_fingerings() {
+            self.toast_manager
+                .toast("Export this exercise to MIDI before adding manual finger hints");
+            return false;
+        }
+        let score_time = self.player.time().saturating_sub(*self.player.leed_in());
+        let Some(editor) = FingeringEditor::new(self.player.song(), score_time) else {
+            self.toast_manager
+                .toast("No visible piano notes to annotate");
+            return false;
+        };
+        self.player.pause();
+        self.fingering_editor = Some(editor);
+        self.ensure_fingering_labels(ctx);
+        ctx.config.set_exercise_fingerings(true);
+        ctx.config.save();
+        self.seek_to_fingering_target();
+        true
+    }
+
+    fn ensure_fingering_labels(&mut self, ctx: &mut Context) {
+        if self.note_labels.is_some() {
+            return;
+        }
+        self.note_labels = Some(NoteLabels::with_fingering_guidance(
+            *self.keyboard.pos(),
+            self.waterfall.notes(),
+            ctx.text_renderer_factory.new_renderer(),
+            ctx.config.note_labels(),
+            self.player.song().fingerings.clone(),
+            self.player.song().fingering_crossings.clone(),
+            true,
+        ));
+    }
+
+    fn move_fingering_target(&mut self, offset: isize) -> bool {
+        let Some(editor) = self.fingering_editor.as_mut() else {
+            return false;
+        };
+        editor.move_relative(offset);
+        self.seek_to_fingering_target();
+        true
+    }
+
+    fn seek_to_fingering_target(&mut self) {
+        let Some(target) = self.fingering_editor.as_ref().map(FingeringEditor::target) else {
+            return;
+        };
+        self.player.set_time(target.start + *self.player.leed_in());
+        self.player.pause();
+        self.toast_fingering_target(target);
+    }
+
+    fn toast_fingering_target(&mut self, target: FingeringTarget) {
+        let song = self.player.song();
+        let measure = song
+            .file
+            .measures
+            .partition_point(|start| *start <= target.start)
+            .max(1);
+        let part = song
+            .config
+            .tracks
+            .iter()
+            .find(|track| track.track_id == target.track_id)
+            .map(|track| match track.practice_part {
+                PracticePart::RightHand => "RH",
+                PracticePart::LeftHand => "LH",
+                PracticePart::Other => "Part",
+            })
+            .unwrap_or("Part");
+        let pitch = format_midi_pitch(target.pitch);
+        let current = song
+            .fingerings
+            .get(&(target.start, target.pitch, target.channel, target.track_id))
+            .map(|finger| format!(" · current {finger}"))
+            .unwrap_or_default();
+        self.toast_manager.toast(format!(
+            "FINGER EDIT · {part} M{measure} {pitch}{current} · ←/→ select · 1–5 assign · Del clear"
+        ));
+    }
+
+    fn set_selected_finger(&mut self, finger: Option<u8>) -> bool {
+        let Some(target) = self.fingering_editor.as_ref().map(FingeringEditor::target) else {
+            return false;
+        };
+        let song = self.player.song();
+        let Some(path) = song.file.source_path.clone() else {
+            return false;
+        };
+        let hints = replace_finger_hint(song.manual_fingering_hints.clone(), target, finger);
+
+        if let Err(error) = save_song_fingerings(&path, &song.file.content_id, hints.clone()) {
+            self.toast_manager
+                .toast(format!("Could not save finger hint: {error}"));
+            return false;
+        }
+
+        let key = (target.start, target.pitch, target.channel, target.track_id);
+        let song = self.player.song_mut();
+        song.manual_fingering_hints = hints;
+        if let Some(finger) = finger {
+            song.fingerings.insert(key, finger);
+        } else {
+            song.fingerings.remove(&key);
+            song.fingering_crossings.remove(&key);
+        }
+        if let Some(labels) = self.note_labels.as_mut() {
+            labels.set_fingering(key, finger);
+        }
+
+        if finger.is_some() {
+            if let Some(editor) = self.fingering_editor.as_mut() {
+                editor.move_relative(1);
+            }
+            self.seek_to_fingering_target();
+        } else {
+            self.toast_fingering_target(target);
+        }
         true
     }
 
@@ -1591,6 +1825,35 @@ fn scale_playback_delta(delta: Duration, speed: f32) -> Duration {
     Duration::from_secs_f64(delta.as_secs_f64() * speed)
 }
 
+fn format_midi_pitch(pitch: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B",
+    ];
+    format!(
+        "{}{}",
+        NAMES[usize::from(pitch % 12)],
+        i16::from(pitch) / 12 - 1
+    )
+}
+
+fn replace_finger_hint(
+    mut hints: Vec<FingerHint>,
+    target: FingeringTarget,
+    finger: Option<u8>,
+) -> Vec<FingerHint> {
+    hints
+        .retain(|hint| !(hint.track_id == target.track_id && hint.note_index == target.note_index));
+    if let Some(finger) = finger.filter(|finger| (1..=5).contains(finger)) {
+        hints.push(FingerHint {
+            track_id: target.track_id,
+            note_index: target.note_index,
+            finger,
+        });
+    }
+    hints.sort_by_key(|hint| (hint.track_id, hint.note_index));
+    hints
+}
+
 fn tempo_coach_message(decision: AdaptiveTempoDecision) -> String {
     let speed = |value: f32| (value * 100.0).round() as u32;
     match decision.reason {
@@ -1744,6 +2007,43 @@ impl Scene for PlayingScene {
             return;
         }
 
+        if ctx.window_state.modifiers_state.control_key() && event.key_released(Key::Character("i"))
+        {
+            self.toggle_fingering_editor(ctx);
+            return;
+        }
+        if self.fingering_editor_active() {
+            if event.key_released(Key::Named(NamedKey::Escape)) {
+                self.toggle_fingering_editor(ctx);
+                return;
+            }
+            if event.key_released(Key::Named(NamedKey::ArrowLeft)) {
+                self.move_fingering_target(-1);
+                return;
+            }
+            if event.key_released(Key::Named(NamedKey::ArrowRight)) {
+                self.move_fingering_target(1);
+                return;
+            }
+            if event.key_released(Key::Named(NamedKey::Delete))
+                || event.key_released(Key::Named(NamedKey::Backspace))
+            {
+                self.set_selected_finger(None);
+                return;
+            }
+            for (key, finger) in [("1", 1), ("2", 2), ("3", 3), ("4", 4), ("5", 5)] {
+                if event.key_released(Key::Character(key)) {
+                    self.set_selected_finger(Some(finger));
+                    return;
+                }
+            }
+            if event.key_released(Key::Named(NamedKey::Space)) {
+                self.toast_manager
+                    .toast("Close Finger edit before resuming practice");
+                return;
+            }
+        }
+
         self.rewind_controller
             .handle_window_event(ctx, event, &mut self.player);
 
@@ -1811,6 +2111,26 @@ impl Scene for PlayingScene {
                     return false;
                 }
             }
+            DebugPracticeAction::ToggleFingeringEditor => {
+                if !self.toggle_fingering_editor(ctx) {
+                    return false;
+                }
+            }
+            DebugPracticeAction::NextFingeringTarget => {
+                if !self.move_fingering_target(1) {
+                    return false;
+                }
+            }
+            DebugPracticeAction::AssignFingerOne => {
+                if !self.set_selected_finger(Some(1)) {
+                    return false;
+                }
+            }
+            DebugPracticeAction::ClearFinger => {
+                if !self.set_selected_finger(None) {
+                    return false;
+                }
+            }
             DebugPracticeAction::Restart => self.restart_practice_scope(),
             DebugPracticeAction::Back => {
                 ctx.proxy
@@ -1862,10 +2182,13 @@ impl Scene for PlayingScene {
             input_latency_ms: self.player.input_latency_ms(),
             fingerings_available: self.fingering_state().0,
             fingerings_enabled: self.fingering_state().1,
+            fingering_count: self.player.song().fingerings.len(),
+            manual_fingering_count: self.player.song().manual_fingering_hints.len(),
             fingering_crossing_count: self
                 .note_labels
                 .as_ref()
                 .map_or(0, NoteLabels::fingering_crossing_count),
+            fingering_editor_active: self.fingering_editor_active(),
         })
     }
 
@@ -2167,6 +2490,76 @@ mod tests {
     }
 
     #[test]
+    fn fingering_editor_uses_stable_score_order_and_bounded_navigation() {
+        let song = Song::new(midi_file::MidiFile::new("../test.mid").unwrap());
+        let mut editor = FingeringEditor::new(&song, Duration::ZERO).unwrap();
+        assert!(editor.targets.windows(2).all(|pair| {
+            (
+                pair[0].start,
+                pair[0].pitch,
+                pair[0].track_id,
+                pair[0].note_index,
+            ) <= (
+                pair[1].start,
+                pair[1].pitch,
+                pair[1].track_id,
+                pair[1].note_index,
+            )
+        }));
+        editor.move_relative(-1);
+        assert_eq!(editor.selected, 0);
+        editor.move_relative(isize::MAX);
+        assert_eq!(editor.selected, editor.targets.len() - 1);
+
+        let at_end = FingeringEditor::new(&song, Duration::MAX).unwrap();
+        assert_eq!(at_end.selected, at_end.targets.len() - 1);
+    }
+
+    #[test]
+    fn midi_pitch_labels_use_piano_octave_names() {
+        assert_eq!(format_midi_pitch(21), "A0");
+        assert_eq!(format_midi_pitch(60), "C4");
+        assert_eq!(format_midi_pitch(61), "C♯4");
+        assert_eq!(format_midi_pitch(108), "C8");
+    }
+
+    #[test]
+    fn manual_finger_edit_replaces_or_clears_only_the_selected_note() {
+        let target = FingeringTarget {
+            track_id: 2,
+            note_index: 7,
+            start: Duration::from_secs(1),
+            pitch: 64,
+            channel: 1,
+        };
+        let other = FingerHint {
+            track_id: 1,
+            note_index: 3,
+            finger: 2,
+        };
+        let existing = FingerHint {
+            track_id: target.track_id,
+            note_index: target.note_index,
+            finger: 4,
+        };
+
+        assert_eq!(
+            replace_finger_hint(vec![existing, other], target, Some(5)),
+            [
+                other,
+                FingerHint {
+                    finger: 5,
+                    ..existing
+                }
+            ]
+        );
+        assert_eq!(
+            replace_finger_hint(vec![existing, other], target, None),
+            [other]
+        );
+    }
+
+    #[test]
     fn practice_ui_action_ids_are_stable_unique_and_namespaced() {
         let unique: HashSet<_> = practice_ui_ids::ALL.iter().copied().collect();
 
@@ -2201,6 +2594,22 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_FINGERINGS,
                 DebugPracticeAction::ToggleFingerings,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_EDITOR,
+                DebugPracticeAction::ToggleFingeringEditor,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_NEXT,
+                DebugPracticeAction::NextFingeringTarget,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_ASSIGN_1,
+                DebugPracticeAction::AssignFingerOne,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_CLEAR,
+                DebugPracticeAction::ClearFinger,
             ),
             (
                 practice_ui_ids::PLAYER_RESTART,
