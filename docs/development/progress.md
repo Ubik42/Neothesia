@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 013 — Active output visibility
+
+State: **DONE**
+
+Delivered:
+
+- added a persistent, colour-coded output badge beside the Panic control;
+- distinguished built-in SoundFont, external MIDI and silent/no-output states;
+- showed the external MIDI port name on normal-width windows;
+- used a compact backend label on narrow windows and hid overlapping practice
+  statistics at the minimum supported width;
+- used Unicode-safe truncation for long device names;
+- made the badge clickable, opening the settings page directly while retaining
+  the current song;
+- confirmed the fresh-install default remains the built-in SoundFont piano.
+
+Verification:
+
+- two MIDI-file tests, twenty-three practice/core tests and twenty-eight
+  application tests pass;
+- tests cover backend status labels, default output selection and Unicode-safe
+  device-name truncation;
+- responsive positions respect the 670-pixel minimum window width;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `41f3f95`.
+
 ### Cycle 012 — Global emergency panic
 
 State: **DONE**
@@ -344,18 +371,18 @@ Acceptance checklist:
 | Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
 | Practice history | Working | Current-song history, trends and weak-passage action |
-| Built-in piano | Working | SoundFont fallback |
-| External Pianoteq | Documented | Panic hardened; real-device soak test pending |
+| Built-in piano | Working | Fresh-install default; active route visible |
+| External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
 | Library | Minimal | File picker and recent path only |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 013 with a persistent output-status badge in the player. It should
-say clearly whether sound is using the built-in SoundFont, an external MIDI
-port such as the Pianoteq route, or no output, and expose a direct path to fix
-the selection without guessing which instrument is active.
+Begin Cycle 014 with practice-part controls in the player: clearly switch
+between both hands, right hand and left hand without returning to track setup.
+Preserve accompaniment/controller events, reset the current attempt safely and
+make the active hand goal visually unmistakable.
 
 ## Known constraints
 

@@ -4,6 +4,50 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 013: Active output visibility (DONE)
+
+### Outcome
+
+The player now answers “what is producing my sound?” continuously. Built-in
+SoundFont, external MIDI/Pianoteq routing and accidental silence have distinct
+labels and colours, and the same badge is the shortest path to correcting the
+selection.
+
+### Implemented
+
+- Exposed the active output descriptor from the output manager.
+- Added backend and detailed learner-facing status labels.
+- Added a persistent green, blue or red output badge.
+- Displayed the MIDI port name where space permits.
+- Added responsive compact mode and removed colliding statistics on narrow
+  windows.
+- Added Unicode-safe device-label shortening.
+- Added a direct player-to-settings event and settings-page constructor.
+- Preserved the loaded song across the transition.
+
+### Verification
+
+- Added output-state, default-device and label-truncation tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `41f3f95`
+(`feat: show active output with settings shortcut`).
+
+### Known limitations
+
+- Changing an output in settings takes effect when playback is started again;
+  live hot-swapping inside an active player remains intentionally unsupported.
+- Very long MIDI port names are shortened in the badge but remain complete in
+  settings.
+- Physical Pianoteq confirmation still requires the documented soak test.
+
 ## 2026-07-25 — Cycle 012: Global emergency panic (DONE)
 
 ### Outcome

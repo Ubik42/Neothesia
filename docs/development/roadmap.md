@@ -42,7 +42,7 @@ This roadmap borrows outcomes, not implementations:
 | Learning aids | Falling notes, labels, measures/beats | Fingering, notation, chords, key/scale context |
 | Repertoire | File picker and last file | Searchable library, metadata, favourites, practice queue |
 | Progress | Current-song history, trends and weak action | Library history, mastery |
-| Sound | Expressive MIDI plus global panic | Clear routing, validated Pianoteq, VST3 |
+| Sound | Expressive MIDI, global panic, visible route | Validate Pianoteq, VST3 |
 | Creation | Free-play recording, video CLI | Recording review, annotations, shareable song metadata |
 | UX | Native custom GPU UI | Coherent practice workspace, accessible themes, automation hooks |
 
