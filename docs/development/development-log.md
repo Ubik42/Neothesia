@@ -4,6 +4,63 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 060: Portable song metadata foundation (DONE)
+
+### Outcome
+
+Repertoire information can now travel with a MIDI without modifying the music
+file or depending on its filename. Practice Library can show a clean title and
+credit and find a piece by composer, performer, collection, difficulty, tag or
+study note.
+
+### Implemented
+
+- Added `SongMetadata` with optional title, artist, composer, collection,
+  difficulty, tags and notes.
+- Added the version-1 `filename.mid.neothesia.ron` container.
+- Stored and checked the MIDI's BLAKE3 content identity in every sidecar.
+- Trimmed scalar fields and sorted/deduplicated tags case-insensitively.
+- Added same-directory, flush-before-replace atomic persistence.
+- Loaded matching sidecars during recursive library scans.
+- Ignored malformed, unsupported and content-mismatched sidecars while keeping
+  their MIDI playable.
+- Merged duplicate-content metadata deterministically by sorted source path.
+- Replaced filename with metadata title and showed artist/composer credit.
+- Expanded library search over every metadata field.
+- Added loaded/invalid sidecar counts to scan feedback.
+- Documented the file format and portable identity behavior.
+- Completed `LIB-002A` and `LIB-002B`.
+
+### Verification
+
+- Six focused library tests cover scan/deduplication, path search, normalized
+  sidecar round trip, mismatch rejection, duplicate merge and atomic replace.
+- A menu test proves all query terms can span title, composer, artist, tag and
+  source path.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `powershell -ExecutionPolicy Bypass -File
+  .\scripts\debug-practice-smoke.ps1 -ExerciseFixture`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, ninety core tests and sixty
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `763030c`
+(`feat: add portable song metadata sidecars`).
+
+### Known limitations
+
+- `LIB-002C` and parent `LIB-002` remain open until Practice Library has a
+  native editor.
+- Metadata follows a move only when the sidecar is moved with its MIDI.
+- Conflicting scalar values use deterministic first-path precedence; there is
+  not yet an in-app conflict resolver.
+- Finger annotations remain a separate future sidecar extension.
+
 ## 2026-07-25 — Cycle 059: Deterministic player clock (DONE)
 
 ### Outcome

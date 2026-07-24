@@ -13,6 +13,8 @@ second.
 - [Piano plug-in hosting](../pages/plugin-hosting-roadmap.md) — VST3/Pianoteq plan
 - [External Pianoteq routing](../pages/pianoteq-external-routing.md) — current
   standalone workflow and acceptance checklist
+- [Song metadata sidecars](../pages/song-metadata-sidecars.md) — portable,
+  content-bound repertoire metadata
 
 ## Working agreement
 

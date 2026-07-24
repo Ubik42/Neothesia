@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 060 — Portable song metadata foundation
+
+State: **DONE**
+
+Delivered:
+
+- added a versioned adjacent `.neothesia.ron` sidecar model;
+- bound every sidecar to the MIDI's existing BLAKE3 content identity;
+- normalized optional title, artist, composer, collection, difficulty, tags
+  and study notes;
+- wrote sidecars with same-directory atomic replacement;
+- loaded and merged metadata deterministically across duplicate MIDI files;
+- used metadata title/credit in Practice Library and indexed every field;
+- reported loaded and invalid sidecars separately;
+- documented the format, identity rules and current editor boundary;
+- completed `LIB-002A` and `LIB-002B`; retained `LIB-002C` and parent
+  `LIB-002` for the native editing workflow.
+
+Verification:
+
+- round trip preserves normalized metadata and exact content identity;
+- mismatched content is ignored instead of relabeling another song;
+- duplicate files retain stable scalar precedence while merging tags;
+- repeat saves atomically replace the sidecar without orphan temp files;
+- library search spans title, performer, composer, collection, difficulty,
+  tags, notes and path;
+- ninety core, sixty application and two MIDI-file tests pass;
+- Clippy, release build, native Technique Studio smoke, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `763030c`.
+
 ### Cycle 059 — Deterministic player clock
 
 State: **DONE**
