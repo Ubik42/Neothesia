@@ -203,6 +203,16 @@ pub struct AttemptSummary {
     pub chords: ChordSummary,
     #[serde(default)]
     pub expression: ExpressionSummary,
+    #[serde(default)]
+    pub exercise_passes: Vec<ExercisePassSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExercisePassSummary {
+    pub pass: usize,
+    pub breakdown: PracticeBreakdown,
+    #[serde(default)]
+    pub timing: TimingSummary,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -1128,6 +1138,7 @@ impl PracticeMatcher {
             timing: summarize_timing_offsets(&self.timing_offsets_ms),
             chords: summarize_chords(chords),
             expression: self.expression.summary(),
+            exercise_passes: Vec::new(),
         }
     }
 
@@ -1217,6 +1228,40 @@ impl PracticeMatcher {
             .map(|press| press.target)
             .or(self.last_target)
     }
+}
+
+pub fn summarize_exercise_passes(
+    results: &[PracticeResult],
+    phrase_duration: Duration,
+    repetitions: u8,
+) -> Vec<ExercisePassSummary> {
+    if repetitions < 2 || phrase_duration.is_zero() {
+        return Vec::new();
+    }
+    let mut breakdowns = vec![PracticeBreakdown::default(); usize::from(repetitions)];
+    let mut timing = vec![Vec::<i32>::new(); usize::from(repetitions)];
+    let phrase_nanos = phrase_duration.as_nanos();
+    for result in results {
+        let Some(target) = result.target else {
+            continue;
+        };
+        let pass =
+            (target.score_time.as_nanos() / phrase_nanos).min(u128::from(repetitions - 1)) as usize;
+        breakdowns[pass].record(result.judgement);
+        if let Some(offset) = result.timing_offset_ms {
+            timing[pass].push(offset);
+        }
+    }
+    breakdowns
+        .into_iter()
+        .zip(timing)
+        .enumerate()
+        .map(|(pass, (breakdown, offsets))| ExercisePassSummary {
+            pass: pass + 1,
+            breakdown,
+            timing: summarize_timing_offsets(&offsets),
+        })
+        .collect()
 }
 
 fn duration_millis_i32(duration: Duration) -> i32 {
@@ -1561,6 +1606,49 @@ mod tests {
             .unwrap();
         assert_eq!(left_hand.breakdown.missed_notes, 1);
         assert_eq!(left_hand.breakdown.wrong_notes, 1);
+    }
+
+    #[test]
+    fn exercise_pass_summary_uses_exact_phrase_boundaries() {
+        let target = |score_time| PracticeTarget {
+            note: 60,
+            velocity: 80,
+            score_time,
+            duration: Duration::from_millis(800),
+            track_id: 1,
+            measure: 1,
+            part: PracticePart::RightHand,
+        };
+        let matched = |score_time, offset| PracticeResult {
+            target: Some(target(score_time)),
+            judgement: PracticeJudgement::Matched(TimingGrade::OnTime),
+            timing_offset_ms: Some(offset),
+        };
+        let missed = |score_time| PracticeResult {
+            target: Some(target(score_time)),
+            judgement: PracticeJudgement::Missed,
+            timing_offset_ms: None,
+        };
+        let results = vec![
+            matched(Duration::ZERO, 20),
+            missed(Duration::from_millis(500)),
+            matched(Duration::from_secs(1), 5),
+            matched(Duration::from_millis(1_500), -5),
+        ];
+
+        let passes = summarize_exercise_passes(&results, Duration::from_secs(1), 2);
+
+        assert_eq!(passes.len(), 2);
+        assert_eq!(passes[0].pass, 1);
+        assert_eq!(passes[0].breakdown.accuracy(), Some(0.5));
+        assert_eq!(passes[1].pass, 2);
+        assert_eq!(passes[1].breakdown.accuracy(), Some(1.0));
+        assert_eq!(passes[1].timing.median_offset_ms, Some(0));
+    }
+
+    #[test]
+    fn one_pass_exercise_does_not_emit_redundant_pass_evidence() {
+        assert!(summarize_exercise_passes(&[], Duration::from_secs(1), 1).is_empty());
     }
 
     #[test]

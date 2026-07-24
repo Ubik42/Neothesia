@@ -6,7 +6,10 @@ use crate::{
 };
 use neothesia_core::{
     piano_layout,
-    practice::{AttemptSummary, PracticeHands, PracticeMatcher, PracticeSnapshot, PracticeTarget},
+    practice::{
+        AttemptSummary, PracticeHands, PracticeMatcher, PracticeSnapshot, PracticeTarget,
+        summarize_exercise_passes,
+    },
 };
 use std::{collections::HashMap, time::Duration};
 
@@ -318,7 +321,17 @@ impl MidiPlayer {
 
     pub fn finish_practice(&mut self) -> AttemptSummary {
         self.practice.finish();
-        self.practice.summary()
+        let mut summary = self.practice.summary();
+        if let (Some(spec), Some(phrase_duration)) =
+            (self.song.exercise_spec, self.song.exercise_phrase_duration)
+        {
+            summary.exercise_passes = summarize_exercise_passes(
+                self.practice.results(),
+                phrase_duration,
+                spec.repetitions,
+            );
+        }
+        summary
     }
 
     pub fn restart_practice(&mut self) {

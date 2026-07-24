@@ -3,6 +3,7 @@ use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
 use neothesia_core::practice::{PracticeHands, PracticePart};
 use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::context::Context;
 
@@ -187,6 +188,7 @@ pub struct Song {
     pub file: midi_file::MidiFile,
     pub config: SongConfig,
     pub exercise_spec: Option<ExerciseSpec>,
+    pub exercise_phrase_duration: Option<Duration>,
 }
 
 impl Song {
@@ -196,6 +198,7 @@ impl Song {
             file,
             config,
             exercise_spec: None,
+            exercise_phrase_duration: None,
         }
     }
 
@@ -203,6 +206,10 @@ impl Song {
         let mut song = Self::new(plan.to_midi_file()?);
         song.file.content_id = plan.practice_id();
         song.exercise_spec = Some(plan.spec);
+        let micros_per_beat = 60_000_000 / u64::from(plan.spec.tempo_bpm);
+        song.exercise_phrase_duration = Some(Duration::from_micros(
+            u64::from(plan.beats_per_repetition()) * micros_per_beat,
+        ));
         for track in &mut song.config.tracks {
             let channel = song.file.tracks[track.track_id]
                 .notes
@@ -330,6 +337,29 @@ mod tests {
         assert_eq!(slow.effective_tempo_bpm(0.75), Some(45));
         assert_eq!(fast_left.effective_tempo_bpm(0.75), Some(90));
         assert_eq!(slow.effective_tempo_bpm(f32::NAN), None);
+    }
+
+    #[test]
+    fn generated_phrase_boundary_matches_serialized_midi_timing() {
+        let plan = ExercisePlan::generate(
+            ExerciseSpec {
+                repetitions: 2,
+                tempo_bpm: 70,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap();
+        let song = Song::from_exercise(&plan).unwrap();
+        let boundary = song.exercise_phrase_duration.unwrap();
+        let right_track = song
+            .file
+            .tracks
+            .iter()
+            .find(|track| track.notes.first().is_some_and(|note| note.channel == 0))
+            .unwrap();
+
+        assert_eq!(right_track.notes[15].start, boundary);
     }
 
     #[test]

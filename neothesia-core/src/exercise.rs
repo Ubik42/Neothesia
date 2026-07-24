@@ -200,6 +200,14 @@ impl ExercisePlan {
         )
     }
 
+    pub fn beats_per_repetition(&self) -> u32 {
+        let moments_per_repetition = self.moments.len() / usize::from(self.spec.repetitions);
+        self.moments[..moments_per_repetition]
+            .iter()
+            .map(|moment| u32::from(moment.beats))
+            .sum()
+    }
+
     /// Stable learning-history identity for the musical task. Tempo and hand
     /// scope are attempt dimensions, so they intentionally do not split the
     /// history of the same exercise.
@@ -699,6 +707,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(four.moments.len(), once.moments.len() * 4);
+        assert_eq!(four.beats_per_repetition(), once.beats_per_repetition());
         assert_eq!(&four.moments[..once.moments.len()], once.moments);
         assert_eq!(four.practice_id(), once.practice_id());
         assert!(four.display_name().contains("· x4 ·"));

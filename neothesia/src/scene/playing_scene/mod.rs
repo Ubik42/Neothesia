@@ -769,7 +769,10 @@ impl PlayingScene {
                         .size(panel_w - 56.0, 24.0)
                         .font_size(14.0)
                         .color([184, 178, 205])
-                        .text(format_chord_profile(summary.chords))
+                        .text(
+                            format_exercise_passes(&summary.exercise_passes)
+                                .unwrap_or_else(|| format_chord_profile(summary.chords)),
+                        )
                         .build(ui);
 
                     nuon::quad()
@@ -1239,6 +1242,47 @@ fn format_speed(speed: f32) -> String {
     } else {
         "--".to_owned()
     }
+}
+
+fn format_exercise_passes(
+    passes: &[neothesia_core::practice::ExercisePassSummary],
+) -> Option<String> {
+    let accuracies: Vec<_> = passes
+        .iter()
+        .filter_map(|pass| pass.breakdown.accuracy())
+        .collect();
+    if accuracies.len() < 2 {
+        return None;
+    }
+    let first = accuracies[0];
+    let last = *accuracies.last().unwrap();
+    let minimum = accuracies.iter().copied().fold(f32::INFINITY, f32::min);
+    let maximum = accuracies.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let trend = if last - first >= 0.05 {
+        "improved across passes"
+    } else if first - last >= 0.05 {
+        "accuracy fell in later passes"
+    } else if maximum - minimum <= 0.05 {
+        "held steady"
+    } else {
+        "varied between passes"
+    };
+    let sequence = passes
+        .iter()
+        .map(|pass| format_accuracy(pass.breakdown.accuracy()))
+        .collect::<Vec<_>>()
+        .join(" → ");
+    let timing = passes
+        .first()
+        .and_then(|pass| pass.timing.median_deviation_ms)
+        .zip(
+            passes
+                .last()
+                .and_then(|pass| pass.timing.median_deviation_ms),
+        )
+        .map(|(first, last)| format!(" · timing spread {first}→{last}ms"))
+        .unwrap_or_default();
+    Some(format!("Pass accuracy: {sequence} · {trend}{timing}"))
 }
 
 fn format_attempt_tempo(effective_tempo_bpm: Option<u16>, speed: f32) -> String {
@@ -1973,6 +2017,34 @@ mod tests {
             format_tempo_or_speed_trend(None, Some(0.1)),
             "speed: +10 pts"
         );
+    }
+
+    #[test]
+    fn repeated_exercise_copy_reports_improvement_without_claiming_a_cause() {
+        use neothesia_core::practice::{ExercisePassSummary, PracticeBreakdown, TimingSummary};
+
+        let pass = |pass, matched, missed, spread| ExercisePassSummary {
+            pass,
+            breakdown: PracticeBreakdown {
+                target_notes: matched + missed,
+                matched_notes: matched,
+                missed_notes: missed,
+                ..Default::default()
+            },
+            timing: TimingSummary {
+                matched_samples: matched,
+                median_offset_ms: Some(0),
+                median_deviation_ms: Some(spread),
+            },
+        };
+        let copy = format_exercise_passes(&[pass(1, 8, 2, 24), pass(2, 10, 0, 12)]).unwrap();
+
+        assert_eq!(
+            copy,
+            "Pass accuracy: 80% → 100% · improved across passes · timing spread 24→12ms"
+        );
+        assert!(!copy.contains("fatigue"));
+        assert_eq!(format_exercise_passes(&[pass(1, 8, 2, 24)]), None);
     }
 
     #[test]

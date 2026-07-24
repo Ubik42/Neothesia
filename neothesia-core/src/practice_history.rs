@@ -947,6 +947,7 @@ mod tests {
                 timing: Default::default(),
                 chords: Default::default(),
                 expression: Default::default(),
+                exercise_passes: Vec::new(),
             },
         }
     }
@@ -1005,6 +1006,7 @@ mod tests {
         assert_eq!(summary.timing, Default::default());
         assert_eq!(summary.chords, Default::default());
         assert_eq!(summary.expression, Default::default());
+        assert!(summary.exercise_passes.is_empty());
     }
 
     #[test]

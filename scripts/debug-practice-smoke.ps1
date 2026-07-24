@@ -153,9 +153,13 @@ try {
         $nextRepetitions = Invoke-DebugDriver (
             "ACTION practice.exercise.repetitions.next"
         )
+        $setTwoRepetitions = Invoke-DebugDriver (
+            "ACTION practice.exercise.repetitions.next"
+        )
         Assert-True (
             $previousRepetitions.ok -and $previousRepetitions.accepted -and
-            $nextRepetitions.ok -and $nextRepetitions.accepted
+            $nextRepetitions.ok -and $nextRepetitions.accepted -and
+            $setTwoRepetitions.ok -and $setTwoRepetitions.accepted
         ) "Exercise repetition selector did not move in both directions"
         $start = Invoke-DebugDriver "ACTION practice.exercise.start"
         Assert-True (
@@ -298,7 +302,7 @@ try {
 
     if ($ExerciseFixture) {
         $exerciseCompletion = $null
-        for ($attempt = 0; $attempt -lt 300; $attempt++) {
+        for ($attempt = 0; $attempt -lt 1200; $attempt++) {
             $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
             if ($null -ne $candidate.completion_tab) {
                 $exerciseCompletion = $candidate
@@ -421,7 +425,7 @@ try {
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
             $settingsText -match "tonic:\s*1" -and
-            $settingsText -match "repetitions:\s*1" -and
+            $settingsText -match "repetitions:\s*2" -and
             $settingsText -match "tempo_bpm:\s*70"
         ) "Selected C-sharp 70 BPM exercise was not persisted"
         $historyPath = Join-Path $runDirectory "practice-history.ron"
@@ -430,9 +434,11 @@ try {
         ) "Completed exercise did not persist practice history"
         $historyText = [System.IO.File]::ReadAllText($historyPath)
         Assert-True (
-            $historyText -match "effective_tempo_bpm:\s*Some\(70\)"
-        ) "Completed exercise did not persist its effective 70 BPM"
-        $exercisePersistence = "C-sharp 70 BPM preset and attempt saved"
+            $historyText -match "effective_tempo_bpm:\s*Some\(70\)" -and
+            $historyText -match "exercise_passes" -and
+            $historyText -match "pass:\s*2"
+        ) "Completed exercise did not persist its BPM and two-pass evidence"
+        $exercisePersistence = "C-sharp 70 BPM two-pass preset and attempt saved"
     }
 
     [pscustomobject]@{
