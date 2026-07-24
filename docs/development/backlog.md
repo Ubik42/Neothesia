@@ -53,7 +53,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.
 - [x] `PRA-021` Add persistent manual input-latency compensation.
-- [ ] `PRA-022` Add evidence-based guided input-latency calibration.
+- [x] `PRA-022` Add evidence-based guided input-latency calibration.
+- [ ] `COACH-006` Compare robust left/right-hand timing profiles.
 - [x] `COACH-005` Report signed timing bias and robust consistency.
 - [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.

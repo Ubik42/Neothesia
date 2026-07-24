@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 024: Conservative calibration suggestions (DONE)
+
+### Outcome
+
+Neothesia can now turn a stable timing profile into an explicit input-offset
+suggestion. It never changes calibration silently: the pianist must confirm the
+displayed value, after which the same piece restarts for verification.
+
+### Implemented
+
+- Added a pure, explainable calibration policy.
+- Required at least 24 matched notes.
+- Rejected takes whose median absolute deviation exceeds 35 ms.
+- Treated a median bias below 10 ms as already centered.
+- Capped each confirmed correction to 50 ms.
+- Respected the global ±250 ms safety bounds.
+- Explained insufficient, unstable, centered and limit states in the timing
+  profile line.
+- Added an inline `Apply … & retry` action only when all gates pass.
+- Persisted the confirmed offset, updated the current player and immediately
+  restarted a clean attempt.
+- Kept raw MIDI/audio forwarding completely outside the calibration path.
+
+### Verification
+
+- Added threshold tests at 23/24 samples and 35/36 ms deviation.
+- Added deadband, positive/negative correction, step-cap and global-limit tests.
+- Updated learner-facing wording coverage.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, forty-four core tests and thirty-nine
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `27ae4f2`
+(`feat: suggest conservative timing calibration`).
+
+### Known limitations
+
+- Suggestions use a normal musical take rather than a dedicated metronome
+  calibration exercise.
+- Stable intentional rubato can still resemble route latency; explicit
+  confirmation and immediate verification are therefore mandatory.
+- Calibration remains global rather than per MIDI device/route.
+- The current evidence is whole-attempt rather than hand-specific.
+
 ## 2026-07-25 — Cycle 023: Robust timing profile (DONE)
 
 ### Outcome

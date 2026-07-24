@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 024 — Conservative calibration suggestions
+
+State: **DONE**
+
+Delivered:
+
+- converted stable signed timing evidence into an explicit offset suggestion;
+- required 24 notes, ≤35 ms typical spread and ≥10 ms median bias;
+- capped one correction at 50 ms and retained the ±250 ms global bounds;
+- explained every unavailable state instead of hiding the decision;
+- required confirmation through an inline apply-and-retry action;
+- restarted the piece immediately so the learner verifies the new value.
+
+Verification:
+
+- two MIDI-file tests, forty-four practice/core tests and thirty-nine
+  application tests pass;
+- tests cover every evidence gate, deadband, both correction directions,
+  per-step cap and calibration limits;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `27ae4f2`.
+
 ### Cycle 023 — Robust timing profile
 
 State: **DONE**
@@ -652,10 +675,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 024 with conservative calibration suggestions. Require a larger,
-stable timing sample, explain why a suggestion is or is not available, cap
-single-step corrections, and require explicit learner confirmation before
-changing the persisted offset.
+Begin Cycle 025 with per-hand timing balance. Retain raw match offsets on
+structured results, aggregate robust profiles by left/right hand, and show
+whether one hand is systematically earlier, later or less consistent without
+turning a small sample into a diagnosis.
 
 ## Known constraints
 
