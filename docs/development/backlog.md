@@ -68,7 +68,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   expose stable note/measure identities.
 - [x] `MUS-001C1` Assign deterministic part/measure/kind/ordinal identities to
   score notes and directions.
-- [ ] `MUS-001C2` Project exact score time through the paired MIDI tempo map.
+- [x] `MUS-001C2` Project exact score time through the paired MIDI tempo map.
 - [ ] `MUS-001C3` Align pitched score notes to MIDI track/note identities with
   confidence and explicit unmatched results.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without

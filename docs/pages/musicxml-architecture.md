@@ -27,6 +27,8 @@ grand staff synchronized with the existing player clock
 - fingering, ties, slurs, articulations and tuplet notation;
 - polyphonic `backup` and `forward` timing.
 - deterministic part/measure/kind/ordinal identities for notes and directions.
+- exact score-time projection through a paired MIDI PPQ and tempo map, including
+  explicit pulse-rounding and unprojected gaps.
 
 The model deliberately has no SVG, DOM, webview or wgpu layout types. Learning
 features must remain usable if the renderer changes later.

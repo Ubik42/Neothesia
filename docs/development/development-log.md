@@ -4,6 +4,47 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 079: Score-to-MIDI time projection (DONE)
+
+### Outcome
+
+Semantic score events can now be placed on the exact clock used by the current
+MIDI player. This is the first executable bridge between MusicXML annotations
+and the falling-note/practice timeline.
+
+### Implemented
+
+- Added quarter-fraction projection to the MIDI tempo track.
+- Rounded only when a fraction cannot land on the file's PPQ grid and exposed
+  that fact as `exact_to_pulse`.
+- Reused the MIDI tempo map for every timestamp.
+- Added a score timeline projection containing stable event ID, timestamp,
+  optional duration and exactness.
+- Projected note ends independently so tempo changes inside a held note are
+  handled correctly.
+- Returned negative/unrepresentable events in an explicit unprojected list.
+- Added deterministic timestamp/identity ordering.
+
+### Verification
+
+- Exact triplet and inexact septuplet pulse cases.
+- Tempo change at pulse 480 with a two-quarter projection of 1.5 seconds.
+- Note duration, direction offset and stable identity projection.
+- Negative direction offset remains an explicit gap.
+- 124 core, 64 application and four MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, corpus audit, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `b1fa679` (`feat: project score events onto MIDI time`).
+
+### Known limitations
+
+- Projection establishes comparable clocks but does not yet assert that a score
+  note and MIDI note are the same musical event.
+- Repeats/ending expansion can still make timelines structurally different.
+- The current pulse rounding is reported per event; no user-facing compatibility
+  summary exists yet.
+
 ## 2026-07-25 — Cycle 078: Stable score event identities (DONE)
 
 ### Outcome

@@ -10,6 +10,39 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 079 — Score-to-MIDI time projection
+
+State: **DONE**
+
+Delivered:
+
+- projected rational quarter-note positions to the paired MIDI PPQ grid;
+- passed projected pulses through the paired MIDI's complete tempo map;
+- calculated note durations from separately projected start/end positions so
+  notes crossing tempo changes remain correct;
+- marked exact-pulse and nearest-pulse projections explicitly;
+- retained unprojectable negative events as identified gaps;
+- sorted projected events deterministically by playback time and stable ID;
+- completed `MUS-001C2`.
+
+Verification:
+
+- 1/3 quarter at PPQ 480 maps exactly to pulse 160 and 166,666 µs;
+- 1/7 quarter rounds to pulse 69 and is flagged inexact;
+- two quarter notes across a 120→60 BPM change map to 1.5 seconds;
+- projected note duration and direction offset preserve their stable IDs;
+- a negative direction offset is returned as unprojected;
+- 124 core, 64 application, four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `b1fa679`.
+
+Next:
+
+- `MUS-001C3`: align pitched score notes to concrete MIDI track/note IDs;
+- report confidence and unmatched notes instead of forcing an apparently
+  complete mapping.
+
 ### Cycle 078 — Stable score event identities
 
 State: **DONE**
