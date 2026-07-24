@@ -163,6 +163,12 @@ try {
             $nextKey.ok -and $nextKey.accepted -and
             $previousKey.ok -and $previousKey.accepted
         ) "Exercise key selector did not move in both directions"
+        for ($keyStep = 0; $keyStep -lt 5; $keyStep++) {
+            $advanceToF = Invoke-DebugDriver "ACTION practice.exercise.key.next"
+            Assert-True (
+                $advanceToF.ok -and $advanceToF.accepted
+            ) "Exercise key selector did not reach F major"
+        }
         $previousTonality = Invoke-DebugDriver (
             "ACTION practice.exercise.tonality.previous"
         )
@@ -225,7 +231,7 @@ try {
     if ($ExerciseFixture) {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
-        ) "Reviewed C-scale fingering was not enabled by default"
+        ) "Reviewed F-major fingering was not enabled by default"
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
@@ -340,9 +346,9 @@ try {
     ) "Required-note count and pitch list disagree"
     if ($ExerciseFixture) {
         Assert-True (
-            @($waiting.required_note_pitches).Contains(36) -and
-            @($waiting.required_note_pitches).Contains(60)
-        ) "C exercise did not expose the selected two-hand tonic"
+            @($waiting.required_note_pitches).Contains(41) -and
+            @($waiting.required_note_pitches).Contains(65)
+        ) "F exercise did not expose the selected two-hand tonic"
     }
 
     $matchedBeforeInput = [int]$waiting.matched_notes
@@ -505,13 +511,13 @@ try {
         $settingsText = [System.IO.File]::ReadAllText($settingsPath)
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
-            $settingsText -match "tonic:\s*0" -and
+            $settingsText -match "tonic:\s*5" -and
             $settingsText -match "minor_form:\s*Natural" -and
             $settingsText -match "repetitions:\s*2" -and
             $settingsText -match "tempo_bpm:\s*70" -and
             $settingsText -match "recent_exercise_specs:\s*\[" -and
             $settingsText -match "favourite_exercise_specs:\s*\["
-        ) "Selected, recent and favourite C exercise were not persisted"
+        ) "Selected, recent and favourite F exercise were not persisted"
         $historyPath = Join-Path $runDirectory "practice-history.ron"
         Assert-True (
             [System.IO.File]::Exists($historyPath)
@@ -523,7 +529,7 @@ try {
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
         $exercisePersistence = (
-            "C 70 BPM two-pass recent/favourite preset and attempt saved"
+            "F 70 BPM two-pass recent/favourite preset and attempt saved"
         )
     }
 

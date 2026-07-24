@@ -258,20 +258,26 @@ impl ExercisePlan {
 
     /// Returns reviewed fingering for the exact generated note sequence.
     ///
-    /// The first supported family is C major/minor scales, whose finger-number
-    /// pattern is shared by all three minor forms. Unsupported keys and
-    /// patterns deliberately return `None` rather than guessing.
+    /// Supported tables cover the C/G/D/A/E/F major teaching group plus the C
+    /// minor family. Unsupported keys and patterns deliberately return `None`
+    /// rather than guessing.
     pub fn fingerings(&self) -> Option<ExerciseFingerings> {
-        if self.spec.tonic != 0 || self.spec.pattern != ExercisePattern::Scale {
+        let is_reviewed_major = self.spec.tonality == ExerciseTonality::Major
+            && matches!(self.spec.tonic, 0 | 2 | 4 | 5 | 7 | 9);
+        let is_reviewed_c_minor =
+            self.spec.tonality == ExerciseTonality::Minor && self.spec.tonic == 0;
+        if self.spec.pattern != ExercisePattern::Scale
+            || (!is_reviewed_major && !is_reviewed_c_minor)
+        {
             return None;
         }
         let right = directional_fingering(
-            ascending_c_scale_fingering(PracticePart::RightHand, self.spec.octaves),
+            ascending_scale_fingering(self.spec.tonic, PracticePart::RightHand, self.spec.octaves),
             self.spec.direction,
             self.spec.repetitions,
         );
         let left = directional_fingering(
-            ascending_c_scale_fingering(PracticePart::LeftHand, self.spec.octaves),
+            ascending_scale_fingering(self.spec.tonic, PracticePart::LeftHand, self.spec.octaves),
             self.spec.direction,
             self.spec.repetitions,
         );
@@ -399,9 +405,18 @@ impl ExercisePlan {
     }
 }
 
-fn ascending_c_scale_fingering(part: PracticePart, octaves: u8) -> Vec<u8> {
+fn ascending_scale_fingering(tonic: u8, part: PracticePart, octaves: u8) -> Vec<u8> {
     let note_count = usize::from(octaves) * 7 + 1;
     match part {
+        PracticePart::RightHand if tonic == 5 => (0..note_count)
+            .map(|index| {
+                if index + 1 == note_count {
+                    4
+                } else {
+                    [1, 2, 3, 4, 1, 2, 3][index % 7]
+                }
+            })
+            .collect(),
         PracticePart::RightHand => (0..note_count)
             .map(|index| {
                 if index + 1 == note_count {
@@ -729,6 +744,64 @@ mod tests {
 
         assert!(other_key.fingerings().is_none());
         assert!(arpeggio.fingerings().is_none());
+    }
+
+    #[test]
+    fn reviewed_major_group_uses_standard_and_f_major_patterns() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        for tonic in [0, 2, 4, 7, 9] {
+            let plan = ExercisePlan::generate(
+                ExerciseSpec {
+                    tonic,
+                    direction: ExerciseDirection::Ascending,
+                    hands: ExerciseHands::Both,
+                    octaves: 2,
+                    ..Default::default()
+                },
+                &keyboard,
+            )
+            .unwrap();
+            let fingering = plan.fingerings().unwrap();
+            assert_eq!(
+                fingering.right,
+                [1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5]
+            );
+            assert_eq!(
+                fingering.left,
+                [5, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1]
+            );
+        }
+
+        let f_major = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 5,
+                direction: ExerciseDirection::Ascending,
+                hands: ExerciseHands::Both,
+                octaves: 2,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap()
+        .fingerings()
+        .unwrap();
+        assert_eq!(f_major.right, [1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 4]);
+        assert_eq!(f_major.left, [5, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1]);
+    }
+
+    #[test]
+    fn parallel_minors_do_not_inherit_major_fingering_without_review() {
+        let plan = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 7,
+                tonality: ExerciseTonality::Minor,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap();
+
+        assert!(plan.fingerings().is_none());
     }
 
     #[test]

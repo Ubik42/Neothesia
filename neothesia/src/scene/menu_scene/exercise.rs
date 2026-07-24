@@ -202,6 +202,23 @@ impl MenuScene {
                 .font_size(20.0)
                 .text_justify(nuon::TextJustify::Center)
                 .build(ui);
+            let reviewed = plan.fingerings().is_some();
+            nuon::label()
+                .text(if reviewed {
+                    "Reviewed fingering available"
+                } else {
+                    "Fingering not yet reviewed for this exercise"
+                })
+                .size(win_w, 24.0)
+                .y(preview_y + 32.0)
+                .font_size(13.0)
+                .color(if reviewed {
+                    nuon::Color::new_u8(126, 218, 170, 1.0)
+                } else {
+                    nuon::Color::new_u8(165, 165, 180, 1.0)
+                })
+                .text_justify(nuon::TextJustify::Center)
+                .build(ui);
         }
 
         if let Some(message) = &self.state.exercise_message {
