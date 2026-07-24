@@ -10,6 +10,28 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 023 — Robust timing profile
+
+State: **DONE**
+
+Delivered:
+
+- retained signed raw timing offsets before grade normalization;
+- computed median early/late bias and median absolute deviation;
+- required eight notes before presenting timing-profile claims;
+- showed bias and typical spread beside the familiar timing counts;
+- persisted the profile with legacy defaults and reset it per attempt.
+
+Verification:
+
+- two MIDI-file tests, forty-two practice/core tests and thirty-nine
+  application tests pass;
+- tests cover signed offsets, even-sample medians, robust deviation,
+  insufficient evidence, copy and legacy data;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `f69d51d`.
+
 ### Cycle 022 — Input-latency compensation
 
 State: **DONE**
@@ -630,10 +652,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 023 with a detailed timing profile. Preserve signed match offsets,
-then report median early/late bias and robust consistency from enough notes.
-This becomes the evidence layer for a later guided latency-calibration
-suggestion rather than guessing a correction from one take.
+Begin Cycle 024 with conservative calibration suggestions. Require a larger,
+stable timing sample, explain why a suggestion is or is not available, cap
+single-step corrections, and require explicit learner confirmation before
+changing the persisted offset.
 
 ## Known constraints
 

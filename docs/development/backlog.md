@@ -54,7 +54,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-006` Add note-duration and articulation evidence.
 - [x] `PRA-021` Add persistent manual input-latency compensation.
 - [ ] `PRA-022` Add evidence-based guided input-latency calibration.
-- [ ] `COACH-005` Report signed timing bias and robust consistency.
+- [x] `COACH-005` Report signed timing bias and robust consistency.
 - [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.
 - [x] `COACH-003` Start a structured loop directly from a weak-passage

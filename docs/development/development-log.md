@@ -4,6 +4,57 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 023: Robust timing profile (DONE)
+
+### Outcome
+
+The completion screen now distinguishes a consistent early/late bias from
+general timing inconsistency. This is more useful than counts alone and
+provides a defensible evidence layer for guided latency calibration.
+
+### Implemented
+
+- Preserved the signed millisecond offset of every matched note before the
+  on-time grade normalized it.
+- Defined negative values as early and positive values as late.
+- Calculated median signed bias.
+- Calculated median absolute deviation from that bias as a robust consistency
+  measure.
+- Required eight matched notes before presenting a profile.
+- Kept the existing learner-facing early/on-time/late counts.
+- Added a compact completion line using plain “median” and “typical spread”
+  wording.
+- Persisted timing profiles with backward-compatible defaults.
+- Cleared timing samples between attempts.
+
+### Verification
+
+- Added exact signed-offset, median and deviation tests.
+- Verified on-time notes retain their original small early/late offset.
+- Added empty-evidence and learner-facing wording coverage.
+- Existing legacy-summary coverage now verifies the timing default.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, forty-two core tests and thirty-nine
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `f69d51d`
+(`feat: add robust practice timing profile`).
+
+### Known limitations
+
+- The completion line is descriptive and does not yet propose a calibration.
+- One take can contain intentional rubato, so timing bias must not be treated
+  automatically as device latency.
+- Profiles are whole-attempt aggregates; hand and measure timing profiles are
+  not persisted separately yet.
+- “Typical spread” is median absolute deviation, not a percentile guarantee.
+
 ## 2026-07-25 — Cycle 022: Input-latency compensation (DONE)
 
 ### Outcome
