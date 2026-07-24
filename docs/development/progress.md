@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 045 — Pass-by-pass exercise consistency
+
+State: **DONE**
+
+Delivered:
+
+- retained exact generated phrase duration on exercise songs;
+- matched phrase duration to serialized MIDI microsecond timing;
+- grouped scored results into one-based exercise passes;
+- summarized accuracy and robust timing evidence per pass;
+- persisted pass summaries with backward-compatible defaults;
+- showed pass sequences in Technique completion feedback;
+- classified improving, steady, declining and mixed evidence;
+- avoided unsupported claims about fatigue or physical cause;
+- completed `EX-001G`.
+
+Verification:
+
+- exact one-second boundaries assign targets to the correct pass;
+- 50% then 100% produces two distinct pass summaries;
+- one-pass sessions emit no redundant pass evidence;
+- 70 BPM generated boundary exactly matches the first note of pass two;
+- completion copy reports 80% → 100% and timing spread 24→12 ms;
+- legacy attempt summaries load with no pass evidence;
+- native automation completes two C♯ 70 BPM passes and inspects persisted pass
+  two;
+- two MIDI-file tests, sixty-nine practice/core tests and fifty-six
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `e661362`.
+
 ### Cycle 044 — Multi-pass exercise sessions
 
 State: **DONE**

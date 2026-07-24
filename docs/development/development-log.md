@@ -4,6 +4,71 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 045: Pass-by-pass exercise consistency (DONE)
+
+### Outcome
+
+Repeated exercises now reveal whether execution holds together across passes.
+The learner sees each pass's accuracy and first-to-last timing stability instead
+of a single average that can conceal a late-session drop.
+
+### Implemented
+
+- Added exact beats-per-repetition calculation to `ExercisePlan`.
+- Stored generated phrase duration on `Song`.
+- Derived that duration from the same integer microseconds-per-beat value used
+  by MIDI serialization, avoiding floating-point boundary drift.
+- Added serializable `ExercisePassSummary` with:
+  - one-based pass number;
+  - matched, wrong and missed breakdown;
+  - robust timing median and deviation.
+- Added a deterministic result-to-pass summarizer.
+- Assigned exact boundary notes to the following pass.
+- Enriched generated-exercise summaries in `MidiPlayer::finish_practice`.
+- Kept single-pass summaries empty rather than duplicating overall feedback.
+- Defaulted older attempt summaries to no pass evidence.
+- Replaced the low-value chord-evidence line for repeated exercises with:
+  - the complete pass accuracy sequence;
+  - improved / held steady / fell later / varied classification;
+  - first-to-last timing-spread evidence when available.
+- Used descriptive late-pass language and explicitly avoided diagnosing
+  fatigue.
+- Upgraded native smoke to a full two-pass C♯ 70 BPM performance and verified
+  persisted pass 2.
+
+### Verification
+
+- Exact phrase-boundary unit test with targets at 0, 0.5, 1.0 and 1.5 seconds.
+- Pass-one 50% and pass-two 100% breakdown assertions.
+- Per-pass timing median assertion.
+- One-pass evidence suppression test.
+- Serialized 70 BPM second-pass boundary equals the generated duration exactly.
+- Completion-copy test for 80% → 100%, improved trend and 24→12 ms spread.
+- Explicit copy assertion that no fatigue claim is present.
+- Legacy summary default assertion.
+- Real-process two-pass completion, persistence, Retry, controls and library
+  reopen smoke.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, sixty-nine core tests and fifty-six
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `e661362`
+(`feat: compare repeated exercise passes`).
+
+### Known limitations
+
+- Pass summaries are shown for the current completion and persisted inside the
+  session, but History does not yet chart them across days.
+- Loop attempts covering only part of a phrase intentionally omit pass trends
+  when fewer than two passes have judged evidence.
+- No configurable rest or count-in exists between passes yet.
+
 ## 2026-07-25 — Cycle 044: Multi-pass exercise sessions (DONE)
 
 ### Outcome

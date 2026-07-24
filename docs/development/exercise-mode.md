@@ -44,6 +44,13 @@ apex once. Melodic moments last one beat; chord moments last two beats.
 Repetition duplicates the complete phrase, including its return to the tonic,
 so each pass has the same musical boundary and scoring shape.
 
+For sessions with at least two passes, completion feedback groups every
+judgement by the exact phrase boundary. It shows pass-by-pass accuracy and, when
+available, the first-to-last robust timing spread. The description distinguishes
+steady, improving, declining and mixed evidence. A decline is described as
+later-pass accuracy loss; the software does not claim fatigue or another cause
+that MIDI evidence cannot establish.
+
 ## Integration boundary
 
 `neothesia_core::exercise::ExercisePlan` is deterministic and independent of
