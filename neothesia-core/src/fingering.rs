@@ -144,6 +144,32 @@ pub fn suggest_fingerings_with_profile(
                 index = group_end;
             }
             suggest_chord_run(notes, &groups, hand, profile, &mut suggestions);
+            let mut prior_single = None;
+            while index < notes.len() {
+                let next_onset = notes[index].onset;
+                let next_end =
+                    notes[index..].partition_point(|note| note.onset == next_onset) + index;
+                let prior_group = groups[groups.len() - 1];
+                if next_end - index != 1
+                    || !notes[prior_group.0..prior_group.1]
+                        .iter()
+                        .any(|note| note.end > next_onset)
+                {
+                    break;
+                }
+                suggest_single_after_held_chord(
+                    notes,
+                    prior_group,
+                    index,
+                    prior_single,
+                    hand,
+                    profile,
+                    &mut suggestions,
+                );
+                prior_single =
+                    suggestions[index].map(|suggestion| (notes[index], suggestion.finger));
+                index = next_end;
+            }
             continue;
         }
 
@@ -165,6 +191,83 @@ pub fn suggest_fingerings_with_profile(
         );
     }
     suggestions
+}
+
+fn suggest_single_after_held_chord(
+    notes: &[FingeringNote],
+    prior_group: (usize, usize),
+    note_index: usize,
+    prior_single: Option<(FingeringNote, u8)>,
+    hand: FingeringHand,
+    profile: HandSpanProfile,
+    output: &mut [Option<FingerSuggestion>],
+) {
+    let prior_fingers: Option<Vec<_>> = output[prior_group.0..prior_group.1]
+        .iter()
+        .map(|suggestion| suggestion.map(|suggestion| suggestion.finger))
+        .collect();
+    let Some(prior_fingers) = prior_fingers else {
+        return;
+    };
+    let note = notes[note_index];
+    let mut best: Option<(i32, u8)> = None;
+    for finger in 1..=5 {
+        if !finger_allowed(note, usize::from(finger)) {
+            continue;
+        }
+        let transition = chord_transition_cost(
+            &notes[prior_group.0..prior_group.1],
+            &prior_fingers,
+            std::slice::from_ref(&note),
+            std::slice::from_ref(&finger),
+            hand,
+        );
+        if transition == INFINITY {
+            continue;
+        }
+        if let Some((prior_note, prior_finger)) = prior_single
+            && prior_note.end > note.onset
+            && !held_transition_valid(
+                std::slice::from_ref(&prior_note),
+                std::slice::from_ref(&prior_finger),
+                std::slice::from_ref(&note),
+                std::slice::from_ref(&finger),
+                hand,
+            )
+        {
+            continue;
+        }
+        let melodic_cost = prior_single.map_or(0, |(prior_note, prior_finger)| {
+            transition_cost(
+                prior_note.pitch,
+                prior_finger,
+                note.pitch,
+                finger,
+                hand,
+                profile,
+            )
+        });
+        let cost = transition + melodic_cost + static_key_cost(note.pitch, finger);
+        if best.is_none_or(|(best_cost, _)| cost < best_cost) {
+            best = Some((cost, finger));
+        }
+    }
+    let Some((_, finger)) = best else {
+        return;
+    };
+    let reason = if note
+        .anchored_finger
+        .is_some_and(|anchor| (1..=5).contains(&anchor))
+    {
+        FingeringReason::ManualAnchor
+    } else {
+        FingeringReason::HeldChordPosition
+    };
+    output[note_index] = Some(FingerSuggestion {
+        finger,
+        confidence_percent: confidence(reason),
+        reason,
+    });
 }
 
 #[derive(Debug, Clone)]
@@ -974,6 +1077,30 @@ mod tests {
             &[1, 3],
             FingeringHand::Left,
         ));
+    }
+
+    #[test]
+    fn melody_note_after_chord_respects_a_still_held_tone() {
+        let mut source = vec![
+            chord_note(60, 0),
+            chord_note(64, 0),
+            chord_note(67, 0),
+            chord_note(69, 500),
+            chord_note(71, 700),
+        ];
+        source[0].end = Duration::from_millis(900);
+        let suggestions = suggest_fingerings(&source, FingeringHand::Right);
+        let held_finger = suggestions[0].unwrap().finger;
+        let melody = suggestions[3].unwrap();
+        let later_melody = suggestions[4].unwrap();
+
+        assert_ne!(melody.finger, held_finger);
+        assert!(melody.finger > held_finger);
+        assert_eq!(melody.reason, FingeringReason::HeldChordPosition);
+        assert_ne!(later_melody.finger, held_finger);
+        assert!(later_melody.finger > held_finger);
+        assert!(later_melody.finger > melody.finger);
+        assert_eq!(later_melody.reason, FingeringReason::HeldChordPosition);
     }
 
     #[test]

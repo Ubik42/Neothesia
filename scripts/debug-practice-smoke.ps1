@@ -98,6 +98,29 @@ function Invoke-DebugDriver([string]$Command) {
     }
 }
 
+function Invoke-SnapshotResponse([int]$Attempts = 5) {
+    $lastError = $null
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        try {
+            $response = Invoke-DebugDriver "SNAPSHOT"
+            if ($response.ok -and
+                $null -ne $response.PSObject.Properties["snapshot"]) {
+                return $response
+            }
+            $lastError = "driver returned no snapshot property"
+        }
+        catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Snapshot failed after $Attempts attempts: $lastError"
+}
+
+function Get-PracticeSnapshot {
+    return (Invoke-SnapshotResponse).snapshot
+}
+
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) {
         throw $Message
@@ -142,7 +165,7 @@ try {
             throw "Neothesia exited early with code $($process.ExitCode)"
         }
         try {
-            $menuSnapshot = Invoke-DebugDriver "SNAPSHOT"
+            $menuSnapshot = Invoke-SnapshotResponse
             break
         }
         catch {
@@ -258,7 +281,7 @@ try {
     $player = $null
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
         Start-Sleep -Milliseconds 100
-        $candidate = Invoke-DebugDriver "SNAPSHOT"
+        $candidate = Invoke-SnapshotResponse
         if ($null -ne $candidate.snapshot) {
             $player = $candidate.snapshot
             break
@@ -276,7 +299,7 @@ try {
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
-        $fingeringOff = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $fingeringOff = Get-PracticeSnapshot
         $toggleFingeringsOn = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )
@@ -295,7 +318,7 @@ try {
         $openFingeringEditor = Invoke-DebugDriver (
             "ACTION practice.player.fingering-editor"
         )
-        $editing = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $editing = Get-PracticeSnapshot
         Assert-True (
             $openFingeringEditor.ok -and $openFingeringEditor.accepted -and
             $editing.fingering_editor_active -and $editing.paused
@@ -311,7 +334,7 @@ try {
         $suggest = Invoke-DebugDriver (
             "ACTION practice.player.fingering-suggest"
         )
-        $suggested = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $suggested = Get-PracticeSnapshot
         Assert-True (
             $suggest.ok -and $suggest.accepted -and
             [int]$suggested.suggested_finger -eq 1 -and
@@ -322,7 +345,7 @@ try {
         $assign = Invoke-DebugDriver (
             "ACTION practice.player.fingering-accept"
         )
-        $assigned = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $assigned = Get-PracticeSnapshot
         Assert-True (
             $assign.ok -and $assign.accepted -and
             $assigned.fingering_editor_active -and
@@ -375,7 +398,7 @@ try {
     if ($CompletionFixture) {
         $completion = $null
         for ($attempt = 0; $attempt -lt 200; $attempt++) {
-            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            $candidate = Get-PracticeSnapshot
             if ($null -ne $candidate.completion_tab) {
                 $completion = $candidate
                 break
@@ -403,7 +426,7 @@ try {
             $technique.ok -and $technique.accepted
         ) "Technique tab action was rejected"
         Assert-True (
-            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "technique"
+            (Get-PracticeSnapshot).completion_tab -eq "technique"
         ) "Technique tab did not become active"
 
         $history = Invoke-DebugDriver "ACTION practice.completion.tab.history"
@@ -411,7 +434,7 @@ try {
             $history.ok -and $history.accepted
         ) "History tab action was rejected"
         Assert-True (
-            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "history"
+            (Get-PracticeSnapshot).completion_tab -eq "history"
         ) "History tab did not become active"
 
         $overview = Invoke-DebugDriver "ACTION practice.completion.tab.overview"
@@ -419,12 +442,12 @@ try {
             $overview.ok -and $overview.accepted
         ) "Overview tab action was rejected"
         Assert-True (
-            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "overview"
+            (Get-PracticeSnapshot).completion_tab -eq "overview"
         ) "Overview tab did not become active"
 
         $retry = Invoke-DebugDriver "ACTION practice.completion.retry"
         Assert-True ($retry.ok -and $retry.accepted) "Completion Retry was rejected"
-        $afterRetry = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $afterRetry = Get-PracticeSnapshot
         Assert-True (
             $null -eq $afterRetry.completion_tab
         ) "Retry did not leave the completion screen"
@@ -436,7 +459,7 @@ try {
         Assert-True ($back.ok -and $back.accepted) "Return-to-menu action was rejected"
         Start-Sleep -Milliseconds 100
         Assert-True (
-            $null -eq (Invoke-DebugDriver "SNAPSHOT").snapshot
+            $null -eq (Get-PracticeSnapshot)
         ) "Player did not return to menu"
 
         $exit = Invoke-DebugDriver "EXIT"
@@ -459,7 +482,7 @@ try {
 
     $waiting = $null
     for ($attempt = 0; $attempt -lt 150; $attempt++) {
-        $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $candidate = Get-PracticeSnapshot
         if ($candidate.required_notes -gt 0) {
             $waiting = $candidate
             break
@@ -491,7 +514,7 @@ try {
         $noteOff = Invoke-DebugDriver "MIDI 0 $note 0"
         Assert-True ($noteOff.ok -and $noteOff.accepted) "Debug note-off was rejected"
     }
-    $afterInput = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    $afterInput = Get-PracticeSnapshot
     Assert-True (
         $afterInput.matched_notes -gt $matchedBeforeInput
     ) "Injected performance notes did not reach the practice matcher"
@@ -499,7 +522,7 @@ try {
     if ($ExerciseFixture) {
         $exerciseCompletion = $null
         for ($attempt = 0; $attempt -lt 1200; $attempt++) {
-            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            $candidate = Get-PracticeSnapshot
             if ($null -ne $candidate.completion_tab) {
                 $exerciseCompletion = $candidate
                 break
@@ -523,13 +546,13 @@ try {
         Assert-True (
             $retryExercise.ok -and $retryExercise.accepted
         ) "Generated exercise retry was rejected"
-        $player = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $player = Get-PracticeSnapshot
     }
 
     $waitBefore = [bool]$player.wait_for_notes
     $toggle = Invoke-DebugDriver "ACTION practice.player.wait"
     Assert-True ($toggle.ok -and $toggle.accepted) "Wait toggle was rejected"
-    $afterToggle = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    $afterToggle = Get-PracticeSnapshot
     Assert-True (
         [bool]$afterToggle.wait_for_notes -ne $waitBefore
     ) "Wait state did not change"
@@ -538,13 +561,13 @@ try {
     if ($null -ne $player.hands) {
         $hands = Invoke-DebugDriver "ACTION practice.player.hands"
         Assert-True ($hands.ok -and $hands.accepted) "Hand mode cycle was rejected"
-        $afterHands = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $afterHands = Get-PracticeSnapshot
         Assert-True ($afterHands.hands -ne $player.hands) "Hand mode did not change"
     }
 
     $loop = Invoke-DebugDriver "ACTION practice.player.loop"
     Assert-True ($loop.ok -and $loop.accepted) "Loop toggle was rejected"
-    $loopState = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    $loopState = Get-PracticeSnapshot
     Assert-True $loopState.loop_active "Loop did not become active"
     Assert-True (
         $null -ne $loopState.loop_start_measure -and
@@ -554,7 +577,7 @@ try {
 
     $restart = Invoke-DebugDriver "ACTION practice.player.restart"
     Assert-True ($restart.ok -and $restart.accepted) "Practice restart was rejected"
-    $afterRestart = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    $afterRestart = Get-PracticeSnapshot
     Assert-True $afterRestart.loop_active "Restart unexpectedly disabled the loop"
     Assert-True (
         $afterRestart.loop_start_measure -eq $loopState.loop_start_measure -and
@@ -563,13 +586,13 @@ try {
 
     $loopOff = Invoke-DebugDriver "ACTION practice.player.loop"
     Assert-True ($loopOff.ok -and $loopOff.accepted) "Loop disable was rejected"
-    $afterLoopOff = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    $afterLoopOff = Get-PracticeSnapshot
     Assert-True (-not $afterLoopOff.loop_active) "Loop remained active after toggling off"
 
     $back = Invoke-DebugDriver "ACTION practice.player.back"
     Assert-True ($back.ok -and $back.accepted) "Return-to-menu action was rejected"
     Start-Sleep -Milliseconds 100
-    $menuAgain = Invoke-DebugDriver "SNAPSHOT"
+    $menuAgain = Invoke-SnapshotResponse
     Assert-True ($null -eq $menuAgain.snapshot) "Player did not return to menu"
 
     $libraryReopen = $null
@@ -588,7 +611,7 @@ try {
         ) "Saved exercise variants were not restorable"
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
             Start-Sleep -Milliseconds 100
-            if ($null -ne (Invoke-DebugDriver "SNAPSHOT").snapshot) {
+            if ($null -ne (Get-PracticeSnapshot)) {
                 break
             }
         }
@@ -610,7 +633,7 @@ try {
         ) "Generated exercise could not be reopened from Practice Library"
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
             Start-Sleep -Milliseconds 100
-            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            $candidate = Get-PracticeSnapshot
             if ($null -ne $candidate) {
                 $libraryReopen = $candidate
                 break
