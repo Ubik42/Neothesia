@@ -426,7 +426,8 @@ mod tests {
         let spec = crate::exercise::ExerciseSpec {
             tonic: 9,
             tonality: crate::exercise::ExerciseTonality::Minor,
-            pattern: crate::exercise::ExercisePattern::Arpeggio,
+            minor_form: crate::exercise::ExerciseMinorForm::Harmonic,
+            pattern: crate::exercise::ExercisePattern::Scale,
             direction: crate::exercise::ExerciseDirection::Descending,
             hands: crate::exercise::ExerciseHands::Left,
             octaves: 2,

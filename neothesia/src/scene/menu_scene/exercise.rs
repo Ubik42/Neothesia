@@ -1,5 +1,6 @@
 use neothesia_core::exercise::{
-    ExerciseDirection, ExerciseHands, ExercisePattern, ExercisePlan, ExerciseSpec, ExerciseTonality,
+    ExerciseDirection, ExerciseHands, ExerciseMinorForm, ExercisePattern, ExercisePlan,
+    ExerciseSpec, ExerciseTonality,
 };
 use piano_layout::KeyboardRange;
 
@@ -59,7 +60,7 @@ impl MenuScene {
                 selector_card(
                     ui,
                     "Tonality",
-                    tonality_name(spec.tonality),
+                    tonality_name(spec.tonality, spec.minor_form),
                     practice_ui_ids::EXERCISE_TONALITY_PREVIOUS,
                     practice_ui_ids::EXERCISE_TONALITY_NEXT,
                 ),
@@ -302,17 +303,23 @@ fn apply_selection(spec: &mut ExerciseSpec, field: ExerciseField, delta: Selecti
         (_, SelectionDelta::None) => {}
         (ExerciseField::Key, SelectionDelta::Previous) => spec.tonic = (spec.tonic + 11) % 12,
         (ExerciseField::Key, SelectionDelta::Next) => spec.tonic = (spec.tonic + 1) % 12,
-        (ExerciseField::Tonality, _) => {
-            spec.tonality = match spec.tonality {
-                ExerciseTonality::Major => ExerciseTonality::Minor,
-                ExerciseTonality::Minor => ExerciseTonality::Major,
-            };
+        (ExerciseField::Tonality, SelectionDelta::Previous) => {
+            (spec.tonality, spec.minor_form) = previous_tonality(spec.tonality, spec.minor_form);
+        }
+        (ExerciseField::Tonality, SelectionDelta::Next) => {
+            (spec.tonality, spec.minor_form) = next_tonality(spec.tonality, spec.minor_form);
         }
         (ExerciseField::Pattern, SelectionDelta::Previous) => {
             spec.pattern = previous_pattern(spec.pattern);
+            if spec.pattern != ExercisePattern::Scale {
+                spec.minor_form = ExerciseMinorForm::Natural;
+            }
         }
         (ExerciseField::Pattern, SelectionDelta::Next) => {
             spec.pattern = next_pattern(spec.pattern);
+            if spec.pattern != ExercisePattern::Scale {
+                spec.minor_form = ExerciseMinorForm::Natural;
+            }
         }
         (ExerciseField::Direction, SelectionDelta::Previous) => {
             spec.direction = previous_direction(spec.direction);
@@ -403,10 +410,48 @@ fn tonic_name(tonic: u8) -> &'static str {
     ][tonic as usize]
 }
 
-fn tonality_name(tonality: ExerciseTonality) -> &'static str {
-    match tonality {
-        ExerciseTonality::Major => "Major",
-        ExerciseTonality::Minor => "Minor",
+fn tonality_name(tonality: ExerciseTonality, minor_form: ExerciseMinorForm) -> &'static str {
+    match (tonality, minor_form) {
+        (ExerciseTonality::Major, _) => "Major",
+        (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => "Natural minor",
+        (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => "Harmonic minor",
+        (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => "Melodic minor",
+    }
+}
+
+fn next_tonality(
+    tonality: ExerciseTonality,
+    minor_form: ExerciseMinorForm,
+) -> (ExerciseTonality, ExerciseMinorForm) {
+    match (tonality, minor_form) {
+        (ExerciseTonality::Major, _) => (ExerciseTonality::Minor, ExerciseMinorForm::Natural),
+        (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => {
+            (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic)
+        }
+        (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => {
+            (ExerciseTonality::Minor, ExerciseMinorForm::Melodic)
+        }
+        (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => {
+            (ExerciseTonality::Major, ExerciseMinorForm::Natural)
+        }
+    }
+}
+
+fn previous_tonality(
+    tonality: ExerciseTonality,
+    minor_form: ExerciseMinorForm,
+) -> (ExerciseTonality, ExerciseMinorForm) {
+    match (tonality, minor_form) {
+        (ExerciseTonality::Major, _) => (ExerciseTonality::Minor, ExerciseMinorForm::Melodic),
+        (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => {
+            (ExerciseTonality::Major, ExerciseMinorForm::Natural)
+        }
+        (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => {
+            (ExerciseTonality::Minor, ExerciseMinorForm::Natural)
+        }
+        (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => {
+            (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic)
+        }
     }
 }
 
@@ -574,5 +619,20 @@ mod tests {
         assert_eq!(next_repetitions(8), 1);
         assert_eq!(previous_repetitions(1), 8);
         assert_eq!(previous_repetitions(4), 2);
+        assert_eq!(
+            next_tonality(ExerciseTonality::Minor, ExerciseMinorForm::Harmonic),
+            (ExerciseTonality::Minor, ExerciseMinorForm::Melodic)
+        );
+        assert_eq!(
+            previous_tonality(ExerciseTonality::Major, ExerciseMinorForm::Natural),
+            (ExerciseTonality::Minor, ExerciseMinorForm::Melodic)
+        );
+
+        spec.tonality = ExerciseTonality::Minor;
+        spec.minor_form = ExerciseMinorForm::Melodic;
+        spec.pattern = ExercisePattern::Scale;
+        apply_selection(&mut spec, ExerciseField::Pattern, SelectionDelta::Next);
+        assert_eq!(spec.pattern, ExercisePattern::Arpeggio);
+        assert_eq!(spec.minor_form, ExerciseMinorForm::Natural);
     }
 }

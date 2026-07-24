@@ -101,6 +101,21 @@ function Assert-True([bool]$Condition, [string]$Message) {
     }
 }
 
+function Invoke-AcceptedAction(
+    [string]$Action,
+    [int]$Attempts = 30
+) {
+    $response = $null
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        $response = Invoke-DebugDriver "ACTION $Action"
+        if ($response.ok -and $response.accepted) {
+            return $response
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return $response
+}
+
 $process = $null
 try {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -135,7 +150,10 @@ try {
     Assert-True ($null -eq $menuSnapshot.snapshot) "Expected a menu scene snapshot"
 
     if ($ExerciseFixture) {
-        $openExercises = Invoke-DebugDriver "ACTION practice.menu.exercises"
+        # The driver can accept connections just before the first rendered frame
+        # registers its clickable regions, so give the menu action a short retry
+        # window instead of treating startup timing as a product failure.
+        $openExercises = Invoke-AcceptedAction "practice.menu.exercises"
         Assert-True (
             $openExercises.ok -and $openExercises.accepted
         ) "Technique Studio did not open"
@@ -143,6 +161,16 @@ try {
         Assert-True (
             $nextKey.ok -and $nextKey.accepted
         ) "Exercise key selector did not advance"
+        $previousTonality = Invoke-DebugDriver (
+            "ACTION practice.exercise.tonality.previous"
+        )
+        $nextTonality = Invoke-DebugDriver (
+            "ACTION practice.exercise.tonality.next"
+        )
+        Assert-True (
+            $previousTonality.ok -and $previousTonality.accepted -and
+            $nextTonality.ok -and $nextTonality.accepted
+        ) "Exercise minor-form selector did not move in both directions"
         $nextTempo = Invoke-DebugDriver "ACTION practice.exercise.tempo.next"
         Assert-True (
             $nextTempo.ok -and $nextTempo.accepted
@@ -425,6 +453,7 @@ try {
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
             $settingsText -match "tonic:\s*1" -and
+            $settingsText -match "minor_form:\s*Natural" -and
             $settingsText -match "repetitions:\s*2" -and
             $settingsText -match "tempo_bpm:\s*70"
         ) "Selected C-sharp 70 BPM exercise was not persisted"

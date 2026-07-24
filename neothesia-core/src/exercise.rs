@@ -29,6 +29,14 @@ pub enum ExerciseTonality {
     Minor,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ExerciseMinorForm {
+    #[default]
+    Natural,
+    Harmonic,
+    Melodic,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExerciseDirection {
     Ascending,
@@ -48,6 +56,8 @@ pub struct ExerciseSpec {
     /// Pitch class where C = 0 and B = 11.
     pub tonic: u8,
     pub tonality: ExerciseTonality,
+    #[serde(default)]
+    pub minor_form: ExerciseMinorForm,
     pub pattern: ExercisePattern,
     pub direction: ExerciseDirection,
     pub hands: ExerciseHands,
@@ -62,6 +72,7 @@ impl Default for ExerciseSpec {
         Self {
             tonic: 0,
             tonality: ExerciseTonality::Major,
+            minor_form: ExerciseMinorForm::Natural,
             pattern: ExercisePattern::Scale,
             direction: ExerciseDirection::UpAndDown,
             hands: ExerciseHands::Both,
@@ -102,6 +113,8 @@ pub enum ExerciseError {
     InvalidTonic,
     #[error("exercise span must be between one and three octaves")]
     InvalidOctaves,
+    #[error("harmonic and melodic minor forms apply only to minor scales")]
+    InvalidMinorForm,
     #[error("exercise repetitions must be between one and eight")]
     InvalidRepetitions,
     #[error("exercise tempo must be between 20 and 240 BPM")]
@@ -119,7 +132,7 @@ impl ExercisePlan {
 
         let phrase = match spec.pattern {
             ExercisePattern::Scale => {
-                melodic_moments(scale_intervals(spec.tonality), spec.octaves, spec.direction)
+                scale_moments(spec.tonality, spec.minor_form, spec.octaves, spec.direction)
             }
             ExercisePattern::Arpeggio => melodic_moments(
                 arpeggio_intervals(spec.tonality),
@@ -175,9 +188,11 @@ impl ExercisePlan {
         let tonic = [
             "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
         ][self.spec.tonic as usize];
-        let tonality = match self.spec.tonality {
-            ExerciseTonality::Major => "Major",
-            ExerciseTonality::Minor => "Minor",
+        let tonality = match (self.spec.tonality, self.spec.minor_form) {
+            (ExerciseTonality::Major, _) => "Major",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => "Natural Minor",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => "Harmonic Minor",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => "Melodic Minor",
         };
         let pattern = match self.spec.pattern {
             ExercisePattern::Scale => "Scale",
@@ -212,9 +227,11 @@ impl ExercisePlan {
     /// scope are attempt dimensions, so they intentionally do not split the
     /// history of the same exercise.
     pub fn practice_id(&self) -> String {
-        let tonality = match self.spec.tonality {
-            ExerciseTonality::Major => "major",
-            ExerciseTonality::Minor => "minor",
+        let tonality = match (self.spec.tonality, self.spec.minor_form) {
+            (ExerciseTonality::Major, _) => "major",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => "natural-minor",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => "harmonic-minor",
+            (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => "melodic-minor",
         };
         let pattern = match self.spec.pattern {
             ExercisePattern::Scale => "scale",
@@ -350,6 +367,11 @@ fn validate_spec(spec: ExerciseSpec) -> Result<(), ExerciseError> {
     if !(1..=3).contains(&spec.octaves) {
         return Err(ExerciseError::InvalidOctaves);
     }
+    if spec.minor_form != ExerciseMinorForm::Natural
+        && (spec.tonality != ExerciseTonality::Minor || spec.pattern != ExercisePattern::Scale)
+    {
+        return Err(ExerciseError::InvalidMinorForm);
+    }
     if !(1..=8).contains(&spec.repetitions) {
         return Err(ExerciseError::InvalidRepetitions);
     }
@@ -371,10 +393,12 @@ const fn default_repetitions() -> u8 {
     1
 }
 
-fn scale_intervals(tonality: ExerciseTonality) -> &'static [u8] {
-    match tonality {
-        ExerciseTonality::Major => &[0, 2, 4, 5, 7, 9, 11],
-        ExerciseTonality::Minor => &[0, 2, 3, 5, 7, 8, 10],
+fn scale_intervals(tonality: ExerciseTonality, minor_form: ExerciseMinorForm) -> &'static [u8] {
+    match (tonality, minor_form) {
+        (ExerciseTonality::Major, _) => &[0, 2, 4, 5, 7, 9, 11],
+        (ExerciseTonality::Minor, ExerciseMinorForm::Natural) => &[0, 2, 3, 5, 7, 8, 10],
+        (ExerciseTonality::Minor, ExerciseMinorForm::Harmonic) => &[0, 2, 3, 5, 7, 8, 11],
+        (ExerciseTonality::Minor, ExerciseMinorForm::Melodic) => &[0, 2, 3, 5, 7, 9, 11],
     }
 }
 
@@ -385,16 +409,43 @@ fn arpeggio_intervals(tonality: ExerciseTonality) -> &'static [u8] {
     }
 }
 
+fn scale_moments(
+    tonality: ExerciseTonality,
+    minor_form: ExerciseMinorForm,
+    octaves: u8,
+    direction: ExerciseDirection,
+) -> Vec<Vec<u8>> {
+    if tonality != ExerciseTonality::Minor || minor_form != ExerciseMinorForm::Melodic {
+        return melodic_moments(scale_intervals(tonality, minor_form), octaves, direction);
+    }
+
+    let ascending = ascending_melodic_moments(scale_intervals(tonality, minor_form), octaves);
+    let natural = ascending_melodic_moments(
+        scale_intervals(ExerciseTonality::Minor, ExerciseMinorForm::Natural),
+        octaves,
+    );
+    match direction {
+        ExerciseDirection::Ascending => ascending,
+        ExerciseDirection::Descending => natural.into_iter().rev().collect(),
+        ExerciseDirection::UpAndDown => {
+            let mut result = ascending;
+            result.extend(natural.into_iter().rev().skip(1));
+            result
+        }
+    }
+}
+
 fn melodic_moments(intervals: &[u8], octaves: u8, direction: ExerciseDirection) -> Vec<Vec<u8>> {
+    apply_direction(ascending_melodic_moments(intervals, octaves), direction)
+}
+
+fn ascending_melodic_moments(intervals: &[u8], octaves: u8) -> Vec<Vec<u8>> {
     let mut ascending = Vec::new();
     for octave in 0..octaves {
         ascending.extend(intervals.iter().map(|interval| octave * 12 + interval));
     }
     ascending.push(octaves * 12);
-    apply_direction(
-        ascending.into_iter().map(|note| vec![note]).collect(),
-        direction,
-    )
+    ascending.into_iter().map(|note| vec![note]).collect()
 }
 
 fn chord_moments(
@@ -504,6 +555,53 @@ mod tests {
     }
 
     #[test]
+    fn a_melodic_minor_raises_six_and_seven_upward_then_descends_naturally() {
+        let plan = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 9,
+                tonality: ExerciseTonality::Minor,
+                minor_form: ExerciseMinorForm::Melodic,
+                hands: ExerciseHands::Right,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            pitches(&plan, PracticePart::RightHand),
+            [69, 71, 72, 74, 76, 78, 80, 81, 79, 77, 76, 74, 72, 71, 69]
+                .into_iter()
+                .map(|note| vec![note])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_harmonic_minor_keeps_the_raised_seventh_when_descending() {
+        let plan = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 9,
+                tonality: ExerciseTonality::Minor,
+                minor_form: ExerciseMinorForm::Harmonic,
+                direction: ExerciseDirection::Descending,
+                hands: ExerciseHands::Right,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            pitches(&plan, PracticePart::RightHand),
+            [81, 80, 77, 76, 74, 72, 71, 69]
+                .into_iter()
+                .map(|note| vec![note])
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn c_minor_primary_chords_use_a_major_dominant() {
         let plan = ExercisePlan::generate(
             ExerciseSpec {
@@ -570,6 +668,29 @@ mod tests {
                 &keyboard
             ),
             Err(ExerciseError::InvalidOctaves)
+        );
+        assert_eq!(
+            ExercisePlan::generate(
+                ExerciseSpec {
+                    tonality: ExerciseTonality::Major,
+                    minor_form: ExerciseMinorForm::Harmonic,
+                    ..Default::default()
+                },
+                &keyboard
+            ),
+            Err(ExerciseError::InvalidMinorForm)
+        );
+        assert_eq!(
+            ExercisePlan::generate(
+                ExerciseSpec {
+                    tonality: ExerciseTonality::Minor,
+                    minor_form: ExerciseMinorForm::Melodic,
+                    pattern: ExercisePattern::Arpeggio,
+                    ..Default::default()
+                },
+                &keyboard
+            ),
+            Err(ExerciseError::InvalidMinorForm)
         );
         assert_eq!(
             ExercisePlan::generate(
@@ -677,9 +798,19 @@ mod tests {
             &keyboard,
         )
         .unwrap();
+        let harmonic_minor = ExercisePlan::generate(
+            ExerciseSpec {
+                tonality: ExerciseTonality::Minor,
+                minor_form: ExerciseMinorForm::Harmonic,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
 
         assert_eq!(base.practice_id(), faster_left.practice_id());
         assert_ne!(base.practice_id(), different_key.practice_id());
+        assert_ne!(base.practice_id(), harmonic_minor.practice_id());
         assert_eq!(base.practice_id().len(), 64);
     }
 
@@ -727,6 +858,7 @@ mod tests {
 
         let spec: ExerciseSpec = ron::from_str(legacy).unwrap();
 
+        assert_eq!(spec.minor_form, ExerciseMinorForm::Natural);
         assert_eq!(spec.repetitions, 1);
     }
 }
