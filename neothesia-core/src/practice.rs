@@ -180,6 +180,8 @@ impl PracticeBreakdown {
 pub struct MeasureSummary {
     pub measure: usize,
     pub breakdown: PracticeBreakdown,
+    #[serde(default)]
+    pub timing: TimingSummary,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -902,6 +904,7 @@ impl PracticeMatcher {
 
     pub fn summary(&self) -> AttemptSummary {
         let mut measures = BTreeMap::<usize, PracticeBreakdown>::new();
+        let mut measure_timing = BTreeMap::<usize, Vec<i32>>::new();
         let mut parts = BTreeMap::<PracticePart, PracticeBreakdown>::new();
         let mut part_timing = BTreeMap::<PracticePart, Vec<i32>>::new();
 
@@ -915,6 +918,12 @@ impl PracticeMatcher {
                     .entry(target.measure)
                     .or_default()
                     .record(result.judgement);
+                if let Some(offset) = result.timing_offset_ms {
+                    measure_timing
+                        .entry(target.measure)
+                        .or_default()
+                        .push(offset);
+                }
             }
             parts
                 .entry(target.part)
@@ -929,7 +938,16 @@ impl PracticeMatcher {
             overall: self.snapshot,
             measures: measures
                 .into_iter()
-                .map(|(measure, breakdown)| MeasureSummary { measure, breakdown })
+                .map(|(measure, breakdown)| MeasureSummary {
+                    measure,
+                    breakdown,
+                    timing: summarize_timing_offsets(
+                        measure_timing
+                            .get(&measure)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
+                    ),
+                })
                 .collect(),
             parts: parts
                 .into_iter()
@@ -1323,6 +1341,7 @@ mod tests {
             .unwrap();
         assert_eq!(measure_3.breakdown.matched_notes, 1);
         assert_eq!(measure_3.breakdown.on_time_notes, 1);
+        assert_eq!(measure_3.timing.median_offset_ms, Some(40));
 
         let measure_5 = summary
             .measures
@@ -1504,6 +1523,25 @@ mod tests {
 
         let part: PartSummary = ron::from_str(legacy).unwrap();
         assert_eq!(part.timing, TimingSummary::default());
+    }
+
+    #[test]
+    fn measure_summaries_saved_before_timing_profiles_remain_readable() {
+        let legacy = r#"(
+            measure: 3,
+            breakdown: (
+                target_notes: 1,
+                matched_notes: 1,
+                on_time_notes: 1,
+                early_notes: 0,
+                late_notes: 0,
+                wrong_notes: 0,
+                missed_notes: 0,
+            ),
+        )"#;
+
+        let measure: MeasureSummary = ron::from_str(legacy).unwrap();
+        assert_eq!(measure.timing, TimingSummary::default());
     }
 
     #[test]

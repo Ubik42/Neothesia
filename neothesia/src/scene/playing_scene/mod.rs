@@ -370,6 +370,18 @@ impl PlayingScene {
                     .clamp(recommendation.start_measure, measure_count);
                 recommendation
             });
+        let rhythm_recommendation = ctx
+            .practice_history
+            .song(&self.player.song().file.content_id)
+            .and_then(|history| history.recommended_rhythm_passage())
+            .map(|mut recommendation| {
+                let measure_count = self.player.song().file.measures.len().max(1);
+                recommendation.start_measure = recommendation.start_measure.clamp(1, measure_count);
+                recommendation.end_measure = recommendation
+                    .end_measure
+                    .clamp(recommendation.start_measure, measure_count);
+                recommendation
+            });
         let history_overview = ctx
             .practice_history
             .song(&self.player.song().file.content_id)
@@ -607,45 +619,71 @@ impl PlayingScene {
                 let button_gap = 12.0;
                 let button_y = panel_h - 68.0;
                 let button_w = (panel_w - 56.0 - button_gap) / 2.0;
+                let has_note_recommendation = recommendation.is_some();
 
-                if let Some(recommendation) = recommendation {
-                    if completion_view == CompletionView::Current {
-                        nuon::label()
-                            .x(28.0)
-                            .y(434.0)
-                            .size(panel_w - 56.0, 30.0)
-                            .font_size(14.0)
-                            .color([255, 205, 124])
-                            .text(format!(
-                                "Suggested: measures {}–{}  ·  {}% across {} notes / {} takes",
-                                recommendation.start_measure,
-                                recommendation.end_measure,
-                                percent(Some(recommendation.weakest_accuracy)),
-                                recommendation.judged_notes,
-                                recommendation.attempts
-                            ))
-                            .build(ui);
-                    }
-
-                    if nuon::button()
+                if let Some(recommendation) = recommendation
+                    && nuon::button()
                         .x(28.0)
                         .y(button_y - 56.0)
-                        .size(panel_w - 56.0, 44.0)
+                        .size(
+                            if rhythm_recommendation.is_some() {
+                                button_w
+                            } else {
+                                panel_w - 56.0
+                            },
+                            44.0,
+                        )
                         .label(format!(
-                            "Practice suggested measures {}–{}",
-                            recommendation.start_measure, recommendation.end_measure
+                            "Notes m.{}–{} · {}% / {} takes",
+                            recommendation.start_measure,
+                            recommendation.end_measure,
+                            percent(Some(recommendation.weakest_accuracy)),
+                            recommendation.attempts,
                         ))
                         .color([232, 144, 57])
                         .hover_color([245, 163, 82])
                         .preseed_color([255, 177, 96])
                         .border_radius([8.0; 4])
                         .build(ui)
-                    {
-                        action = Some(CompletionAction::PracticeWeak {
-                            start_measure: recommendation.start_measure,
-                            end_measure: recommendation.end_measure,
-                        });
-                    }
+                {
+                    action = Some(CompletionAction::PracticeWeak {
+                        start_measure: recommendation.start_measure,
+                        end_measure: recommendation.end_measure,
+                    });
+                }
+
+                if let Some(recommendation) = rhythm_recommendation
+                    && nuon::button()
+                        .x(if has_note_recommendation {
+                            28.0 + button_w + button_gap
+                        } else {
+                            28.0
+                        })
+                        .y(button_y - 56.0)
+                        .size(
+                            if has_note_recommendation {
+                                button_w
+                            } else {
+                                panel_w - 56.0
+                            },
+                            44.0,
+                        )
+                        .label(format!(
+                            "Rhythm m.{}–{} · {}ms spread",
+                            recommendation.start_measure,
+                            recommendation.end_measure,
+                            recommendation.median_deviation_ms,
+                        ))
+                        .color([132, 96, 191])
+                        .hover_color([151, 112, 215])
+                        .preseed_color([163, 124, 227])
+                        .border_radius([8.0; 4])
+                        .build(ui)
+                {
+                    action = Some(CompletionAction::PracticeRhythm {
+                        start_measure: recommendation.start_measure,
+                        end_measure: recommendation.end_measure,
+                    });
                 }
 
                 if nuon::button()
@@ -705,6 +743,19 @@ impl PlayingScene {
                     "Timing offset saved at {suggested_ms:+} ms · verify with this take"
                 ));
             }
+            Some(CompletionAction::PracticeRhythm {
+                start_measure,
+                end_measure,
+            }) => {
+                if top_bar::begin_measure_loop(self, start_measure, end_measure) {
+                    self.completion = None;
+                    self.saved_session_count = None;
+                    self.completion_view = CompletionView::Current;
+                    self.toast_manager.toast(format!(
+                        "Rhythm focus: measures {start_measure}–{end_measure}"
+                    ));
+                }
+            }
             Some(CompletionAction::Retry) => {
                 self.player.restart_practice();
                 self.keyboard.reset_notes();
@@ -750,6 +801,10 @@ enum CompletionAction {
     },
     ApplyCalibration {
         suggested_ms: i32,
+    },
+    PracticeRhythm {
+        start_measure: usize,
+        end_measure: usize,
     },
     Retry,
     Back,

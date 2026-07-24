@@ -116,6 +116,26 @@ pub struct WeakPassageRecommendation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RhythmMeasure {
+    pub measure: usize,
+    pub median_offset_ms: i32,
+    pub median_deviation_ms: u32,
+    pub matched_notes: usize,
+    pub attempts: usize,
+    pub severity_ms: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RhythmPassageRecommendation {
+    pub start_measure: usize,
+    pub end_measure: usize,
+    pub median_offset_ms: i32,
+    pub median_deviation_ms: u32,
+    pub matched_notes: usize,
+    pub attempts: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RecentPracticeSummary {
     pub kind: PracticeSessionKind,
     pub hands: PracticeHands,
@@ -285,6 +305,85 @@ impl SongPracticeHistory {
         })
     }
 
+    pub fn rhythm_measures(&self, limit: usize) -> Vec<RhythmMeasure> {
+        let Some(scope) = self
+            .sessions
+            .last()
+            .map(|session| (session.kind, session.hands))
+        else {
+            return Vec::new();
+        };
+        let mut measures = BTreeMap::<usize, (Vec<i32>, Vec<u32>, usize)>::new();
+        for session in self
+            .sessions
+            .iter()
+            .filter(|session| (session.kind, session.hands) == scope)
+        {
+            for item in &session.summary.measures {
+                if item.timing.matched_samples < 4 {
+                    continue;
+                }
+                let (offsets, deviations, matched_notes) =
+                    measures.entry(item.measure).or_default();
+                if let Some(offset) = item.timing.median_offset_ms {
+                    offsets.push(offset);
+                }
+                if let Some(deviation) = item.timing.median_deviation_ms {
+                    deviations.push(deviation);
+                }
+                *matched_notes += item.timing.matched_samples;
+            }
+        }
+
+        let mut rhythm: Vec<_> = measures
+            .into_iter()
+            .filter_map(|(measure, (mut offsets, mut deviations, matched_notes))| {
+                let attempts = offsets.len().min(deviations.len());
+                if attempts < 2 || matched_notes < 12 {
+                    return None;
+                }
+                offsets.sort_unstable();
+                deviations.sort_unstable();
+                let median_offset_ms = median_i32(&offsets)?;
+                let median_deviation_ms = median_u32(&deviations)?;
+                let severity_ms = median_offset_ms
+                    .unsigned_abs()
+                    .saturating_add(median_deviation_ms);
+                (median_offset_ms.unsigned_abs() >= 60 || median_deviation_ms >= 40).then_some(
+                    RhythmMeasure {
+                        measure,
+                        median_offset_ms,
+                        median_deviation_ms,
+                        matched_notes,
+                        attempts,
+                        severity_ms,
+                    },
+                )
+            })
+            .collect();
+        rhythm.sort_by(|left, right| {
+            right
+                .severity_ms
+                .cmp(&left.severity_ms)
+                .then_with(|| right.matched_notes.cmp(&left.matched_notes))
+                .then_with(|| left.measure.cmp(&right.measure))
+        });
+        rhythm.truncate(limit);
+        rhythm
+    }
+
+    pub fn recommended_rhythm_passage(&self) -> Option<RhythmPassageRecommendation> {
+        let weakest = self.rhythm_measures(1).into_iter().next()?;
+        Some(RhythmPassageRecommendation {
+            start_measure: weakest.measure,
+            end_measure: weakest.measure.saturating_add(1),
+            median_offset_ms: weakest.median_offset_ms,
+            median_deviation_ms: weakest.median_deviation_ms,
+            matched_notes: weakest.matched_notes,
+            attempts: weakest.attempts,
+        })
+    }
+
     pub fn overview(
         &self,
         recent_limit: usize,
@@ -373,6 +472,28 @@ fn first_last_delta(mut values: impl Iterator<Item = f32>) -> Option<f32> {
         count += 1;
     }
     (count >= 2).then_some(last - first)
+}
+
+fn median_i32(values: &[i32]) -> Option<i32> {
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => None,
+        len if len.is_multiple_of(2) => {
+            Some(((i64::from(values[middle - 1]) + i64::from(values[middle])) / 2) as i32)
+        }
+        _ => Some(values[middle]),
+    }
+}
+
+fn median_u32(values: &[u32]) -> Option<u32> {
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => None,
+        len if len.is_multiple_of(2) => {
+            Some((u64::from(values[middle - 1]) + u64::from(values[middle])).div_ceil(2) as u32)
+        }
+        _ => Some(values[middle]),
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
@@ -761,7 +882,7 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::practice::{MeasureSummary, PracticeSnapshot};
+    use crate::practice::{MeasureSummary, PracticeSnapshot, TimingSummary};
 
     fn temp_history_path(name: &str) -> PathBuf {
         let directory = std::env::temp_dir().join(format!(
@@ -793,12 +914,28 @@ mod tests {
                         missed_notes: missed,
                         ..PracticeBreakdown::default()
                     },
+                    timing: Default::default(),
                 }],
                 parts: Vec::new(),
                 timing: Default::default(),
                 expression: Default::default(),
             },
         }
+    }
+
+    fn rhythm_session(
+        measure: usize,
+        samples: usize,
+        offset_ms: i32,
+        deviation_ms: u32,
+    ) -> PracticeSession {
+        let mut session = session(measure, samples, 0);
+        session.summary.measures[0].timing = TimingSummary {
+            matched_samples: samples,
+            median_offset_ms: Some(offset_ms),
+            median_deviation_ms: Some(deviation_ms),
+        };
+        session
     }
 
     #[test]
@@ -1036,6 +1173,61 @@ mod tests {
         assert_eq!(weak[0].attempts, 2);
         assert!((weak[0].accuracy - 0.65).abs() < f32::EPSILON);
         assert_eq!(weak[1].measure, 7);
+    }
+
+    #[test]
+    fn rhythm_recommendation_requires_repeated_measure_evidence() {
+        let mut history = SongPracticeHistory::default();
+        history.sessions.push(rhythm_session(7, 6, 80, 30));
+        assert!(history.rhythm_measures(4).is_empty());
+        assert_eq!(history.recommended_rhythm_passage(), None);
+
+        history.sessions.push(rhythm_session(7, 6, 100, 50));
+        let rhythm = history.rhythm_measures(4);
+        assert_eq!(
+            rhythm,
+            vec![RhythmMeasure {
+                measure: 7,
+                median_offset_ms: 90,
+                median_deviation_ms: 40,
+                matched_notes: 12,
+                attempts: 2,
+                severity_ms: 130,
+            }]
+        );
+        assert_eq!(
+            history.recommended_rhythm_passage(),
+            Some(RhythmPassageRecommendation {
+                start_measure: 7,
+                end_measure: 8,
+                median_offset_ms: 90,
+                median_deviation_ms: 40,
+                matched_notes: 12,
+                attempts: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn rhythm_ranking_ignores_stable_measures_and_other_hand_scopes() {
+        let mut history = SongPracticeHistory::default();
+        let mut unrelated = rhythm_session(9, 20, 150, 80);
+        unrelated.kind = PracticeSessionKind::Loop {
+            start_measure: 9,
+            end_measure: 10,
+        };
+        history.sessions.push(unrelated);
+        history.sessions.extend([
+            rhythm_session(2, 8, 10, 15),
+            rhythm_session(2, 8, 12, 17),
+            rhythm_session(4, 6, -70, 20),
+            rhythm_session(4, 6, -90, 20),
+        ]);
+
+        let rhythm = history.rhythm_measures(4);
+        assert_eq!(rhythm.len(), 1);
+        assert_eq!(rhythm[0].measure, 4);
+        assert_eq!(rhythm[0].median_offset_ms, -80);
     }
 
     #[test]
