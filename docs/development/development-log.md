@@ -4,6 +4,64 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 072: Rapid repeated-note alternation (DONE)
+
+### Outcome
+
+The suggestion model no longer gives the same repeated-note advice at every
+speed. Slow repeats remain on one finger; a sustained fast run can alternate
+adjacent fingers so the key has a clearer chance to release between attacks.
+
+### Research boundary
+
+- Indiana University Press *Class Piano* lists changing fingers on a repeated
+  note as a general fingering device, while warning that multiple fingerings
+  may be acceptable and should be tested for the individual hand:
+  <https://publish.iupress.indiana.edu/read/class-piano/section/d57966c3-dc98-4825-b143-0f8c5f58173f>
+- Youmee Kim's Ohio State dissertation describes alternating fingers as
+  usually easier for fast repeated notes but calls out black-key, melody and
+  body-shift exceptions:
+  <https://etd.ohiolink.edu/acprod/odb_etd/ws/send_file/send?accession=osu1199061624&disposition=inline>
+
+These sources support a conservative option, not automatic editorial truth.
+
+### Implemented
+
+- Added a three-note minimum for recognizing a repeated run.
+- Added a 250 ms maximum inter-onset interval.
+- Replaced the ordinary repeated-note transition only inside that run.
+- Penalized same-finger reuse and favored the smallest nonzero finger change.
+- Preserved the balanced phrase-start cost, producing 3–2–1–2 on a four-note
+  white-key fixture.
+- Kept slow repeats and manual anchors unchanged.
+- Added `RapidRepeatedNote` with a plain-language explanation and 76%
+  confidence tier.
+- Completed `MUS-003I`.
+
+### Verification
+
+- A 120 ms four-note C run produces 3–2–1–2.
+- All three transitions carry `RapidRepeatedNote`.
+- The prior 500 ms repeat test still keeps finger 3.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- Whole-chord sidecar and Technique Studio real-process fixtures pass.
+
+All desktop gates passed: two MIDI-file tests, 110 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `b6a2332`
+(`feat: alternate rapid repeated notes`).
+
+### Known limitations
+
+- The threshold is a transparent conservative heuristic, not tempo-, skill- or
+  key-action-calibrated.
+- Black-key width, accents and phrase role do not yet change the pattern.
+- The model offers one alternating path rather than same-finger and alternating
+  alternatives side by side.
+
 ## 2026-07-25 — Cycle 071: Melody over a held chord (DONE)
 
 ### Outcome

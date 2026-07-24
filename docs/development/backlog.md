@@ -84,6 +84,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-003F2B` Represent and edit an intentional finger substitution on one
   continuously held key.
 - [ ] `MUS-003F3` Use phrase, slur and articulation context.
+- [x] `MUS-003I` Alternate adjacent fingers for sustained runs of rapid repeated
+  notes while preserving same-finger slow repeats and manual anchors.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
 - [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.

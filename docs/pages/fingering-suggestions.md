@@ -49,7 +49,7 @@ is an editorial or teacher-approved fingering.
 The dynamic program evaluates all five fingers at every modeled note and
 penalizes:
 
-- changing finger on an immediately repeated pitch;
+- changing finger on a slow or isolated repeated pitch;
 - moving against the natural finger order without a thumb/finger crossing;
 - using the thumb, and to a lesser extent finger 5, on a black key;
 - stretching farther than a conservative finger-pair span;
@@ -58,7 +58,7 @@ penalizes:
 
 It rewards:
 
-- stable fingers on repeated notes;
+- stable fingers on slow/isolated repeated notes;
 - finger order that follows the melodic direction for the selected hand;
 - ordinary in-position movement;
 - thumb-under and finger-over turns when continuation needs them;
@@ -66,6 +66,32 @@ It rewards:
 
 The currently selected note is intentionally unanchored so the learner can ask
 for a genuine alternative.
+
+## Rapid repeated notes
+
+Repeated-note fingering is contextual, not one universal rule:
+
+- Indiana University Press's open *Class Piano* text presents changing fingers
+  on a repeated note as one available fingering device, while emphasizing
+  individual hand fit and consistent practice once a choice is made:
+  <https://publish.iupress.indiana.edu/read/class-piano/section/d57966c3-dc98-4825-b143-0f8c5f58173f>
+- Youmee Kim's Ohio State performance study says alternating fingers is
+  usually easier for fast repeated notes, but documents musical/acoustic
+  exceptions involving melody emphasis, wide movement and narrow black keys:
+  <https://etd.ohiolink.edu/acprod/odb_etd/ws/send_file/send?accession=osu1199061624&disposition=inline>
+
+The prototype therefore alternates only when:
+
+- at least three consecutive notes share one pitch; and
+- each relevant onset gap is at most 250 ms.
+
+The dynamic program starts from a balanced finger and gives adjacent changes
+the lowest cost. Four rapid middle C attacks can therefore preview 3–2–1–2.
+Two isolated attacks or a 500 ms repeated run keep the same finger. Manual
+anchors remain hard constraints. The explanation is “alternates fingers so
+rapid repeated notes can release cleanly,” at a deliberately moderate 76%
+confidence because articulation, key color and musical accent are not yet
+modeled.
 
 ## Chord shapes
 
@@ -162,6 +188,7 @@ Every preview reports one of:
 - saved manual anchor;
 - balanced phrase start;
 - repeated note;
+- rapid repeated-note alternation;
 - in-position movement;
 - thumb-under;
 - finger-over;

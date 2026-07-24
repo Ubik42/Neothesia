@@ -10,6 +10,32 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 072 — Rapid repeated-note alternation
+
+State: **DONE**
+
+Delivered:
+
+- distinguished a sustained rapid repeated-note run from a slow/isolated
+  repeat;
+- required at least three same-pitch notes with onset gaps no greater than
+  250 ms;
+- preferred adjacent finger changes while retaining all manual anchors;
+- kept the previous same-finger rule for slow repetition;
+- added an explicit rapid-repeat reason at a moderate 76% confidence;
+- documented university textbook/performance-study evidence and exceptions;
+- completed `MUS-003I`.
+
+Verification:
+
+- four C notes at 120 ms intervals produce 3–2–1–2;
+- every transition in that run reports the rapid-repeat reason;
+- the existing 500 ms repeat keeps finger 3 and reports ordinary repetition;
+- 110 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `b6a2332`.
+
 ### Cycle 071 — Melody over a held chord
 
 State: **DONE**
