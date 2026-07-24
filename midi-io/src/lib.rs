@@ -39,6 +39,19 @@ impl MidiOutputManager {
             .collect()
     }
 
+    /// Find an output by its exact display name and briefly open it.
+    ///
+    /// This is intended for diagnostics: no MIDI data is sent, and the
+    /// connection is closed immediately after the operating system confirms
+    /// that the endpoint can be opened.
+    pub fn probe_output(&self, name: &str) -> bool {
+        self.outputs()
+            .into_iter()
+            .find(|port| port.0 == name)
+            .and_then(Self::connect_output)
+            .is_some()
+    }
+
     pub fn connect_output(port: MidiOutputPort) -> Option<MidiOutputConnection> {
         let output = midir::MidiOutput::new("MidiIo-out").unwrap();
 
