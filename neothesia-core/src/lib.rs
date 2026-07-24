@@ -9,6 +9,7 @@ pub mod exercise;
 pub mod fingering;
 pub mod font_system;
 pub mod library;
+pub mod musicxml;
 pub mod practice;
 pub mod practice_history;
 pub mod render;
