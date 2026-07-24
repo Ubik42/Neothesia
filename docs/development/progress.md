@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 026 — Reliable rhythm trouble spots
+
+State: **DONE**
+
+Delivered:
+
+- persisted robust timing evidence per measure;
+- aggregated repeated measure evidence within one practice kind/hand scope;
+- required two attempts, twelve matched notes and explicit bias/spread
+  thresholds;
+- ignored stable and under-sampled measures;
+- ranked rhythm issues separately from wrong/missed-note accuracy;
+- added separate Notes and Rhythm loop actions with compact responsive layout.
+
+Verification:
+
+- two MIDI-file tests, forty-nine practice/core tests and forty application
+  tests pass;
+- tests cover measure aggregation, repeated evidence, thresholds, ranking,
+  scope isolation, migration and existing note recommendations;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `ffdb072`.
+
 ### Cycle 025 — Left/right-hand timing profiles
 
 State: **DONE**
@@ -698,10 +722,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 026 with measure-level rhythm evidence. Aggregate robust timing
-profiles by measure, require repeated/adequate samples before ranking a rhythm
-trouble spot, and keep the rhythm recommendation distinct from existing
-wrong/missed-note recommendations.
+Begin Cycle 027 with chord-synchronization evidence. Group simultaneous score
+targets, measure the span between their matched live attacks, protect
+intentional/arpeggiated material from false claims, and report only
+well-supported block-chord coordination evidence.
 
 ## Known constraints
 

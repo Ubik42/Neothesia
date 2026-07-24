@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 026: Reliable rhythm trouble spots (DONE)
+
+### Outcome
+
+Neothesia now distinguishes note-accuracy problems from rhythm-stability
+problems at measure level. A learner can start a focused loop for either reason
+from two separate, evidence-labelled actions.
+
+### Implemented
+
+- Added backward-compatible robust timing profiles to measure summaries.
+- Aggregated raw matched-note offsets independently for every measure.
+- Combined repeated attempts using medians of per-attempt bias and deviation.
+- Kept only attempts with at least four timing samples in that measure.
+- Required at least two attempts and twelve cumulative matched notes.
+- Flagged a rhythm problem only at ≥60 ms median bias or ≥40 ms median
+  deviation.
+- Ranked reliable measures by transparent bias-plus-deviation severity.
+- Scoped evidence to the latest session kind and hand goal.
+- Added a dedicated purple Rhythm action beside the orange Notes action.
+- Split the recommendation row cleanly when both actions are available.
+- Started the selected two-measure rhythm loop with an explicit focus toast.
+
+### Verification
+
+- Added repeated-evidence, insufficient-evidence and stable-measure tests.
+- Added scope isolation between whole-song and loop sessions.
+- Verified exact measure timing aggregation and old-summary migration.
+- Preserved the existing note-accuracy recommendation tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, forty-nine core tests and forty
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `ffdb072`
+(`feat: recommend weak rhythm measures`).
+
+### Known limitations
+
+- Cross-attempt aggregation uses per-attempt medians rather than retaining every
+  raw historical note offset.
+- Thresholds are fixed policy constants and are not level-specific yet.
+- Recommended passages remain two measures long.
+- Chord simultaneity and intentional rolled chords are not distinguished yet.
+
 ## 2026-07-25 — Cycle 025: Left/right-hand timing profiles (DONE)
 
 ### Outcome
