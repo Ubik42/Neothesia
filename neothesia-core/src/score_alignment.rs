@@ -6,7 +6,10 @@ use std::{
 use midi_file::{MidiFile, tempo_track::TempoTrack};
 
 use crate::musicxml::{Pitch, Score, ScoreEvent, ScoreEventId, ScoreTime, Step};
-use crate::score_playback::{PlaybackPlan, ScoreEventOccurrenceId, expand_event_occurrences};
+use crate::score_playback::{
+    PlaybackLimits, PlaybackPlan, ScoreEventOccurrenceId, build_playback_plan,
+    expand_event_occurrences,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectedScoreEvent {
@@ -52,7 +55,7 @@ pub struct PerformanceNote {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlignedNote {
-    pub score_id: ScoreEventId,
+    pub score_id: ScoreEventOccurrenceId,
     pub midi_id: MidiNoteId,
     pub onset_delta_micros: i64,
     pub duration_delta_micros: i64,
@@ -60,18 +63,34 @@ pub struct AlignedNote {
     pub exact_score_projection: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScoreMidiAlignment {
     pub matches: Vec<AlignedNote>,
-    pub unmatched_score: Vec<ScoreEventId>,
+    pub unmatched_score: Vec<ScoreEventOccurrenceId>,
     pub unmatched_midi: Vec<MidiNoteId>,
     pub coverage_percent: u8,
     pub mean_confidence_percent: u8,
+    pub navigation_complete: bool,
+    pub navigation_diagnostics: Vec<String>,
+}
+
+impl Default for ScoreMidiAlignment {
+    fn default() -> Self {
+        Self {
+            matches: Vec::new(),
+            unmatched_score: Vec::new(),
+            unmatched_midi: Vec::new(),
+            coverage_percent: 0,
+            mean_confidence_percent: 0,
+            navigation_complete: true,
+            navigation_diagnostics: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
 struct ScoreCandidate {
-    id: ScoreEventId,
+    id: ScoreEventOccurrenceId,
     timestamp: Duration,
     duration: Duration,
     exact: bool,
@@ -207,7 +226,96 @@ pub fn align_score_to_midi(score: &Score, midi: &MidiFile) -> ScoreMidiAlignment
                 })
         })
         .collect();
-    align_score_notes(score, &midi.tempo_track, &performance)
+    align_score_occurrences(
+        score,
+        &midi.tempo_track,
+        &performance,
+        PlaybackLimits::default(),
+    )
+}
+
+/// Aligns the performed occurrence order, including common repeats and
+/// numbered endings, with concrete MIDI notes.
+pub fn align_score_occurrences(
+    score: &Score,
+    tempo: &TempoTrack,
+    performance: &[PerformanceNote],
+    limits: PlaybackLimits,
+) -> ScoreMidiAlignment {
+    let mut score_by_pitch: BTreeMap<u8, Vec<ScoreCandidate>> = BTreeMap::new();
+    let mut result = ScoreMidiAlignment::default();
+    let mut reference_navigation: Option<Vec<(u32, u16)>> = None;
+
+    for part in &score.parts {
+        let plan = build_playback_plan(part, limits);
+        if !plan.complete {
+            result.navigation_complete = false;
+        }
+        result
+            .navigation_diagnostics
+            .extend(plan.diagnostics.iter().map(|diagnostic| {
+                let location = diagnostic
+                    .measure_ordinal
+                    .map(|measure| format!(" measure {}", measure + 1))
+                    .unwrap_or_default();
+                format!("part {}{location}: {}", part.id, diagnostic.message)
+            }));
+
+        let signature: Vec<_> = plan
+            .visits
+            .iter()
+            .map(|visit| (visit.source_measure_ordinal, visit.repeat_pass))
+            .collect();
+        if let Some(reference) = &reference_navigation {
+            if *reference != signature {
+                result.navigation_complete = false;
+                result.navigation_diagnostics.push(format!(
+                    "part {} has a different performed measure order",
+                    part.id
+                ));
+            }
+        } else {
+            reference_navigation = Some(signature);
+        }
+
+        let pitch_by_source: HashMap<_, _> = part
+            .measures
+            .iter()
+            .flat_map(|measure| &measure.events)
+            .filter_map(|event| match event {
+                ScoreEvent::Note(note) => note
+                    .pitch
+                    .as_ref()
+                    .map(|pitch| (note.id.clone(), midi_pitch(pitch))),
+                ScoreEvent::Direction(_) => None,
+            })
+            .collect();
+        let projection = project_performed_part_timeline(part, &plan, tempo);
+        for id in projection.unprojected {
+            if pitch_by_source.contains_key(&id.source_id) {
+                result.unmatched_score.push(id);
+            }
+        }
+        for event in projection.events {
+            let Some(pitch) = pitch_by_source.get(&event.id.source_id) else {
+                continue;
+            };
+            let Some(pitch) = *pitch else {
+                result.unmatched_score.push(event.id);
+                continue;
+            };
+            score_by_pitch
+                .entry(pitch)
+                .or_default()
+                .push(ScoreCandidate {
+                    id: event.id,
+                    timestamp: event.timestamp,
+                    duration: event.duration.unwrap_or_default(),
+                    exact: event.exact_to_midi_pulse,
+                });
+        }
+    }
+    finish_alignment(score_by_pitch, performance, result)
 }
 
 /// Aligns pitched score notes with ordered performance notes. Matching runs
@@ -237,27 +345,39 @@ pub fn align_score_notes(
             _ => None,
         })
     {
+        let occurrence_id = ScoreEventOccurrenceId {
+            source_id: note.id.clone(),
+            measure_occurrence_ordinal: note.id.measure_ordinal,
+        };
         let Some(written_pitch) = note.pitch.as_ref() else {
             continue;
         };
         let Some(pitch) = midi_pitch(written_pitch) else {
-            result.unmatched_score.push(note.id.clone());
+            result.unmatched_score.push(occurrence_id);
             continue;
         };
         let Some(projected) = projected.get(&note.id) else {
-            result.unmatched_score.push(note.id.clone());
+            result.unmatched_score.push(occurrence_id);
             continue;
         };
         score_by_pitch
             .entry(pitch)
             .or_default()
             .push(ScoreCandidate {
-                id: note.id.clone(),
+                id: occurrence_id,
                 timestamp: projected.timestamp,
                 duration: projected.duration.unwrap_or_default(),
                 exact: projected.exact_to_midi_pulse,
             });
     }
+    finish_alignment(score_by_pitch, performance, result)
+}
+
+fn finish_alignment(
+    mut score_by_pitch: BTreeMap<u8, Vec<ScoreCandidate>>,
+    performance: &[PerformanceNote],
+    mut result: ScoreMidiAlignment,
+) -> ScoreMidiAlignment {
     for notes in score_by_pitch.values_mut() {
         notes.sort_by(|left, right| {
             left.timestamp
@@ -625,6 +745,71 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aligns_both_occurrences_of_a_repeated_source_note() {
+        let score = import_musicxml(
+            br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1">
+<barline location="left"><repeat direction="forward"/></barline>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+<barline><repeat direction="backward"/></barline>
+</measure></part></score-partwise>"#,
+        )
+        .unwrap();
+        let performance = [performed(0, 60, 0), performed(1, 60, 500)];
+        let alignment = align_score_occurrences(
+            &score,
+            &TempoTrack::build(&[], 480),
+            &performance,
+            PlaybackLimits::default(),
+        );
+
+        assert_eq!(alignment.matches.len(), 2);
+        assert_eq!(
+            alignment
+                .matches
+                .iter()
+                .map(|item| item.score_id.measure_occurrence_ordinal)
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(
+            alignment.matches[0].score_id.source_id,
+            alignment.matches[1].score_id.source_id
+        );
+        assert!(alignment.navigation_complete);
+        assert!(alignment.navigation_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn diagnoses_conflicting_part_navigation() {
+        let score = import_musicxml(
+            br#"<score-partwise>
+<part-list>
+<score-part id="P1"><part-name>Right</part-name></score-part>
+<score-part id="P2"><part-name>Left</part-name></score-part>
+</part-list>
+<part id="P1"><measure number="1">
+<note><rest/><duration>1</duration></note>
+<barline><repeat direction="backward"/></barline>
+</measure></part>
+<part id="P2"><measure number="1"><note><rest/><duration>1</duration></note></measure></part>
+</score-partwise>"#,
+        )
+        .unwrap();
+        let alignment = align_score_occurrences(
+            &score,
+            &TempoTrack::build(&[], 480),
+            &[],
+            PlaybackLimits::default(),
+        );
+
+        assert!(!alignment.navigation_complete);
+        assert_eq!(alignment.navigation_diagnostics.len(), 1);
+        assert!(alignment.navigation_diagnostics[0].contains("part P2"));
+    }
+
     fn three_note_score(pitches: [&str; 3]) -> Score {
         let notes = pitches
             .into_iter()
@@ -701,11 +886,11 @@ mod tests {
             alignment
                 .matches
                 .iter()
-                .map(|item| item.score_id.ordinal)
+                .map(|item| item.score_id.source_id.ordinal)
                 .collect::<Vec<_>>(),
             [0, 2]
         );
-        assert_eq!(alignment.unmatched_score[0].ordinal, 1);
+        assert_eq!(alignment.unmatched_score[0].source_id.ordinal, 1);
         assert!(alignment.unmatched_midi.is_empty());
     }
 
