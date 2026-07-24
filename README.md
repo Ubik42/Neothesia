@@ -41,6 +41,7 @@ All binary releases:
 
 ## Development roadmap
 
+- [Sustained piano-learning development](docs/development/README.md)
 - [Piano plug-in hosting (VST3 and Pianoteq)](docs/pages/plugin-hosting-roadmap.md)
 
 ## Thanks to
