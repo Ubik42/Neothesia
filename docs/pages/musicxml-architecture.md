@@ -24,7 +24,7 @@ grand staff synchronized with the existing player clock
 - pitch, rest, chord, voice and staff identity;
 - key signature, time signature, divisions and clefs;
 - direction words, dynamics and tempo;
-- fingering, ties, slurs and articulations;
+- fingering, ties, slurs, articulations and tuplet notation;
 - polyphonic `backup` and `forward` timing.
 
 The model deliberately has no SVG, DOM, webview or wgpu layout types. Learning

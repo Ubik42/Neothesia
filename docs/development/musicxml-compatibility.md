@@ -13,16 +13,16 @@ license. No network request occurs when the verified cache already exists.
 
 ## Current corpus
 
-| Fixture | Export shape | Measures | Events | Expected diagnostic |
-| --- | --- | ---: | ---: | --- |
-| Bach BWV 846 Prelude | MuseScore 1.2 | 35 | 750 | none |
-| Clementi Sonatina Allegro | older/unspecified | 76 part-measures | 389 | none |
-| Clementi Sonatina Andante | MuseScore 1.2 | 52 part-measures | 341 | tuplets and ornaments |
-| Pedal function test | MuseScore 3.6.2 | 15 | 67 | pedal directions |
-| Voice alignment | MuseScore 3.6.2 | 4 | 47 | none |
-| Grace notes | MuseScore 2.3.1 | 4 | 40 | none |
-| Brooke West sample | compressed MXL | 34 part-measures | 323 | invalid/missing mimetype |
-| Broad function test | MuseScore 2.3.2 | 41 | 226 | tuplets and ornaments |
+| Fixture | Export shape | Measures | Events | Tuplet notes | Expected diagnostic |
+| --- | --- | ---: | ---: | ---: | --- |
+| Bach BWV 846 Prelude | MuseScore 1.2 | 35 | 750 | 0 | none |
+| Clementi Sonatina Allegro | older/unspecified | 76 part-measures | 389 | 0 | none |
+| Clementi Sonatina Andante | MuseScore 1.2 | 52 part-measures | 341 | 267 | ornaments |
+| Pedal function test | MuseScore 3.6.2 | 15 | 67 | 0 | pedal directions |
+| Voice alignment | MuseScore 3.6.2 | 4 | 47 | 0 | none |
+| Grace notes | MuseScore 2.3.1 | 4 | 40 | 0 | none |
+| Brooke West sample | compressed MXL | 34 part-measures | 323 | 0 | invalid/missing mimetype |
+| Broad function test | MuseScore 2.3.2 | 41 | 226 | 42 | ornaments |
 
 Totals: 261 part-measures and 2,183 note/rest events.
 
@@ -31,8 +31,8 @@ Totals: 261 part-measures and 2,183 note/rest events.
 - Older exports use both `<rest/>` and `<rest></rest>`; both now import.
 - Deferred empty elements such as `<pedal/>` must trigger the same diagnostic
   as explicit start/end tags.
-- Tuplet event time is already exact through `duration/divisions`; the missing
-  data is the displayed ratio/bracket span, so the warning says that precisely.
+- Tuplet event time is exact through `duration/divisions`; ratios and
+  bracket/number spans are now preserved independently for display and coaching.
 - Warning locations include part plus measure because two piano parts can reuse
   the same measure number.
 

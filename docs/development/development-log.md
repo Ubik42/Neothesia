@@ -4,6 +4,46 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 076: MusicXML tuplet semantics (DONE)
+
+### Outcome
+
+Neothesia can distinguish a notated tuplet from an ordinary note with the same
+elapsed duration. This supplies the information a future grand staff and rhythm
+coach need to display and explain 3:2 and other irregular divisions correctly.
+
+### Implemented
+
+- Added `TupletRatio` with actual notes, normal notes, normal type and dot count.
+- Added `TupletSpan` with start/stop/continue, number, bracket visibility and
+  displayed-number preference.
+- Attached both structures to semantic notes.
+- Parsed explicit and self-closing tuplet span forms.
+- Preserved the exact `duration/divisions` time separately.
+- Added a localized warning for incomplete or zero ratio data.
+- Added a tuplet-note column to `musicxml-inspect`.
+
+### Verification
+
+- Unit fixture: 3:2 eighth-note tuplet, exact 1/3-quarter event duration,
+  numbered bracket start and stop.
+- Pinned Clementi Andante: 267 tuplet notes, with prior tuplet diagnostics
+  reduced to zero.
+- Pinned broad MuseScore 2.3 fixture: 42 tuplet notes, with only six ornament
+  diagnostics remaining.
+- 120 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, corpus audit, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `1f67fe9` (`feat: preserve MusicXML tuplet semantics`).
+
+### Known limitations
+
+- Nested/overlapping tuplets are represented but not yet validated as complete
+  span pairs.
+- Tuplet semantics are not rendered or aligned to MIDI note identities yet.
+- Ornament realization and pedal directions remain deferred.
+
 ## 2026-07-25 — Cycle 075: Real-score MusicXML compatibility audit (DONE)
 
 ### Outcome

@@ -10,6 +10,42 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 076 — MusicXML tuplet semantics
+
+State: **DONE**
+
+Delivered:
+
+- added explicit tuplet ratios with actual/normal note counts, normal note type
+  and normal dots;
+- added numbered tuplet start/stop spans with bracket and displayed-number
+  preferences;
+- retained exact rational event duration independently of engraving metadata;
+- rejected incomplete/zero ratios with a localized warning instead of creating
+  invalid semantic data;
+- exposed recognized tuplet-note counts in the compatibility inspector;
+- completed `MUS-001E`.
+
+Verification:
+
+- a 3:2 eighth-note fixture retains a 1/3-quarter duration, ratio and bracket
+  span;
+- the Clementi Andante corpus score recognizes 267 tuplet notes;
+- the broad MuseScore 2.3 fixture recognizes 42 tuplet notes;
+- all previous tuplet warnings disappear while three genuine ornament warnings
+  remain in Clementi;
+- 120 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `1f67fe9`.
+
+Next:
+
+- model MusicXML pedal directions, because the dedicated real-score fixture now
+  exposes six affected measures;
+- connect slur, articulation and tuplet semantics to phrase-aware fingering
+  only after stable score/MIDI note identities exist.
+
 ### Cycle 075 — Real-score MusicXML compatibility audit
 
 State: **DONE**

@@ -68,6 +68,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
   expose stable note/measure identities.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
   coupling practice logic to the renderer.
+- [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans
+  while retaining exact rational event timing.
 - [x] `MUS-002` Add manual finger hints in portable sidecars.
 - [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall
