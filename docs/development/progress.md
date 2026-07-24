@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 020 — Descriptive expression evidence
+
+State: **DONE**
+
+Delivered:
+
+- captured played and reference velocity only for successfully paired notes;
+- summarized sample count, played/reference ranges and mean absolute gap;
+- captured sustain use, distinct CC64 transitions and continuous half-pedal
+  values for both score and live input;
+- added a default-on but optional Expression Summary on the completion screen;
+- kept claims descriptive and explicitly avoided grading tone or pedalling
+  without calibration;
+- persisted the new evidence with backward-compatible history defaults;
+- proved external MIDI/Pianoteq messages retain their original channel and
+  values.
+
+Verification:
+
+- two MIDI-file tests, thirty-eight practice/core tests and thirty-seven
+  application tests pass;
+- tests cover early/late velocity pairing, pedal transitions, continuous
+  values, reset, legacy history and exact output forwarding;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `1a04bc2`.
+
 ### Cycle 019 — Explainable spaced review
 
 State: **DONE**
@@ -554,10 +581,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 020 with musical-expression feedback. Capture pedal and played
-velocity evidence without changing expressive MIDI forwarding, then expose a
-small, optional end-of-attempt dynamics/pedal summary with calibrated and
-clearly limited claims.
+Begin Cycle 021 with note-duration and articulation evidence. Pair live note
+releases with matched score notes, tolerate sustain-pedal interaction, and show
+descriptive staccato/legato duration ratios before attempting any prescriptive
+articulation grading.
 
 ## Known constraints
 
@@ -572,5 +599,6 @@ clearly limited claims.
 - External MIDI safety is automatically covered, but the documented 30-minute
   Pianoteq device soak test still requires the physical setup.
 - Recommendations currently optimize note accuracy; timing consistency, hand
-  balance, pedal and dynamics need later goal-specific recommendation rules.
+  balance and calibrated expression need later goal-specific recommendation
+  rules.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

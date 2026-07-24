@@ -49,7 +49,9 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
 - [ ] `MUS-002` Add manual finger hints in portable sidecars.
 - [ ] `MUS-003` Prototype explainable fingering suggestions.
-- [ ] `MUS-004` Add pedal and dynamics feedback.
+- [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
+- [ ] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
+- [ ] `MUS-006` Add note-duration and articulation evidence.
 - [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.
 - [x] `COACH-003` Start a structured loop directly from a weak-passage

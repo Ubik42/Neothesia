@@ -4,6 +4,60 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 020: Descriptive expression evidence (DONE)
+
+### Outcome
+
+The completion screen now reports how the pianist's matched-note velocity range
+compared with the MIDI reference and whether sustain-pedal data was present.
+The language stays deliberately descriptive: MIDI velocity and pedal event
+counts are evidence, not proof of good tone or correct pedalling.
+
+### Implemented
+
+- Captured played velocity alongside every matched live note.
+- Preserved score velocity in structured practice targets.
+- Aggregated matched samples, mean absolute velocity gap and played/reference
+  ranges.
+- Captured CC64 use, value transitions and continuous half-pedal samples for
+  both the score and live input.
+- Added an optional, default-on Expression Summary setting.
+- Added compact dynamics and pedal lines to the completion screen.
+- Required four matched velocity samples before presenting a range comparison.
+- Persisted expression evidence in practice sessions with legacy-history
+  defaults.
+- Kept the external MIDI/Pianoteq route byte-for-byte unchanged.
+
+### Verification
+
+- Added deterministic velocity pairing, pedal evidence and reset tests.
+- Added legacy practice-history deserialization coverage.
+- Added player integration coverage for score/live evidence and exact external
+  MIDI forwarding.
+- Added learner-facing wording coverage for incomplete references.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, thirty-eight core tests and thirty-seven
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `1a04bc2`
+(`feat: summarize dynamics and pedal evidence`).
+
+### Known limitations
+
+- Velocity comparison is not calibrated for the player's keyboard curve,
+  Pianoteq preset or listening level.
+- Pedal feedback counts evidence and transitions; it does not yet align pedal
+  timing to notes, harmonies or score intervals.
+- MIDI reference velocity may be mechanical or normalized and is not treated
+  as an artistic ground truth.
+- Expression evidence does not yet influence spaced-review scheduling.
+
 ## 2026-07-25 — Cycle 019: Explainable spaced review (DONE)
 
 ### Outcome
