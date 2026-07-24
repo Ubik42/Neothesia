@@ -4,6 +4,58 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 027: Block-chord synchronization evidence (DONE)
+
+### Outcome
+
+Completed takes now describe how closely the attacks of written block chords
+landed together. Written arpeggios and incomplete chords are protected from
+misleading synchronization statistics.
+
+### Implemented
+
+- Grouped score targets only when their exact MIDI onset and measure match.
+- Required at least two target notes for a chord candidate.
+- Excluded unknown-context matcher events from chord grouping.
+- Counted complete and incomplete target chords separately.
+- Calculated attack span from the earliest to latest matched note.
+- Included only fully matched chords in median and maximum span statistics.
+- Required four complete chords before presenting an aggregate profile.
+- Added a compact completion line with explicit “descriptive” wording.
+- Persisted chord evidence with a backward-compatible default.
+- Kept different-onset written arpeggios outside the chord evidence entirely.
+
+### Verification
+
+- Added a deterministic fixture with four complete block chords at 20, 30, 40
+  and 50 ms attack spans.
+- Verified the even-sample median is 35 ms and maximum is 50 ms.
+- Verified one missing-note chord is counted incomplete and excluded from span.
+- Verified three notes written 40 ms apart are not treated as a chord.
+- Added learner-facing no-evidence, insufficient-evidence and profile copy
+  tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-one
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `01289b0`
+(`feat: summarize block chord synchronization`).
+
+### Known limitations
+
+- A MIDI author can encode an intended roll with identical onsets; Neothesia
+  therefore describes span and never labels it correct or wrong.
+- The profile is whole-attempt rather than separated by hand.
+- Chord-size and register-specific expectations are not modeled.
+- The completion screen is now information-dense and needs a dedicated
+  technique tab.
+
 ## 2026-07-25 — Cycle 026: Reliable rhythm trouble spots (DONE)
 
 ### Outcome

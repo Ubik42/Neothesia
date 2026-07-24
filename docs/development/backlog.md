@@ -56,7 +56,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `PRA-022` Add evidence-based guided input-latency calibration.
 - [x] `COACH-006` Compare robust left/right-hand timing profiles.
 - [x] `COACH-007` Rank reliable measure-level rhythm trouble spots.
-- [ ] `MUS-007` Measure block-chord attack synchronization safely.
+- [x] `MUS-007` Measure block-chord attack synchronization safely.
+- [ ] `UI-010` Split completion feedback into Overview/Technique/History tabs.
 - [x] `COACH-005` Report signed timing bias and robust consistency.
 - [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.

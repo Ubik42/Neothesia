@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 027 — Block-chord synchronization evidence
+
+State: **DONE**
+
+Delivered:
+
+- grouped only exact-onset, known-measure score targets as chord candidates;
+- separated complete from incomplete chords;
+- summarized earliest-to-latest attack span only for fully matched chords;
+- required four complete chords before showing median and maximum evidence;
+- excluded written different-onset arpeggios;
+- persisted the evidence with legacy defaults and descriptive UI wording.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-one application
+  tests pass;
+- tests cover known spans, incomplete chords, different-onset arpeggios,
+  evidence thresholds, migration and copy;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `01289b0`.
+
 ### Cycle 026 — Reliable rhythm trouble spots
 
 State: **DONE**
@@ -722,10 +745,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 027 with chord-synchronization evidence. Group simultaneous score
-targets, measure the span between their matched live attacks, protect
-intentional/arpeggiated material from false claims, and report only
-well-supported block-chord coordination evidence.
+Begin Cycle 028 with completion-screen information architecture. Split the
+current dense take view into clear Overview and Technique tabs while retaining
+History, keep all practice actions reachable, and verify the layout at the
+minimum supported panel width.
 
 ## Known constraints
 
