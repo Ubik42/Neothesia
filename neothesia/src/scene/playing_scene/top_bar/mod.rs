@@ -411,7 +411,7 @@ impl TopBar {
 
         if ctx.window_state.logical_size.width >= 1_060.0 {
             let snapshot = this.player.practice_snapshot();
-            let status = if this.top_bar.looper_active {
+            let mut status = if this.top_bar.looper_active {
                 format!(
                     "T{} · L {} · B {}",
                     this.top_bar.attempts.current_attempt(),
@@ -427,6 +427,9 @@ impl TopBar {
                     snapshot.required_notes
                 )
             };
+            if this.player.input_latency_ms() != 0 {
+                status.push_str(&format!(" · {:+}ms", this.player.input_latency_ms()));
+            }
             nuon::label()
                 .x(264.0)
                 .size(160.0, 30.0)

@@ -111,13 +111,14 @@ impl PlayingScene {
             ctx.text_renderer_factory.new_renderer(),
         ));
 
-        let player = MidiPlayer::new(
+        let mut player = MidiPlayer::new(
             ctx.output_manager.connection().clone(),
             song,
             keyboard_layout.range.clone(),
             ctx.config.separate_channels(),
             ctx.config.wait_for_notes(),
         );
+        player.set_input_latency_ms(ctx.config.input_latency_ms());
         waterfall.update(player.time_without_lead_in());
 
         let quad_renderer_bg = ctx.quad_renderer_factory.new_renderer();

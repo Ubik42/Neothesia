@@ -135,6 +135,20 @@ impl super::MenuScene {
 
                         spacer(ui);
 
+                        update_input_latency(
+                            ctx,
+                            nuon::settings_row_spin()
+                                .title("Input Timing Offset")
+                                .subtitle(format!(
+                                    "{:+} ms · positive compensates late input",
+                                    ctx.config.input_latency_ms()
+                                ))
+                                .id("input-latency")
+                                .build(ui, rows),
+                        );
+
+                        spacer(ui);
+
                         update_adaptive_mastery(
                             ctx,
                             nuon::settings_row_spin()
@@ -615,6 +629,16 @@ pub fn update_adaptive_mastery(ctx: &mut Context, kind: nuon::SettingsRowSpinRes
     let delta = spin_delta(kind, 0.05);
     ctx.config
         .set_adaptive_tempo_mastery(ctx.config.adaptive_tempo_mastery() + delta);
+}
+
+pub fn update_input_latency(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
+    let delta = match kind {
+        nuon::SettingsRowSpinResult::Plus => 5,
+        nuon::SettingsRowSpinResult::Minus => -5,
+        nuon::SettingsRowSpinResult::Idle => 0,
+    };
+    ctx.config
+        .set_input_latency_ms(ctx.config.input_latency_ms() + delta);
 }
 
 pub fn update_adaptive_min_speed(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {

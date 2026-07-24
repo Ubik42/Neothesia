@@ -70,6 +70,9 @@ pub struct PlaybackConfigV1 {
 
     #[serde(default = "default_expression_feedback")]
     pub expression_feedback: bool,
+
+    #[serde(default = "default_input_latency_ms")]
+    pub input_latency_ms: i32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -87,6 +90,7 @@ impl Default for PlaybackConfig {
             adaptive_tempo_min: default_adaptive_tempo_min(),
             adaptive_tempo_max: default_adaptive_tempo_max(),
             expression_feedback: default_expression_feedback(),
+            input_latency_ms: default_input_latency_ms(),
         })
     }
 }
@@ -258,6 +262,10 @@ fn default_expression_feedback() -> bool {
     true
 }
 
+fn default_input_latency_ms() -> i32 {
+    0
+}
+
 fn default_animation_speed() -> f32 {
     400.0
 }
@@ -344,6 +352,7 @@ mod tests {
         assert_eq!(playback.adaptive_tempo_min, 0.5);
         assert_eq!(playback.adaptive_tempo_max, 1.0);
         assert!(playback.expression_feedback);
+        assert_eq!(playback.input_latency_ms, 0);
 
         let DevicesConfig::V1(devices) = DevicesConfig::default();
         assert_eq!(devices.output.as_deref(), Some("Buildin Synth"));
@@ -351,5 +360,23 @@ mod tests {
         let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
         assert!(appearance.measure_numbers);
         assert!(!appearance.beat_guidelines);
+    }
+
+    #[test]
+    fn playback_saved_before_latency_compensation_defaults_to_zero() {
+        let playback: PlaybackConfigV1 = ron::from_str(
+            r#"(
+                speed_multiplier: 1.0,
+                wait_for_notes: true,
+                adaptive_tempo: false,
+                adaptive_tempo_mastery: 0.9,
+                adaptive_tempo_min: 0.5,
+                adaptive_tempo_max: 1.0,
+                expression_feedback: true,
+            )"#,
+        )
+        .unwrap();
+
+        assert_eq!(playback.input_latency_ms, 0);
     }
 }

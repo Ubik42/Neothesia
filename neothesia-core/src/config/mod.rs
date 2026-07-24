@@ -312,6 +312,14 @@ impl Config {
         self.playback.expression_feedback = enabled;
     }
 
+    pub fn input_latency_ms(&self) -> i32 {
+        self.playback.input_latency_ms
+    }
+
+    pub fn set_input_latency_ms(&mut self, milliseconds: i32) {
+        self.playback.input_latency_ms = milliseconds.clamp(-250, 250);
+    }
+
     pub fn adaptive_tempo_mastery(&self) -> f32 {
         self.playback.adaptive_tempo_mastery
     }
@@ -393,5 +401,14 @@ mod tests {
     fn legacy_history_config_defaults_to_no_watched_folders() {
         let history: HistoryV1 = ron::from_str("(last_opened_song:None)").unwrap();
         assert!(history.watched_folders.is_empty());
+    }
+
+    #[test]
+    fn input_latency_is_bounded_to_a_safe_adjustment_range() {
+        let mut config = Model::default().build();
+        config.set_input_latency_ms(500);
+        assert_eq!(config.input_latency_ms(), 250);
+        config.set_input_latency_ms(-500);
+        assert_eq!(config.input_latency_ms(), -250);
     }
 }

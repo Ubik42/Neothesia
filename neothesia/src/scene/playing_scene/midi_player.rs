@@ -19,6 +19,7 @@ pub struct MidiPlayer {
     separate_channels: bool,
     wait_for_notes: bool,
     target_durations: HashMap<(usize, u8, Duration), Duration>,
+    input_latency_ms: i32,
 }
 
 impl MidiPlayer {
@@ -67,6 +68,7 @@ impl MidiPlayer {
             separate_channels,
             wait_for_notes,
             target_durations,
+            input_latency_ms: 0,
         };
         // Let's reset programs,
         // for timestamp 0 most likely all programs will be 0, so this should clean any leftovers
@@ -328,13 +330,14 @@ impl MidiPlayer {
     pub fn user_midi_event(&mut self, channel: u8, message: &MidiMessage) {
         self.output.midi_event(u4::new(channel), *message);
         if !self.playback.is_paused() {
+            let judged_time = compensated_input_time(self.session_time, self.input_latency_ms);
             if let Some((note, active)) = note_state(message) {
                 let velocity = match message {
                     MidiMessage::NoteOn { vel, .. } if active => vel.as_int(),
                     _ => 0,
                 };
                 self.practice
-                    .user_note_with_velocity(self.session_time, note, active, velocity);
+                    .user_note_with_velocity(judged_time, note, active, velocity);
             }
             if let MidiMessage::Controller { controller, value } = message
                 && controller.as_int() == 64
@@ -342,6 +345,24 @@ impl MidiPlayer {
                 self.practice.user_pedal(value.as_int());
             }
         }
+    }
+
+    pub fn set_input_latency_ms(&mut self, milliseconds: i32) {
+        self.input_latency_ms = milliseconds.clamp(-250, 250);
+    }
+
+    pub fn input_latency_ms(&self) -> i32 {
+        self.input_latency_ms
+    }
+}
+
+fn compensated_input_time(now: Duration, input_latency_ms: i32) -> Duration {
+    if input_latency_ms >= 0 {
+        now.saturating_sub(Duration::from_millis(input_latency_ms as u64))
+    } else {
+        now.saturating_add(Duration::from_millis(
+            input_latency_ms.unsigned_abs().into(),
+        ))
     }
 }
 
@@ -614,6 +635,40 @@ mod tests {
             })
             .collect();
         assert_eq!(forwarded_user, expected_user);
+    }
+
+    #[test]
+    fn positive_input_latency_compensation_corrects_late_arrival_for_judgement() {
+        let song = expressive_song(&[]);
+        let mut player = MidiPlayer::new_with_lead_in(
+            OutputConnection::DummyOutput,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+        player.set_input_latency_ms(120);
+        player.tick_practice_clock(Duration::from_millis(200));
+        player.user_midi_event(
+            0,
+            &MidiMessage::NoteOn {
+                key: u7::new(60),
+                vel: u7::new(80),
+            },
+        );
+
+        assert_eq!(player.input_latency_ms(), 120);
+        assert_eq!(player.practice_snapshot().matched_notes, 1);
+        assert_eq!(player.practice_snapshot().on_time_notes, 1);
+        assert_eq!(
+            compensated_input_time(Duration::from_millis(20), 120),
+            Duration::ZERO
+        );
+        assert_eq!(
+            compensated_input_time(Duration::from_millis(20), -50),
+            Duration::from_millis(70)
+        );
     }
 
     fn expressive_messages() -> [MidiMessage; 4] {
