@@ -27,17 +27,30 @@ development log.
 
 ## Current boundary
 
-The IDs are assigned inside Nuon's retained interaction state, making in-process
-automation deterministic and independent of translated labels. They are not
-yet exposed through Windows UI Automation or an external inspection protocol.
+The IDs are assigned inside Nuon's retained interaction state, making
+automation independent of translated labels. Debug builds now expose an
+in-process harness that sends semantic actions through the normal application
+event loop and requests a read-only practice snapshot through that same loop.
+
+The snapshot currently exposes wait mode, Tempo Coach, selected hands,
+completion tab, matched/wrong/missed totals and input-latency compensation.
+The harness can activate player back/wait/coach/hands, completion tab
+navigation, retry and back. Calibration and recommendation actions remain
+click-only because their parameters are derived from the rendered completion
+model; they must not be reported as supported by an external driver yet.
+
+Both the harness and its event variants are excluded from release builds with
+`debug_assertions`. It is not yet exposed through Windows UI Automation or an
+external inspection protocol.
 
 The next automation layer should:
 
-1. expose the active semantic action catalogue in debug/test builds;
-2. allow activation by ID through the application event loop;
-3. expose a small read-only state snapshot for assertions;
-4. capture deterministic screenshots at supported window sizes;
-5. keep the external test interface disabled in release builds.
+1. expose a controlled driver endpoint for the in-process debug harness;
+2. acknowledge whether each action was accepted by the active scene;
+3. capture deterministic screenshots at supported window sizes;
+4. cover parameterized calibration and recommendation actions without
+   duplicating their product logic;
+5. retain compile-time exclusion from release builds.
 
 Screen-coordinate automation remains a temporary smoke-test fallback and must
 not become the primary regression suite.

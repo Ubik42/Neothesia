@@ -49,6 +49,36 @@ pub(super) mod practice_ui_ids {
         COMPLETION_BACK,
     ];
 }
+
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum DebugPracticeAction {
+    Back,
+    ToggleWait,
+    ToggleCoach,
+    CycleHands,
+    ShowOverview,
+    ShowTechnique,
+    ShowHistory,
+    Retry,
+}
+
+#[cfg(debug_assertions)]
+impl DebugPracticeAction {
+    fn from_id(id: &str) -> Option<Self> {
+        match id {
+            practice_ui_ids::PLAYER_BACK | practice_ui_ids::COMPLETION_BACK => Some(Self::Back),
+            practice_ui_ids::PLAYER_WAIT => Some(Self::ToggleWait),
+            practice_ui_ids::PLAYER_COACH => Some(Self::ToggleCoach),
+            practice_ui_ids::PLAYER_HANDS => Some(Self::CycleHands),
+            practice_ui_ids::COMPLETION_OVERVIEW => Some(Self::ShowOverview),
+            practice_ui_ids::COMPLETION_TECHNIQUE => Some(Self::ShowTechnique),
+            practice_ui_ids::COMPLETION_HISTORY => Some(Self::ShowHistory),
+            practice_ui_ids::COMPLETION_RETRY => Some(Self::Retry),
+            _ => None,
+        }
+    }
+}
 use crate::{
     NeothesiaEvent, context::Context, render::WaterfallRenderer, scene::MouseToMidiEventState,
     song::Song, utils::window::WinitEvent,
@@ -223,6 +253,31 @@ impl PlayingScene {
         self.top_bar.cancel_count_in();
         self.toast_manager
             .toast("PANIC: output silenced and playback paused");
+    }
+
+    fn toggle_wait_for_notes(&mut self, ctx: &mut Context) {
+        let enabled = !self.player.wait_for_notes();
+        self.player.set_wait_for_notes(enabled);
+        ctx.config.set_wait_for_notes(enabled);
+    }
+
+    fn toggle_tempo_coach(&mut self, ctx: &mut Context) {
+        let enabled = !ctx.config.adaptive_tempo();
+        ctx.config.set_adaptive_tempo(enabled);
+        self.top_bar.reset_tempo_coach();
+        self.toast_manager.toast(if enabled {
+            "Tempo Coach ON: use loop practice for guided speed changes"
+        } else {
+            "Tempo Coach OFF: speed stays under manual control"
+        });
+    }
+
+    fn retry_practice(&mut self) {
+        self.player.restart_practice();
+        self.keyboard.reset_notes();
+        self.completion = None;
+        self.saved_session_count = None;
+        self.completion_view = CompletionView::Overview;
     }
 
     fn cycle_practice_hands(&mut self, ctx: &mut Context) {
@@ -847,11 +902,7 @@ impl PlayingScene {
                 }
             }
             Some(CompletionAction::Retry) => {
-                self.player.restart_practice();
-                self.keyboard.reset_notes();
-                self.completion = None;
-                self.saved_session_count = None;
-                self.completion_view = CompletionView::Overview;
+                self.retry_practice();
             }
             Some(CompletionAction::Back) => {
                 ctx.proxy
@@ -885,6 +936,15 @@ enum CompletionView {
 }
 
 impl CompletionView {
+    #[cfg(debug_assertions)]
+    fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Technique => "technique",
+            Self::History => "history",
+        }
+    }
+
     fn next(self) -> Self {
         match self {
             Self::Overview => Self::Technique,
@@ -1511,6 +1571,56 @@ impl Scene for PlayingScene {
     fn emergency_stop(&mut self, _ctx: &mut Context) {
         self.emergency_panic();
     }
+
+    #[cfg(debug_assertions)]
+    fn debug_semantic_action(&mut self, ctx: &mut Context, id: &str) -> bool {
+        let Some(action) = DebugPracticeAction::from_id(id) else {
+            return false;
+        };
+
+        match action {
+            DebugPracticeAction::ToggleWait => self.toggle_wait_for_notes(ctx),
+            DebugPracticeAction::ToggleCoach => self.toggle_tempo_coach(ctx),
+            DebugPracticeAction::CycleHands => self.cycle_practice_hands(ctx),
+            DebugPracticeAction::Back => {
+                ctx.proxy
+                    .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
+                    .ok();
+            }
+            DebugPracticeAction::ShowOverview if self.completion.is_some() => {
+                self.completion_view = CompletionView::Overview;
+            }
+            DebugPracticeAction::ShowTechnique if self.completion.is_some() => {
+                self.completion_view = CompletionView::Technique;
+            }
+            DebugPracticeAction::ShowHistory if self.completion.is_some() => {
+                self.completion_view = CompletionView::History;
+            }
+            DebugPracticeAction::Retry if self.completion.is_some() => {
+                self.retry_practice();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_practice_snapshot(&self, ctx: &Context) -> Option<super::DebugPracticeSnapshot> {
+        let snapshot = self.player.practice_snapshot();
+        Some(super::DebugPracticeSnapshot {
+            wait_for_notes: self.player.wait_for_notes(),
+            adaptive_tempo: ctx.config.adaptive_tempo(),
+            hands: self.player.practice_hands(),
+            completion_tab: self
+                .completion
+                .as_ref()
+                .map(|_| self.completion_view.label()),
+            matched_notes: snapshot.matched_notes,
+            wrong_notes: snapshot.wrong_notes,
+            missed_notes: snapshot.missed_notes,
+            input_latency_ms: self.player.input_latency_ms(),
+        })
+    }
 }
 
 fn handle_settings_input(
@@ -1716,5 +1826,50 @@ mod tests {
                 .iter()
                 .all(|id| id.starts_with("practice."))
         );
+    }
+
+    #[test]
+    fn debug_practice_actions_have_an_explicit_supported_boundary() {
+        let supported = [
+            (practice_ui_ids::PLAYER_BACK, DebugPracticeAction::Back),
+            (
+                practice_ui_ids::PLAYER_WAIT,
+                DebugPracticeAction::ToggleWait,
+            ),
+            (
+                practice_ui_ids::PLAYER_COACH,
+                DebugPracticeAction::ToggleCoach,
+            ),
+            (
+                practice_ui_ids::PLAYER_HANDS,
+                DebugPracticeAction::CycleHands,
+            ),
+            (
+                practice_ui_ids::COMPLETION_OVERVIEW,
+                DebugPracticeAction::ShowOverview,
+            ),
+            (
+                practice_ui_ids::COMPLETION_TECHNIQUE,
+                DebugPracticeAction::ShowTechnique,
+            ),
+            (
+                practice_ui_ids::COMPLETION_HISTORY,
+                DebugPracticeAction::ShowHistory,
+            ),
+            (
+                practice_ui_ids::COMPLETION_RETRY,
+                DebugPracticeAction::Retry,
+            ),
+            (practice_ui_ids::COMPLETION_BACK, DebugPracticeAction::Back),
+        ];
+
+        for (id, expected) in supported {
+            assert_eq!(DebugPracticeAction::from_id(id), Some(expected));
+        }
+        assert_eq!(
+            DebugPracticeAction::from_id(practice_ui_ids::COMPLETION_CALIBRATE),
+            None
+        );
+        assert_eq!(DebugPracticeAction::from_id("practice.unknown"), None);
     }
 }

@@ -29,6 +29,8 @@ pub struct Context {
     pub practice_history: PracticeHistoryStore,
 
     pub proxy: EventLoopProxy<NeothesiaEvent>,
+    #[cfg(debug_assertions)]
+    pub debug_ui: crate::scene::DebugUiHarness,
 
     /// Last frame timestamp
     pub frame_timestamp: std::time::Instant,
@@ -78,6 +80,8 @@ impl Context {
             input_manager: InputManager::new(proxy.clone()),
             config,
             practice_history,
+            #[cfg(debug_assertions)]
+            debug_ui: crate::scene::DebugUiHarness::new(proxy.clone()),
             proxy,
             frame_timestamp: std::time::Instant::now(),
 

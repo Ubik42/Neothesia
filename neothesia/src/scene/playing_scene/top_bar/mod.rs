@@ -377,9 +377,7 @@ impl TopBar {
             .border_radius([5.0; 4])
             .build(ui)
         {
-            let enabled = !wait_for_notes;
-            this.player.set_wait_for_notes(enabled);
-            ctx.config.set_wait_for_notes(enabled);
+            this.toggle_wait_for_notes(ctx);
         }
 
         if ctx.window_state.logical_size.width < 1_060.0 {
@@ -405,14 +403,7 @@ impl TopBar {
                 .border_radius([5.0; 4])
                 .build(ui)
             {
-                let enabled = !coach_enabled;
-                ctx.config.set_adaptive_tempo(enabled);
-                this.top_bar.reset_tempo_coach();
-                this.toast_manager.toast(if enabled {
-                    "Tempo Coach ON: use loop practice for guided speed changes"
-                } else {
-                    "Tempo Coach OFF: speed stays under manual control"
-                });
+                this.toggle_tempo_coach(ctx);
             }
         }
 

@@ -45,6 +45,14 @@ pub enum NeothesiaEvent {
         /// The MIDI message type and associated data.
         message: MidiMessage,
     },
+    #[cfg(debug_assertions)]
+    DebugSemanticAction {
+        id: String,
+    },
+    #[cfg(debug_assertions)]
+    DebugPracticeSnapshot {
+        reply: std::sync::mpsc::Sender<Option<scene::DebugPracticeSnapshot>>,
+    },
     Exit,
 }
 
@@ -164,6 +172,16 @@ impl Neothesia {
             NeothesiaEvent::MidiInput { channel, message } => {
                 self.game_scene
                     .midi_event(&mut self.context, channel, &message);
+            }
+            #[cfg(debug_assertions)]
+            NeothesiaEvent::DebugSemanticAction { id } => {
+                self.game_scene
+                    .debug_semantic_action(&mut self.context, &id);
+                self.context.window.request_redraw();
+            }
+            #[cfg(debug_assertions)]
+            NeothesiaEvent::DebugPracticeSnapshot { reply } => {
+                let _ = reply.send(self.game_scene.debug_practice_snapshot(&self.context));
             }
             NeothesiaEvent::Exit => {
                 event_loop.exit();

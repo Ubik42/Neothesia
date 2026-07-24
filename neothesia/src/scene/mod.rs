@@ -22,6 +22,57 @@ pub trait Scene {
     fn emergency_stop(&mut self, ctx: &mut Context) {
         ctx.output_manager.connection().stop_all();
     }
+    #[cfg(debug_assertions)]
+    fn debug_semantic_action(&mut self, _ctx: &mut Context, _id: &str) -> bool {
+        false
+    }
+    #[cfg(debug_assertions)]
+    fn debug_practice_snapshot(&self, _ctx: &Context) -> Option<DebugPracticeSnapshot> {
+        None
+    }
+}
+
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DebugPracticeSnapshot {
+    pub wait_for_notes: bool,
+    pub adaptive_tempo: bool,
+    pub hands: Option<neothesia_core::practice::PracticeHands>,
+    pub completion_tab: Option<&'static str>,
+    pub matched_notes: usize,
+    pub wrong_notes: usize,
+    pub missed_notes: usize,
+    pub input_latency_ms: i32,
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone)]
+pub struct DebugUiHarness {
+    proxy: winit::event_loop::EventLoopProxy<NeothesiaEvent>,
+}
+
+#[cfg(debug_assertions)]
+impl DebugUiHarness {
+    pub fn new(proxy: winit::event_loop::EventLoopProxy<NeothesiaEvent>) -> Self {
+        Self { proxy }
+    }
+
+    pub fn activate(&self, id: impl Into<String>) -> bool {
+        self.proxy
+            .send_event(NeothesiaEvent::DebugSemanticAction { id: id.into() })
+            .is_ok()
+    }
+
+    /// Requests a read-only snapshot through the application event loop.
+    ///
+    /// Call this from a test worker thread, never from the event-loop thread.
+    pub fn snapshot(&self, timeout: Duration) -> Option<DebugPracticeSnapshot> {
+        let (reply, response) = std::sync::mpsc::channel();
+        self.proxy
+            .send_event(NeothesiaEvent::DebugPracticeSnapshot { reply })
+            .ok()?;
+        response.recv_timeout(timeout).ok().flatten()
+    }
 }
 
 pub fn handle_pc_keyboard_to_midi_event(ctx: &mut Context, event: &WindowEvent) {
