@@ -4,6 +4,46 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 085: Alignment readiness summary (DONE)
+
+### Outcome
+
+The future score-import UI can present a conservative compatibility verdict
+instead of asking learners to interpret raw matching internals. Navigation
+failure cannot be hidden behind a superficially high percentage.
+
+### Implemented
+
+- Added structured Ready, Review, Poor and Blocked readiness.
+- Classified incomplete navigation as Blocked before considering note metrics.
+- Required 95% coverage, 85% mean confidence and zero unmatched score notes for
+  Ready.
+- Classified 75% coverage and 70% confidence as Review; lower evidence is Poor.
+- Preserved counts for matches, score gaps, MIDI gaps and inexact PPQ-projected
+  matches.
+- Copied navigation diagnostics into the summary for direct UI consumption.
+
+### Verification
+
+- Complete repeated C alignment is Ready.
+- The extra-MIDI fixture with 75% aggregate coverage is Review.
+- The same-pitch 400 ms refusal fixture is Poor.
+- Conflicting P1/P2 navigation is Blocked.
+- A manually flagged inexact match increments the independent projection count.
+- 136 core, 64 application and four MIDI-file tests pass.
+- The pinned compatibility corpus, Clippy, release build, both native smokes,
+  formatting and diff checks pass with only pre-existing warnings.
+
+Implementation commit: `12c910a` (`feat: summarize score alignment readiness`).
+
+### Known limitations
+
+- Thresholds are conservative first policy and need calibration against paired
+  real-world score/MIDI exports.
+- The summary is structured core data; no picker or diagnostics panel renders
+  it yet.
+- Global offset/transposition estimation remains absent.
+
 ## 2026-07-25 — Cycle 084: Repeated occurrence to MIDI alignment (DONE)
 
 ### Outcome

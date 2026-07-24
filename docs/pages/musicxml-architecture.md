@@ -86,6 +86,21 @@ Navigation conflicts and bounded-plan warnings remain explicit in the
 alignment result. Da capo, dal segno, coda and fine require a later explicit
 navigation model.
 
+## Compatibility verdict
+
+The core reduces alignment evidence to a conservative structured verdict:
+
+| Verdict | Meaning |
+| --- | --- |
+| Ready | navigation complete, at least 95% coverage, at least 85% mean confidence and no missing score notes |
+| Review | navigation complete, at least 75% coverage and at least 70% mean confidence |
+| Poor | navigation works but note evidence is below the review threshold |
+| Blocked | navigation is incomplete or conflicting, regardless of note percentage |
+
+The summary also retains matched notes, score gaps, MIDI gaps, inexact PPQ
+projections and navigation diagnostics. UI layers must show this evidence
+rather than replacing it with an unrelated compatibility calculation.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

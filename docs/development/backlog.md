@@ -86,6 +86,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   time without changing their stable source identities.
 - [x] `MUS-001G4` Align repeated pitched occurrences to MIDI note identities
   and verify compatible navigation across piano parts.
+- [x] `MUS-001H` Summarize alignment as structured Ready/Review/Poor/Blocked
+  evidence for a future import UI.
+- [ ] `MUS-001I` Add a native score-pairing and compatibility diagnostics
+  workflow before synchronized notation is enabled.
 - [x] `MUS-002` Add manual finger hints in portable sidecars.
 - [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall

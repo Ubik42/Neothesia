@@ -10,6 +10,41 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 085 — Alignment readiness summary
+
+State: **DONE**
+
+Delivered:
+
+- added structured Ready, Review, Poor and Blocked readiness levels;
+- prevented high note coverage from overriding incomplete/unsafe navigation;
+- required at least 95% coverage, 85% mean confidence and no unmatched score
+  notes for Ready;
+- classified usable-but-imperfect alignment at 75% coverage / 70% confidence
+  or better as Review;
+- exposed matched, unmatched-score, unmatched-MIDI and inexact-projection
+  counts alongside the verdict;
+- retained navigation diagnostics without flattening them into a single score;
+- completed `MUS-001H`.
+
+Verification:
+
+- complete repeated-note alignment is Ready;
+- the existing 75% extra-MIDI regression is Review;
+- the 0% timing-refusal regression is Poor;
+- conflicting part navigation is Blocked regardless of note percentages;
+- inexact PPQ projection remains separately countable;
+- 136 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `12c910a`.
+
+Next:
+
+- `MUS-001I`: design the native score/MIDI pairing and diagnostic workflow;
+- keep readiness policy in the core so a future native or React library surface
+  cannot silently apply different safety thresholds.
+
 ### Cycle 084 — Repeated occurrence to MIDI alignment
 
 State: **DONE**
