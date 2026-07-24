@@ -52,6 +52,7 @@ pub enum ScoreEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
+    pub id: ScoreEventId,
     pub onset: ScoreTime,
     pub duration: ScoreTime,
     pub voice: Option<String>,
@@ -69,12 +70,27 @@ pub struct Note {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Direction {
+    pub id: ScoreEventId,
     pub onset: ScoreTime,
     pub staff: Option<u8>,
     pub dynamics: Vec<String>,
     pub words: Vec<String>,
     pub tempo_bpm: Option<String>,
     pub pedals: Vec<PedalMark>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ScoreEventId {
+    pub part_id: String,
+    pub measure_ordinal: u32,
+    pub kind: ScoreEventKind,
+    pub ordinal: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScoreEventKind {
+    Note,
+    Direction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,6 +526,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut forward_duration: Option<i64> = None;
     let mut score_part_id: Option<String> = None;
     let mut creator_is_composer = false;
+    let mut measure_ordinal = 0_u32;
+    let mut note_ordinal = 0_u32;
+    let mut direction_ordinal = 0_u32;
 
     loop {
         match reader.read_event()? {
@@ -542,6 +561,12 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         divisions = 1;
                     }
                     b"measure" => {
+                        measure_ordinal = current_part
+                            .as_ref()
+                            .map(|part| part.measures.len() as u32)
+                            .unwrap_or_default();
+                        note_ordinal = 0;
+                        direction_ordinal = 0;
                         current_measure = Some(Measure {
                             number: attribute(&start, b"number")?.unwrap_or_default(),
                             implicit: attribute(&start, b"implicit")?.as_deref() == Some("yes"),
@@ -810,6 +835,16 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"note" => {
                         let built = note.take().unwrap();
+                        let id = ScoreEventId {
+                            part_id: current_part
+                                .as_ref()
+                                .map(|part| part.id.clone())
+                                .unwrap_or_default(),
+                            measure_ordinal,
+                            kind: ScoreEventKind::Note,
+                            ordinal: note_ordinal,
+                        };
+                        note_ordinal = note_ordinal.saturating_add(1);
                         let time_modification = match (built.tuplet_actual, built.tuplet_normal) {
                             (Some(actual_notes), Some(normal_notes))
                                 if actual_notes > 0 && normal_notes > 0 =>
@@ -857,6 +892,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .unwrap()
                             .events
                             .push(ScoreEvent::Note(Note {
+                                id,
                                 onset: part_position.add(onset),
                                 duration,
                                 voice: built.voice,
@@ -883,12 +919,23 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"direction" => {
                         let built = direction.take().unwrap();
+                        let id = ScoreEventId {
+                            part_id: current_part
+                                .as_ref()
+                                .map(|part| part.id.clone())
+                                .unwrap_or_default(),
+                            measure_ordinal,
+                            kind: ScoreEventKind::Direction,
+                            ordinal: direction_ordinal,
+                        };
+                        direction_ordinal = direction_ordinal.saturating_add(1);
                         let onset = cursor.add(ScoreTime::new(built.offset, divisions));
                         current_measure
                             .as_mut()
                             .unwrap()
                             .events
                             .push(ScoreEvent::Direction(Direction {
+                                id,
                                 onset: part_position.add(onset),
                                 staff: built.staff,
                                 dynamics: built.dynamics,
@@ -1223,6 +1270,15 @@ mod tests {
         let ScoreEvent::Direction(direction) = &measure.events[0] else {
             panic!("direction should be preserved");
         };
+        assert_eq!(
+            direction.id,
+            ScoreEventId {
+                part_id: "P1".into(),
+                measure_ordinal: 0,
+                kind: ScoreEventKind::Direction,
+                ordinal: 0,
+            }
+        );
         assert_eq!(direction.dynamics, ["p"]);
         assert_eq!(direction.words, ["dolce"]);
         assert_eq!(direction.tempo_bpm.as_deref(), Some("72"));
@@ -1236,6 +1292,13 @@ mod tests {
             })
             .collect();
         assert_eq!(notes.len(), 4);
+        assert_eq!(
+            notes.iter().map(|note| note.id.ordinal).collect::<Vec<_>>(),
+            [0, 1, 2, 3]
+        );
+        assert!(notes.iter().all(|note| note.id.part_id == "P1"
+            && note.id.measure_ordinal == 0
+            && note.id.kind == ScoreEventKind::Note));
         assert_eq!(notes[0].onset, ScoreTime::new(0, 1));
         assert_eq!(notes[1].onset, notes[0].onset);
         assert!(notes[1].chord);
@@ -1405,5 +1468,33 @@ mod tests {
             }]
         );
         assert_eq!(notes[1].tuplets[0].kind, SpanType::Stop);
+    }
+
+    #[test]
+    fn score_event_ids_are_deterministic_across_measures() {
+        let source = br#"<score-partwise>
+<part-list><score-part id="Piano"><part-name>Piano</part-name></score-part></part-list>
+<part id="Piano">
+<measure number="1"><direction><direction-type><words>one</words></direction-type></direction>
+<note><rest/><duration>1</duration></note></measure>
+<measure number="1"><note><rest/><duration>1</duration></note></measure>
+</part></score-partwise>"#;
+        let first = import_musicxml(source).unwrap();
+        let second = import_musicxml(source).unwrap();
+        assert_eq!(first, second);
+
+        let first_measure = &first.parts[0].measures[0];
+        let second_measure = &first.parts[0].measures[1];
+        let ScoreEvent::Note(first_note) = &first_measure.events[1] else {
+            panic!("first measure note expected");
+        };
+        let ScoreEvent::Note(second_note) = &second_measure.events[0] else {
+            panic!("second measure note expected");
+        };
+        assert_eq!(first_note.id.measure_ordinal, 0);
+        assert_eq!(second_note.id.measure_ordinal, 1);
+        assert_eq!(first_note.id.ordinal, 0);
+        assert_eq!(second_note.id.ordinal, 0);
+        assert_eq!(first_note.id.part_id, "Piano");
     }
 }
