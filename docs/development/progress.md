@@ -10,6 +10,39 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 046 — Complete minor scale forms
+
+State: **DONE**
+
+Delivered:
+
+- split scale form from the broader major/minor harmony model;
+- added explicitly named Natural, Harmonic and Melodic minor choices;
+- generated classical melodic minor with raised sixth/seventh ascending and
+  natural minor descending;
+- retained the raised seventh in both directions for harmonic minor;
+- kept the apex single in every up-and-down scale;
+- rejected minor scale forms on major, arpeggio and chord specifications;
+- reset scale-only form state when selecting another pattern;
+- separated practice history identities for each valid minor scale form;
+- defaulted older saved exercises to Natural minor;
+- hardened the real-process smoke runner against first-frame action timing;
+- completed `EX-001H`.
+
+Verification:
+
+- exact A melodic-minor up/down pitch sequence;
+- exact descending A harmonic-minor pitch sequence;
+- invalid major/form and arpeggio/form combinations rejected;
+- legacy exercise deserialization defaults to Natural;
+- selector cycles in both directions and pattern changes reset form safely;
+- native automation completes, persists and reopens a two-pass generated
+  exercise;
+- two MIDI-file tests, seventy-one practice/core tests and fifty-six
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `756fc40`.
+
 ### Cycle 045 — Pass-by-pass exercise consistency
 
 State: **DONE**

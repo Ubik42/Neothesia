@@ -4,6 +4,73 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 046: Complete minor scale forms (DONE)
+
+### Outcome
+
+Technique Studio now teaches the three minor scale forms by their actual names
+and pitches. In particular, classical melodic minor changes correctly with
+direction instead of applying its ascending alterations on the way down.
+
+### Implemented
+
+- Added a backward-compatible `ExerciseMinorForm` dimension:
+  - Natural;
+  - Harmonic;
+  - Melodic.
+- Kept major/minor tonality separate from scale form so arpeggios and functional
+  chords retain a coherent harmonic model.
+- Generated natural minor identically in both directions.
+- Generated harmonic minor with the raised seventh in both directions.
+- Generated classical melodic minor with raised sixth and seventh ascending
+  and natural minor descending.
+- Joined melodic-minor up/down phrases at one apex without repeating it.
+- Replaced the generic Minor selector label with the exact selected form.
+- Added four-state bidirectional selector cycling.
+- Reset non-Natural form when leaving the Scale pattern.
+- Rejected invalid form/pattern combinations in the core boundary.
+- Included valid minor form in normalized learning identity.
+- Defaulted old RON specifications to Natural.
+- Added a short accepted-action retry to the real-process smoke runner because
+  the loopback driver can become available just before the first rendered frame
+  registers its semantic click regions.
+- Completed `EX-001H`.
+
+### Verification
+
+- Exact A melodic-minor up/down pitches:
+  `A B C D E F♯ G♯ A G F E D C B A`.
+- Exact descending A harmonic-minor pitches:
+  `A G♯ F E D C B A`.
+- Invalid harmonic-major and melodic-minor-arpeggio specifications rejected.
+- Legacy serialized exercise loads as Natural minor.
+- Harmonic minor receives a distinct practice identity.
+- UI selector advances and reverses across all four labels.
+- Leaving Scale resets Melodic to Natural.
+- Real-process exercise generation, two-pass completion, persistence, Retry,
+  hand switch, measure loop and Practice Library reopen smoke.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, seventy-one core tests and fifty-six
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `756fc40`
+(`feat: add complete minor scale forms`).
+
+### Known limitations
+
+- Melodic minor currently follows the classical ascending/descending convention;
+  jazz melodic minor (raised sixth and seventh in both directions) is not a
+  separate option.
+- Reviewed key- and hand-specific fingering is still absent.
+- Minor scale forms do not yet have named favourite presets or a dedicated
+  progression view.
+
 ## 2026-07-25 — Cycle 045: Pass-by-pass exercise consistency (DONE)
 
 ### Outcome

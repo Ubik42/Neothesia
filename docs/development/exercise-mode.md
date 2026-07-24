@@ -22,7 +22,7 @@ external MIDI output therefore work exactly as they do for an imported song.
 An exercise is defined by:
 
 - tonic pitch class C–B;
-- major or minor tonality;
+- major, natural-minor, harmonic-minor or melodic-minor scale form;
 - scale, arpeggio or primary-chord pattern;
 - ascending, descending or up-and-down direction;
 - right, left or both hands;
@@ -34,10 +34,19 @@ The initial register is C4–B4 for the right hand and C2–B2 for the left. Eve
 generated note must fit the configured keyboard range. Invalid tonic, span,
 tempo or range combinations fail before playback.
 
-Scale exercises use major or natural-minor steps. Arpeggios use the tonic
+Scale exercises support major plus all three classical minor forms. Natural
+minor is unchanged in either direction. Harmonic minor retains its raised
+seventh in either direction. Melodic minor raises scale degrees six and seven
+while ascending and uses natural minor while descending; an up-and-down phrase
+changes form after the single apex. The selector names the form explicitly so
+the learner is never shown an ambiguous generic “Minor” label.
+
+Minor form is a scale-only dimension. Arpeggios continue to use the tonic
 major/minor triad. Primary-chord exercises use I–IV–V–I in major and
 i–iv–V–i in minor, intentionally raising the minor leading tone in the
-functional dominant.
+functional dominant. Moving from a scale to either of those patterns resets the
+minor form to Natural rather than implying a nonexistent “melodic-minor
+arpeggio” mode.
 
 Both hands move in parallel two octaves apart. Up-and-down exercises play the
 apex once. Melodic moments last one beat; chord moments last two beats.
@@ -81,12 +90,13 @@ tonic, octave span or tempo from crashing the selector.
 
 ## Learning identity and tempo
 
-Exercise history is keyed by the musical target: tonic, tonality, pattern,
-direction and octave span. Tempo and hand scope are attempt dimensions rather
-than separate songs. Repetition count is also an attempt dimension. Moving the
-same scale from 60 to 80 BPM, progressing from separate hands to both hands, or
-collecting a longer four-pass sample therefore keeps one continuous history.
-Different keys and patterns never share an identity.
+Exercise history is keyed by the musical target: tonic, tonality/minor form,
+pattern, direction and octave span. Tempo and hand scope are attempt dimensions
+rather than separate songs. Repetition count is also an attempt dimension.
+Moving the same scale from 60 to 80 BPM, progressing from separate hands to
+both hands, or collecting a longer four-pass sample therefore keeps one
+continuous history. Different keys, patterns and minor scale forms never share
+an identity.
 
 Every completed exercise attempt also records its effective BPM after the
 player speed multiplier is applied. History rows show real BPM plus the
