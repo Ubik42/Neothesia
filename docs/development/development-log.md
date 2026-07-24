@@ -4,6 +4,39 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 088: Native score compatibility analysis (DONE)
+
+### Outcome
+
+Practice Library can now answer whether a paired score actually corresponds to
+the MIDI, not merely whether the file still exists. Analysis is asynchronous
+and its evidence survives reopening the application.
+
+### Implemented
+
+- Added an Analyze action to the paired-score row.
+- Ran the complete semantic alignment pipeline on a worker thread.
+- Displayed readiness, coverage and mean confidence.
+- Persisted matched/gap/inexact counts and navigation diagnostics.
+- Bound the cache to both MIDI sidecar identity and score fingerprint.
+- Invalidated cached analysis whenever the association changes or is removed.
+
+### Verification
+
+- Cached analysis round-trips through the backward-compatible sidecar.
+- Re-pairing clears stale analysis before a new run.
+- 138 core, 64 application and four MIDI-file tests pass.
+- Corpus audit, Clippy, release build, both native smokes, formatting and diff
+  checks pass with only pre-existing warnings.
+
+Implementation commit: `b33a56c` (`feat: analyze paired score compatibility`).
+
+### Known limitations
+
+- The compact row does not yet open a detailed diagnostics panel.
+- Thresholds still need calibration on licensed paired exports.
+- Native score rendering has not started.
+
 ## 2026-07-25 — Cycle 087: Native score pairing controls (DONE)
 
 ### Outcome

@@ -109,7 +109,9 @@ stores a BLAKE3 fingerprint and uses a MIDI-relative path when possible.
 Loading can therefore distinguish missing, invalid, replaced and verified
 scores without touching the original MIDI or score. Practice Library Info now
 exposes native Pair, Replace and Remove controls plus this health state.
-Asynchronous note-alignment analysis remains the next UI slice.
+Analyze runs the complete alignment pipeline off the UI thread and caches the
+structured readiness evidence against the score fingerprint. Pair, Replace and
+Remove invalidate stale analysis automatically.
 
 ## Renderer decision
 

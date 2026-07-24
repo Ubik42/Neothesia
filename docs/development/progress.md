@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 088 — Native score compatibility analysis
+
+State: **DONE**
+
+Delivered:
+
+- added Analyze beside the paired-score health row;
+- ran MusicXML parsing, MIDI loading, repeat expansion, note alignment and
+  readiness summarization on a worker thread;
+- displayed Ready/Review/Poor/Blocked with coverage and confidence;
+- cached the structured counts and navigation diagnostics in the song sidecar;
+- bound cached evidence to the score fingerprint and cleared it on
+  pair/replace/remove;
+- completed `MUS-001I3` and `MUS-001I`.
+
+Verification:
+
+- cache round-trip and replacement invalidation are covered;
+- 138 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, corpus audit, both native smokes, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `b33a56c`.
+
+Next:
+
+- expose complete gap/diagnostic detail rather than only the compact row;
+- begin the isolated Verovio fidelity/performance spike.
+
 ### Cycle 087 — Native score pairing controls
 
 State: **DONE**
