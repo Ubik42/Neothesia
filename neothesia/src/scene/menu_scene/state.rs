@@ -29,7 +29,7 @@ pub struct UiState {
 }
 
 impl UiState {
-    pub fn new(_ctx: &Context, song: Option<Song>) -> Self {
+    pub fn new(ctx: &Context, song: Option<Song>) -> Self {
         let mut page_stack = VecDeque::new();
         page_stack.push_front(Page::Main);
 
@@ -45,7 +45,7 @@ impl UiState {
             library_scanning: false,
             library_query: String::new(),
             library_view: LibraryView::All,
-            exercise_spec: ExerciseSpec::default(),
+            exercise_spec: ctx.config.last_exercise_spec(),
             exercise_message: None,
 
             page_stack,

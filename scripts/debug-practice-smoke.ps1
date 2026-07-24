@@ -139,6 +139,10 @@ try {
         Assert-True (
             $openExercises.ok -and $openExercises.accepted
         ) "Technique Studio did not open"
+        $nextKey = Invoke-DebugDriver "ACTION practice.exercise.key.next"
+        Assert-True (
+            $nextKey.ok -and $nextKey.accepted
+        ) "Exercise key selector did not advance"
         $start = Invoke-DebugDriver "ACTION practice.exercise.start"
         Assert-True (
             $start.ok -and $start.accepted
@@ -259,6 +263,12 @@ try {
     Assert-True (
         @($waiting.required_note_pitches).Count -eq $waiting.required_notes
     ) "Required-note count and pitch list disagree"
+    if ($ExerciseFixture) {
+        Assert-True (
+            @($waiting.required_note_pitches).Contains(37) -and
+            @($waiting.required_note_pitches).Contains(61)
+        ) "C-sharp exercise did not expose the selected two-hand tonic"
+    }
 
     $matchedBeforeInput = [int]$waiting.matched_notes
     foreach ($note in @($waiting.required_note_pitches)) {
@@ -324,8 +334,23 @@ try {
         throw "Neothesia did not exit within five seconds"
     }
 
+    $exercisePersistence = $null
+    if ($ExerciseFixture) {
+        $settingsPath = Join-Path $runDirectory "settings.ron"
+        Assert-True (
+            [System.IO.File]::Exists($settingsPath)
+        ) "Exercise run did not persist settings"
+        $settingsText = [System.IO.File]::ReadAllText($settingsPath)
+        Assert-True (
+            $settingsText -match "last_exercise_spec" -and
+            $settingsText -match "tonic:\s*1"
+        ) "Selected C-sharp exercise was not persisted"
+        $exercisePersistence = "C-sharp preset saved"
+    }
+
     [pscustomobject]@{
         Source = if ($ExerciseFixture) { "generated exercise" } else { $midi }
+        ExercisePersistence = $exercisePersistence
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
         MatchedAfterInput = [int]$afterInput.matched_notes

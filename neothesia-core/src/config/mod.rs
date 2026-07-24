@@ -174,6 +174,19 @@ impl Config {
         self.history.last_opened_song = last_opened_song;
     }
 
+    pub fn last_exercise_spec(&self) -> crate::exercise::ExerciseSpec {
+        let spec = self.history.last_exercise_spec;
+        if spec.validate().is_ok() {
+            spec
+        } else {
+            crate::exercise::ExerciseSpec::default()
+        }
+    }
+
+    pub fn set_last_exercise_spec(&mut self, spec: crate::exercise::ExerciseSpec) {
+        self.history.last_exercise_spec = spec;
+    }
+
     pub fn watched_folders(&self) -> &[PathBuf] {
         &self.history.watched_folders
     }
@@ -401,6 +414,43 @@ mod tests {
     fn legacy_history_config_defaults_to_no_watched_folders() {
         let history: HistoryV1 = ron::from_str("(last_opened_song:None)").unwrap();
         assert!(history.watched_folders.is_empty());
+        assert_eq!(
+            history.last_exercise_spec,
+            crate::exercise::ExerciseSpec::default()
+        );
+    }
+
+    #[test]
+    fn exercise_spec_round_trips_through_config_model() {
+        let mut config = Model::default().build();
+        let spec = crate::exercise::ExerciseSpec {
+            tonic: 9,
+            tonality: crate::exercise::ExerciseTonality::Minor,
+            pattern: crate::exercise::ExercisePattern::Arpeggio,
+            direction: crate::exercise::ExerciseDirection::Descending,
+            hands: crate::exercise::ExerciseHands::Left,
+            octaves: 2,
+            tempo_bpm: 80,
+        };
+        config.set_last_exercise_spec(spec);
+        let serialized = ron_options()
+            .to_string(&Model::from_config(config))
+            .unwrap();
+        let rebuilt: Model = ron_options().from_str(&serialized).unwrap();
+        let rebuilt = rebuilt.build();
+
+        assert_eq!(rebuilt.last_exercise_spec(), spec);
+    }
+
+    #[test]
+    fn invalid_persisted_exercise_spec_falls_back_safely() {
+        let mut config = Model::default().build();
+        config.history.last_exercise_spec.tonic = 99;
+
+        assert_eq!(
+            config.last_exercise_spec(),
+            crate::exercise::ExerciseSpec::default()
+        );
     }
 
     #[test]

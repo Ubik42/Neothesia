@@ -1017,6 +1017,7 @@ impl Scene for MenuScene {
             {
                 self.start_exercise(ctx)
             }
+            id if *self.state.current() == Page::Exercises => self.debug_adjust_exercise(id),
             super::playing_scene::practice_ui_ids::MENU_START if self.state.song().is_some() => {
                 state::play(&self.state, ctx);
                 true

@@ -23,6 +23,20 @@ pub(crate) mod practice_ui_ids {
     pub const MENU_START: &str = "practice.menu.start";
     pub const MENU_EXERCISES: &str = "practice.menu.exercises";
     pub const EXERCISE_START: &str = "practice.exercise.start";
+    pub const EXERCISE_KEY_PREVIOUS: &str = "practice.exercise.key.previous";
+    pub const EXERCISE_KEY_NEXT: &str = "practice.exercise.key.next";
+    pub const EXERCISE_TONALITY_PREVIOUS: &str = "practice.exercise.tonality.previous";
+    pub const EXERCISE_TONALITY_NEXT: &str = "practice.exercise.tonality.next";
+    pub const EXERCISE_PATTERN_PREVIOUS: &str = "practice.exercise.pattern.previous";
+    pub const EXERCISE_PATTERN_NEXT: &str = "practice.exercise.pattern.next";
+    pub const EXERCISE_DIRECTION_PREVIOUS: &str = "practice.exercise.direction.previous";
+    pub const EXERCISE_DIRECTION_NEXT: &str = "practice.exercise.direction.next";
+    pub const EXERCISE_HANDS_PREVIOUS: &str = "practice.exercise.hands.previous";
+    pub const EXERCISE_HANDS_NEXT: &str = "practice.exercise.hands.next";
+    pub const EXERCISE_OCTAVES_PREVIOUS: &str = "practice.exercise.octaves.previous";
+    pub const EXERCISE_OCTAVES_NEXT: &str = "practice.exercise.octaves.next";
+    pub const EXERCISE_TEMPO_PREVIOUS: &str = "practice.exercise.tempo.previous";
+    pub const EXERCISE_TEMPO_NEXT: &str = "practice.exercise.tempo.next";
     pub const PLAYER_BACK: &str = "practice.player.back";
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
@@ -44,6 +58,20 @@ pub(crate) mod practice_ui_ids {
         MENU_START,
         MENU_EXERCISES,
         EXERCISE_START,
+        EXERCISE_KEY_PREVIOUS,
+        EXERCISE_KEY_NEXT,
+        EXERCISE_TONALITY_PREVIOUS,
+        EXERCISE_TONALITY_NEXT,
+        EXERCISE_PATTERN_PREVIOUS,
+        EXERCISE_PATTERN_NEXT,
+        EXERCISE_DIRECTION_PREVIOUS,
+        EXERCISE_DIRECTION_NEXT,
+        EXERCISE_HANDS_PREVIOUS,
+        EXERCISE_HANDS_NEXT,
+        EXERCISE_OCTAVES_PREVIOUS,
+        EXERCISE_OCTAVES_NEXT,
+        EXERCISE_TEMPO_PREVIOUS,
+        EXERCISE_TEMPO_NEXT,
         PLAYER_BACK,
         PLAYER_WAIT,
         PLAYER_COACH,

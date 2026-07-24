@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::exercise::ExerciseSpec;
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
@@ -100,6 +102,8 @@ pub struct HistoryV1 {
     pub last_opened_song: Option<PathBuf>,
     #[serde(default)]
     pub watched_folders: Vec<PathBuf>,
+    #[serde(default)]
+    pub last_exercise_spec: ExerciseSpec,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -112,6 +116,7 @@ impl Default for History {
         Self::V1(HistoryV1 {
             last_opened_song: None,
             watched_folders: Vec::new(),
+            last_exercise_spec: ExerciseSpec::default(),
         })
     }
 }

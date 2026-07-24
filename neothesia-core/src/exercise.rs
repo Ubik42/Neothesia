@@ -69,6 +69,12 @@ impl Default for ExerciseSpec {
     }
 }
 
+impl ExerciseSpec {
+    pub fn validate(self) -> Result<(), ExerciseError> {
+        validate_spec(self)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct ExerciseNote {
     pub midi_note: u8,
@@ -104,7 +110,7 @@ impl ExercisePlan {
         spec: ExerciseSpec,
         keyboard_range: &KeyboardRange,
     ) -> Result<Self, ExerciseError> {
-        validate_spec(spec)?;
+        spec.validate()?;
 
         let relative_moments = match spec.pattern {
             ExercisePattern::Scale => {
