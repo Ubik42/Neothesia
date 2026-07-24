@@ -4,7 +4,13 @@
 //! It is not an engraving engine: renderers should consume [`Score`] instead of
 //! depending on MusicXML's document structure.
 
-use std::{collections::HashMap, str};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{Cursor, Read},
+    path::{Component, Path},
+    str,
+};
 
 use quick_xml::{
     Reader,
@@ -197,10 +203,189 @@ pub enum ImportError {
     UnsupportedRoot(String),
     #[error("MusicXML contains no score root")]
     MissingRoot,
+    #[error("could not read MusicXML file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("invalid MXL archive: {0}")]
+    Zip(#[from] zip::result::ZipError),
+    #[error("MXL archive contains too many entries ({0})")]
+    TooManyArchiveEntries(usize),
+    #[error("MXL archive is missing META-INF/container.xml")]
+    MissingContainer,
+    #[error("MXL container does not identify a MusicXML root file")]
+    MissingRootFile,
+    #[error("unsafe MXL root file path {0:?}")]
+    UnsafeRootFilePath(String),
+    #[error("{kind} exceeds the {limit} byte safety limit")]
+    SizeLimit { kind: &'static str, limit: usize },
     #[error("{field} contains invalid integer {value:?}")]
     InvalidInteger { field: &'static str, value: String },
     #[error("note pitch is incomplete")]
     IncompletePitch,
+}
+
+const MAX_ARCHIVE_ENTRIES: usize = 4096;
+const MAX_ARCHIVE_BYTES: usize = 256 * 1024 * 1024;
+const MAX_CONTAINER_BYTES: usize = 1024 * 1024;
+const MAX_SCORE_BYTES: usize = 64 * 1024 * 1024;
+const MUSICXML_MEDIA_TYPE: &str = "application/vnd.recordare.musicxml+xml";
+const MXL_MEDIA_TYPE: &str = "application/vnd.recordare.musicxml";
+
+/// Imports either an uncompressed MusicXML document or a compressed MXL
+/// container based on its file signature.
+pub fn import_musicxml_document(source: &[u8]) -> Result<Score, ImportError> {
+    if source.starts_with(b"PK\x03\x04")
+        || source.starts_with(b"PK\x05\x06")
+        || source.starts_with(b"PK\x07\x08")
+    {
+        import_mxl(source)
+    } else {
+        if source.len() > MAX_SCORE_BYTES {
+            return Err(ImportError::SizeLimit {
+                kind: "MusicXML document",
+                limit: MAX_SCORE_BYTES,
+            });
+        }
+        import_musicxml(source)
+    }
+}
+
+/// Reads and imports `.musicxml`, `.xml` or `.mxl` without trusting the file
+/// extension to identify compressed content.
+pub fn import_musicxml_file(path: impl AsRef<Path>) -> Result<Score, ImportError> {
+    let metadata = fs::metadata(path.as_ref())?;
+    if metadata.len() > MAX_ARCHIVE_BYTES as u64 {
+        return Err(ImportError::SizeLimit {
+            kind: "MusicXML file",
+            limit: MAX_ARCHIVE_BYTES,
+        });
+    }
+    import_musicxml_document(&fs::read(path)?)
+}
+
+fn import_mxl(source: &[u8]) -> Result<Score, ImportError> {
+    if source.len() > MAX_ARCHIVE_BYTES {
+        return Err(ImportError::SizeLimit {
+            kind: "MXL archive",
+            limit: MAX_ARCHIVE_BYTES,
+        });
+    }
+    let mut archive = zip::ZipArchive::new(Cursor::new(source))?;
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(ImportError::TooManyArchiveEntries(archive.len()));
+    }
+
+    let mut container = Vec::new();
+    {
+        let mut entry = archive
+            .by_name("META-INF/container.xml")
+            .map_err(|error| match error {
+                zip::result::ZipError::FileNotFound => ImportError::MissingContainer,
+                other => ImportError::Zip(other),
+            })?;
+        if entry.size() > MAX_CONTAINER_BYTES as u64 {
+            return Err(ImportError::SizeLimit {
+                kind: "MXL container",
+                limit: MAX_CONTAINER_BYTES,
+            });
+        }
+        read_limited(
+            &mut entry,
+            &mut container,
+            "MXL container",
+            MAX_CONTAINER_BYTES,
+        )?;
+    }
+
+    let root_path = parse_container_rootfile(&container)?;
+    validate_rootfile_path(&root_path)?;
+
+    let mut score_xml = Vec::new();
+    {
+        let mut entry = archive.by_name(&root_path).map_err(|error| match error {
+            zip::result::ZipError::FileNotFound => ImportError::MissingRootFile,
+            other => ImportError::Zip(other),
+        })?;
+        if entry.size() > MAX_SCORE_BYTES as u64 {
+            return Err(ImportError::SizeLimit {
+                kind: "MXL MusicXML root file",
+                limit: MAX_SCORE_BYTES,
+            });
+        }
+        read_limited(
+            &mut entry,
+            &mut score_xml,
+            "MXL MusicXML root file",
+            MAX_SCORE_BYTES,
+        )?;
+    }
+
+    let mut score = import_musicxml(&score_xml)?;
+    let mimetype_valid = match archive.by_name("mimetype") {
+        Ok(mut entry) => {
+            let mut value = Vec::new();
+            read_limited(&mut entry, &mut value, "MXL mimetype", 256)?;
+            value == MXL_MEDIA_TYPE.as_bytes()
+        }
+        Err(zip::result::ZipError::FileNotFound) => false,
+        Err(error) => return Err(ImportError::Zip(error)),
+    };
+    if !mimetype_valid {
+        warn_once(
+            &mut score.warnings,
+            "MXL container".into(),
+            format!("missing or invalid {MXL_MEDIA_TYPE} mimetype marker"),
+        );
+    }
+    Ok(score)
+}
+
+fn read_limited(
+    source: &mut impl Read,
+    destination: &mut Vec<u8>,
+    kind: &'static str,
+    limit: usize,
+) -> Result<(), ImportError> {
+    source.take(limit as u64 + 1).read_to_end(destination)?;
+    if destination.len() > limit {
+        return Err(ImportError::SizeLimit { kind, limit });
+    }
+    Ok(())
+}
+
+fn parse_container_rootfile(container: &[u8]) -> Result<String, ImportError> {
+    let mut reader = Reader::from_reader(container);
+    let mut first_path = None;
+    loop {
+        match reader.read_event()? {
+            Event::Start(start) | Event::Empty(start) if start.name().as_ref() == b"rootfile" => {
+                let path = attribute(&start, b"full-path")?;
+                let media_type = attribute(&start, b"media-type")?;
+                if let Some(path) = path {
+                    if media_type.as_deref() == Some(MUSICXML_MEDIA_TYPE) {
+                        return Ok(path);
+                    }
+                    first_path.get_or_insert(path);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    first_path.ok_or(ImportError::MissingRootFile)
+}
+
+fn validate_rootfile_path(path: &str) -> Result<(), ImportError> {
+    let parsed = Path::new(path);
+    let unsafe_component = parsed.components().any(|component| {
+        matches!(
+            component,
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir
+        )
+    });
+    if path.is_empty() || path.contains('\\') || unsafe_component {
+        return Err(ImportError::UnsafeRootFilePath(path.to_owned()));
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -764,6 +949,9 @@ parse_integer!(parse_i64, i64);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     const PIANO_SCORE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
@@ -793,6 +981,36 @@ mod tests {
     </measure>
   </part>
 </score-partwise>"#;
+
+    fn mxl_with_container(container: &str, include_mimetype: bool) -> Vec<u8> {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        if include_mimetype {
+            writer.start_file("mimetype", stored).unwrap();
+            writer.write_all(MXL_MEDIA_TYPE.as_bytes()).unwrap();
+        }
+        writer
+            .start_file("META-INF/container.xml", deflated)
+            .unwrap();
+        writer.write_all(container.as_bytes()).unwrap();
+        writer
+            .start_file("scores/piano.musicxml", deflated)
+            .unwrap();
+        writer.write_all(PIANO_SCORE.as_bytes()).unwrap();
+        writer.finish().unwrap().into_inner()
+    }
+
+    fn valid_container(path: &str) -> String {
+        format!(
+            r#"<?xml version="1.0"?>
+<container version="1.0">
+  <rootfiles>
+    <rootfile full-path="{path}" media-type="{MUSICXML_MEDIA_TYPE}"/>
+  </rootfiles>
+</container>"#
+        )
+    }
 
     #[test]
     fn imports_piano_learning_semantics_and_exact_timing() {
@@ -852,5 +1070,54 @@ mod tests {
             ScoreTime::new(1, 3).add(ScoreTime::new(1, 6)),
             ScoreTime::new(1, 2)
         );
+    }
+
+    #[test]
+    fn imports_compressed_mxl_by_signature() {
+        let source = mxl_with_container(&valid_container("scores/piano.musicxml"), true);
+        let score = import_musicxml_document(&source).unwrap();
+        assert_eq!(score.title.as_deref(), Some("Learning & Study"));
+        assert_eq!(score.parts[0].measures.len(), 1);
+        assert!(
+            score
+                .warnings
+                .iter()
+                .all(|warning| warning.location != "MXL container")
+        );
+    }
+
+    #[test]
+    fn accepts_missing_mimetype_with_visible_warning() {
+        let source = mxl_with_container(&valid_container("scores/piano.musicxml"), false);
+        let score = import_musicxml_document(&source).unwrap();
+        assert!(
+            score
+                .warnings
+                .iter()
+                .any(|warning| warning.location == "MXL container")
+        );
+    }
+
+    #[test]
+    fn rejects_container_path_traversal_before_reading_score() {
+        let source = mxl_with_container(&valid_container("../piano.musicxml"), true);
+        let error = import_musicxml_document(&source).unwrap_err();
+        assert!(
+            matches!(error, ImportError::UnsafeRootFilePath(path) if path == "../piano.musicxml")
+        );
+    }
+
+    #[test]
+    fn rejects_zip_without_musicxml_container() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("readme.txt", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"not an MXL file").unwrap();
+        let source = writer.finish().unwrap().into_inner();
+        assert!(matches!(
+            import_musicxml_document(&source).unwrap_err(),
+            ImportError::MissingContainer
+        ));
     }
 }

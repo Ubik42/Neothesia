@@ -10,6 +10,7 @@ bytes.workspace = true
 blake3.workspace = true
 ron.workspace = true
 quick-xml.workspace = true
+zip.workspace = true
 log.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true
