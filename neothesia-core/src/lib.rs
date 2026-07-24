@@ -14,6 +14,7 @@ pub mod practice;
 pub mod practice_history;
 pub mod render;
 pub mod score_alignment;
+pub mod score_playback;
 pub mod utils;
 
 pub use euclid;
