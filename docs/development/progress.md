@@ -10,6 +10,28 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 053 — All harmonic-minor fingering tables
+
+State: **DONE**
+
+Delivered:
+
+- completed per-hand fingering coverage for all twelve harmonic-minor keys;
+- added a first-octave/later-octave model for changing crossings;
+- represented exceptional C♯, F♯, G♯ and B endpoints without approximation;
+- kept non-C melodic minor safely unavailable;
+- changed native smoke coverage to G♯ harmonic minor;
+- completed `EX-003F`.
+
+Verification:
+
+- exact fifteen-note right/left tables cover all twelve harmonic minors;
+- eighty-two core, fifty-seven application and two MIDI-file tests pass;
+- native automation completes and persists a G♯ harmonic-minor two-pass attempt;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `a7adbfa`.
+
 ### Cycle 052 — All natural-minor fingering tables
 
 State: **DONE**

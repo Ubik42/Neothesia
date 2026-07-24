@@ -34,12 +34,12 @@ settings default to empty preset lists.
 
 ## Fingering guidance
 
-All twelve major scales, all twelve natural-minor scales, plus C harmonic-minor
-and melodic-minor carry reviewed finger numbers for both hands. The mapping
-follows the exact generated sequence, including ascending, descending and
-up-and-down direction, one to three octaves and every repetition. Finger
-numbers 1–5 are centered directly on the falling notes and are enabled by
-default when available. The player shows a clear **Fingers: ON/OFF** control.
+All twelve major, natural-minor and harmonic-minor scales, plus C melodic minor,
+carry reviewed finger numbers for both hands. The mapping follows the exact
+generated sequence, including ascending, descending and up-and-down direction,
+one to three octaves and every repetition. Finger numbers 1–5 are centered
+directly on the falling notes and are enabled by default when available. The
+player shows a clear **Fingers: ON/OFF** control.
 
 That control is a persistent appearance preference, not a per-attempt
 temporary state. Changing it saves immediately and the same option appears as
@@ -69,11 +69,18 @@ Natural-minor tables follow the per-key, two-hand visual charts in
 crossings rather than inheriting the parallel major. A♭ major and G♯ minor are
 spelled differently in both the selector and generated title.
 
+Harmonic-minor tables follow
+[Piano-ology's two-octave harmonic-minor charts](https://piano-ology.com/wp-content/uploads/2024/01/piano-ology-piano-technique-fingering-charts-harmonic-minor-scales.pdf)
+(checked 2026-07-25). The model stores a distinct first-octave lead-in,
+later-octave crossing and endpoint when necessary. This represents C♯, F♯,
+G♯ and B correctly instead of forcing their second octave into the first
+octave's cycle.
+
 Coverage is deliberately explicit and Technique Studio says whether the
-current selection has reviewed guidance before playback. Unreviewed
-harmonic/melodic minor keys and non-scale patterns show no fingering control or
-numbers. This avoids silently teaching a generic crossing pattern in keys where
-the accepted fingering differs.
+current selection has reviewed guidance before playback. Unreviewed melodic
+minor keys and non-scale patterns show no fingering control or numbers. This
+avoids silently teaching a generic crossing pattern in keys where the accepted
+fingering differs.
 Note-name labels continue to work for imported MIDI and Free Play; on a
 supported generated exercise, enabled finger numbers take visual precedence.
 
@@ -172,6 +179,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Harmonic- and melodic-minor fingering remains intentionally unavailable outside
-the reviewed C-minor family. Generic one-pattern-fits-all fingering would teach
-incorrect crossings in several keys.
+Melodic-minor fingering remains intentionally unavailable outside the reviewed
+C-minor family. Generic one-pattern-fits-all fingering would teach incorrect
+crossings in several keys.

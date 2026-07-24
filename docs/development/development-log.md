@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 053: All harmonic-minor fingering tables (DONE)
+
+### Outcome
+
+Every harmonic-minor key now has reviewed, two-hand finger guidance. The app
+correctly handles scales whose first and later octaves use different crossings,
+rather than flattening them into a misleading repeating pattern.
+
+### Implemented
+
+- Enabled reviewed harmonic-minor guidance in all twelve pitch classes.
+- Added explicit right/left tables for every key.
+- Extended the fingering model with a first-octave lead-in, repeating later
+  octave and optional terminal finger.
+- Used that boundary for the changing crossings and endpoints in C♯, F♯, G♯
+  and B harmonic minor.
+- Retained C melodic minor while continuing to reject unreviewed melodic-minor
+  keys and non-scale patterns.
+- Upgraded native smoke to select and persist G♯ harmonic minor.
+- Completed `EX-003F`.
+
+Tables were reviewed against
+[Piano-ology's harmonic-minor charts](https://piano-ology.com/wp-content/uploads/2024/01/piano-ology-piano-technique-fingering-charts-harmonic-minor-scales.pdf)
+on 2026-07-25.
+
+### Verification
+
+- Exact two-octave right/left assertions for all twelve harmonic-minor keys.
+- Real-process G♯ harmonic-minor exercise smoke completes two passes at 70 BPM,
+  toggles guidance off/on and verifies preset/settings/history persistence.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-two core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `a7adbfa`
+(`feat: add all harmonic minor fingerings`).
+
+### Known limitations
+
+- Melodic-minor tables beyond C remain intentionally unavailable.
+- The renderer shows finger numbers but does not yet teach the reason for a
+  crossing or endpoint substitution.
+- Fingerings remain reviewed defaults rather than anatomy-specific variants.
+
 ## 2026-07-25 — Cycle 052: All natural-minor fingering tables (DONE)
 
 ### Outcome
