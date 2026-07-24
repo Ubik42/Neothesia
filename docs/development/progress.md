@@ -10,6 +10,32 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 033 — Reusable native practice smoke runner
+
+State: **DONE**
+
+Delivered:
+
+- added a checked-in PowerShell runner for a real Debug application process;
+- isolated settings, history and the copied SoundFont in a disposable
+  per-run directory;
+- selected an unused loopback port automatically;
+- asserted menu-to-player start, default wait mode, wait toggling, hand-mode
+  cycling, return to menu and exit code;
+- added an acknowledged Debug exit command so the app shuts down through its
+  event loop;
+- retained exact-process termination only as failure cleanup.
+
+Verification:
+
+- the runner passes with the prepared “Look at the Sky” two-hand MIDI;
+- observed wait `true → false`, hands `Both → Right` and exit code `0`;
+- two MIDI-file tests, fifty practice/core tests and forty-eight application
+  tests pass;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes without the driver or Debug exit event;
+- implementation commit: `5f16f5c`.
+
 ### Cycle 032 — Loopback debug practice driver
 
 State: **DONE**

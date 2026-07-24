@@ -4,6 +4,63 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 033: Reusable native practice smoke runner (DONE)
+
+### Outcome
+
+The proven native automation sequence is now a repeatable repository command,
+not a one-off terminal experiment. It launches the actual GPU application,
+drives semantic controls, asserts practice state and exits cleanly.
+
+### Implemented
+
+- Added `scripts/debug-practice-smoke.ps1`.
+- Built the Debug executable by default with an opt-out for repeated runs.
+- Passed Unicode and space-containing MIDI paths as structured process
+  arguments.
+- Selected an available IPv4 loopback port at runtime.
+- Ran the app in a uniquely named temporary working directory.
+- Copied the local SoundFont into that isolated directory.
+- Asserted that the initial scene is the menu.
+- Started the loaded song and waited for a player snapshot.
+- Asserted that wait-for-notes defaults on.
+- Toggled wait mode and asserted the state changed.
+- Cycled practice hands when the song exposes a hand scope and asserted the
+  state changed.
+- Returned to the menu and asserted that the player snapshot disappeared.
+- Added a debug-only acknowledged `EXIT` command and asserted process exit code
+  zero.
+- Removed the temporary settings, history and SoundFont copy after every run.
+- Kept exact-process termination as a guarded failure fallback.
+- Documented the runnable command.
+
+### Verification
+
+- Ran the checked-in script twice against “Look at the Sky - Porter Robinson,
+  original key, auto-aligned,” including once under PowerShell strict mode.
+- Observed wait mode `True → False`.
+- Observed hand mode `Both → Right`.
+- Observed clean application exit code `0`.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-eight
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `5f16f5c`
+(`test: add native practice smoke runner`).
+
+### Known limitations
+
+- The runner does not yet create a loop or reach completion/retry.
+- It does not inject MIDI performance input.
+- It does not capture or compare GPU-rendered screenshots.
+- `QA-001` remains open until loop and real input/output behavior are covered.
+
 ## 2026-07-25 — Cycle 032: Loopback debug practice driver (DONE)
 
 ### Outcome
