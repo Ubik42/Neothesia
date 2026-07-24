@@ -193,7 +193,24 @@ pub struct AttemptSummary {
     pub measures: Vec<MeasureSummary>,
     pub parts: Vec<PartSummary>,
     #[serde(default)]
+    pub timing: TimingSummary,
+    #[serde(default)]
     pub expression: ExpressionSummary,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TimingSummary {
+    pub matched_samples: usize,
+    /// Negative values are early; positive values are late.
+    pub median_offset_ms: Option<i32>,
+    /// Median absolute deviation from the median offset.
+    pub median_deviation_ms: Option<u32>,
+}
+
+impl TimingSummary {
+    pub fn has_profile(self) -> bool {
+        self.matched_samples >= 8
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -629,6 +646,7 @@ pub struct PracticeMatcher {
     results: Vec<PracticeResult>,
     last_target: Option<PracticeTarget>,
     expression: ExpressionTracker,
+    timing_offsets_ms: Vec<i32>,
 }
 
 impl PracticeMatcher {
@@ -646,6 +664,7 @@ impl PracticeMatcher {
             results: Vec::new(),
             last_target: None,
             expression: ExpressionTracker::default(),
+            timing_offsets_ms: Vec::new(),
         }
     }
 
@@ -847,6 +866,7 @@ impl PracticeMatcher {
                 .into_iter()
                 .map(|(part, breakdown)| PartSummary { part, breakdown })
                 .collect(),
+            timing: summarize_timing_offsets(&self.timing_offsets_ms),
             expression: self.expression.summary(),
         }
     }
@@ -869,6 +889,7 @@ impl PracticeMatcher {
         self.snapshot = PracticeSnapshot::default();
         self.results.clear();
         self.expression = ExpressionTracker::default();
+        self.timing_offsets_ms.clear();
     }
 
     fn record_match(
@@ -879,6 +900,11 @@ impl PracticeMatcher {
         played_at: Duration,
         released_at: Option<Duration>,
     ) -> MatchedNote {
+        self.timing_offsets_ms.push(match timing {
+            TimingGrade::Early(delta) => -duration_millis_i32(delta),
+            TimingGrade::OnTime => 0,
+            TimingGrade::Late(delta) => duration_millis_i32(delta),
+        });
         let timing = match timing {
             TimingGrade::Early(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
             TimingGrade::Late(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
@@ -918,6 +944,51 @@ impl PracticeMatcher {
             .min_by_key(|press| press.timestamp)
             .map(|press| press.target)
             .or(self.last_target)
+    }
+}
+
+fn duration_millis_i32(duration: Duration) -> i32 {
+    duration.as_millis().min(i32::MAX as u128) as i32
+}
+
+fn summarize_timing_offsets(offsets: &[i32]) -> TimingSummary {
+    let mut ordered = offsets.to_vec();
+    ordered.sort_unstable();
+    let median_offset_ms = median_i32(&ordered);
+    let median_deviation_ms = median_offset_ms.and_then(|median| {
+        let mut deviations = ordered
+            .iter()
+            .map(|offset| offset.abs_diff(median))
+            .collect::<Vec<_>>();
+        deviations.sort_unstable();
+        median_u32(&deviations)
+    });
+    TimingSummary {
+        matched_samples: ordered.len(),
+        median_offset_ms,
+        median_deviation_ms,
+    }
+}
+
+fn median_i32(values: &[i32]) -> Option<i32> {
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => None,
+        len if len.is_multiple_of(2) => {
+            Some(((i64::from(values[middle - 1]) + i64::from(values[middle])) / 2) as i32)
+        }
+        _ => Some(values[middle]),
+    }
+}
+
+fn median_u32(values: &[u32]) -> Option<u32> {
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => None,
+        len if len.is_multiple_of(2) => {
+            Some((u64::from(values[middle - 1]) + u64::from(values[middle])).div_ceil(2) as u32)
+        }
+        _ => Some(values[middle]),
     }
 }
 
@@ -1022,6 +1093,14 @@ mod tests {
                 wrong_notes: 0,
                 missed_notes: 0,
                 required_notes: 0,
+            }
+        );
+        assert_eq!(
+            matcher.summary().timing,
+            TimingSummary {
+                matched_samples: 3,
+                median_offset_ms: Some(-50),
+                median_deviation_ms: Some(150),
             }
         );
     }
@@ -1285,6 +1364,17 @@ mod tests {
 
         let expression: ExpressionSummary = ron::from_str(legacy).unwrap();
         assert_eq!(expression.articulation, ArticulationSummary::default());
+    }
+
+    #[test]
+    fn timing_profile_uses_signed_median_and_robust_deviation() {
+        let summary = summarize_timing_offsets(&[-40, -20, -10, 0, 10, 20, 40, 100]);
+
+        assert!(summary.has_profile());
+        assert_eq!(summary.matched_samples, 8);
+        assert_eq!(summary.median_offset_ms, Some(5));
+        assert_eq!(summary.median_deviation_ms, Some(20));
+        assert_eq!(summarize_timing_offsets(&[]), TimingSummary::default());
     }
 
     #[test]

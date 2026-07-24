@@ -795,6 +795,7 @@ mod tests {
                     },
                 }],
                 parts: Vec::new(),
+                timing: Default::default(),
                 expression: Default::default(),
             },
         }
@@ -836,6 +837,7 @@ mod tests {
         )"#;
 
         let summary: AttemptSummary = ron::from_str(legacy).unwrap();
+        assert_eq!(summary.timing, Default::default());
         assert_eq!(summary.expression, Default::default());
     }
 

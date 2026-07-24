@@ -458,9 +458,9 @@ impl PlayingScene {
 
                     nuon::label()
                         .x(28.0)
-                        .y(140.0)
-                        .size(panel_w - 56.0, 34.0)
-                        .font_size(17.0)
+                        .y(138.0)
+                        .size(panel_w - 56.0, 28.0)
+                        .font_size(16.0)
                         .text(format!(
                             "Hit {}    On time {}    Early {}    Late {}",
                             summary.overall.matched_notes,
@@ -472,8 +472,17 @@ impl PlayingScene {
 
                     nuon::label()
                         .x(28.0)
-                        .y(178.0)
-                        .size(panel_w - 56.0, 34.0)
+                        .y(164.0)
+                        .size(panel_w - 56.0, 22.0)
+                        .font_size(13.0)
+                        .color([184, 178, 205])
+                        .text(format_timing_profile(summary.timing))
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(190.0)
+                        .size(panel_w - 56.0, 30.0)
                         .font_size(17.0)
                         .text(format!(
                             "Wrong {}    Missed {}",
@@ -892,6 +901,28 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
+fn format_timing_profile(timing: neothesia_core::practice::TimingSummary) -> String {
+    if !timing.has_profile() {
+        return format!(
+            "Timing profile: need 8 matched notes · {} captured",
+            timing.matched_samples
+        );
+    }
+
+    let offset = timing.median_offset_ms.unwrap_or(0);
+    let bias = if offset < 0 {
+        format!("{} ms early", offset.unsigned_abs())
+    } else if offset > 0 {
+        format!("{} ms late", offset)
+    } else {
+        "centered".to_owned()
+    };
+    format!(
+        "Timing profile: median {bias} · typical spread {} ms",
+        timing.median_deviation_ms.unwrap_or(0)
+    )
+}
+
 fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
     let velocity = expression.velocity;
     let dynamics = if expression.has_velocity_evidence() {
@@ -1289,5 +1320,18 @@ mod tests {
             "Pedal: 2 user changes captured · score has no pedal reference"
         );
         assert!(articulation.contains("pedal excluded"));
+    }
+
+    #[test]
+    fn timing_profile_copy_explains_signed_bias_and_evidence_threshold() {
+        assert_eq!(
+            format_timing_profile(neothesia_core::practice::TimingSummary {
+                matched_samples: 12,
+                median_offset_ms: Some(-18),
+                median_deviation_ms: Some(9),
+            }),
+            "Timing profile: median 18 ms early · typical spread 9 ms"
+        );
+        assert!(format_timing_profile(Default::default()).contains("need 8 matched notes"));
     }
 }
