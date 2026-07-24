@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 048 — Reviewed fingering foundation
+
+State: **DONE**
+
+Delivered:
+
+- added deterministic fingering sequences to generated exercise plans;
+- covered C major and all three C minor scale forms;
+- handled both hands, every direction, one to three octaves and repetitions;
+- attached finger numbers to exact serialized note time/pitch/channel identity;
+- rendered 1–5 directly on falling notes;
+- centered digits independently for white- and black-key note widths;
+- enabled reviewed fingerings by default when available;
+- added an obvious `Fingers: ON/OFF` player control;
+- preserved regular note-name labels for imported MIDI and Free Play;
+- returned no fingering for unreviewed keys and patterns;
+- completed `EX-003A`.
+
+Verification:
+
+- exact two-octave right/left up-and-down sequences repeated twice;
+- unsupported key and arpeggio return no guidance;
+- generated Song maps first notes and apex to the expected hand/channel finger;
+- semantic action IDs remain unique and explicitly supported;
+- native automation verifies availability, default-on state and two-way toggle;
+- two MIDI-file tests, seventy-five core tests and fifty-seven application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `fd1f446`.
+
 ### Cycle 047 — Reusable exercise presets
 
 State: **DONE**

@@ -4,6 +4,73 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 048: Reviewed fingering foundation (DONE)
+
+### Outcome
+
+Supported C-scale exercises now teach where each hand crosses, not merely which
+key comes next. Finger numbers travel with the falling notes and can be hidden
+instantly after the pattern begins to settle.
+
+### Implemented
+
+- Added `ExerciseFingerings` as deterministic plan output.
+- Implemented the established C-scale finger-number pattern for:
+  - right and left hand;
+  - C major;
+  - C natural, harmonic and melodic minor;
+  - ascending, descending and up/down;
+  - one, two and three octaves;
+  - every configured repetition.
+- Reversed the full span for descending guidance and joined up/down at one apex.
+- Removed inactive-hand data from single-hand plans.
+- Returned `None` for every unreviewed key and non-scale pattern.
+- Attached fingers after MIDI serialization by exact start time, pitch and
+  channel, avoiding ambiguous pitch-only matching.
+- Generalized the note-label renderer to switch between note names and
+  per-occurrence finger numbers.
+- Cached separately sized digit buffers for white and black note widths.
+- Added a stateful `Fingers: ON/OFF` control in the player.
+- Added semantic automation state and actions for availability and visibility.
+- Kept imported MIDI and Free Play note labels backward compatible.
+- Completed `EX-003A` without claiming completion of all-key `EX-003`.
+
+### Verification
+
+- Exact two-octave two-pass right-hand sequence:
+  `1231234 12312345 4321321 4321321`, repeated.
+- Exact corresponding left-hand sequence in both directions.
+- C♯ scale and C arpeggio explicitly return no fingering.
+- Generated C exercise maps:
+  - right C4 to finger 1;
+  - left C2 to finger 5;
+  - right apex C5 to finger 5.
+- Real-process smoke confirms reviewed guidance is available and on by default.
+- Native control turns guidance off, snapshot verifies it, and turns it on
+  again before completing the exercise.
+- Existing completion, loop, hand mode, preset persistence and library reopen
+  flows remain green.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, seventy-five core tests and fifty-seven
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `fd1f446`
+(`feat: show reviewed exercise fingerings`).
+
+### Known limitations
+
+- Reviewed coverage currently stops at the C major/minor scale family.
+- Fingering is generated exercise metadata, not yet a portable annotation for
+  arbitrary imported MIDI.
+- The player does not yet score whether the learner used the suggested physical
+  finger; ordinary MIDI input does not identify fingers.
+
 ## 2026-07-25 — Cycle 047: Reusable exercise presets (DONE)
 
 ### Outcome

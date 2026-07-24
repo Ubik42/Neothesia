@@ -32,6 +32,21 @@ parameter grid remains the authoritative detail view. Invalid or duplicated
 records in a manually edited settings file are filtered when read. Older
 settings default to empty preset lists.
 
+## Fingering guidance
+
+Generated C major, natural-minor, harmonic-minor and melodic-minor scales carry
+reviewed finger numbers for both hands. The mapping follows the exact generated
+sequence, including ascending, descending and up-and-down direction, one to
+three octaves and every repetition. Finger numbers 1–5 are centered directly
+on the falling notes and are enabled by default when available. The player
+shows a clear **Fingers: ON/OFF** control.
+
+Coverage is deliberately explicit. Other keys and non-scale patterns currently
+show no fingering control or numbers. This avoids silently teaching a generic
+crossing pattern in keys where the accepted fingering differs. Note-name labels
+continue to work for imported MIDI and Free Play; on a supported generated
+exercise, enabled finger numbers take visual precedence.
+
 ## Core specification
 
 An exercise is defined by:
@@ -85,7 +100,8 @@ rendering. The next layers are:
 3. ~~add a focused preset editor and preview to the home screen;~~
 4. ~~pass the generated `Song` into the existing player;~~
 5. ~~save exercise progress by normalized specification identity;~~
-6. add fingering only from reviewed per-key/per-hand tables.
+6. ~~add a reviewed fingering data/rendering boundary with C-scale coverage;~~
+7. expand only through reviewed per-key/per-hand tables.
 
 The MIDI conversion uses a Type-1 file with a conductor track plus distinct
 right- and left-hand tracks. It emits 480 ticks per beat, 4/4 meter, the
@@ -126,6 +142,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Fingering is deliberately absent from the generator today. Generic
-one-pattern-fits-all scale fingering would teach incorrect crossings in several
-keys.
+Fingering remains intentionally unavailable outside the reviewed C-scale
+family. Generic one-pattern-fits-all scale fingering would teach incorrect
+crossings in several keys.
