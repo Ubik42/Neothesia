@@ -59,6 +59,7 @@ Open one TCP connection per command and send one newline-terminated command:
 | --- | --- |
 | `ACTION practice.player.wait` | JSON with `ok` and `accepted` |
 | `SNAPSHOT` | JSON with `ok` and a snapshot object or `null` |
+| `EXIT` | JSON acknowledgement followed by a clean application exit |
 
 Commands are limited to 4096 bytes and action/state waits time out after two
 seconds. An accepted value of `false` means the active scene does not support
@@ -67,6 +68,18 @@ not the player.
 
 This is a narrow test protocol, not a general remote-control API or a Windows
 UI Automation implementation.
+
+On Windows, run the checked-in end-to-end smoke sequence with:
+
+```powershell
+.\scripts\debug-practice-smoke.ps1 -MidiPath "D:\path\to\song.mid"
+```
+
+The script builds the Debug executable, selects an unused loopback port, uses
+an isolated temporary working directory, starts the loaded song, asserts the
+default wait state, toggles wait mode, cycles hands when available, returns to
+the menu and requests a clean exit. It removes its temporary settings, history
+and SoundFont copy afterward.
 
 The next automation layer should:
 

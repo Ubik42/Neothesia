@@ -112,11 +112,15 @@ fn handle_connection(mut stream: TcpStream, harness: &DebugUiHarness) {
 enum DriverCommand<'a> {
     Action(&'a str),
     Snapshot,
+    Exit,
 }
 
 fn parse_command(line: &str) -> Result<DriverCommand<'_>, &'static str> {
     if line == "SNAPSHOT" {
         return Ok(DriverCommand::Snapshot);
+    }
+    if line == "EXIT" {
+        return Ok(DriverCommand::Exit);
     }
     if let Some(id) = line.strip_prefix("ACTION ")
         && !id.is_empty()
@@ -152,6 +156,13 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
             ),
             None => r#"{"ok":true,"snapshot":null}"#.to_owned() + "\n",
         },
+        Ok(DriverCommand::Exit) => {
+            if harness.shutdown(RESPONSE_TIMEOUT) {
+                r#"{"ok":true}"#.to_owned() + "\n"
+            } else {
+                error_response("timeout")
+            }
+        }
         Err(error) => error_response(error),
     }
 }
@@ -172,6 +183,7 @@ mod tests {
     #[test]
     fn protocol_parser_accepts_only_bounded_semantic_commands() {
         assert_eq!(parse_command("SNAPSHOT"), Ok(DriverCommand::Snapshot));
+        assert_eq!(parse_command("EXIT"), Ok(DriverCommand::Exit));
         assert_eq!(
             parse_command("ACTION practice.player.wait"),
             Ok(DriverCommand::Action("practice.player.wait"))

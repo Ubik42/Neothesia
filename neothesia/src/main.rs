@@ -56,6 +56,10 @@ pub enum NeothesiaEvent {
     DebugPracticeSnapshot {
         reply: std::sync::mpsc::Sender<Option<scene::DebugPracticeSnapshot>>,
     },
+    #[cfg(debug_assertions)]
+    DebugExit {
+        reply: std::sync::mpsc::Sender<()>,
+    },
     Exit,
 }
 
@@ -189,6 +193,11 @@ impl Neothesia {
             #[cfg(debug_assertions)]
             NeothesiaEvent::DebugPracticeSnapshot { reply } => {
                 let _ = reply.send(self.game_scene.debug_practice_snapshot(&self.context));
+            }
+            #[cfg(debug_assertions)]
+            NeothesiaEvent::DebugExit { reply } => {
+                let _ = reply.send(());
+                event_loop.exit();
             }
             NeothesiaEvent::Exit => {
                 event_loop.exit();

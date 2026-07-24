@@ -81,6 +81,19 @@ impl DebugUiHarness {
             .ok()?;
         response.recv_timeout(timeout).ok().flatten()
     }
+
+    /// Requests a clean application exit through the event loop.
+    pub fn shutdown(&self, timeout: Duration) -> bool {
+        let (reply, response) = std::sync::mpsc::channel();
+        if self
+            .proxy
+            .send_event(NeothesiaEvent::DebugExit { reply })
+            .is_err()
+        {
+            return false;
+        }
+        response.recv_timeout(timeout).is_ok()
+    }
 }
 
 pub fn handle_pc_keyboard_to_midi_event(ctx: &mut Context, event: &WindowEvent) {
