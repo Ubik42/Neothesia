@@ -50,7 +50,7 @@ rendering. The next layers are:
 2. identify generated exercises separately from file-backed repertoire;
 3. ~~add a focused preset editor and preview to the home screen;~~
 4. ~~pass the generated `Song` into the existing player;~~
-5. save exercise progress by normalized specification identity;
+5. ~~save exercise progress by normalized specification identity;~~
 6. add fingering only from reviewed per-key/per-hand tables.
 
 The MIDI conversion uses a Type-1 file with a conductor track plus distinct
@@ -68,6 +68,19 @@ The last-used specification is stored in the versioned application settings.
 Older settings default to the initial C-major preset. Structurally invalid
 persisted values are rejected before the menu renders, preventing an invalid
 tonic, octave span or tempo from crashing the selector.
+
+## Learning identity and tempo
+
+Exercise history is keyed by the musical target: tonic, tonality, pattern,
+direction and octave span. Tempo and hand scope are attempt dimensions rather
+than separate songs. Moving the same scale from 60 to 80 BPM, or progressing
+from separate hands to both hands, therefore keeps one continuous history.
+Different keys and patterns never share an identity.
+
+Every completed exercise attempt also records its effective BPM after the
+player speed multiplier is applied. History rows show real BPM plus the
+multiplier, and the trend prefers BPM change when that evidence exists. Legacy
+song attempts without BPM data continue to display multiplier-only speed.
 
 Fingering is deliberately absent from the generator today. Generic
 one-pattern-fits-all scale fingering would teach incorrect crossings in several

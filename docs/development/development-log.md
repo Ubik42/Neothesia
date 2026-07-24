@@ -4,6 +4,68 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 042: Continuous exercise tempo progression (DONE)
+
+### Outcome
+
+Increasing an exercise's tempo no longer fragments the learner's history into
+unrelated pseudo-songs. The same musical task now accumulates results across
+tempo and hand progression, while each completed attempt retains its real BPM.
+
+### Implemented
+
+- Added a versioned canonical practice identity to `ExercisePlan`.
+- Included tonic, tonality, pattern, direction and octave span in that identity.
+- Excluded tempo so tempo progression remains continuous.
+- Excluded requested hands because session history already records and filters
+  the performed hand scope.
+- Kept raw MIDI content hashes tempo-sensitive for serialization tests.
+- Replaced the generated `Song` history key with normalized practice identity.
+- Retained the originating `ExerciseSpec` on generated songs.
+- Calculated effective BPM as base exercise BPM multiplied by player speed.
+- Added backward-compatible optional effective BPM to `PracticeSession`.
+- Propagated effective BPM into recent-history summaries.
+- Added BPM change to overview trends.
+- Preferred `84 BPM · 120% speed` style copy for generated attempts.
+- Preserved percentage-only speed copy for imported MIDI and old history.
+- Extended native automation to:
+  - select C♯;
+  - raise the exercise from 60 to 70 BPM;
+  - perform every required note to completion;
+  - retry and re-check hand/loop behavior;
+  - verify `effective_tempo_bpm: Some(70)` in persisted history.
+
+### Verification
+
+- Normalized practice identity groups tempo and hand variants.
+- Different tonic produces a different 64-character identity.
+- Generated-song effective-tempo calculations cover 75% speed and invalid
+  multipliers.
+- Overview tempo progression test covers 60 to 84 BPM.
+- Legacy session serialization test removes the BPM field and reloads safely.
+- UI copy tests prefer BPM evidence and fall back to speed.
+- Real-process C♯ 70 BPM completion, persistence, Retry, hands and loop smoke.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, sixty-three core tests and fifty-four
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `041062e`
+(`feat: unify exercise tempo progression`).
+
+### Known limitations
+
+- Practice Library still treats generated-history rows as unavailable because
+  they have no file path; a generated-source discriminator is next.
+- Existing exercise sessions created before this cycle retain their old
+  tempo-specific IDs; no speculative migration is attempted.
+- Named favourites and recent variants remain under `EX-002`.
+
 ## 2026-07-25 — Cycle 041: Persistent exercise choices (DONE)
 
 ### Outcome

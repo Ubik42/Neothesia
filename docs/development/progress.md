@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 042 — Continuous exercise tempo progression
+
+State: **DONE**
+
+Delivered:
+
+- separated raw generated-MIDI identity from musical practice identity;
+- normalized exercise history by key, tonality, pattern, direction and span;
+- kept tempo and hands as attempt dimensions under the same exercise;
+- ensured different musical targets remain isolated;
+- persisted effective BPM for every completed generated-exercise attempt;
+- preferred real BPM in recent attempts and tempo trends;
+- retained multiplier-only display for imported MIDI and legacy sessions;
+- extended the real-process fixture through full exercise completion;
+- completed `EX-001D`.
+
+Verification:
+
+- 60 and 120 BPM variants share practice identity;
+- right, left and both-hand variants share practice identity;
+- different keys produce different identities;
+- effective tempo incorporates the player multiplier;
+- overview reports a 60 → 84 BPM change as +24 BPM;
+- sessions saved before effective BPM remain readable;
+- native automation completes C♯ at 70 BPM and inspects persisted BPM evidence;
+- two MIDI-file tests, sixty-three practice/core tests and fifty-four
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `041062e`.
+
 ### Cycle 041 — Persistent exercise choices
 
 State: **DONE**
