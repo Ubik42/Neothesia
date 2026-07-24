@@ -4,6 +4,47 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 077: MusicXML pedal semantics (DONE)
+
+### Outcome
+
+Pedal marks are now structured score data rather than discarded graphics. This
+creates the source side of a future comparison between notated pedaling and the
+player's real continuous CC64 evidence.
+
+### Implemented
+
+- Added `PedalMark` to score directions.
+- Added typed start, stop, sostenuto, change, continue, discontinue and resume
+  pedal actions.
+- Preserved the MusicXML overlap number.
+- Preserved line, sign and abbreviated-symbol preferences.
+- Kept unknown future type strings in an explicit `Other` variant.
+- Parsed both spec-standard empty pedal elements and tolerant explicit forms.
+- Added pedal-mark totals to the compatibility inspector.
+
+MusicXML intentionally does not use this element for soft pedal text; that
+remains representable through direction words, matching the MusicXML 4.0
+definition:
+<https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/pedal/>.
+
+### Verification
+
+- Unit fixture covers numbered damper start/change with display attributes.
+- Pinned MuseScore 3.6 pedal score preserves all seven marks.
+- The corpus pedal score now imports without warnings.
+- 120 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, corpus audit, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `bcfda27` (`feat: preserve MusicXML pedal marks`).
+
+### Known limitations
+
+- Pedal marks are not yet paired into intervals or mapped to MIDI CC64.
+- Sostenuto has score semantics but no separate live-controller feedback path.
+- Visual pedal lane and grand-staff symbols remain renderer work.
+
 ## 2026-07-25 — Cycle 076: MusicXML tuplet semantics (DONE)
 
 ### Outcome

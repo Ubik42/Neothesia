@@ -23,7 +23,7 @@ grand staff synchronized with the existing player clock
 - exact rational quarter-note positions and durations;
 - pitch, rest, chord, voice and staff identity;
 - key signature, time signature, divisions and clefs;
-- direction words, dynamics and tempo;
+- direction words, dynamics, tempo and pedal marks;
 - fingering, ties, slurs, articulations and tuplet notation;
 - polyphonic `backup` and `forward` timing.
 

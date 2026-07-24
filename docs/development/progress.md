@@ -10,6 +10,40 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 077 — MusicXML pedal semantics
+
+State: **DONE**
+
+Delivered:
+
+- added pedal marks to semantic score directions at exact score positions;
+- modeled damper start/stop/change and sostenuto plus line
+  continue/discontinue/resume;
+- retained overlapping pedal numbers and line, sign and abbreviation engraving
+  preferences;
+- preserved unknown future pedal types instead of failing an otherwise usable
+  score;
+- exposed pedal-mark counts in the compatibility inspector;
+- completed `MUS-001F`.
+
+Verification:
+
+- a focused fixture preserves start and change marks, number 2, line/sign and
+  abbreviation choices;
+- the MuseScore 3.6 pedal fixture recognizes all seven marks;
+- all six prior pedal warnings disappear;
+- 120 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `bcfda27`.
+
+Next:
+
+- give score events stable identities and align them with MIDI events so pedal
+  marks can become CC64 practice targets;
+- preserve wedge spans for dynamics coaching after the same identity boundary
+  exists.
+
 ### Cycle 076 — MusicXML tuplet semantics
 
 State: **DONE**

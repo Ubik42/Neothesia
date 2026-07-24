@@ -13,16 +13,16 @@ license. No network request occurs when the verified cache already exists.
 
 ## Current corpus
 
-| Fixture | Export shape | Measures | Events | Tuplet notes | Expected diagnostic |
-| --- | --- | ---: | ---: | ---: | --- |
-| Bach BWV 846 Prelude | MuseScore 1.2 | 35 | 750 | 0 | none |
-| Clementi Sonatina Allegro | older/unspecified | 76 part-measures | 389 | 0 | none |
-| Clementi Sonatina Andante | MuseScore 1.2 | 52 part-measures | 341 | 267 | ornaments |
-| Pedal function test | MuseScore 3.6.2 | 15 | 67 | 0 | pedal directions |
-| Voice alignment | MuseScore 3.6.2 | 4 | 47 | 0 | none |
-| Grace notes | MuseScore 2.3.1 | 4 | 40 | 0 | none |
-| Brooke West sample | compressed MXL | 34 part-measures | 323 | 0 | invalid/missing mimetype |
-| Broad function test | MuseScore 2.3.2 | 41 | 226 | 42 | ornaments |
+| Fixture | Export shape | Measures | Events | Tuplets | Pedal | Expected diagnostic |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Bach BWV 846 Prelude | MuseScore 1.2 | 35 | 750 | 0 | 0 | none |
+| Clementi Sonatina Allegro | older/unspecified | 76 part-measures | 389 | 0 | 0 | none |
+| Clementi Sonatina Andante | MuseScore 1.2 | 52 part-measures | 341 | 267 | 0 | ornaments |
+| Pedal function test | MuseScore 3.6.2 | 15 | 67 | 0 | 7 | none |
+| Voice alignment | MuseScore 3.6.2 | 4 | 47 | 0 | 0 | none |
+| Grace notes | MuseScore 2.3.1 | 4 | 40 | 0 | 0 | none |
+| Brooke West sample | compressed MXL | 34 part-measures | 323 | 0 | 0 | invalid/missing mimetype |
+| Broad function test | MuseScore 2.3.2 | 41 | 226 | 42 | 0 | ornaments |
 
 Totals: 261 part-measures and 2,183 note/rest events.
 
