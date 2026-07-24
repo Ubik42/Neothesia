@@ -64,6 +64,26 @@ pub struct WeakPassageRecommendation {
     pub attempts: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecentPracticeSummary {
+    pub kind: PracticeSessionKind,
+    pub recorded_at_unix_ms: u64,
+    pub accuracy: Option<f32>,
+    pub speed: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PracticeHistoryOverview {
+    pub total_sessions: usize,
+    /// Oldest to newest, so the UI can read it as a progression.
+    pub recent: Vec<RecentPracticeSummary>,
+    pub trend_kind: Option<PracticeSessionKind>,
+    pub trend_attempts: usize,
+    pub accuracy_delta: Option<f32>,
+    pub speed_delta: Option<f32>,
+    pub weak_measures: Vec<WeakMeasure>,
+}
+
 impl SongPracticeHistory {
     pub fn weak_measures(&self, limit: usize) -> Vec<WeakMeasure> {
         let mut measures = BTreeMap::<usize, (PracticeBreakdown, usize)>::new();
@@ -108,9 +128,10 @@ impl SongPracticeHistory {
     /// needs repeated evidence so a single exploratory take cannot create a
     /// persistent "weak" label.
     pub fn recommended_passage(&self) -> Option<WeakPassageRecommendation> {
-        let weakest = self.weak_measures(usize::MAX).into_iter().find(|measure| {
-            measure.attempts >= 2 && measure.judged_notes >= 8 && measure.accuracy < 0.9
-        })?;
+        let weakest = self
+            .weak_measures(usize::MAX)
+            .into_iter()
+            .find(is_reliable_weakness)?;
 
         Some(WeakPassageRecommendation {
             start_measure: weakest.measure,
@@ -120,6 +141,77 @@ impl SongPracticeHistory {
             attempts: weakest.attempts,
         })
     }
+
+    pub fn overview(
+        &self,
+        recent_limit: usize,
+        weak_measure_limit: usize,
+    ) -> PracticeHistoryOverview {
+        let mut recent: Vec<_> = self
+            .sessions
+            .iter()
+            .rev()
+            .take(recent_limit)
+            .map(|session| RecentPracticeSummary {
+                kind: session.kind,
+                recorded_at_unix_ms: session.recorded_at_unix_ms,
+                accuracy: session.summary.overall.accuracy(),
+                speed: session.speed,
+            })
+            .collect();
+        recent.reverse();
+
+        let trend_kind = self.sessions.last().map(|session| session.kind);
+        let mut comparable: Vec<_> = self
+            .sessions
+            .iter()
+            .rev()
+            .filter(|session| Some(session.kind) == trend_kind)
+            .take(recent_limit)
+            .collect();
+        comparable.reverse();
+        let accuracy_delta = first_last_delta(
+            comparable
+                .iter()
+                .filter_map(|session| session.summary.overall.accuracy()),
+        );
+        let speed_delta = first_last_delta(
+            comparable
+                .iter()
+                .map(|session| session.speed)
+                .filter(|speed| speed.is_finite()),
+        );
+
+        PracticeHistoryOverview {
+            total_sessions: self.sessions.len(),
+            recent,
+            trend_kind,
+            trend_attempts: comparable.len(),
+            accuracy_delta,
+            speed_delta,
+            weak_measures: self
+                .weak_measures(usize::MAX)
+                .into_iter()
+                .filter(is_reliable_weakness)
+                .take(weak_measure_limit)
+                .collect(),
+        }
+    }
+}
+
+fn is_reliable_weakness(measure: &WeakMeasure) -> bool {
+    measure.attempts >= 2 && measure.judged_notes >= 8 && measure.accuracy < 0.9
+}
+
+fn first_last_delta(mut values: impl Iterator<Item = f32>) -> Option<f32> {
+    let first = values.next()?;
+    let mut last = first;
+    let mut count = 1;
+    for value in values {
+        last = value;
+        count += 1;
+    }
+    (count >= 2).then_some(last - first)
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
@@ -449,6 +541,79 @@ mod tests {
         };
 
         assert_eq!(history.recommended_passage(), None);
+    }
+
+    #[test]
+    fn overview_orders_recent_attempts_and_computes_visible_trends() {
+        let mut first = session(2, 5, 5);
+        first.recorded_at_unix_ms = 10;
+        first.speed = 0.6;
+        let mut second = session(2, 7, 3);
+        second.recorded_at_unix_ms = 20;
+        second.speed = 0.7;
+        let mut third = session(2, 9, 1);
+        third.recorded_at_unix_ms = 30;
+        third.speed = 0.8;
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![first, second, third],
+        };
+
+        let overview = history.overview(2, 1);
+
+        assert_eq!(overview.total_sessions, 3);
+        assert_eq!(overview.trend_kind, Some(PracticeSessionKind::WholeSong));
+        assert_eq!(overview.trend_attempts, 2);
+        assert_eq!(
+            overview
+                .recent
+                .iter()
+                .map(|item| item.recorded_at_unix_ms)
+                .collect::<Vec<_>>(),
+            vec![20, 30]
+        );
+        assert!((overview.accuracy_delta.unwrap() - 0.2).abs() < f32::EPSILON);
+        assert!((overview.speed_delta.unwrap() - 0.1).abs() < f32::EPSILON);
+        assert_eq!(overview.weak_measures.len(), 1);
+    }
+
+    #[test]
+    fn overview_omits_trends_without_two_judged_attempts() {
+        let mut empty = session(2, 0, 0);
+        empty.speed = f32::NAN;
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![empty],
+        };
+
+        let overview = history.overview(5, 4);
+
+        assert_eq!(overview.accuracy_delta, None);
+        assert_eq!(overview.speed_delta, None);
+    }
+
+    #[test]
+    fn overview_does_not_compare_whole_song_and_loop_accuracy() {
+        let mut whole_old = session(2, 5, 5);
+        whole_old.speed = 0.6;
+        let mut unrelated_loop = session(8, 1, 9);
+        unrelated_loop.kind = PracticeSessionKind::Loop {
+            start_measure: 8,
+            end_measure: 9,
+        };
+        unrelated_loop.speed = 0.9;
+        let mut whole_new = session(2, 8, 2);
+        whole_new.speed = 0.7;
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![whole_old, unrelated_loop, whole_new],
+        };
+
+        let overview = history.overview(5, 4);
+
+        assert_eq!(overview.trend_attempts, 2);
+        assert!((overview.accuracy_delta.unwrap() - 0.3).abs() < f32::EPSILON);
+        assert!((overview.speed_delta.unwrap() - 0.1).abs() < f32::EPSILON);
     }
 
     #[test]

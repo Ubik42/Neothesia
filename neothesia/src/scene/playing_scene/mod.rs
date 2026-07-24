@@ -2,7 +2,9 @@ use midi_file::midly::MidiMessage;
 use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticePart,
 };
-use neothesia_core::practice_history::{PracticeSession, PracticeSessionKind};
+use neothesia_core::practice_history::{
+    PracticeHistoryOverview, PracticeSession, PracticeSessionKind,
+};
 use neothesia_core::render::{
     GlowRenderer, GuidelineRenderer, NoteLabels, QuadRenderer, TextRenderer,
 };
@@ -57,6 +59,7 @@ pub struct PlayingScene {
     top_bar: TopBar,
     completion: Option<AttemptSummary>,
     saved_session_count: Option<usize>,
+    completion_view: CompletionView,
 }
 
 impl PlayingScene {
@@ -139,6 +142,7 @@ impl PlayingScene {
             top_bar: TopBar::new(),
             completion: None,
             saved_session_count: None,
+            completion_view: CompletionView::Current,
         }
     }
 
@@ -298,17 +302,19 @@ impl PlayingScene {
                     .clamp(recommendation.start_measure, measure_count);
                 recommendation
             });
+        let history_overview = ctx
+            .practice_history
+            .song(&self.player.song().file.content_id)
+            .map(|history| history.overview(4, 4));
 
         let mut action = None;
+        let mut requested_view = None;
+        let completion_view = self.completion_view;
         let mut ui = std::mem::replace(&mut self.nuon, nuon::Ui::new());
         let win_w = ctx.window_state.logical_size.width;
         let win_h = ctx.window_state.logical_size.height;
-        let panel_w = (win_w - 40.0).clamp(320.0, 720.0);
-        let panel_h = if recommendation.is_some() {
-            (win_h - 40.0).clamp(530.0, 560.0)
-        } else {
-            (win_h - 40.0).clamp(470.0, 520.0)
-        };
+        let panel_w = (win_w - 40.0).clamp(480.0, 720.0);
+        let panel_h = (win_h - 40.0).clamp(590.0, 620.0);
         let panel_x = nuon::center_x(win_w, panel_w);
         let panel_y = nuon::center_y(win_h, panel_h);
 
@@ -328,85 +334,127 @@ impl PlayingScene {
                 nuon::label()
                     .x(28.0)
                     .y(24.0)
-                    .size(panel_w - 56.0, 44.0)
+                    .size(panel_w - 256.0, 44.0)
                     .font_size(30.0)
                     .bold(true)
                     .text("Practice complete")
                     .build(ui);
 
-                nuon::label()
-                    .x(28.0)
-                    .y(78.0)
-                    .size(panel_w - 56.0, 54.0)
-                    .font_size(38.0)
-                    .bold(true)
-                    .text(format!("{}% accuracy", percent(summary.overall.accuracy())))
-                    .build(ui);
+                let tab_gap = 8.0;
+                let tab_w = 92.0;
+                let tab_x = panel_w - 28.0 - tab_w * 2.0 - tab_gap;
+                if nuon::button()
+                    .x(tab_x)
+                    .y(26.0)
+                    .size(tab_w, 34.0)
+                    .label("This take")
+                    .color(if completion_view == CompletionView::Current {
+                        [56, 145, 255]
+                    } else {
+                        [61, 57, 73]
+                    })
+                    .hover_color([87, 165, 255])
+                    .preseed_color([97, 175, 255])
+                    .border_radius([8.0; 4])
+                    .build(ui)
+                {
+                    requested_view = Some(CompletionView::Current);
+                }
+                if nuon::button()
+                    .x(tab_x + tab_w + tab_gap)
+                    .y(26.0)
+                    .size(tab_w, 34.0)
+                    .label("History")
+                    .color(if completion_view == CompletionView::History {
+                        [56, 145, 255]
+                    } else {
+                        [61, 57, 73]
+                    })
+                    .hover_color([87, 165, 255])
+                    .preseed_color([97, 175, 255])
+                    .border_radius([8.0; 4])
+                    .build(ui)
+                {
+                    requested_view = Some(CompletionView::History);
+                }
 
-                nuon::label()
-                    .x(28.0)
-                    .y(140.0)
-                    .size(panel_w - 56.0, 34.0)
-                    .font_size(17.0)
-                    .text(format!(
-                        "Hit {}    On time {}    Early {}    Late {}",
-                        summary.overall.matched_notes,
-                        summary.overall.on_time_notes,
-                        summary.overall.early_notes,
-                        summary.overall.late_notes
-                    ))
-                    .build(ui);
-
-                nuon::label()
-                    .x(28.0)
-                    .y(178.0)
-                    .size(panel_w - 56.0, 34.0)
-                    .font_size(17.0)
-                    .text(format!(
-                        "Wrong {}    Missed {}",
-                        summary.overall.wrong_notes, summary.overall.missed_notes
-                    ))
-                    .build(ui);
-
-                nuon::label()
-                    .x(28.0)
-                    .y(226.0)
-                    .size(panel_w - 56.0, 34.0)
-                    .font_size(17.0)
-                    .text(format!(
-                        "Right hand {}    Left hand {}",
-                        format_accuracy(part_accuracy(PracticePart::RightHand)),
-                        format_accuracy(part_accuracy(PracticePart::LeftHand))
-                    ))
-                    .build(ui);
-
-                nuon::quad()
-                    .x(28.0)
-                    .y(278.0)
-                    .size(panel_w - 56.0, 1.0)
-                    .color([83, 78, 98])
-                    .build(ui);
-
-                nuon::label()
-                    .x(28.0)
-                    .y(294.0)
-                    .size(panel_w - 56.0, 44.0)
-                    .font_size(17.0)
-                    .text(review)
-                    .build(ui);
-
-                if let Some(session_count) = self.saved_session_count {
+                if completion_view == CompletionView::Current {
                     nuon::label()
                         .x(28.0)
-                        .y(338.0)
-                        .size(panel_w - 56.0, 28.0)
-                        .font_size(14.0)
-                        .color([143, 205, 171])
+                        .y(78.0)
+                        .size(panel_w - 56.0, 54.0)
+                        .font_size(38.0)
+                        .bold(true)
+                        .text(format!("{}% accuracy", percent(summary.overall.accuracy())))
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(140.0)
+                        .size(panel_w - 56.0, 34.0)
+                        .font_size(17.0)
                         .text(format!(
-                            "Saved locally  ·  {session_count} session{} for this MIDI",
-                            if session_count == 1 { "" } else { "s" }
+                            "Hit {}    On time {}    Early {}    Late {}",
+                            summary.overall.matched_notes,
+                            summary.overall.on_time_notes,
+                            summary.overall.early_notes,
+                            summary.overall.late_notes
                         ))
                         .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(178.0)
+                        .size(panel_w - 56.0, 34.0)
+                        .font_size(17.0)
+                        .text(format!(
+                            "Wrong {}    Missed {}",
+                            summary.overall.wrong_notes, summary.overall.missed_notes
+                        ))
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(226.0)
+                        .size(panel_w - 56.0, 34.0)
+                        .font_size(17.0)
+                        .text(format!(
+                            "Right hand {}    Left hand {}",
+                            format_accuracy(part_accuracy(PracticePart::RightHand)),
+                            format_accuracy(part_accuracy(PracticePart::LeftHand))
+                        ))
+                        .build(ui);
+
+                    nuon::quad()
+                        .x(28.0)
+                        .y(278.0)
+                        .size(panel_w - 56.0, 1.0)
+                        .color([83, 78, 98])
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(294.0)
+                        .size(panel_w - 56.0, 44.0)
+                        .font_size(17.0)
+                        .text(review)
+                        .build(ui);
+
+                    if let Some(session_count) = self.saved_session_count {
+                        nuon::label()
+                            .x(28.0)
+                            .y(338.0)
+                            .size(panel_w - 56.0, 28.0)
+                            .font_size(14.0)
+                            .color([143, 205, 171])
+                            .text(format!(
+                                "Saved locally  ·  {session_count} session{} for this MIDI",
+                                if session_count == 1 { "" } else { "s" }
+                            ))
+                            .build(ui);
+                    }
+                } else {
+                    render_history_overview(ui, panel_w, history_overview.as_ref());
                 }
 
                 let button_gap = 12.0;
@@ -414,21 +462,23 @@ impl PlayingScene {
                 let button_w = (panel_w - 56.0 - button_gap) / 2.0;
 
                 if let Some(recommendation) = recommendation {
-                    nuon::label()
-                        .x(28.0)
-                        .y(366.0)
-                        .size(panel_w - 56.0, 30.0)
-                        .font_size(14.0)
-                        .color([255, 205, 124])
-                        .text(format!(
-                            "Suggested: measures {}–{}  ·  {}% across {} notes / {} takes",
-                            recommendation.start_measure,
-                            recommendation.end_measure,
-                            percent(Some(recommendation.weakest_accuracy)),
-                            recommendation.judged_notes,
-                            recommendation.attempts
-                        ))
-                        .build(ui);
+                    if completion_view == CompletionView::Current {
+                        nuon::label()
+                            .x(28.0)
+                            .y(366.0)
+                            .size(panel_w - 56.0, 30.0)
+                            .font_size(14.0)
+                            .color([255, 205, 124])
+                            .text(format!(
+                                "Suggested: measures {}–{}  ·  {}% across {} notes / {} takes",
+                                recommendation.start_measure,
+                                recommendation.end_measure,
+                                percent(Some(recommendation.weakest_accuracy)),
+                                recommendation.judged_notes,
+                                recommendation.attempts
+                            ))
+                            .build(ui);
+                    }
 
                     if nuon::button()
                         .x(28.0)
@@ -481,6 +531,9 @@ impl PlayingScene {
             });
         });
         self.nuon = ui;
+        if let Some(view) = requested_view {
+            self.completion_view = view;
+        }
 
         match action {
             Some(CompletionAction::PracticeWeak {
@@ -490,6 +543,7 @@ impl PlayingScene {
                 if top_bar::begin_measure_loop(self, start_measure, end_measure) {
                     self.completion = None;
                     self.saved_session_count = None;
+                    self.completion_view = CompletionView::Current;
                 }
             }
             Some(CompletionAction::Retry) => {
@@ -497,6 +551,7 @@ impl PlayingScene {
                 self.keyboard.reset_notes();
                 self.completion = None;
                 self.saved_session_count = None;
+                self.completion_view = CompletionView::Current;
             }
             Some(CompletionAction::Back) => {
                 ctx.proxy
@@ -522,6 +577,12 @@ impl PlayingScene {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum CompletionView {
+    Current,
+    History,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum CompletionAction {
     PracticeWeak {
@@ -530,6 +591,186 @@ enum CompletionAction {
     },
     Retry,
     Back,
+}
+
+fn render_history_overview(
+    ui: &mut nuon::Ui,
+    panel_w: f32,
+    overview: Option<&PracticeHistoryOverview>,
+) {
+    let Some(overview) = overview else {
+        nuon::label()
+            .x(28.0)
+            .y(106.0)
+            .size(panel_w - 56.0, 40.0)
+            .font_size(20.0)
+            .text("No saved practice history for this MIDI yet")
+            .build(ui);
+        return;
+    };
+
+    nuon::label()
+        .x(28.0)
+        .y(88.0)
+        .size(panel_w - 56.0, 42.0)
+        .font_size(30.0)
+        .bold(true)
+        .text(format!(
+            "{} saved practice session{}",
+            overview.total_sessions,
+            if overview.total_sessions == 1 {
+                ""
+            } else {
+                "s"
+            }
+        ))
+        .build(ui);
+
+    nuon::label()
+        .x(28.0)
+        .y(132.0)
+        .size(panel_w - 56.0, 28.0)
+        .font_size(16.0)
+        .color([143, 205, 171])
+        .text(format!(
+            "{} trend  ·  {} comparable attempt{}",
+            overview
+                .trend_kind
+                .map(format_session_kind)
+                .unwrap_or_else(|| "Practice".to_owned()),
+            overview.trend_attempts,
+            if overview.trend_attempts == 1 {
+                ""
+            } else {
+                "s"
+            },
+        ))
+        .build(ui);
+
+    nuon::label()
+        .x(28.0)
+        .y(160.0)
+        .size(panel_w - 56.0, 28.0)
+        .font_size(15.0)
+        .text(format!(
+            "{}  ·  {}",
+            format_trend("accuracy", overview.accuracy_delta),
+            format_trend("speed", overview.speed_delta)
+        ))
+        .build(ui);
+
+    nuon::quad()
+        .x(28.0)
+        .y(196.0)
+        .size(panel_w - 56.0, 1.0)
+        .color([83, 78, 98])
+        .build(ui);
+
+    nuon::label()
+        .x(28.0)
+        .y(208.0)
+        .size(panel_w - 56.0, 30.0)
+        .font_size(15.0)
+        .bold(true)
+        .text("Recent attempts  ·  oldest to newest")
+        .build(ui);
+
+    for (index, session) in overview.recent.iter().enumerate() {
+        let accuracy = session
+            .accuracy
+            .map(|value| format!("{}%", percent(Some(value))))
+            .unwrap_or_else(|| "--".to_owned());
+        nuon::label()
+            .x(28.0)
+            .y(240.0 + index as f32 * 28.0)
+            .size(panel_w - 56.0, 26.0)
+            .font_size(15.0)
+            .color(if index + 1 == overview.recent.len() {
+                [235, 238, 245]
+            } else {
+                [178, 175, 190]
+            })
+            .text(format!(
+                "{}. {}  ·  {} accuracy  ·  {} speed",
+                index + 1,
+                format_session_kind(session.kind),
+                accuracy,
+                format_speed(session.speed)
+            ))
+            .build(ui);
+    }
+
+    nuon::label()
+        .x(28.0)
+        .y(352.0)
+        .size(panel_w - 56.0, 30.0)
+        .font_size(15.0)
+        .bold(true)
+        .text("Persistent weak measures")
+        .build(ui);
+
+    if overview.weak_measures.is_empty() {
+        nuon::label()
+            .x(28.0)
+            .y(386.0)
+            .size(panel_w - 56.0, 28.0)
+            .font_size(15.0)
+            .color([143, 205, 171])
+            .text("No weak measures detected")
+            .build(ui);
+    } else {
+        let column_w = (panel_w - 68.0) / 2.0;
+        for (index, measure) in overview.weak_measures.iter().enumerate() {
+            nuon::label()
+                .x(28.0 + (index % 2) as f32 * (column_w + 12.0))
+                .y(386.0 + (index / 2) as f32 * 28.0)
+                .size(column_w, 26.0)
+                .font_size(15.0)
+                .color([255, 205, 124])
+                .text(format!(
+                    "#{}  Measure {}  ·  {}%  ·  {} takes",
+                    index + 1,
+                    measure.measure,
+                    percent(Some(measure.accuracy)),
+                    measure.attempts
+                ))
+                .build(ui);
+        }
+    }
+}
+
+fn format_session_kind(kind: PracticeSessionKind) -> String {
+    match kind {
+        PracticeSessionKind::WholeSong => "Whole song".to_owned(),
+        PracticeSessionKind::Loop {
+            start_measure,
+            end_measure,
+        } if start_measure == end_measure => format!("Measure {start_measure}"),
+        PracticeSessionKind::Loop {
+            start_measure,
+            end_measure,
+        } => format!("Measures {start_measure}-{end_measure}"),
+    }
+}
+
+fn format_trend(label: &str, delta: Option<f32>) -> String {
+    let Some(delta) = delta else {
+        return format!("{label}: need 2 attempts");
+    };
+    let points = (delta * 100.0).round() as i32;
+    if points > 0 {
+        format!("{label}: +{points} pts")
+    } else {
+        format!("{label}: {points} pts")
+    }
+}
+
+fn format_speed(speed: f32) -> String {
+    if speed.is_finite() {
+        format!("{}%", (speed * 100.0).round() as i32)
+    } else {
+        "--".to_owned()
+    }
 }
 
 fn percent(accuracy: Option<f32>) -> u32 {
