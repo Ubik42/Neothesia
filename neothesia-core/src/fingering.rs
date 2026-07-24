@@ -63,6 +63,7 @@ pub enum FingeringReason {
     ManualAnchor,
     PhraseStart,
     RepeatedNote,
+    RapidRepeatedNote,
     InPosition,
     ThumbUnder,
     FingerOver,
@@ -79,6 +80,9 @@ impl FingeringReason {
             (Self::ManualAnchor, _) => "keeps your saved finger as a fixed anchor",
             (Self::PhraseStart, _) => "starts from a balanced hand position",
             (Self::RepeatedNote, _) => "repeats the pitch without changing finger",
+            (Self::RapidRepeatedNote, _) => {
+                "alternates fingers so rapid repeated notes can release cleanly"
+            }
             (Self::InPosition, _) => "follows the melodic direction inside one hand position",
             (Self::ThumbUnder, FingeringHand::Right) => {
                 "uses a right-hand thumb-under turn to continue upward"
@@ -114,6 +118,7 @@ pub struct FingerSuggestion {
 
 const FINGER_COUNT: usize = 5;
 const INFINITY: i32 = i32::MAX / 8;
+const RAPID_REPEAT_MAX_INTERVAL: Duration = Duration::from_millis(250);
 
 pub fn suggest_fingerings(
     notes: &[FingeringNote],
@@ -641,8 +646,10 @@ fn suggest_run(
                 if prior_cost == INFINITY {
                     continue;
                 }
-                let candidate = prior_cost
-                    + transition_cost(
+                let transition = if rapid_repeated_transition(notes, note_index) {
+                    rapid_repeat_cost(prior_finger as u8, next_finger as u8)
+                } else {
+                    transition_cost(
                         notes[note_index - 1].pitch,
                         prior_finger as u8,
                         notes[note_index].pitch,
@@ -650,6 +657,9 @@ fn suggest_run(
                         hand,
                         profile,
                     )
+                };
+                let candidate = prior_cost
+                    + transition
                     + static_key_cost(notes[note_index].pitch, next_finger as u8);
                 if candidate < costs[note_index][next_finger - 1] {
                     costs[note_index][next_finger - 1] = candidate;
@@ -673,6 +683,8 @@ fn suggest_run(
             FingeringReason::ManualAnchor
         } else if note_index == 0 {
             FingeringReason::PhraseStart
+        } else if rapid_repeated_transition(notes, note_index) {
+            FingeringReason::RapidRepeatedNote
         } else {
             transition_reason(
                 notes[note_index - 1].pitch,
@@ -687,6 +699,37 @@ fn suggest_run(
             confidence_percent: confidence(reason),
             reason,
         });
+    }
+}
+
+fn rapid_repeated_transition(notes: &[FingeringNote], note_index: usize) -> bool {
+    if note_index == 0 || notes[note_index - 1].pitch != notes[note_index].pitch {
+        return false;
+    }
+    let current_gap = notes[note_index]
+        .onset
+        .saturating_sub(notes[note_index - 1].onset);
+    if current_gap > RAPID_REPEAT_MAX_INTERVAL {
+        return false;
+    }
+    let rapid_before = note_index >= 2
+        && notes[note_index - 2].pitch == notes[note_index].pitch
+        && notes[note_index - 1]
+            .onset
+            .saturating_sub(notes[note_index - 2].onset)
+            <= RAPID_REPEAT_MAX_INTERVAL;
+    let rapid_after = notes.get(note_index + 1).is_some_and(|next| {
+        next.pitch == notes[note_index].pitch
+            && next.onset.saturating_sub(notes[note_index].onset) <= RAPID_REPEAT_MAX_INTERVAL
+    });
+    rapid_before || rapid_after
+}
+
+fn rapid_repeat_cost(prior_finger: u8, next_finger: u8) -> i32 {
+    if prior_finger == next_finger {
+        9
+    } else {
+        i32::from(prior_finger.abs_diff(next_finger)).saturating_sub(1)
     }
 }
 
@@ -806,6 +849,7 @@ fn confidence(reason: FingeringReason) -> u8 {
     match reason {
         FingeringReason::ManualAnchor => 100,
         FingeringReason::RepeatedNote => 92,
+        FingeringReason::RapidRepeatedNote => 76,
         FingeringReason::InPosition => 85,
         FingeringReason::ChordConnection => 84,
         FingeringReason::HeldChordPosition => 82,
@@ -896,6 +940,34 @@ mod tests {
         assert_eq!(
             suggestions[1].unwrap().reason,
             FingeringReason::RepeatedNote
+        );
+    }
+
+    #[test]
+    fn rapid_repeated_run_alternates_adjacent_fingers() {
+        let source: Vec<_> = [0, 120, 240, 360]
+            .into_iter()
+            .map(|onset_ms| {
+                let onset = Duration::from_millis(onset_ms);
+                FingeringNote {
+                    pitch: 60,
+                    onset,
+                    end: onset + Duration::from_millis(80),
+                    anchored_finger: None,
+                }
+            })
+            .collect();
+        let suggestions = suggest_fingerings(&source, FingeringHand::Right);
+        let fingers: Vec<_> = suggestions
+            .iter()
+            .map(|suggestion| suggestion.unwrap().finger)
+            .collect();
+
+        assert_eq!(fingers, [3, 2, 1, 2]);
+        assert!(
+            suggestions[1..]
+                .iter()
+                .all(|suggestion| suggestion.unwrap().reason == FingeringReason::RapidRepeatedNote)
         );
     }
 
