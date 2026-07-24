@@ -7,6 +7,7 @@ edition.workspace = true
 serde = { workspace = true, features = ["serde_derive"] }
 neothesia-image.workspace = true
 bytes.workspace = true
+blake3.workspace = true
 ron.workspace = true
 log.workspace = true
 thiserror.workspace = true

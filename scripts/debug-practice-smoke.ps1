@@ -143,6 +143,10 @@ try {
         Assert-True (
             $nextKey.ok -and $nextKey.accepted
         ) "Exercise key selector did not advance"
+        $nextTempo = Invoke-DebugDriver "ACTION practice.exercise.tempo.next"
+        Assert-True (
+            $nextTempo.ok -and $nextTempo.accepted
+        ) "Exercise tempo selector did not advance"
         $start = Invoke-DebugDriver "ACTION practice.exercise.start"
         Assert-True (
             $start.ok -and $start.accepted
@@ -282,6 +286,36 @@ try {
         $afterInput.matched_notes -gt $matchedBeforeInput
     ) "Injected performance notes did not reach the practice matcher"
 
+    if ($ExerciseFixture) {
+        $exerciseCompletion = $null
+        for ($attempt = 0; $attempt -lt 300; $attempt++) {
+            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            if ($null -ne $candidate.completion_tab) {
+                $exerciseCompletion = $candidate
+                break
+            }
+            foreach ($note in @($candidate.required_note_pitches)) {
+                $noteOn = Invoke-DebugDriver "MIDI 0 $note 100"
+                Assert-True (
+                    $noteOn.ok -and $noteOn.accepted
+                ) "Generated exercise note-on was rejected"
+                $noteOff = Invoke-DebugDriver "MIDI 0 $note 0"
+                Assert-True (
+                    $noteOff.ok -and $noteOff.accepted
+                ) "Generated exercise note-off was rejected"
+            }
+            Start-Sleep -Milliseconds 30
+        }
+        Assert-True (
+            $null -ne $exerciseCompletion
+        ) "Generated exercise did not reach completion"
+        $retryExercise = Invoke-DebugDriver "ACTION practice.completion.retry"
+        Assert-True (
+            $retryExercise.ok -and $retryExercise.accepted
+        ) "Generated exercise retry was rejected"
+        $player = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    }
+
     $waitBefore = [bool]$player.wait_for_notes
     $toggle = Invoke-DebugDriver "ACTION practice.player.wait"
     Assert-True ($toggle.ok -and $toggle.accepted) "Wait toggle was rejected"
@@ -343,9 +377,18 @@ try {
         $settingsText = [System.IO.File]::ReadAllText($settingsPath)
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
-            $settingsText -match "tonic:\s*1"
-        ) "Selected C-sharp exercise was not persisted"
-        $exercisePersistence = "C-sharp preset saved"
+            $settingsText -match "tonic:\s*1" -and
+            $settingsText -match "tempo_bpm:\s*70"
+        ) "Selected C-sharp 70 BPM exercise was not persisted"
+        $historyPath = Join-Path $runDirectory "practice-history.ron"
+        Assert-True (
+            [System.IO.File]::Exists($historyPath)
+        ) "Completed exercise did not persist practice history"
+        $historyText = [System.IO.File]::ReadAllText($historyPath)
+        Assert-True (
+            $historyText -match "effective_tempo_bpm:\s*Some\(70\)"
+        ) "Completed exercise did not persist its effective 70 BPM"
+        $exercisePersistence = "C-sharp 70 BPM preset and attempt saved"
     }
 
     [pscustomobject]@{

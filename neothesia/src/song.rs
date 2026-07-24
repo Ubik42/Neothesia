@@ -1,5 +1,5 @@
 use midi_file::MidiTrack;
-use neothesia_core::exercise::ExercisePlan;
+use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
 use neothesia_core::practice::{PracticeHands, PracticePart};
 use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
 use std::collections::HashMap;
@@ -186,16 +186,23 @@ fn infer_practice_parts_from_centers(centers: &[(usize, f32)]) -> HashMap<usize,
 pub struct Song {
     pub file: midi_file::MidiFile,
     pub config: SongConfig,
+    pub exercise_spec: Option<ExerciseSpec>,
 }
 
 impl Song {
     pub fn new(file: midi_file::MidiFile) -> Self {
         let config = SongConfig::new(&file.tracks);
-        Self { file, config }
+        Self {
+            file,
+            config,
+            exercise_spec: None,
+        }
     }
 
     pub fn from_exercise(plan: &ExercisePlan) -> Result<Self, String> {
         let mut song = Self::new(plan.to_midi_file()?);
+        song.file.content_id = plan.practice_id();
+        song.exercise_spec = Some(plan.spec);
         for track in &mut song.config.tracks {
             let channel = song.file.tracks[track.track_id]
                 .notes
@@ -208,6 +215,14 @@ impl Song {
             };
         }
         Ok(song)
+    }
+
+    pub fn effective_tempo_bpm(&self, speed: f32) -> Option<u16> {
+        let base = f32::from(self.exercise_spec?.tempo_bpm);
+        if !speed.is_finite() || speed <= 0.0 {
+            return None;
+        }
+        Some((base * speed).round().clamp(1.0, f32::from(u16::MAX)) as u16)
     }
 
     pub fn from_env(ctx: &Context) -> Option<Self> {
@@ -291,6 +306,30 @@ mod tests {
 
             assert_eq!(played_track.practice_part, expected);
         }
+    }
+
+    #[test]
+    fn generated_song_identity_survives_tempo_and_hand_progression() {
+        use neothesia_core::exercise::ExerciseHands;
+
+        let keyboard = KeyboardRange::standard_88_keys();
+        let slow = ExercisePlan::generate(ExerciseSpec::default(), &keyboard).unwrap();
+        let fast_left = ExercisePlan::generate(
+            ExerciseSpec {
+                tempo_bpm: 120,
+                hands: ExerciseHands::Left,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+        let slow = Song::from_exercise(&slow).unwrap();
+        let fast_left = Song::from_exercise(&fast_left).unwrap();
+
+        assert_eq!(slow.file.content_id, fast_left.file.content_id);
+        assert_eq!(slow.effective_tempo_bpm(0.75), Some(45));
+        assert_eq!(fast_left.effective_tempo_bpm(0.75), Some(90));
+        assert_eq!(slow.effective_tempo_bpm(f32::NAN), None);
     }
 
     #[test]

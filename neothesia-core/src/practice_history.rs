@@ -29,6 +29,8 @@ pub struct PracticeSession {
     #[serde(default)]
     pub hands: PracticeHands,
     pub speed: f32,
+    #[serde(default)]
+    pub effective_tempo_bpm: Option<u16>,
     pub summary: AttemptSummary,
 }
 
@@ -83,8 +85,14 @@ impl PracticeSession {
             kind,
             hands,
             speed,
+            effective_tempo_bpm: None,
             summary,
         }
+    }
+
+    pub fn with_effective_tempo_bpm(mut self, tempo_bpm: Option<u16>) -> Self {
+        self.effective_tempo_bpm = tempo_bpm;
+        self
     }
 }
 
@@ -142,6 +150,7 @@ pub struct RecentPracticeSummary {
     pub recorded_at_unix_ms: u64,
     pub accuracy: Option<f32>,
     pub speed: f32,
+    pub effective_tempo_bpm: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,6 +163,7 @@ pub struct PracticeHistoryOverview {
     pub trend_attempts: usize,
     pub accuracy_delta: Option<f32>,
     pub speed_delta: Option<f32>,
+    pub tempo_bpm_delta: Option<i32>,
     pub weak_measures: Vec<WeakMeasure>,
 }
 
@@ -400,6 +410,7 @@ impl SongPracticeHistory {
                 recorded_at_unix_ms: session.recorded_at_unix_ms,
                 accuracy: session.summary.overall.accuracy(),
                 speed: session.speed,
+                effective_tempo_bpm: session.effective_tempo_bpm,
             })
             .collect();
         recent.reverse();
@@ -427,6 +438,13 @@ impl SongPracticeHistory {
                 .map(|session| session.speed)
                 .filter(|speed| speed.is_finite()),
         );
+        let tempo_bpm_delta = first_last_delta(
+            comparable
+                .iter()
+                .filter_map(|session| session.effective_tempo_bpm)
+                .map(f32::from),
+        )
+        .map(|delta| delta.round() as i32);
 
         PracticeHistoryOverview {
             total_sessions: self.sessions.len(),
@@ -436,6 +454,7 @@ impl SongPracticeHistory {
             trend_attempts: comparable.len(),
             accuracy_delta,
             speed_delta,
+            tempo_bpm_delta,
             weak_measures: self
                 .weak_measures_for_scope(trend_scope.map(|(_, hands)| hands), usize::MAX)
                 .into_iter()
@@ -900,6 +919,7 @@ mod tests {
             kind: PracticeSessionKind::WholeSong,
             hands: PracticeHands::Both,
             speed: 0.75,
+            effective_tempo_bpm: None,
             summary: AttemptSummary {
                 overall: PracticeSnapshot {
                     matched_notes: matched,
@@ -1015,6 +1035,19 @@ mod tests {
             .from_str("(display_name:\"Legacy.mid\",sessions:[])")
             .unwrap();
         assert_eq!(history.library, SongLibraryState::default());
+    }
+
+    #[test]
+    fn session_saved_before_effective_tempo_remains_readable() {
+        let original = session(2, 8, 2);
+        let serialized = ron_options().to_string(&original).unwrap();
+        let legacy = serialized.replace("effective_tempo_bpm:None,", "");
+        assert_ne!(legacy, serialized);
+
+        let loaded: PracticeSession = ron_options().from_str(&legacy).unwrap();
+
+        assert_eq!(loaded.effective_tempo_bpm, None);
+        assert_eq!(loaded.summary, original.summary);
     }
 
     #[test]
@@ -1321,6 +1354,26 @@ mod tests {
 
         assert_eq!(overview.accuracy_delta, None);
         assert_eq!(overview.speed_delta, None);
+    }
+
+    #[test]
+    fn overview_reports_effective_tempo_progression_when_available() {
+        let mut slow = session(2, 8, 2);
+        slow.effective_tempo_bpm = Some(60);
+        let mut fast = session(2, 9, 1);
+        fast.effective_tempo_bpm = Some(84);
+        let history = SongPracticeHistory {
+            display_name: "C Major Scale".to_owned(),
+            setup: None,
+            library: SongLibraryState::default(),
+            sessions: vec![slow, fast],
+        };
+
+        let overview = history.overview(5, 4);
+
+        assert_eq!(overview.tempo_bpm_delta, Some(24));
+        assert_eq!(overview.recent[0].effective_tempo_bpm, Some(60));
+        assert_eq!(overview.recent[1].effective_tempo_bpm, Some(84));
     }
 
     #[test]

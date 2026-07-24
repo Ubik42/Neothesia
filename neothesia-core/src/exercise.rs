@@ -187,6 +187,31 @@ impl ExercisePlan {
         )
     }
 
+    /// Stable learning-history identity for the musical task. Tempo and hand
+    /// scope are attempt dimensions, so they intentionally do not split the
+    /// history of the same exercise.
+    pub fn practice_id(&self) -> String {
+        let tonality = match self.spec.tonality {
+            ExerciseTonality::Major => "major",
+            ExerciseTonality::Minor => "minor",
+        };
+        let pattern = match self.spec.pattern {
+            ExercisePattern::Scale => "scale",
+            ExercisePattern::Arpeggio => "arpeggio",
+            ExercisePattern::PrimaryChords => "primary-chords",
+        };
+        let direction = match self.spec.direction {
+            ExerciseDirection::Ascending => "ascending",
+            ExerciseDirection::Descending => "descending",
+            ExerciseDirection::UpAndDown => "up-down",
+        };
+        let canonical = format!(
+            "neothesia-exercise:v1:{}:{tonality}:{pattern}:{direction}:{}",
+            self.spec.tonic, self.spec.octaves
+        );
+        blake3::hash(canonical.as_bytes()).to_hex().to_string()
+    }
+
     pub fn to_midi_file(&self) -> Result<MidiFile, String> {
         let total_ticks = self
             .moments
@@ -580,5 +605,32 @@ mod tests {
             std::time::Duration::from_millis(400)
         );
         assert!(fast.tracks[1].notes[1].start < slow.tracks[1].notes[1].start);
+    }
+
+    #[test]
+    fn practice_identity_groups_tempo_and_hand_progression_but_not_musical_targets() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let base = ExercisePlan::generate(ExerciseSpec::default(), &keyboard).unwrap();
+        let faster_left = ExercisePlan::generate(
+            ExerciseSpec {
+                tempo_bpm: 120,
+                hands: ExerciseHands::Left,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+        let different_key = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 2,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+
+        assert_eq!(base.practice_id(), faster_left.practice_id());
+        assert_ne!(base.practice_id(), different_key.practice_id());
+        assert_eq!(base.practice_id().len(), 64);
     }
 }

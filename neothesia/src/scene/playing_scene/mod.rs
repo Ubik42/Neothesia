@@ -1102,7 +1102,7 @@ fn render_history_overview(
         .text(format!(
             "{}  ·  {}",
             format_trend("accuracy", overview.accuracy_delta),
-            format_trend("speed", overview.speed_delta)
+            format_tempo_or_speed_trend(overview.tempo_bpm_delta, overview.speed_delta)
         ))
         .build(ui);
 
@@ -1138,11 +1138,11 @@ fn render_history_overview(
                 [178, 175, 190]
             })
             .text(format!(
-                "{}. {}  ·  {} accuracy  ·  {} speed",
+                "{}. {}  ·  {} accuracy  ·  {}",
                 index + 1,
                 format_practice_scope(session.kind, session.hands),
                 accuracy,
-                format_speed(session.speed)
+                format_attempt_tempo(session.effective_tempo_bpm, session.speed)
             ))
             .build(ui);
     }
@@ -1228,6 +1228,21 @@ fn format_speed(speed: f32) -> String {
         format!("{}%", (speed * 100.0).round() as i32)
     } else {
         "--".to_owned()
+    }
+}
+
+fn format_attempt_tempo(effective_tempo_bpm: Option<u16>, speed: f32) -> String {
+    match effective_tempo_bpm {
+        Some(tempo) => format!("{tempo} BPM · {} speed", format_speed(speed)),
+        None => format!("{} speed", format_speed(speed)),
+    }
+}
+
+fn format_tempo_or_speed_trend(tempo_delta: Option<i32>, speed_delta: Option<f32>) -> String {
+    match tempo_delta {
+        Some(delta) if delta > 0 => format!("tempo: +{delta} BPM"),
+        Some(delta) => format!("tempo: {delta} BPM"),
+        None => format_trend("speed", speed_delta),
     }
 }
 
@@ -1460,7 +1475,8 @@ fn persist_practice_session(
                 .unwrap_or(PracticeHands::Unspecified),
             speed,
             summary,
-        ),
+        )
+        .with_effective_tempo_bpm(player.song().effective_tempo_bpm(speed)),
     )?;
     Ok(ctx.practice_history.session_count(&song_id))
 }
@@ -1933,6 +1949,20 @@ mod tests {
             "Timing profile: median 18 ms early · typical spread 9 ms · calibration needs 24"
         );
         assert!(format_timing_profile(Default::default(), 0).contains("need 8 matched notes"));
+    }
+
+    #[test]
+    fn exercise_history_prefers_real_bpm_over_multiplier_only_copy() {
+        assert_eq!(format_attempt_tempo(Some(84), 1.2), "84 BPM · 120% speed");
+        assert_eq!(format_attempt_tempo(None, 0.8), "80% speed");
+        assert_eq!(
+            format_tempo_or_speed_trend(Some(24), Some(0.4)),
+            "tempo: +24 BPM"
+        );
+        assert_eq!(
+            format_tempo_or_speed_trend(None, Some(0.1)),
+            "speed: +10 pts"
+        );
     }
 
     #[test]
