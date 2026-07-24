@@ -17,6 +17,21 @@ The generated exercise opens in the normal practice player with wait-for-notes
 enabled. Hand switching, loops, tempo changes, scoring, completion feedback and
 external MIDI output therefore work exactly as they do for an imported song.
 
+## Recent and favourite presets
+
+Starting an exercise automatically moves its complete specification to the
+front of the **Recent** selector. The list is deduplicated and retains the eight
+most recently used variants. **Save favourite** stores the current complete
+specification; the same button removes it when already saved. The
+**Favourites** selector retains up to twelve variants.
+
+Both selectors restore every visible parameter in one action: key, scale form,
+pattern, direction, hands, octave span, tempo and repetition count. Their cards
+show the selected position plus a compact key/pattern label, while the main
+parameter grid remains the authoritative detail view. Invalid or duplicated
+records in a manually edited settings file are filtered when read. Older
+settings default to empty preset lists.
+
 ## Core specification
 
 An exercise is defined by:

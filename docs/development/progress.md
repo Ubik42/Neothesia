@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 047 — Reusable exercise presets
+
+State: **DONE**
+
+Delivered:
+
+- added versioned recent and favourite exercise collections;
+- retained eight deduplicated recent variants in newest-first order;
+- retained twelve explicitly saved favourite variants;
+- restored all eight exercise parameters from either selector;
+- added visible Recent/Favourites cards and a stateful star action;
+- persisted favourites immediately and recent variants on start;
+- filtered invalid and duplicate records when loading;
+- kept older settings backward compatible;
+- added semantic actions for native UI automation;
+- completed `EX-002`.
+
+Verification:
+
+- recent ordering, deduplication, capacity and invalid-record filtering tests;
+- favourite add/remove and settings round-trip test;
+- full-spec preset selection and wraparound test;
+- fifty-seven application tests and seventy-three core tests pass;
+- native automation saves, cycles and restores recent/favourite variants,
+  restarts the exercise, then reopens it from Practice Library;
+- settings inspection confirms both collections and the selected C♯ 70 BPM
+  two-pass specification;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `bbb8adb`.
+
 ### Cycle 046 — Complete minor scale forms
 
 State: **DONE**

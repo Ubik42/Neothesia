@@ -4,6 +4,72 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 047: Reusable exercise presets (DONE)
+
+### Outcome
+
+A learner can now build a useful exercise once and return to it without
+re-entering eight parameters. Recent work is captured automatically, while
+important warm-ups or technique drills can be kept deliberately as favourites.
+
+### Implemented
+
+- Added backward-compatible recent and favourite exercise vectors to settings.
+- Recorded a complete specification whenever an exercise starts.
+- Moved reused specifications to the front instead of creating duplicates.
+- Bounded recents to eight and favourites to twelve.
+- Added exact-spec favourite toggle semantics.
+- Saved favourite changes immediately.
+- Filtered invalid and duplicate persisted specifications on access.
+- Added a fifth Technique Studio selector row:
+  - Recent;
+  - Favourites.
+- Added previous/next controls with stable semantic action IDs.
+- Restored key, tonality/form, pattern, direction, hands, octaves, tempo and
+  repetitions together.
+- Added a visible `☆ Save favourite` / `★ Remove favourite` action next to
+  Start Exercise.
+- Kept the full parameter grid visible after restoration so the learner can
+  verify or refine the preset before starting.
+- Extended native automation through favourite save, favourite restore, recent
+  restore, second start and Practice Library reopen.
+- Completed `EX-002`.
+
+### Verification
+
+- Twelve distinct starts retain only the newest eight recent variants.
+- Reusing an older recent moves it to the front without duplication.
+- Invalid persisted specifications are excluded.
+- Favourite toggle adds, removes and re-adds the exact variant.
+- Favourites survive the settings serialization round trip.
+- Preset navigation restores a complete spec and wraps in both directions.
+- Empty preset collections are safe no-ops.
+- Real-process smoke confirms:
+  - favourite creation and cycling;
+  - recent and favourite restoration;
+  - restored exercise start and return;
+  - two-pass completion and attempt persistence;
+  - Practice Library reopen.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, seventy-three core tests and fifty-seven
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `bbb8adb`
+(`feat: save reusable exercise presets`).
+
+### Known limitations
+
+- Favourites use generated summary labels; custom user-entered names are not
+  available yet.
+- Presets cannot yet be reordered manually or exported.
+- A preset is an exact configuration, not a scheduled curriculum item.
+
 ## 2026-07-25 — Cycle 046: Complete minor scale forms (DONE)
 
 ### Outcome
