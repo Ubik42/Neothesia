@@ -4,6 +4,64 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 075: Real-score MusicXML compatibility audit (DONE)
+
+### Outcome
+
+The importer is now exercised against complete piano scores and versioned
+notation-tool exports, not only hand-written XML. The audit found and fixed a
+real older-exporter incompatibility while turning unsupported notation into a
+prioritized, reproducible queue.
+
+### Implemented
+
+- Added `musicxml-inspect`, a compact command-line score summary.
+- Added `scripts/musicxml-compatibility.ps1`.
+- Pinned OSMD revision `45ece8fa9f4ff1b51a6dfe29515e18530a64b1aa`
+  and SHA-256 hashes for all eight files.
+- Kept external fixtures in the temporary cache rather than inflating the
+  repository; the runner reuses verified downloads.
+- Accepted both `<rest/>` and the older `<rest></rest>` form.
+- Reported deferred empty direction elements, including pedal marks.
+- Added part identity to warning locations.
+- Clarified that MusicXML `duration/divisions` already preserves exact tuplet
+  event timing even though ratio/bracket notation is not modeled yet.
+- Added permanent unit regressions for explicit rests and empty pedal elements.
+
+### Corpus result
+
+| Fixture class | Result |
+| --- | --- |
+| Bach BWV 846, MuseScore 1.2 | 35 measures, 750 events, no warnings |
+| Clementi Allegro | 76 part-measures, 389 events, no warnings |
+| Clementi Andante, MuseScore 1.2 | imports; tuplets/ornaments reported |
+| MuseScore 3.6 pedal fixture | imports; six pedal measures reported |
+| MuseScore 3.6 voice alignment | imports without warnings |
+| MuseScore 2.3 grace notes | imports without warnings |
+| Real compressed MXL | imports; nonconforming mimetype reported |
+| MuseScore 2.3 broad feature fixture | imports; deferred notation summarized |
+
+Together the corpus exercises 261 part-measures and 2,183 note/rest events.
+The files come from OpenSheetMusicDisplay under its BSD-3-Clause repository
+license: <https://github.com/opensheetmusicdisplay/opensheetmusicdisplay>.
+
+### Verification
+
+- Hash-verified corpus runner passes on all eight files.
+- 119 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, formatting and diff checks
+  pass with only pre-existing warnings.
+
+Implementation commit: `bfa1e05` (`test: audit real MusicXML piano scores`).
+
+### Known limitations
+
+- The current corpus is cross-version but still mostly MuseScore-derived.
+- Dorico and Finale fixtures need explicit redistribution provenance before
+  becoming stable assertions.
+- Tuplet bracket/ratio, pedal directions and ornaments are diagnosed but not
+  yet available to learning features.
+
 ## 2026-07-25 — Cycle 074: Safe compressed MusicXML input (DONE)
 
 ### Outcome

@@ -58,7 +58,12 @@ Items are ordered within each horizon. IDs remain stable after completion.
   partwise MusicXML importer.
 - [x] `MUS-001B1` Add bounded compressed MXL input with container validation.
 - [ ] `MUS-001B2` Add score-timewise conversion.
-- [ ] `MUS-001B3` Add a representative cross-exporter piano fixture corpus.
+- [ ] `MUS-001B3` Add a representative cross-exporter and cross-version piano
+  fixture corpus.
+- [x] `MUS-001B3A` Add a pinned, hash-verified MuseScore 1.2–3.6 / OSMD
+  compatibility audit and compact score inspector.
+- [ ] `MUS-001B3B` Add licensed Dorico, Finale and current MuseScore exports
+  with stable semantic assertions.
 - [ ] `MUS-001C` Align imported score events with the performance timeline and
   expose stable note/measure identities.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without

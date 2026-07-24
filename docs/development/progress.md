@@ -10,6 +10,45 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 075 — Real-score MusicXML compatibility audit
+
+State: **DONE**
+
+Delivered:
+
+- added a compact file inspector for parts, measures, notes, directions and
+  warning summaries;
+- added a reproducible compatibility runner that downloads eight BSD-licensed
+  OSMD fixtures at a pinned revision and verifies every SHA-256 hash;
+- exercised MuseScore 1.2, 2.3 and 3.6 export shapes, an older uncompressed
+  form, a real MXL, voice alignment, grace notes, pedal directions and a broad
+  notation feature score;
+- fixed older exporters' explicit `<rest></rest>` form;
+- made empty deferred elements such as `<pedal/>` report warnings;
+- distinguished exact preserved tuplet timing from still-missing tuplet
+  notation instead of reporting both as lost;
+- completed `MUS-001B3A`; retained true cross-exporter coverage as
+  `MUS-001B3B`.
+
+Verification:
+
+- all eight pinned files import successfully;
+- the corpus covers 261 part-measures and 2,183 note/rest events;
+- Bach BWV 846 imports 35 measures and 750 events without a warning;
+- unsupported ornaments, tuplet notation and pedal directions remain visible
+  and summarized rather than silently discarded;
+- 119 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `bfa1e05`.
+
+Next:
+
+- acquire explicitly licensed current MuseScore, Dorico and Finale piano
+  exports for `MUS-001B3B`;
+- then implement the highest-frequency semantic gap observed across exporters,
+  currently tuplet notation and pedal directions.
+
 ### Cycle 074 — Safe compressed MusicXML input
 
 State: **DONE**

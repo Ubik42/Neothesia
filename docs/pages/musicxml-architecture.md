@@ -44,6 +44,8 @@ warnings for recognized deferred notation rather than silently claiming full
 support. See the [MusicXML 4.0 specification](https://www.w3.org/2021/06/musicxml40/),
 [Verovio input documentation](https://book.verovio.org/toolkit-reference/input-formats.html)
 and [MuseScore MusicXML guidance](https://handbook.musescore.org/file-management/working-with-musicxml-files).
+The pinned real-score evidence and exact counts live in the
+[compatibility matrix](../development/musicxml-compatibility).
 
 ## Planned slices
 
