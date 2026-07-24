@@ -64,6 +64,22 @@ It rewards:
 The currently selected note is intentionally unanchored so the learner can ask
 for a genuine alternative.
 
+## Hand-span personalization
+
+Open **Settings → Practice → Hand Span** to choose:
+
+- **Compact · up to a 7th** for smaller hands or learners who should reposition
+  instead of being encouraged into broad stretches;
+- **Standard · up to an octave**, the backward-compatible default;
+- **Large · up to a 9th** for pianists who can comfortably cover wider shapes.
+
+The setting is persistent and changes the comfortable distance assigned to
+each finger pair. Notes beyond that distance cost progressively more, so the
+lowest-cost path can choose a position shift or different finger pattern. It
+does not prohibit a large interval: melodic leaps can still require a shift,
+and the preview remains advice rather than an anatomical safety assessment.
+Old settings files default to Standard.
+
 ## Reasons and confidence
 
 Every preview reports one of:
@@ -91,7 +107,7 @@ suggestion.
 
 Future work can add:
 
-- configurable hand span and anatomy profiles;
+- separate left/right-hand profiles and finer anatomy calibration;
 - chord and held-note state;
 - phrase/slur and articulation context;
 - comparison against expert-annotated datasets;

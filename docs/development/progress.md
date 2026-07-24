@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 065 — Personalized hand-span profiles
+
+State: **DONE**
+
+Delivered:
+
+- added Compact, Standard and Large hand-span profiles to the explainable
+  fingering domain;
+- changed finger-pair comfortable distances inside the dynamic-programming
+  transition cost instead of merely relabeling output;
+- exposed a persistent **Settings → Practice → Hand Span** selector;
+- kept Standard as the backward-compatible default for old settings;
+- made live G-key previews use the selected profile;
+- split personalized melody work from the still-open polyphonic chord model;
+- hardened the native exercise smoke against Windows PowerShell JSON integer
+  type differences while retaining failing-pitch diagnostics;
+- completed `MUS-003D1`; retained parent `MUS-003D` and `MUS-003D2`.
+
+Verification:
+
+- a domain regression proves Compact and Large can select different plans for
+  wide phrases;
+- configuration tests cover default migration and persistent mutation;
+- the FingeringFixture still previews finger 3 at 65% and saves one hint;
+- the two-hand G-sharp primary-chord fixture exposes pitches 44 and 68, matches
+  all six required notes and completes both passes;
+- 101 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `581cff8`.
+
 ### Cycle 064 — Visual fingering selection and preview
 
 State: **DONE**

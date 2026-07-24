@@ -4,6 +4,63 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 065: Personalized hand-span profiles (DONE)
+
+### Outcome
+
+Fingering previews no longer assume every learner has the same reach. A learner
+can select Compact, Standard or Large in Practice settings, and wide melodic
+passages are planned against that comfortable span while manual and reviewed
+fingerings remain authoritative.
+
+### Implemented
+
+- Added a serializable `HandSpanProfile` domain type with Compact (seventh),
+  Standard (octave) and Large (ninth) choices.
+- Parameterized the dynamic-programming transition cost with per-finger-gap
+  comfortable spans.
+- Retained the original public suggestion function as a Standard-profile
+  compatibility wrapper.
+- Added a persistent **Hand Span** selector to the Practice settings section.
+- Defaulted old settings files to Standard without a schema reset.
+- Routed live G-key and semantic-driver previews through the configured
+  profile.
+- Proved the setting changes planning on wide phrases rather than only changing
+  interface text.
+- Split completed melodic personalization (`MUS-003D1`) from the honest
+  remaining chord-state task (`MUS-003D2`).
+- Normalized JSON pitches to integers in the Windows PowerShell native smoke;
+  this fixed a false failure where visible pitches 44 and 68 compared unequal
+  solely because of runtime numeric types.
+
+### Verification
+
+- A focused domain test finds a wide phrase whose Compact and Large plans
+  differ.
+- Configuration tests prove Standard migration and profile mutation.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- The real-process FingeringFixture previews finger 3 at 65%, accepts it and
+  persists exactly one hint.
+- The Technique Studio fixture verifies the G-sharp two-hand tonic pitches 44
+  and 68, six-note matching, two passes and persisted history.
+
+All desktop gates passed: two MIDI-file tests, 101 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `581cff8`
+(`feat: personalize fingering hand spans`).
+
+### Known limitations
+
+- One profile currently applies to both hands; asymmetric reach is not yet
+  represented.
+- The three choices are conservative categories, not a medical or ergonomic
+  assessment.
+- Chords and held-note substitutions still deliberately receive no automatic
+  suggestion until `MUS-003D2` provides a vertical hand-shape model.
+
 ## 2026-07-25 — Cycle 064: Visual fingering selection and preview (DONE)
 
 ### Outcome
