@@ -301,6 +301,14 @@ pub struct VelocitySummary {
     pub played_max: Option<u8>,
     pub target_min: Option<u8>,
     pub target_max: Option<u8>,
+    #[serde(default)]
+    pub contour_steps: usize,
+    #[serde(default)]
+    pub contour_aligned: usize,
+    #[serde(default)]
+    pub contour_flat: usize,
+    #[serde(default)]
+    pub contour_inverted: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -311,6 +319,16 @@ pub struct PedalSummary {
     pub target_present: bool,
     pub user_continuous_samples: usize,
     pub target_continuous_samples: usize,
+    #[serde(default)]
+    pub user_transitions: usize,
+    #[serde(default)]
+    pub target_transitions: usize,
+    #[serde(default)]
+    pub timing_samples: usize,
+    #[serde(default)]
+    pub median_offset_ms: Option<i32>,
+    #[serde(default)]
+    pub median_deviation_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -326,8 +344,22 @@ impl ExpressionSummary {
         self.velocity.matched_samples >= 4
     }
 
+    pub fn has_velocity_contour_evidence(self) -> bool {
+        self.velocity.contour_steps >= 6
+    }
+
     pub fn has_pedal_evidence(self) -> bool {
         self.pedal.user_used || self.pedal.target_present
+    }
+
+    pub fn has_pedal_timing_evidence(self) -> bool {
+        self.pedal.timing_samples >= 4
+            && self.pedal.user_transitions == self.pedal.target_transitions
+            && self.pedal.timing_samples == self.pedal.target_transitions
+            && self
+                .pedal
+                .median_deviation_ms
+                .is_some_and(|spread| spread <= 120)
     }
 
     pub fn has_articulation_evidence(self) -> bool {
@@ -562,20 +594,39 @@ struct PedalEvidence {
     changes: usize,
     used: bool,
     continuous_samples: usize,
+    transitions: Vec<PedalTransition>,
 }
 
 impl PedalEvidence {
-    fn record(&mut self, value: u8) {
+    fn record(&mut self, at: Duration, value: u8) {
         if self.last_value == Some(value) {
             return;
         }
+        let was_down = self.last_value.map(|previous| previous >= 64);
+        let is_down = value >= 64;
         if self.last_value.is_some() {
             self.changes += 1;
+        }
+        if was_down != Some(is_down) && (was_down.is_some() || is_down) {
+            self.transitions.push(PedalTransition { at, is_down });
         }
         self.last_value = Some(value);
         self.used |= value > 0;
         self.continuous_samples += usize::from((1..127).contains(&value));
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PedalTransition {
+    at: Duration,
+    is_down: bool,
+}
+
+#[derive(Debug, Default)]
+struct VelocityPoint {
+    played_sum: u32,
+    target_sum: u32,
+    samples: u32,
 }
 
 #[derive(Debug, Default)]
@@ -586,6 +637,7 @@ struct ExpressionTracker {
     played_max: Option<u8>,
     target_min: Option<u8>,
     target_max: Option<u8>,
+    velocity_points: BTreeMap<Duration, VelocityPoint>,
     user_pedal: PedalEvidence,
     target_pedal: PedalEvidence,
     active_articulations: HashMap<NoteId, VecDeque<ArticulationPress>>,
@@ -599,7 +651,7 @@ struct ArticulationPress {
 }
 
 impl ExpressionTracker {
-    fn record_velocity(&mut self, played: u8, target: u8) {
+    fn record_velocity(&mut self, score_time: Duration, played: u8, target: u8) {
         if played == 0 || target == 0 {
             return;
         }
@@ -607,9 +659,16 @@ impl ExpressionTracker {
         self.velocity_difference_sum += u64::from(played.abs_diff(target));
         update_min_max(&mut self.played_min, &mut self.played_max, played);
         update_min_max(&mut self.target_min, &mut self.target_max, target);
+        let point = self.velocity_points.entry(score_time).or_default();
+        point.played_sum += u32::from(played);
+        point.target_sum += u32::from(target);
+        point.samples += 1;
     }
 
     fn summary(&self) -> ExpressionSummary {
+        let (contour_steps, contour_aligned, contour_flat, contour_inverted) =
+            summarize_velocity_contour(&self.velocity_points);
+        let pedal_timing = summarize_pedal_timing(&self.user_pedal, &self.target_pedal);
         let mut duration_ratios = self.duration_ratios.clone();
         duration_ratios.sort_unstable();
         let median_duration_ratio_percent = (!duration_ratios.is_empty()).then(|| {
@@ -632,6 +691,10 @@ impl ExpressionTracker {
                 played_max: self.played_max,
                 target_min: self.target_min,
                 target_max: self.target_max,
+                contour_steps,
+                contour_aligned,
+                contour_flat,
+                contour_inverted,
             },
             pedal: PedalSummary {
                 user_changes: self.user_pedal.changes,
@@ -640,6 +703,11 @@ impl ExpressionTracker {
                 target_present: self.target_pedal.last_value.is_some(),
                 user_continuous_samples: self.user_pedal.continuous_samples,
                 target_continuous_samples: self.target_pedal.continuous_samples,
+                user_transitions: self.user_pedal.transitions.len(),
+                target_transitions: self.target_pedal.transitions.len(),
+                timing_samples: pedal_timing.matched_samples,
+                median_offset_ms: pedal_timing.median_offset_ms,
+                median_deviation_ms: pedal_timing.median_deviation_ms,
             },
             articulation: ArticulationSummary {
                 matched_samples: duration_ratios.len(),
@@ -707,6 +775,70 @@ impl ExpressionTracker {
 fn update_min_max(minimum: &mut Option<u8>, maximum: &mut Option<u8>, value: u8) {
     *minimum = Some(minimum.map_or(value, |current| current.min(value)));
     *maximum = Some(maximum.map_or(value, |current| current.max(value)));
+}
+
+fn summarize_velocity_contour(
+    points: &BTreeMap<Duration, VelocityPoint>,
+) -> (usize, usize, usize, usize) {
+    const TARGET_CHANGE_THRESHOLD: i32 = 6;
+    const PLAYED_FLAT_THRESHOLD: i32 = 3;
+
+    let points: Vec<_> = points
+        .values()
+        .map(|point| {
+            (
+                (point.played_sum / point.samples) as i32,
+                (point.target_sum / point.samples) as i32,
+            )
+        })
+        .collect();
+    let mut steps = 0;
+    let mut aligned = 0;
+    let mut flat = 0;
+    let mut inverted = 0;
+    for pair in points.windows(2) {
+        let played_change = pair[1].0 - pair[0].0;
+        let target_change = pair[1].1 - pair[0].1;
+        if target_change.abs() < TARGET_CHANGE_THRESHOLD {
+            continue;
+        }
+        steps += 1;
+        if played_change.abs() < PLAYED_FLAT_THRESHOLD {
+            flat += 1;
+        } else if played_change.signum() == target_change.signum() {
+            aligned += 1;
+        } else {
+            inverted += 1;
+        }
+    }
+    (steps, aligned, flat, inverted)
+}
+
+fn summarize_pedal_timing(user: &PedalEvidence, target: &PedalEvidence) -> TimingSummary {
+    let mut offsets = Vec::new();
+    for is_down in [true, false] {
+        let user = user
+            .transitions
+            .iter()
+            .filter(|transition| transition.is_down == is_down);
+        let target = target
+            .transitions
+            .iter()
+            .filter(|transition| transition.is_down == is_down);
+        offsets.extend(
+            user.zip(target)
+                .map(|(user, target)| signed_duration_millis(user.at, target.at)),
+        );
+    }
+    summarize_timing_offsets(&offsets)
+}
+
+fn signed_duration_millis(actual: Duration, target: Duration) -> i32 {
+    if actual >= target {
+        duration_millis_i32(actual - target)
+    } else {
+        -duration_millis_i32(target - actual)
+    }
 }
 
 /// Matches score note events with live keyboard input.
@@ -875,12 +1007,12 @@ impl PracticeMatcher {
         None
     }
 
-    pub fn user_pedal(&mut self, value: u8) {
-        self.expression.user_pedal.record(value);
+    pub fn user_pedal(&mut self, now: Duration, value: u8) {
+        self.expression.user_pedal.record(now, value);
     }
 
-    pub fn score_pedal(&mut self, value: u8) {
-        self.expression.target_pedal.record(value);
+    pub fn score_pedal(&mut self, now: Duration, value: u8) {
+        self.expression.target_pedal.record(now, value);
     }
 
     pub fn snapshot(&self) -> PracticeSnapshot {
@@ -1063,7 +1195,7 @@ impl PracticeMatcher {
             timing_offset_ms: Some(timing_offset_ms),
         });
         self.expression
-            .record_velocity(played_velocity, target.velocity);
+            .record_velocity(target.score_time, played_velocity, target.velocity);
         self.expression
             .start_articulation(target.note, played_at, released_at, target.duration);
 
@@ -1548,12 +1680,12 @@ mod tests {
         matcher.user_note_with_velocity(Duration::from_millis(410), 65, true, 85);
         matcher.user_note(Duration::from_millis(610), 65, false);
 
-        matcher.user_pedal(0);
-        matcher.user_pedal(64);
-        matcher.user_pedal(127);
-        matcher.user_pedal(127);
-        matcher.score_pedal(0);
-        matcher.score_pedal(127);
+        matcher.user_pedal(Duration::from_millis(1_000), 0);
+        matcher.user_pedal(Duration::from_millis(1_100), 64);
+        matcher.user_pedal(Duration::from_millis(1_200), 127);
+        matcher.user_pedal(Duration::from_millis(1_300), 127);
+        matcher.score_pedal(Duration::from_millis(1_000), 0);
+        matcher.score_pedal(Duration::from_millis(1_080), 127);
 
         let expression = matcher.summary().expression;
         assert!(expression.has_velocity_evidence());
@@ -1567,6 +1699,10 @@ mod tests {
                 played_max: Some(100),
                 target_min: Some(40),
                 target_max: Some(90),
+                contour_steps: 3,
+                contour_aligned: 3,
+                contour_flat: 0,
+                contour_inverted: 0,
             }
         );
         assert_eq!(
@@ -1578,6 +1714,11 @@ mod tests {
                 target_present: true,
                 user_continuous_samples: 1,
                 target_continuous_samples: 0,
+                user_transitions: 1,
+                target_transitions: 1,
+                timing_samples: 1,
+                median_offset_ms: Some(20),
+                median_deviation_ms: Some(0),
             }
         );
         assert_eq!(
@@ -1593,10 +1734,61 @@ mod tests {
     }
 
     #[test]
+    fn expression_profiles_pedal_timing_and_onset_averaged_contour() {
+        let mut matcher = matcher();
+        let target_velocities = [40, 50, 60, 70, 60, 50, 40];
+        let played_velocities = [45, 55, 65, 75, 65, 55, 45];
+
+        for (index, (&target_velocity, &played_velocity)) in
+            target_velocities.iter().zip(&played_velocities).enumerate()
+        {
+            let onset = Duration::from_millis(100 + index as u64 * 100);
+            for note in [48 + index as u8 * 2, 49 + index as u8 * 2] {
+                matcher.score_target(
+                    onset,
+                    PracticeTarget {
+                        note,
+                        velocity: target_velocity,
+                        score_time: onset,
+                        duration: Duration::from_millis(80),
+                        track_id: 1,
+                        measure: 1,
+                        part: PracticePart::RightHand,
+                    },
+                    true,
+                );
+                matcher.user_note_with_velocity(onset, note, true, played_velocity);
+            }
+        }
+
+        for (target_ms, user_ms, value) in [
+            (0, 0, 0),
+            (100, 140, 127),
+            (300, 340, 0),
+            (500, 540, 127),
+            (700, 740, 0),
+        ] {
+            matcher.score_pedal(Duration::from_millis(target_ms), value);
+            matcher.user_pedal(Duration::from_millis(user_ms), value);
+        }
+
+        let expression = matcher.summary().expression;
+        assert_eq!(expression.velocity.contour_steps, 6);
+        assert_eq!(expression.velocity.contour_aligned, 6);
+        assert_eq!(expression.velocity.contour_flat, 0);
+        assert_eq!(expression.velocity.contour_inverted, 0);
+        assert!(expression.has_velocity_contour_evidence());
+        assert_eq!(expression.pedal.timing_samples, 4);
+        assert_eq!(expression.pedal.median_offset_ms, Some(40));
+        assert_eq!(expression.pedal.median_deviation_ms, Some(0));
+        assert!(expression.has_pedal_timing_evidence());
+    }
+
+    #[test]
     fn expression_evidence_resets_between_attempts() {
         let mut matcher = matcher();
-        matcher.user_pedal(127);
-        matcher.score_pedal(0);
+        matcher.user_pedal(Duration::ZERO, 127);
+        matcher.score_pedal(Duration::ZERO, 0);
         matcher.reset();
 
         assert_eq!(matcher.summary().expression, ExpressionSummary::default());
@@ -1625,6 +1817,9 @@ mod tests {
 
         let expression: ExpressionSummary = ron::from_str(legacy).unwrap();
         assert_eq!(expression.articulation, ArticulationSummary::default());
+        assert_eq!(expression.velocity.contour_steps, 0);
+        assert_eq!(expression.pedal.timing_samples, 0);
+        assert_eq!(expression.pedal.user_transitions, 0);
     }
 
     #[test]

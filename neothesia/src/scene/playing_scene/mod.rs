@@ -747,15 +747,17 @@ impl PlayingScene {
                         .build(ui);
 
                     if ctx.config.expression_feedback() {
-                        let (dynamics, pedal, articulation) =
+                        let (dynamics, contour, pedal, pedal_timing, articulation) =
                             format_expression_summary(summary.expression);
-                        for (index, text) in [dynamics, pedal, articulation].into_iter().enumerate()
+                        for (index, text) in [dynamics, contour, pedal, pedal_timing, articulation]
+                            .into_iter()
+                            .enumerate()
                         {
                             nuon::label()
                                 .x(28.0)
-                                .y(300.0 + index as f32 * 34.0)
+                                .y(296.0 + index as f32 * 30.0)
                                 .size(panel_w - 56.0, 28.0)
-                                .font_size(14.0)
+                                .font_size(13.5)
                                 .color([184, 178, 205])
                                 .text(text)
                                 .build(ui);
@@ -1301,7 +1303,9 @@ fn format_chord_profile(chords: neothesia_core::practice::ChordSummary) -> Strin
     )
 }
 
-fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
+fn format_expression_summary(
+    expression: ExpressionSummary,
+) -> (String, String, String, String, String) {
     let velocity = expression.velocity;
     let dynamics = if expression.has_velocity_evidence() {
         format!(
@@ -1318,24 +1322,72 @@ fn format_expression_summary(expression: ExpressionSummary) -> (String, String, 
             velocity.matched_samples
         )
     };
+    let contour = if expression.has_velocity_contour_evidence() {
+        format!(
+            "Dynamics contour (descriptive): {}/{} followed · {} flat · {} opposite",
+            velocity.contour_aligned,
+            velocity.contour_steps,
+            velocity.contour_flat,
+            velocity.contour_inverted,
+        )
+    } else {
+        format!(
+            "Dynamics contour: need 6 shaped steps · {} captured",
+            velocity.contour_steps
+        )
+    };
 
-    let pedal = expression.pedal;
-    let continuous = if pedal.user_continuous_samples != 0 || pedal.target_continuous_samples != 0 {
+    let pedal_summary = expression.pedal;
+    let continuous = if pedal_summary.user_continuous_samples != 0
+        || pedal_summary.target_continuous_samples != 0
+    {
         " · continuous values seen"
     } else {
         ""
     };
-    let pedal = match (pedal.target_present, pedal.user_used) {
+    let pedal = match (pedal_summary.target_present, pedal_summary.user_used) {
         (true, true) => format!(
             "Pedal (counts only): user {} changes · score {}{continuous}",
-            pedal.user_changes, pedal.target_changes
+            pedal_summary.user_changes, pedal_summary.target_changes
         ),
         (true, false) => "Pedal: score contains sustain data · no user use captured".to_owned(),
         (false, true) => format!(
             "Pedal: {} user changes captured · score has no pedal reference",
-            pedal.user_changes
+            pedal_summary.user_changes
         ),
         (false, false) => "Pedal: no sustain evidence in this take".to_owned(),
+    };
+    let pedal_timing = if !pedal_summary.target_present || !pedal_summary.user_used {
+        "Pedal timing: needs both score and user sustain".to_owned()
+    } else if pedal_summary.timing_samples < 4 {
+        format!(
+            "Pedal timing: need 4 paired down/up moves · {} captured",
+            pedal_summary.timing_samples
+        )
+    } else if pedal_summary.user_transitions != pedal_summary.target_transitions {
+        format!(
+            "Pedal timing: transition mismatch · user {} / score {}",
+            pedal_summary.user_transitions, pedal_summary.target_transitions
+        )
+    } else if !expression.has_pedal_timing_evidence() {
+        format!(
+            "Pedal timing: spread {}ms is too variable for a stable profile",
+            pedal_summary.median_deviation_ms.unwrap_or(0)
+        )
+    } else {
+        let offset = pedal_summary.median_offset_ms.unwrap_or(0);
+        let bias = if offset < 0 {
+            format!("{}ms early", offset.unsigned_abs())
+        } else if offset > 0 {
+            format!("{offset}ms late")
+        } else {
+            "centered".to_owned()
+        };
+        format!(
+            "Pedal timing (descriptive): median {bias} · spread {}ms · {} pairs",
+            pedal_summary.median_deviation_ms.unwrap_or(0),
+            pedal_summary.timing_samples,
+        )
     };
 
     let articulation = expression.articulation;
@@ -1354,7 +1406,7 @@ fn format_expression_summary(expression: ExpressionSummary) -> (String, String, 
         )
     };
 
-    (dynamics, pedal, articulation)
+    (dynamics, contour, pedal, pedal_timing, articulation)
 }
 
 fn persist_practice_session(
@@ -1754,30 +1806,85 @@ mod tests {
 
     #[test]
     fn expression_copy_stays_descriptive_when_reference_is_incomplete() {
-        let (dynamics, pedal, articulation) = format_expression_summary(ExpressionSummary {
+        let (dynamics, contour, pedal, pedal_timing, articulation) =
+            format_expression_summary(ExpressionSummary {
+                velocity: neothesia_core::practice::VelocitySummary {
+                    matched_samples: 4,
+                    mean_abs_difference: Some(8),
+                    played_min: Some(30),
+                    played_max: Some(100),
+                    target_min: Some(40),
+                    target_max: Some(96),
+                    ..Default::default()
+                },
+                pedal: neothesia_core::practice::PedalSummary {
+                    user_changes: 2,
+                    user_used: true,
+                    ..Default::default()
+                },
+                articulation: Default::default(),
+            });
+
+        assert!(dynamics.contains("descriptive"));
+        assert!(dynamics.contains("avg gap 8"));
+        assert!(contour.contains("need 6 shaped steps"));
+        assert_eq!(
+            pedal,
+            "Pedal: 2 user changes captured · score has no pedal reference"
+        );
+        assert_eq!(
+            pedal_timing,
+            "Pedal timing: needs both score and user sustain"
+        );
+        assert!(articulation.contains("pedal excluded"));
+    }
+
+    #[test]
+    fn expression_copy_requires_stable_pedal_and_contour_evidence() {
+        let (_, contour, _, pedal_timing, _) = format_expression_summary(ExpressionSummary {
             velocity: neothesia_core::practice::VelocitySummary {
-                matched_samples: 4,
-                mean_abs_difference: Some(8),
-                played_min: Some(30),
-                played_max: Some(100),
-                target_min: Some(40),
-                target_max: Some(96),
+                matched_samples: 7,
+                contour_steps: 6,
+                contour_aligned: 5,
+                contour_flat: 1,
+                ..Default::default()
             },
             pedal: neothesia_core::practice::PedalSummary {
-                user_changes: 2,
                 user_used: true,
+                target_present: true,
+                user_transitions: 4,
+                target_transitions: 4,
+                timing_samples: 4,
+                median_offset_ms: Some(40),
+                median_deviation_ms: Some(10),
                 ..Default::default()
             },
             articulation: Default::default(),
         });
 
-        assert!(dynamics.contains("descriptive"));
-        assert!(dynamics.contains("avg gap 8"));
         assert_eq!(
-            pedal,
-            "Pedal: 2 user changes captured · score has no pedal reference"
+            contour,
+            "Dynamics contour (descriptive): 5/6 followed · 1 flat · 0 opposite"
         );
-        assert!(articulation.contains("pedal excluded"));
+        assert_eq!(
+            pedal_timing,
+            "Pedal timing (descriptive): median 40ms late · spread 10ms · 4 pairs"
+        );
+
+        let (_, _, _, mismatched, _) = format_expression_summary(ExpressionSummary {
+            pedal: neothesia_core::practice::PedalSummary {
+                user_used: true,
+                target_present: true,
+                user_transitions: 5,
+                target_transitions: 4,
+                timing_samples: 4,
+                median_offset_ms: Some(40),
+                median_deviation_ms: Some(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        assert!(mismatched.contains("transition mismatch"));
     }
 
     #[test]

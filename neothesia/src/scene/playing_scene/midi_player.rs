@@ -134,7 +134,7 @@ impl MidiPlayer {
                     if let MidiMessage::Controller { controller, value } = event.message
                         && controller.as_int() == 64
                     {
-                        self.practice.score_pedal(value.as_int());
+                        self.practice.score_pedal(self.session_time, value.as_int());
                     }
 
                     if self.wait_for_notes {
@@ -347,7 +347,7 @@ impl MidiPlayer {
             if let MidiMessage::Controller { controller, value } = message
                 && controller.as_int() == 64
             {
-                self.practice.user_pedal(value.as_int());
+                self.practice.user_pedal(self.session_time, value.as_int());
             }
         }
     }
