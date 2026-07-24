@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 010 — External MIDI and Pianoteq safety
+
+State: **DONE**
+
+Delivered:
+
+- fixed zero-velocity Note On tracking so it releases rather than registers an
+  active note;
+- expanded external MIDI panic from tracked Note Off events to a conservative
+  all-channel sequence;
+- sent sustain-off, All Notes Off, All Sound Off and Reset All Controllers on
+  every one of the 16 MIDI channels;
+- silenced the old instrument before replacing an output connection;
+- prevented temporary shared-connection clones from unexpectedly silencing an
+  active player;
+- verified pause, seek, restart and player teardown all invoke the centralized
+  silence path;
+- added an external Pianoteq setup, daily check, troubleshooting guide and
+  device acceptance checklist.
+
+Verification:
+
+- two MIDI-file tests, twenty-three practice/core tests and twenty-one
+  application tests pass;
+- MIDI tests cover zero-velocity releases, panic controller order, all-channel
+  coverage and transport lifecycle calls;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `daf86c3`.
+
 ### Cycle 009 — Current-song practice history
 
 State: **DONE**
@@ -259,17 +289,17 @@ Acceptance checklist:
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
 | Practice history | Working | Current-song history, trends and weak-passage action |
 | Built-in piano | Working | SoundFont fallback |
-| External Pianoteq | Possible | MIDI routing needs validation guide |
+| External Pianoteq | Documented | Panic hardened; real-device soak test pending |
 | Native VST3 | Planned | Separate long-term roadmap |
 | Library | Minimal | File picker and recent path only |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 010 with MIDI-output lifecycle safety for external Pianoteq:
-centralize panic/all-notes-off handling and prove stop, pause, seek, loop and
-output replacement cannot leave notes sounding. Follow with a short,
-device-oriented Pianoteq acceptance checklist.
+Begin Cycle 011 by proving expressive MIDI preservation end to end: sustain
+pedal including continuous CC64 values, pitch bend, channel pressure and
+controller events through playback and live forwarding. Add deterministic
+fixtures before claiming the external Pianoteq route is validated.
 
 ## Known constraints
 
@@ -281,6 +311,8 @@ device-oriented Pianoteq acceptance checklist.
 - Adaptive coaching currently operates only on structured loop attempts.
 - Practice history is visible after completing a song but does not yet have a
   library-level browser, export or reset screen.
+- External MIDI safety is automatically covered, but the documented 30-minute
+  Pianoteq device soak test still requires the physical setup.
 - Recommendations currently optimize note accuracy; timing consistency, hand
   balance, pedal and dynamics need later goal-specific recommendation rules.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

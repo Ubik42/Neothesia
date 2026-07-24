@@ -28,10 +28,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
 
 ## NEXT — reliability and sound
 
-- [ ] `MIDI-010` Audit stop/seek/loop/output-change panic behaviour.
+- [x] `MIDI-010` Audit stop/seek/loop/output-change panic behaviour.
 - [ ] `MIDI-011` Preserve and test sustain, continuous pedal and pitch bend.
 - [ ] `AUD-010` Document and validate external Pianoteq routing.
-- [ ] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
+- [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
+- [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.
 - [ ] `QA-010` Add deterministic player tests that do not use wall-clock sleeps.
 
 ## LATER — repertoire and learning

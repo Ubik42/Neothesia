@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 010: External MIDI and Pianoteq safety (DONE)
+
+### Outcome
+
+Pause, seek, restart, teardown and output replacement now use a conservative
+silence path suitable for Pianoteq and other external instruments. Pedal-held
+sound is no longer left to tracked Note Off events alone.
+
+### Implemented
+
+- Corrected active-note tracking for zero-velocity Note On releases.
+- Retained explicit Note Off messages for tracked active notes.
+- Added CC64 pedal-up, CC123 All Notes Off, CC120 All Sound Off and CC121 Reset
+  All Controllers.
+- Sent the panic sequence on all 16 MIDI channels.
+- Stopped the old output before selecting a replacement.
+- Corrected shared MIDI-connection drop behaviour.
+- Added a test output recorder for transport lifecycle verification.
+- Added the external Pianoteq routing and acceptance guide.
+
+### Verification
+
+- Added active-note, panic order, channel coverage and player lifecycle tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `daf86c3`
+(`fix: harden external MIDI output lifecycle`).
+
+### Known limitations
+
+- Automated tests verify generated MIDI events but cannot prove the behaviour
+  of the user's virtual cable and Pianoteq installation.
+- The 30-minute device soak checklist remains a manual acceptance gate.
+- Native VST3 hosting is still a separate later phase.
+
 ## 2026-07-25 — Cycle 009: Current-song practice history (DONE)
 
 ### Outcome
