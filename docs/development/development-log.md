@@ -4,6 +4,50 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 007: Durable local practice history (DONE)
+
+### Outcome
+
+Practice results now survive application restarts and MIDI file renames. The
+learner's completed attempts form a safe local evidence base for future
+weak-passage recommendations instead of disappearing at the end of playback.
+
+### Implemented
+
+- Added BLAKE3 content identities to loaded and generated MIDI files.
+- Added a versioned RON schema for whole-song and measure-loop sessions.
+- Stored attempt time, speed, overall totals, measures and hand results.
+- Recorded loop attempts at each boundary and whole-song attempts at
+  completion.
+- Added a 200-session per-song retention limit.
+- Added deterministic aggregation and ranking of weak measures.
+- Wrote history through a temporary file and atomically replaced the live file.
+- Used Windows write-through replacement and quarantined malformed files.
+- Displayed the saved session count in the completion panel.
+
+### Verification
+
+- Added persistence, rename-continuity, corruption, retention and aggregation
+  tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `039a93d` (`feat: persist local practice history`).
+
+### Known limitations
+
+- History has no learner-facing browser, export or reset control yet.
+- Weak-measure aggregation exists in the practice domain but is not yet exposed
+  as a practice recommendation.
+- History follows MIDI content; edited MIDI data intentionally creates a new
+  identity.
+
 ## 2026-07-25 — Cycle 006: Adaptive tempo coach (DONE)
 
 ### Outcome

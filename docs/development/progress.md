@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 007 — Durable local practice history
+
+State: **DONE**
+
+Delivered:
+
+- assigned every MIDI a stable BLAKE3 content identity, independent of its
+  filename or location;
+- added a versioned local practice-history schema for whole-song and loop
+  sessions;
+- persisted speed, overall results, measure results and hand results at the end
+  of each completed attempt;
+- used same-directory atomic replacement, including write-through replacement
+  on Windows;
+- quarantined malformed history files and continued startup with an empty
+  history;
+- retained the 200 most recent sessions per song;
+- exposed aggregated weak-measure ranking for the next coaching cycle;
+- confirmed saved session count in the whole-song completion panel.
+
+Verification:
+
+- two MIDI-file tests, eighteen practice/core tests and sixteen application
+  tests pass;
+- history tests cover round trips, rename continuity, corruption recovery,
+  retention and cross-session weak-measure aggregation;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `039a93d`.
+
 ### Cycle 006 — Adaptive tempo coach
 
 State: **DONE**
@@ -169,9 +199,9 @@ Acceptance checklist:
 | MIDI open/play | Working | File-picker transition fix committed |
 | Guided wait | Verifying | Current Cycle 001 |
 | Measure/beat grid | Verifying | Current Cycle 001 |
-| Loop practice | Basic | Drag handles exist; no attempt/count-in model |
-| Performance feedback | Foundation working | Live totals and completion summary |
-| Practice history | Missing | Planned for M1/M2 |
+| Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
+| Performance feedback | Working | Live totals, completion summary and measure/hand detail |
+| Practice history | Foundation working | Durable sessions; learner-facing browser is next |
 | Built-in piano | Working | SoundFont fallback |
 | External Pianoteq | Possible | MIDI routing needs validation guide |
 | Native VST3 | Planned | Separate long-term roadmap |
@@ -180,17 +210,19 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin `DATA-010`: persist versioned practice sessions atomically. Start with a
-stable local schema and song identity so completed attempts, weak measures,
-speed and hand results survive restart without coupling storage to the GPU UI.
+Begin Cycle 008 as the first learner-facing continuity slice: use persisted
+multi-session evidence to recommend a weak measure range, show why it was
+chosen, and provide a one-action route into a structured loop. Keep
+recommendation rules deterministic and separate from rendering code.
 
 ## Known constraints
 
 - The custom GPU UI has no DOM and limited accessibility/automation semantics.
 - The CLI/video package requires local FFmpeg development dependencies.
-- Attempt summaries are not yet persisted.
 - Hand inference is intentionally conservative for arrangements with more than
   two playable note tracks.
 - Loop count-in is visual only; an optional metronome click remains future work.
 - Adaptive coaching currently operates only on structured loop attempts.
+- Practice history is saved locally but does not yet have a history-management
+  or export screen.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

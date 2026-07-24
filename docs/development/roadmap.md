@@ -41,7 +41,7 @@ This roadmap borrows outcomes, not implementations:
 | Feedback | Internal rudimentary counters | Correct/wrong/missed, early/late, duration, pedal, dynamics |
 | Learning aids | Falling notes, labels, measures/beats | Fingering, notation, chords, key/scale context |
 | Repertoire | File picker and last file | Searchable library, metadata, favourites, practice queue |
-| Progress | None | Session history, passage mastery, streaks without coercion |
+| Progress | Durable local sessions | History browser, passage mastery, trends |
 | Sound | Built-in SoundFont, MIDI output | Reliable external Pianoteq flow, then native VST3 |
 | Creation | Free-play recording, video CLI | Recording review, annotations, shareable song metadata |
 | UX | Native custom GPU UI | Coherent practice workspace, accessible themes, automation hooks |
@@ -198,4 +198,3 @@ When choosing between tasks, prefer:
 - Accounts, social feeds or cloud lock-in before local practice is excellent.
 - A full React rewrite of the native player.
 - Reward systems that optimize time-in-app rather than playing quality.
-

@@ -23,7 +23,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `PRA-017` Add count-in and attempt reset for loop practice.
 - [x] `PRA-018` Add threshold-based adaptive tempo with explicit opt-in.
 - [x] `PRA-019` Compare the current, last and best loop attempts.
-- [ ] `DATA-010` Persist versioned practice sessions atomically.
+- [x] `DATA-010` Persist versioned practice sessions atomically.
+- [x] `DATA-011` Identify songs by MIDI content across moves and renames.
 
 ## NEXT — reliability and sound
 
@@ -43,7 +44,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-002` Add manual finger hints in portable sidecars.
 - [ ] `MUS-003` Prototype explainable fingering suggestions.
 - [ ] `MUS-004` Add pedal and dynamics feedback.
-- [ ] `COACH-001` Detect weak measures from multiple attempts.
+- [ ] `COACH-001` Recommend weak passages from multiple attempts and explain
+  the evidence.
+- [ ] `COACH-003` Start a structured loop directly from a weak-passage
+  recommendation.
 - [ ] `COACH-002` Schedule local spaced review.
 - [ ] `EX-001` Add scales, arpeggios and chord exercise mode.
 
