@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 067 — Whole-chord preview and atomic acceptance
+
+State: **DONE**
+
+Delivered:
+
+- changed the pending suggestion from one selected digit to a complete set of
+  exact-note assignments;
+- rendered every pending chord digit cyan while keeping the selected note
+  identifiable;
+- displayed the low-to-high shape (for example 1–3–5) and explicit
+  “accepts all 3” copy;
+- accepted all chord hints through one sidecar save instead of three partial
+  writes;
+- advanced past the accepted group while preserving single-note 1–5 editing;
+- exposed the pending assignment count through semantic automation;
+- upgraded the native fixture to prove three previews become three live and
+  persisted hints;
+- completed `MUS-003G`.
+
+Verification:
+
+- the native snapshot reports selected finger 1, pending count 3 and 78%
+  confidence before acceptance;
+- after Enter, both live fingering count and manual sidecar count equal 3;
+- the saved sidecar contains exactly three track IDs, note indices and valid
+  finger values;
+- 104 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `2db5a0e`.
+
 ### Cycle 066 — Safe polyphonic chord fingering
 
 State: **DONE**

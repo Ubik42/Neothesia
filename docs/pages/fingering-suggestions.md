@@ -1,21 +1,24 @@
 # Explainable fingering suggestions
 
-Neothesia can propose one finger while the manual finger editor is active.
-Suggestions are previews, never automatic edits:
+Neothesia can propose one finger or one complete same-onset chord shape while
+the manual finger editor is active. Suggestions are previews, never automatic
+edits:
 
 1. Open **Edit fingers** for an imported MIDI.
 2. Select a note with `Left` / `Right`.
 3. Press `G` to preview a suggestion.
 4. Read the finger, confidence and reason.
-5. Press `Enter` to accept, choose `1`–`5` yourself, or move on.
+5. Press `Enter` to accept, choose `1`–`5` yourself, or move on. On a chord,
+   Enter accepts the complete visible shape in one save.
 
 Only acceptance writes the content-bound sidecar.
 
 The selected unassigned note carries a cyan dot directly on the waterfall.
-After `G`, that dot becomes the cyan preview finger. Accepting and advancing
-returns saved numbers to white; reviewed hand-turn landings remain gold. Cyan,
-white and gold therefore mean selection/preview, saved guidance and technical
-turn respectively.
+After `G`, that dot becomes the cyan preview finger. On a chord, every proposed
+digit appears cyan together. Accepting writes the whole group atomically;
+unselected saved numbers return to white while the current selection stays
+cyan. Reviewed hand-turn landings remain gold. Cyan, white and gold therefore
+mean selection/preview, saved guidance and technical turn respectively.
 
 ## Why a cost model
 
@@ -85,6 +88,11 @@ anchors return no suggestion. A chord wider than the selected profile still
 shows the obvious ordered outer-finger shape at low confidence, with the
 explicit warning “do not force the reach.” The learner can roll, redistribute
 or omit the chord instead.
+
+The editor keeps the whole shape pending under one preview transaction. `Enter`
+updates all exact-note hints in memory and performs one atomic sidecar
+replacement, so a failed write cannot leave half a chord saved. Direct `1`–`5`
+input remains a single-note override.
 
 ## Hand-span personalization
 

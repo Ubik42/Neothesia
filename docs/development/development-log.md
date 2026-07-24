@@ -4,6 +4,59 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 067: Whole-chord preview and acceptance (DONE)
+
+### Outcome
+
+A chord suggestion is now a real chord workflow. Pressing G displays all
+proposed digits on the simultaneous notes; Enter accepts the visible shape in
+one atomic save instead of forcing the learner to repeat preview/accept for
+every chord tone.
+
+### Implemented
+
+- Replaced the editor's single pending suggestion with a selected transaction
+  containing multiple exact-note assignments.
+- Generalized the note-label overlay from one preview digit to a keyed preview
+  map.
+- Kept every pending digit cyan; retained the centered dot for an unassigned
+  selection and white/gold saved-guidance semantics.
+- Built a low-to-high `1–3–5`-style shape description in the preview toast.
+- Used a single `save_song_fingerings` call for the complete group.
+- Updated all live song and label mappings only after that save succeeds.
+- Kept direct 1–5 input and Delete as intentional one-note editing operations.
+- Advanced selection to the end of the accepted group and cleared transient
+  previews.
+- Added `suggested_fingering_count` to the loopback-only semantic snapshot.
+- Strengthened the real-process fixture to require three pending assignments,
+  three live hints and exactly three serialized hints.
+- Completed `MUS-003G`.
+
+### Verification
+
+- Before Enter, the real app reports finger 1, three pending assignments and
+  78% confidence for C–E–G.
+- After Enter, live guidance and manual-hint counts are both three.
+- The adjacent sidecar contains exactly three track/note/finger records.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- Technique Studio's two-hand primary-chord fixture remains green.
+
+All desktop gates passed: two MIDI-file tests, 104 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `2db5a0e`
+(`feat: preview and accept full chord fingerings`).
+
+### Known limitations
+
+- Preview acceptance is all-or-nothing for one onset; selecting a different
+  note clears the pending transaction.
+- The next target remains the final chord tone when the chord is the final event
+  in the score because there is no later note to advance to.
+- Chord-to-chord voice leading and held-note substitutions remain `MUS-003F`.
+
 ## 2026-07-25 — Cycle 066: Safe polyphonic chord fingering (DONE)
 
 ### Outcome
