@@ -90,6 +90,12 @@ Items are ordered within each horizon. IDs remain stable after completion.
   evidence for a future import UI.
 - [ ] `MUS-001I` Add a native score-pairing and compatibility diagnostics
   workflow before synchronized notation is enabled.
+- [x] `MUS-001I1` Persist a validated, content-fingerprinted MusicXML/MXL
+  association in the existing portable song sidecar.
+- [ ] `MUS-001I2` Add native pair/replace/remove controls and render association
+  health in Practice Library.
+- [ ] `MUS-001I3` Run alignment off the UI thread and display the structured
+  compatibility verdict.
 - [x] `MUS-002` Add manual finger hints in portable sidecars.
 - [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall

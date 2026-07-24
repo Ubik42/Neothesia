@@ -4,6 +4,40 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 086: Portable score association (DONE)
+
+### Outcome
+
+A MIDI can now own a durable, validated link to its MusicXML/MXL score in the
+same sidecar already used for metadata and fingering. Moving the MIDI, score
+and sidecar together preserves an adjacent-score link.
+
+### Implemented
+
+- Added optional score path and BLAKE3 content ID to the backward-compatible
+  sidecar schema.
+- Required successful MusicXML/MXL parsing before persistence.
+- Stored paths relative to the MIDI directory when possible.
+- Added deterministic path resolution and parse-plus-content verification.
+- Reused atomic sidecar saving while preserving metadata and finger hints.
+
+### Verification
+
+- Valid adjacent score association saves, loads, resolves and verifies.
+- Replacing the score with other valid MusicXML produces `false` verification.
+- Invalid XML creates no sidecar.
+- 138 core, 64 application and four MIDI-file tests pass.
+- The pinned corpus, Clippy, release build, both native smokes, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `b6e90fc` (`feat: persist validated score associations`).
+
+### Known limitations
+
+- Practice Library has no native pair/replace/remove control yet.
+- Verification reports errors structurally but no UI health badge consumes it.
+- External absolute paths are inherently less portable.
+
 ## 2026-07-25 — Cycle 085: Alignment readiness summary (DONE)
 
 ### Outcome

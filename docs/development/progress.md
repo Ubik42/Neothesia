@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 086 — Portable score association
+
+State: **DONE**
+
+Delivered:
+
+- added an optional MusicXML/MXL association to the existing content-bound song
+  sidecar without changing its version or breaking older files;
+- parsed a score successfully before saving any association;
+- fingerprinted the exact score bytes with BLAKE3;
+- stored same-folder scores as portable MIDI-relative paths and retained
+  absolute paths when no safe relative form exists;
+- added path resolution and parse-plus-fingerprint verification;
+- preserved metadata and finger hints across score association edits;
+- completed `MUS-001I1`.
+
+Verification:
+
+- a valid adjacent score round-trips as `Song.musicxml` and verifies;
+- replacing it with different valid MusicXML returns a fingerprint mismatch;
+- invalid XML is rejected before a sidecar is created;
+- 138 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `b6e90fc`.
+
+Next:
+
+- `MUS-001I2`: expose pair/replace/remove and association health in the native
+  Practice Library metadata workflow;
+- `MUS-001I3`: perform full alignment asynchronously and show its readiness.
+
 ### Cycle 085 — Alignment readiness summary
 
 State: **DONE**

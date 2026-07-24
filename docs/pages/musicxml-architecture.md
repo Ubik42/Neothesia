@@ -101,6 +101,15 @@ The summary also retains matched notes, score gaps, MIDI gaps, inexact PPQ
 projections and navigation diagnostics. UI layers must show this evidence
 rather than replacing it with an unrelated compatibility calculation.
 
+## Song association
+
+The existing MIDI-content-bound `.neothesia.ron` sidecar can hold one optional
+score association. A score must parse before it is saved; the association
+stores a BLAKE3 fingerprint and uses a MIDI-relative path when possible.
+Loading can therefore distinguish missing, invalid, replaced and verified
+scores without touching the original MIDI or score. Native Practice Library
+controls and asynchronous compatibility analysis remain the next UI slices.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |
