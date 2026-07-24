@@ -35,9 +35,11 @@ event loop and requests a read-only practice snapshot through that same loop.
 The snapshot currently exposes wait mode, Tempo Coach, selected hands,
 completion tab, matched/wrong/missed totals and input-latency compensation.
 The harness can activate player back/wait/coach/hands, completion tab
-navigation, retry and back. Calibration and recommendation actions remain
-click-only because their parameters are derived from the rendered completion
-model; they must not be reported as supported by an external driver yet.
+navigation, retry and back. Each activation waits for an explicit accepted or
+rejected result from the active scene, with a caller-supplied timeout.
+Calibration and recommendation actions remain click-only because their
+parameters are derived from the rendered completion model; they must not be
+reported as supported by an external driver yet.
 
 Both the harness and its event variants are excluded from release builds with
 `debug_assertions`. It is not yet exposed through Windows UI Automation or an
@@ -46,11 +48,10 @@ external inspection protocol.
 The next automation layer should:
 
 1. expose a controlled driver endpoint for the in-process debug harness;
-2. acknowledge whether each action was accepted by the active scene;
-3. capture deterministic screenshots at supported window sizes;
-4. cover parameterized calibration and recommendation actions without
+2. capture deterministic screenshots at supported window sizes;
+3. cover parameterized calibration and recommendation actions without
    duplicating their product logic;
-5. retain compile-time exclusion from release builds.
+4. retain compile-time exclusion from release builds.
 
 Screen-coordinate automation remains a temporary smoke-test fallback and must
 not become the primary regression suite.

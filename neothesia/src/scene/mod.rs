@@ -57,10 +57,18 @@ impl DebugUiHarness {
         Self { proxy }
     }
 
-    pub fn activate(&self, id: impl Into<String>) -> bool {
+    /// Activates an action and waits until the active scene accepts or rejects it.
+    ///
+    /// Call this from a test worker thread, never from the event-loop thread.
+    pub fn activate(&self, id: impl Into<String>, timeout: Duration) -> Option<bool> {
+        let (reply, response) = std::sync::mpsc::channel();
         self.proxy
-            .send_event(NeothesiaEvent::DebugSemanticAction { id: id.into() })
-            .is_ok()
+            .send_event(NeothesiaEvent::DebugSemanticAction {
+                id: id.into(),
+                reply,
+            })
+            .ok()?;
+        response.recv_timeout(timeout).ok()
     }
 
     /// Requests a read-only snapshot through the application event loop.

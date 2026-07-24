@@ -48,6 +48,7 @@ pub enum NeothesiaEvent {
     #[cfg(debug_assertions)]
     DebugSemanticAction {
         id: String,
+        reply: std::sync::mpsc::Sender<bool>,
     },
     #[cfg(debug_assertions)]
     DebugPracticeSnapshot {
@@ -174,10 +175,14 @@ impl Neothesia {
                     .midi_event(&mut self.context, channel, &message);
             }
             #[cfg(debug_assertions)]
-            NeothesiaEvent::DebugSemanticAction { id } => {
-                self.game_scene
+            NeothesiaEvent::DebugSemanticAction { id, reply } => {
+                let accepted = self
+                    .game_scene
                     .debug_semantic_action(&mut self.context, &id);
-                self.context.window.request_redraw();
+                let _ = reply.send(accepted);
+                if accepted {
+                    self.context.window.request_redraw();
+                }
             }
             #[cfg(debug_assertions)]
             NeothesiaEvent::DebugPracticeSnapshot { reply } => {
