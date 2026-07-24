@@ -4,6 +4,40 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 087: Native score pairing controls (DONE)
+
+### Outcome
+
+Learners can pair, replace or remove a MusicXML/MXL score from the same Practice
+Library Info page used for title and study metadata. The page immediately
+distinguishes a verified score from a missing, invalid or replaced file.
+
+### Implemented
+
+- Loaded the existing score association when opening the Info editor.
+- Rendered concise association health and filename.
+- Made the health row itself the Replace action and added explicit Pair/Remove.
+- Used an extension-filtered asynchronous native picker.
+- Moved parsing, fingerprinting and atomic sidecar saving to a worker thread.
+- Refreshed the library after successful pairing or removal.
+- Kept cancellation on the editor and returned failures to the library message.
+
+### Verification
+
+- 138 core, 64 application and four MIDI-file tests pass.
+- The pinned corpus, release build, Clippy, both native smokes, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `9052657` (`feat: pair scores from Practice Library`).
+
+### Known limitations
+
+- The current health row verifies parsing and content identity, not MIDI note
+  alignment readiness.
+- Native file dialogs are intentionally outside semantic debug automation.
+- Pairing currently returns to the library; the editor must be reopened to see
+  the verified label.
+
 ## 2026-07-25 — Cycle 086: Portable score association (DONE)
 
 ### Outcome

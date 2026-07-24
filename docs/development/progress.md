@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 087 — Native score pairing controls
+
+State: **DONE**
+
+Delivered:
+
+- added a MusicXML score row to the existing Practice Library Info editor;
+- displayed Verified, Changed, Missing or invalid, and No score paired states;
+- added Pair, Replace and Remove actions without a new top-level page;
+- filtered the asynchronous picker to MusicXML/XML/MXL;
+- parsed and saved associations on a worker thread so the GPU UI stays
+  responsive;
+- preserved metadata and fingerings when removing an association;
+- completed `MUS-001I2`.
+
+Verification:
+
+- 138 core, 64 application and four MIDI-file tests pass;
+- release build, Clippy, corpus audit, both real-process smokes, formatting and
+  diff checks pass with only pre-existing warnings;
+- implementation commit: `9052657`.
+
+Next:
+
+- `MUS-001I3`: asynchronously align the paired score and show readiness counts;
+- extend the debug driver to exercise pairing state without controlling the
+  native OS file dialog.
+
 ### Cycle 086 — Portable score association
 
 State: **DONE**

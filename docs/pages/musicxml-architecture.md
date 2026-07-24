@@ -107,8 +107,9 @@ The existing MIDI-content-bound `.neothesia.ron` sidecar can hold one optional
 score association. A score must parse before it is saved; the association
 stores a BLAKE3 fingerprint and uses a MIDI-relative path when possible.
 Loading can therefore distinguish missing, invalid, replaced and verified
-scores without touching the original MIDI or score. Native Practice Library
-controls and asynchronous compatibility analysis remain the next UI slices.
+scores without touching the original MIDI or score. Practice Library Info now
+exposes native Pair, Replace and Remove controls plus this health state.
+Asynchronous note-alignment analysis remains the next UI slice.
 
 ## Renderer decision
 
