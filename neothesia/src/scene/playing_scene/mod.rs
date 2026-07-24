@@ -700,6 +700,7 @@ impl PlayingScene {
             .map(|(note_index, note)| FingeringNote {
                 pitch: note.note,
                 onset: note.start,
+                end: note.end,
                 anchored_finger: (note_index != target.note_index)
                     .then(|| anchors.get(&note_index).copied())
                     .flatten(),
