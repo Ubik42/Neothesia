@@ -64,6 +64,28 @@ It rewards:
 The currently selected note is intentionally unanchored so the learner can ask
 for a genuine alternative.
 
+## Chord shapes
+
+Two- through five-note chords on one hand track receive a vertical shape
+suggestion. The model:
+
+- sorts the simultaneous notes by pitch without depending on MIDI event order;
+- enumerates every unique, hand-ordered subset of fingers 1–5;
+- rejects assignments that contradict a saved manual anchor;
+- compares pitch spacing with the physical spacing of the candidate fingers;
+- applies the selected hand-span profile and black-key costs;
+- returns the lowest-cost legal shape to all notes in the chord.
+
+For example, a close-position C–E–G triad produces right-hand 1–3–5 and
+left-hand 5–3–1. This is a transparent geometric starting point, not an
+editorial claim for every inversion, voicing or musical phrase.
+
+Six-note clusters, duplicate pitches inside one track/onset and contradictory
+anchors return no suggestion. A chord wider than the selected profile still
+shows the obvious ordered outer-finger shape at low confidence, with the
+explicit warning “do not force the reach.” The learner can roll, redistribute
+or omit the chord instead.
+
 ## Hand-span personalization
 
 Open **Settings → Practice → Hand Span** to choose:
@@ -99,16 +121,15 @@ lower because hand size and musical context matter more.
 
 ## Honest boundary
 
-Version 1 suggests only monophonic notes on tracks already classified as left
-or right hand. Simultaneous chord notes receive no suggestion, because a chord
-requires a vertical hand-shape model rather than pretending its low-to-high
-notes are a melody. Tracks with ambiguous hand ownership also receive no
-suggestion.
+Version 1 works on tracks already classified as left or right hand. Melodic
+runs use a sequential dynamic program; simultaneous two- through five-note
+groups use an independent vertical hand-shape model. Tracks with ambiguous
+hand ownership receive no suggestion.
 
 Future work can add:
 
 - separate left/right-hand profiles and finer anatomy calibration;
-- chord and held-note state;
+- chord-to-chord voice leading and held-note substitutions;
 - phrase/slur and articulation context;
 - comparison against expert-annotated datasets;
 - alternative suggestions instead of only the lowest-cost path.

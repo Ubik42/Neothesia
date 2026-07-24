@@ -4,6 +4,64 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 066: Safe polyphonic chord fingering (DONE)
+
+### Outcome
+
+Finger edit can now help with an actual same-hand chord instead of refusing
+every simultaneous onset. The preview proposes a whole ordered hand shape,
+explains whether it is ordinary or unusually wide, and still writes nothing
+until the learner accepts an individual note.
+
+### Implemented
+
+- Grouped simultaneous notes into independent vertical chord states.
+- Supported two through five distinct pitches on a classified hand track.
+- Enumerated all finger subsets while enforcing ascending 1→5 physical order
+  in the right hand and 5→1 in the left.
+- Scored each legal shape by proportional pitch placement, black-key costs and
+  the configured hand-span profile.
+- Preserved exact manual hints as hard constraints during enumeration.
+- Added `ChordShape` and `WideChordShape` reasons with 78% and 50% communication
+  tiers.
+- Added an explicit “do not force the reach” explanation when the chord exceeds
+  the selected comfortable thumb-to-pinky span.
+- Rejected six-note groups, duplicate pitches and contradictory anchors instead
+  of inventing an impossible assignment.
+- Replaced the native fingering fixture's right-hand single note with a
+  same-track C–E–G triad and navigated to that chord before preview.
+- Completed `MUS-003D` / `MUS-003D2`; retained progression/held-note work as
+  `MUS-003F`.
+
+### Verification
+
+- Domain tests prove right-hand 1–3–5 and left-hand 5–3–1 for C–E–G.
+- Anchor-preservation and impossible-anchor refusal pass.
+- Six-note and duplicate-pitch refusal pass.
+- Compact-profile octave dyads use outer fingers with the low-confidence wide
+  warning.
+- The real-process FingeringFixture previews finger 1 at 78%, accepts it and
+  persists exactly one exact-note hint.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- The Technique Studio two-hand G-sharp primary-chord fixture still completes
+  both passes and persists its attempt.
+
+All desktop gates passed: two MIDI-file tests, 104 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `ee3ad43`
+(`feat: suggest safe chord fingerings`).
+
+### Known limitations
+
+- Each chord is optimized vertically; preceding/following chord voice leading
+  does not yet affect the shape.
+- Held notes, finger substitution, repeated-note alternation and redistribution
+  between hands are not modeled.
+- Confidence remains a transparent heuristic tier, not a probability.
+
 ## 2026-07-25 — Cycle 065: Personalized hand-span profiles (DONE)
 
 ### Outcome

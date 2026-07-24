@@ -64,11 +64,13 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-003B` Explain every modeled suggestion and expose confidence tiers.
 - [x] `MUS-003C` Add explicit preview/accept behavior to manual finger editing.
 - [x] `MUS-003E` Render selected notes and unaccepted suggestions distinctly.
-- [ ] `MUS-003D` Complete personalized hand-span and polyphonic chord-state
+- [x] `MUS-003D` Complete personalized hand-span and polyphonic chord-state
   suggestions.
 - [x] `MUS-003D1` Add persistent Compact, Standard and Large hand-span profiles
   that alter melodic fingering costs.
-- [ ] `MUS-003D2` Add safe polyphonic chord-state suggestions.
+- [x] `MUS-003D2` Add safe polyphonic chord-state suggestions.
+- [ ] `MUS-003F` Model chord-to-chord voice leading, held-note substitutions
+  and phrase context.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
 - [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.
 - [x] `MUS-006` Add note-duration and articulation evidence.

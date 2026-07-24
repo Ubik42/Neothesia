@@ -10,6 +10,40 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 066 — Safe polyphonic chord fingering
+
+State: **DONE**
+
+Delivered:
+
+- replaced the old blanket chord refusal with a vertical hand-shape model for
+  two through five distinct simultaneous notes;
+- enumerated only unique fingers in anatomically ordered right/left-hand
+  shapes;
+- scored pitch-to-finger proportionality, profile-specific reach and black-key
+  placement;
+- treated manual chord hints as hard anchors;
+- returned no suggestion for six-note groups, duplicate pitches or conflicting
+  anchors;
+- added ordinary chord and low-confidence wide-chord explanations;
+- upgraded the native MIDI fixture to select a real same-track C-major chord,
+  preview it and persist only the accepted note;
+- completed `MUS-003D` / `MUS-003D2`;
+- retained chord progression and held-note context as `MUS-003F`.
+
+Verification:
+
+- right-hand C–E–G produces 1–3–5 and left hand produces 5–3–1;
+- anchor compatibility and conflict refusal are covered;
+- oversized and duplicate-pitch chord refusal is covered;
+- Compact profile marks an octave dyad as a low-confidence wide shape;
+- the native FingeringFixture previews right-hand finger 1 at 78% and persists
+  exactly one accepted hint;
+- 104 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `ee3ad43`.
+
 ### Cycle 065 — Personalized hand-span profiles
 
 State: **DONE**
