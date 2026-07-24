@@ -3,6 +3,18 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::practice::PracticePart;
+use midi_file::{
+    MidiFile,
+    midly::{
+        Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind,
+        num::{u4, u7, u15, u24, u28},
+    },
+};
+
+const TICKS_PER_BEAT: u16 = 480;
+const NOTE_GATE_TICKS: u32 = 384;
+const RIGHT_TRACK_NAME: &[u8] = b"Right Hand";
+const LEFT_TRACK_NAME: &[u8] = b"Left Hand";
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExercisePattern {
@@ -143,6 +155,139 @@ impl ExercisePlan {
         }
 
         Ok(Self { spec, moments })
+    }
+
+    pub fn display_name(&self) -> String {
+        let tonic = [
+            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+        ][self.spec.tonic as usize];
+        let tonality = match self.spec.tonality {
+            ExerciseTonality::Major => "Major",
+            ExerciseTonality::Minor => "Minor",
+        };
+        let pattern = match self.spec.pattern {
+            ExercisePattern::Scale => "Scale",
+            ExercisePattern::Arpeggio => "Arpeggio",
+            ExercisePattern::PrimaryChords => "Primary Chords",
+        };
+        let hands = match self.spec.hands {
+            ExerciseHands::Right => "Right Hand",
+            ExerciseHands::Left => "Left Hand",
+            ExerciseHands::Both => "Both Hands",
+        };
+        format!(
+            "{tonic} {tonality} {pattern} · {hands} · {} BPM",
+            self.spec.tempo_bpm
+        )
+    }
+
+    pub fn to_midi_file(&self) -> Result<MidiFile, String> {
+        let total_ticks = self
+            .moments
+            .iter()
+            .map(|moment| u32::from(moment.beats) * u32::from(TICKS_PER_BEAT))
+            .sum();
+        let micros_per_beat = 60_000_000 / u32::from(self.spec.tempo_bpm);
+        let conductor = vec![
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(micros_per_beat))),
+            },
+            TrackEvent {
+                delta: u28::new(0),
+                kind: TrackEventKind::Meta(MetaMessage::TimeSignature(4, 2, 24, 8)),
+            },
+            TrackEvent {
+                delta: u28::new(total_ticks),
+                kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+            },
+        ];
+        let mut tracks = vec![conductor];
+        match self.spec.hands {
+            ExerciseHands::Right => {
+                tracks.push(self.midi_track(PracticePart::RightHand, 0, RIGHT_TRACK_NAME));
+            }
+            ExerciseHands::Left => {
+                tracks.push(self.midi_track(PracticePart::LeftHand, 1, LEFT_TRACK_NAME));
+            }
+            ExerciseHands::Both => {
+                tracks.push(self.midi_track(PracticePart::RightHand, 0, RIGHT_TRACK_NAME));
+                tracks.push(self.midi_track(PracticePart::LeftHand, 1, LEFT_TRACK_NAME));
+            }
+        }
+        let smf = Smf {
+            header: Header {
+                format: Format::Parallel,
+                timing: Timing::Metrical(u15::new(TICKS_PER_BEAT)),
+            },
+            tracks,
+        };
+        MidiFile::from_smf(self.display_name(), &smf)
+    }
+
+    fn midi_track(
+        &self,
+        part: PracticePart,
+        channel: u8,
+        name: &'static [u8],
+    ) -> Vec<TrackEvent<'static>> {
+        let mut events = vec![TrackEvent {
+            delta: u28::new(0),
+            kind: TrackEventKind::Meta(MetaMessage::TrackName(name)),
+        }];
+        let mut cursor = 0u32;
+        let mut previous_event = 0u32;
+        for moment in &self.moments {
+            let notes: Vec<_> = moment
+                .notes
+                .iter()
+                .filter(|note| note.part == part)
+                .map(|note| note.midi_note)
+                .collect();
+            let step_ticks = u32::from(moment.beats) * u32::from(TICKS_PER_BEAT);
+            let gate_ticks = NOTE_GATE_TICKS * u32::from(moment.beats);
+            for (index, note) in notes.iter().enumerate() {
+                events.push(TrackEvent {
+                    delta: u28::new(if index == 0 {
+                        cursor - previous_event
+                    } else {
+                        0
+                    }),
+                    kind: TrackEventKind::Midi {
+                        channel: u4::new(channel),
+                        message: MidiMessage::NoteOn {
+                            key: u7::new(*note),
+                            vel: u7::new(80),
+                        },
+                    },
+                });
+                previous_event = cursor;
+            }
+            for (index, note) in notes.iter().enumerate() {
+                let note_end = cursor + gate_ticks;
+                events.push(TrackEvent {
+                    delta: u28::new(if index == 0 {
+                        note_end - previous_event
+                    } else {
+                        0
+                    }),
+                    kind: TrackEventKind::Midi {
+                        channel: u4::new(channel),
+                        message: MidiMessage::NoteOff {
+                            key: u7::new(*note),
+                            vel: u7::new(0),
+                        },
+                    },
+                });
+                previous_event = note_end;
+            }
+            cursor += step_ticks;
+        }
+        events.push(TrackEvent {
+            delta: u28::new(cursor - previous_event),
+            kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+        });
+        events
     }
 }
 
@@ -377,5 +522,57 @@ mod tests {
             ),
             Err(ExerciseError::InvalidTempo)
         );
+    }
+
+    #[test]
+    fn plan_converts_to_stable_type_one_midi_with_separate_hand_tracks() {
+        let plan =
+            ExercisePlan::generate(ExerciseSpec::default(), &KeyboardRange::standard_88_keys())
+                .unwrap();
+        let first = plan.to_midi_file().unwrap();
+        let second = plan.to_midi_file().unwrap();
+
+        assert_eq!(first.format, Format::Parallel);
+        assert_eq!(first.source_path, None);
+        assert_eq!(first.name, "C Major Scale · Both Hands · 60 BPM");
+        assert_eq!(first.content_id, second.content_id);
+        assert_eq!(first.tracks.len(), 3);
+        assert!(first.tracks[0].notes.is_empty());
+        assert_eq!(first.tracks[1].notes.len(), 15);
+        assert_eq!(first.tracks[2].notes.len(), 15);
+        assert_eq!(first.tracks[1].notes[0].note, 60);
+        assert_eq!(first.tracks[2].notes[0].note, 36);
+        assert_eq!(
+            first.tracks[1].notes[0].duration,
+            std::time::Duration::from_millis(800)
+        );
+        assert!(first.beats.len() >= 15);
+        assert!(!first.measures.is_empty());
+    }
+
+    #[test]
+    fn tempo_changes_midi_timing_and_content_identity() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let slow = ExercisePlan::generate(ExerciseSpec::default(), &keyboard)
+            .unwrap()
+            .to_midi_file()
+            .unwrap();
+        let fast = ExercisePlan::generate(
+            ExerciseSpec {
+                tempo_bpm: 120,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap()
+        .to_midi_file()
+        .unwrap();
+
+        assert_ne!(slow.content_id, fast.content_id);
+        assert_eq!(
+            fast.tracks[1].notes[0].duration,
+            std::time::Duration::from_millis(400)
+        );
+        assert!(fast.tracks[1].notes[1].start < slow.tracks[1].notes[1].start);
     }
 }

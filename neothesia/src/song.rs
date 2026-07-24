@@ -218,6 +218,37 @@ impl Song {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
+    use piano_layout::KeyboardRange;
+
+    #[test]
+    fn generated_both_hand_exercise_enters_song_with_hand_shortcuts() {
+        let file =
+            ExercisePlan::generate(ExerciseSpec::default(), &KeyboardRange::standard_88_keys())
+                .unwrap()
+                .to_midi_file()
+                .unwrap();
+        let song = Song::new(file);
+
+        assert_eq!(song.config.practice_hands(), Some(PracticeHands::Both));
+        assert_eq!(song.config.tracks.len(), 3);
+        assert_eq!(
+            song.config
+                .tracks
+                .iter()
+                .filter(|track| track.practice_part == PracticePart::LeftHand)
+                .count(),
+            1
+        );
+        assert_eq!(
+            song.config
+                .tracks
+                .iter()
+                .filter(|track| track.practice_part == PracticePart::RightHand)
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn two_piano_tracks_are_assigned_by_pitch_center() {
