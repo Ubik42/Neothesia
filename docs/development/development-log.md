@@ -4,6 +4,78 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 050: All major-scale fingering tables (DONE)
+
+### Outcome
+
+Every major key in Technique Studio now has reviewed two-hand fingering across
+the complete generated span. Learners can move around the circle of fifths
+without the app silently reusing C-major crossings where they do not fit.
+
+### Implemented
+
+- Reviewed two-octave visual tables for the remaining major keys.
+- Added D♭:
+  - RH starts 2;
+  - LH starts 3.
+- Added E♭:
+  - RH starts 3;
+  - LH starts 3.
+- Added G♭:
+  - RH starts 2 and groups the black keys under 2–3 / 2–3–4;
+  - LH starts 4 with its own crossing cycle.
+- Added A♭:
+  - RH starts 3–4 before the first thumb;
+  - LH starts 3.
+- Added B♭:
+  - RH starts 2 before the thumb lands on C;
+  - LH starts 3.
+- Added B:
+  - RH retains the standard sharp-key pattern;
+  - LH starts 4 so the thumb lands on E rather than F♯.
+- Replaced ad hoc per-key generation with an explicit start finger,
+  seven-degree continuation and optional final-finger model.
+- Correctly distinguished starting, intermediate-tonic and final-tonic fingers
+  over two or three octaves.
+- Preferred conventional flat major names in Technique Studio and generated
+  titles, while retaining C♯ minor spelling.
+- Kept unreviewed non-C minor keys unavailable.
+- Changed real-process smoke to B major to cover its exceptional left hand.
+- Completed `EX-003C`.
+
+### Verification
+
+- Exact fifteen-note right and left sequences for D♭, E♭, G♭, A♭, B♭ and B.
+- Common right-hand keys retain final finger 5 only at the endpoint.
+- G♭ verifies distinct black-key grouping in both hands.
+- B verifies left-hand `43214321 3214321`.
+- D♭ major titles use D♭/Db while C♯ minor keeps C♯/C#.
+- Non-C minor and arpeggio plans return no fingering.
+- Real-process smoke selects B by bidirectional selector actions.
+- B2/B4 appear as the required two-hand tonic notes.
+- Fingering defaults on, toggles off and on, and the exercise completes,
+  persists, restores and reopens.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, seventy-nine core tests and fifty-seven
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `2c3b468`
+(`feat: complete major scale fingering tables`).
+
+### Known limitations
+
+- Minor tables beyond C remain unreviewed.
+- Enharmonic selector spelling is fixed to the most readable common major/minor
+  name rather than user-selectable notation.
+- Standard teaching fingering may need a future alternate option for individual
+  hand anatomy or a teacher's method.
+
 ## 2026-07-25 — Cycle 049: Common major-scale fingering group (DONE)
 
 ### Outcome

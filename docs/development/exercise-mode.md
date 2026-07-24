@@ -34,13 +34,12 @@ settings default to empty preset lists.
 
 ## Fingering guidance
 
-Generated C, G, D, A, E and F major scales plus C natural-minor,
-harmonic-minor and melodic-minor scales carry reviewed finger numbers for both
-hands. The mapping follows the exact generated sequence, including ascending,
-descending and up-and-down direction, one to three octaves and every
-repetition. Finger numbers 1–5 are centered directly on the falling notes and
-are enabled by default when available. The player shows a clear
-**Fingers: ON/OFF** control.
+All twelve major scales plus C natural-minor, harmonic-minor and melodic-minor
+carry reviewed finger numbers for both hands. The mapping follows the exact
+generated sequence, including ascending, descending and up-and-down direction,
+one to three octaves and every repetition. Finger numbers 1–5 are centered
+directly on the falling notes and are enabled by default when available. The
+player shows a clear **Fingers: ON/OFF** control.
 
 C/G/D/A/E use the common `12312345` right-hand and `54321321` left-hand
 one-octave pattern. F major retains the common left hand but uses
@@ -49,6 +48,13 @@ one-octave pattern. F major retains the common left hand but uses
 for the shared five-key group and the
 [F major reference at piano.org](https://piano.org/scales/major/f/) for the
 exception (checked 2026-07-25).
+
+The remaining major tables follow the two-octave visual charts at
+[Piano-ology](https://piano-ology.com/piano-technique/major-scale-fingering/).
+B major keeps the common right hand but starts left hand on 4. D♭, E♭, A♭ and
+B♭ use their reviewed flat-key starts and thumb crossings. G♭ uses 2–3 and
+2–3–4 over the black-key groups. The selector and generated title prefer D♭,
+E♭, A♭ and B♭ spellings for major keys, while keeping C♯ for C♯ minor.
 
 Coverage is deliberately explicit and Technique Studio says whether the current
 selection has reviewed guidance before playback. Other keys and non-scale
@@ -152,6 +158,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Fingering remains intentionally unavailable outside the reviewed major-key
-group and C-minor family. Generic one-pattern-fits-all scale fingering would
-teach incorrect crossings in several keys.
+Minor fingering remains intentionally unavailable outside the reviewed C-minor
+family. Generic one-pattern-fits-all minor fingering would teach incorrect
+crossings in several keys.

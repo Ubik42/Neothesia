@@ -10,6 +10,32 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 050 — All major-scale fingering tables
+
+State: **DONE**
+
+Delivered:
+
+- completed per-hand fingering coverage for all twelve major pitch classes;
+- added distinct D♭, E♭, G♭, A♭, B♭ and B patterns;
+- handled non-thumb starting fingers and intermediate-octave tonic changes;
+- kept endpoint-only finger 5 behavior in the common right-hand group;
+- preserved explicit no-guidance behavior for unreviewed minor keys;
+- used readable flat spellings for flat major keys in selectors and titles;
+- changed native smoke to B major's exceptional left hand;
+- completed `EX-003C`.
+
+Verification:
+
+- exact two-octave right/left tables for the six newly covered keys;
+- exact display-name distinction between D♭ major and C♯ minor;
+- non-C minor and non-scale patterns remain unsupported;
+- seventy-nine core tests and fifty-seven application tests pass;
+- native automation starts B major, verifies both tonic pitches and exercises
+  the default-on/two-way fingering control;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `2c3b468`.
+
 ### Cycle 049 — Common major-scale fingering group
 
 State: **DONE**
