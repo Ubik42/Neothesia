@@ -6,6 +6,7 @@ use std::{
 use midi_file::{MidiFile, tempo_track::TempoTrack};
 
 use crate::musicxml::{Pitch, Score, ScoreEvent, ScoreEventId, ScoreTime, Step};
+use crate::score_playback::{PlaybackPlan, ScoreEventOccurrenceId, expand_event_occurrences};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectedScoreEvent {
@@ -19,6 +20,20 @@ pub struct ProjectedScoreEvent {
 pub struct ScoreTimelineProjection {
     pub events: Vec<ProjectedScoreEvent>,
     pub unprojected: Vec<ScoreEventId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectedScoreOccurrence {
+    pub id: ScoreEventOccurrenceId,
+    pub timestamp: Duration,
+    pub duration: Option<Duration>,
+    pub exact_to_midi_pulse: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PerformedTimelineProjection {
+    pub events: Vec<ProjectedScoreOccurrence>,
+    pub unprojected: Vec<ScoreEventOccurrenceId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -119,6 +134,46 @@ pub fn project_score_timeline(score: &Score, tempo: &TempoTrack) -> ScoreTimelin
             timestamp: start.timestamp,
             duration,
             exact_to_midi_pulse: start.exact_to_pulse && end_exact,
+        });
+    }
+    projection.events.sort_by(|left, right| {
+        left.timestamp
+            .cmp(&right.timestamp)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    projection
+}
+
+/// Projects repeated event occurrences through the paired MIDI tempo map.
+pub fn project_performed_part_timeline(
+    part: &crate::musicxml::Part,
+    plan: &PlaybackPlan,
+    tempo: &TempoTrack,
+) -> PerformedTimelineProjection {
+    let mut projection = PerformedTimelineProjection::default();
+    for event in expand_event_occurrences(part, plan) {
+        let Some(start) = project_time(tempo, event.onset) else {
+            projection.unprojected.push(event.id);
+            continue;
+        };
+        let (duration, exact_end) = match event.duration {
+            Some(duration) => {
+                let Some(end) = project_time(tempo, event.onset.add(duration)) else {
+                    projection.unprojected.push(event.id);
+                    continue;
+                };
+                (
+                    Some(end.timestamp.saturating_sub(start.timestamp)),
+                    end.exact_to_pulse,
+                )
+            }
+            None => (None, true),
+        };
+        projection.events.push(ProjectedScoreOccurrence {
+            id: event.id,
+            timestamp: start.timestamp,
+            duration,
+            exact_to_midi_pulse: start.exact_to_pulse && exact_end,
         });
     }
     projection.events.sort_by(|left, right| {
@@ -473,6 +528,7 @@ fn project_time(
 mod tests {
     use super::*;
     use crate::musicxml::{ScoreEventKind, import_musicxml};
+    use crate::score_playback::{PlaybackLimits, build_playback_plan};
 
     #[test]
     fn projects_notes_and_directions_with_duration_and_identity() {
@@ -535,6 +591,38 @@ mod tests {
         let projection = project_score_timeline(&score, &TempoTrack::build(&[], 480));
         assert_eq!(projection.events[0].timestamp, Duration::ZERO);
         assert!(!projection.events[0].exact_to_midi_pulse);
+    }
+
+    #[test]
+    fn projects_repeated_occurrences_on_flattened_midi_time() {
+        let score = import_musicxml(
+            br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1">
+<barline location="left"><repeat direction="forward"/></barline>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+<barline><repeat direction="backward"/></barline>
+</measure></part></score-partwise>"#,
+        )
+        .unwrap();
+        let plan = build_playback_plan(&score.parts[0], PlaybackLimits::default());
+        let projection =
+            project_performed_part_timeline(&score.parts[0], &plan, &TempoTrack::build(&[], 480));
+
+        assert!(projection.unprojected.is_empty());
+        assert_eq!(projection.events.len(), 2);
+        assert_eq!(
+            projection.events[0].id.source_id,
+            projection.events[1].id.source_id
+        );
+        assert_eq!(projection.events[0].id.measure_occurrence_ordinal, 0);
+        assert_eq!(projection.events[1].id.measure_occurrence_ordinal, 1);
+        assert_eq!(projection.events[0].timestamp, Duration::ZERO);
+        assert_eq!(projection.events[1].timestamp, Duration::from_millis(500));
+        assert_eq!(
+            projection.events[1].duration,
+            Some(Duration::from_millis(500))
+        );
     }
 
     fn three_note_score(pitches: [&str; 3]) -> Score {

@@ -247,7 +247,7 @@ impl ScoreTime {
         )
     }
 
-    fn subtract(self, other: Self) -> Self {
+    pub(crate) fn subtract(self, other: Self) -> Self {
         self.add(Self::new(-other.numerator, other.denominator))
     }
 }

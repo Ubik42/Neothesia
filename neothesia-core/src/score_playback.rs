@@ -3,7 +3,7 @@
 //! The imported [`Part`](crate::musicxml::Part) always remains in written
 //! document order. This module produces visits into that immutable source.
 
-use crate::musicxml::{EndingType, Part, RepeatDirection};
+use crate::musicxml::{EndingType, Part, RepeatDirection, ScoreEvent, ScoreEventId, ScoreTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlaybackLimits {
@@ -26,6 +26,20 @@ pub struct MeasureVisit {
     pub source_measure_ordinal: u32,
     pub occurrence_ordinal: u32,
     pub repeat_pass: u16,
+    pub performed_start: ScoreTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ScoreEventOccurrenceId {
+    pub source_id: ScoreEventId,
+    pub measure_occurrence_ordinal: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerformedScoreEvent {
+    pub id: ScoreEventOccurrenceId,
+    pub onset: ScoreTime,
+    pub duration: Option<ScoreTime>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +72,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
     let mut cursor = 0_usize;
     let mut active_repeat_start = None;
     let mut repeat_pass = 1_u16;
+    let mut performed_cursor = ScoreTime::default();
 
     while cursor < part.measures.len() {
         if plan.visits.len() >= limits.max_visits {
@@ -111,7 +126,9 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                 source_measure_ordinal: cursor as u32,
                 occurrence_ordinal,
                 repeat_pass,
+                performed_start: performed_cursor,
             });
+            performed_cursor = performed_cursor.add(measure.duration);
         }
 
         let backward = measure
@@ -157,6 +174,36 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
     }
 
     plan
+}
+
+/// Expands note and direction events through a previously built playback plan.
+/// Every occurrence retains its stable source ID and adds the measure-visit ID.
+pub fn expand_event_occurrences(part: &Part, plan: &PlaybackPlan) -> Vec<PerformedScoreEvent> {
+    let mut result = Vec::new();
+    for visit in &plan.visits {
+        if visit.part_id != part.id {
+            continue;
+        }
+        let Some(measure) = part.measures.get(visit.source_measure_ordinal as usize) else {
+            continue;
+        };
+        for event in &measure.events {
+            let (source_id, onset, duration) = match event {
+                ScoreEvent::Note(note) => (&note.id, note.onset, Some(note.duration)),
+                ScoreEvent::Direction(direction) => (&direction.id, direction.onset, None),
+            };
+            let relative_onset = onset.subtract(measure.start);
+            result.push(PerformedScoreEvent {
+                id: ScoreEventOccurrenceId {
+                    source_id: source_id.clone(),
+                    measure_occurrence_ordinal: visit.occurrence_ordinal,
+                },
+                onset: visit.performed_start.add(relative_onset),
+                duration,
+            });
+        }
+    }
+    result
 }
 
 fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16>>> {
@@ -293,6 +340,19 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 1, 2, 2, 2]
         );
+        assert_eq!(
+            plan.visits
+                .iter()
+                .map(|visit| visit.performed_start)
+                .collect::<Vec<_>>(),
+            [
+                ScoreTime::new(0, 1),
+                ScoreTime::new(1, 1),
+                ScoreTime::new(2, 1),
+                ScoreTime::new(3, 1),
+                ScoreTime::new(4, 1),
+            ]
+        );
         assert!(plan.complete);
     }
 
@@ -366,5 +426,25 @@ mod tests {
         assert_eq!(ordinals(&plan), [0]);
         assert!(!plan.complete);
         assert_eq!(plan.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn repeated_event_occurrences_keep_source_identity_and_gain_new_time() {
+        let source = measure(
+            1,
+            r#"<barline location="left"><repeat direction="forward"/></barline>"#,
+            r#"<barline><repeat direction="backward"/></barline>"#,
+        );
+        let part = part(&source);
+        let plan = build_playback_plan(&part, PlaybackLimits::default());
+        let events = expand_event_occurrences(&part, &plan);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].id.source_id, events[1].id.source_id);
+        assert_eq!(events[0].id.measure_occurrence_ordinal, 0);
+        assert_eq!(events[1].id.measure_occurrence_ordinal, 1);
+        assert_eq!(events[0].onset, ScoreTime::new(0, 1));
+        assert_eq!(events[1].onset, ScoreTime::new(1, 1));
+        assert_eq!(events[1].duration, Some(ScoreTime::new(1, 1)));
     }
 }
