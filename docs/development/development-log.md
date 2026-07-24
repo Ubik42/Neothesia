@@ -4,6 +4,59 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 070: Held-tone finger occupancy (DONE)
+
+### Outcome
+
+Chord advice now knows that a finger remains physically busy until its MIDI
+note ends. A following shape cannot assign that same finger to another pitch or
+cross new fingers through the held hand position.
+
+### Implemented
+
+- Added `end` to `FingeringNote` and populated it from parsed MIDI note-off
+  timing.
+- Checked every still-sounding prior chord tone against every new
+  pitch/finger pair.
+- Rejected same-finger/different-pitch reuse while the earlier key remains
+  down.
+- Enforced pitch/finger ordering around held tones for right and left hands.
+- Split a chord run when no candidate pair can satisfy the held constraints,
+  leaving the impossible onset without false precision.
+- Added `HeldChordPosition`: “uses fingers that remain free while earlier chord
+  tones are held.”
+- Kept ordinary rearticulated common-tone voice leading unchanged when the
+  prior note has already ended.
+- Completed `MUS-003F2A`; retained actual finger substitution as F2B.
+
+### Verification
+
+- A held low C occupies its selected right-hand finger through a later A–B
+  chord; both new fingers remain distinct and physically above it.
+- The new notes receive the held-position explanation.
+- A direct left-hand mirror test accepts lower pitches on fingers 5–3 beneath a
+  held high pitch on finger 1 and rejects finger-1 reuse.
+- Thirteen fingering-domain tests pass alongside all existing suites.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- Whole-chord sidecar and Technique Studio real-process fixtures pass.
+
+All desktop gates passed: two MIDI-file tests, 108 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `13fa40f`
+(`feat: respect held chord fingers`).
+
+### Known limitations
+
+- Occupancy is derived from key note-off, not sustain-pedal acoustic duration;
+  the finger is free once the key is released even if the damper remains up.
+- The model does not yet represent transferring one depressed key between
+  fingers.
+- Held-state constraints currently connect consecutive chord onset groups; a
+  single-note onset starts the existing melodic segment.
+
 ## 2026-07-25 — Cycle 069: Common-tone chord voice leading (DONE)
 
 ### Outcome

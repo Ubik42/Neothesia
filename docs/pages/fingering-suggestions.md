@@ -112,8 +112,20 @@ under finger 3; the isolated first chord's also-plausible 1–2–5 loses only
 because the two vertical options are close.
 
 This is chord-to-chord voice-leading assistance, not held-note substitution.
-Without note-release, pedal and phrasing context the model does not claim that
-a common MIDI pitch is physically sustained between attacks.
+The model does read each MIDI note's key-release time. A prior chord tone whose
+note-off occurs after the next onset keeps its assigned finger occupied:
+
+- that finger cannot simultaneously play a different new pitch;
+- new notes must remain on the anatomically correct side of every held
+  note/finger pair for the selected hand;
+- valid new assignments explain that they use fingers still free around held
+  harmony;
+- if no candidate can respect those constraints, the affected onset receives
+  no suggestion instead of asking for an impossible hand shape.
+
+This still does not invent finger substitution. Moving from one finger to
+another while one key remains depressed is a distinct action that ordinary
+note-on/note-off MIDI does not encode by itself.
 
 ## Hand-span personalization
 
@@ -164,7 +176,7 @@ hand ownership receive no suggestion.
 Future work can add:
 
 - finer anatomy calibration beyond three span categories;
-- held-note substitutions and repeated-note alternation;
+- explicit held-note substitutions and repeated-note alternation;
 - phrase/slur and articulation context;
 - comparison against expert-annotated datasets;
 - alternative suggestions instead of only the lowest-cost path.

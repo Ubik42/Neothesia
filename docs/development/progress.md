@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 070 — Held-tone finger occupancy
+
+State: **DONE**
+
+Delivered:
+
+- added note-off time to the fingering-domain input and wired it from parsed
+  MIDI notes;
+- kept a finger unavailable while its earlier chord tone is still sounding;
+- rejected new assignments that cross a held note/finger pair in either hand;
+- segmented around an onset with no valid held-tone transition rather than
+  manufacturing an impossible shape;
+- added the `HeldChordPosition` explanation at an 82% communication tier;
+- completed `MUS-003F2A`; retained explicit substitution as `MUS-003F2B`.
+
+Verification:
+
+- with low C held, a later right-hand A–B dyad neither reuses C's finger nor
+  crosses to its left;
+- the later notes report the held-position explanation;
+- left-hand mirrored ordering accepts 5–3 below a held high note and rejects
+  reusing its finger;
+- all previous melodic, chord, voice-leading and refusal tests remain green;
+- 108 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `13fa40f`.
+
 ### Cycle 069 — Common-tone chord voice leading
 
 State: **DONE**
