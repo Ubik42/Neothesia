@@ -9,7 +9,10 @@ use std::{
 use ron::extensions::Extensions;
 use serde::{Deserialize, Serialize};
 
-use crate::practice::{AttemptSummary, PracticeBreakdown, PracticeHands};
+use crate::{
+    exercise::ExerciseSpec,
+    practice::{AttemptSummary, PracticeBreakdown, PracticeHands},
+};
 
 const MAX_SESSIONS_PER_SONG: usize = 200;
 
@@ -62,6 +65,8 @@ pub struct SongPracticeSetup {
     pub loop_setup: Option<PracticeLoopSetup>,
     #[serde(default)]
     pub source_path: Option<PathBuf>,
+    #[serde(default)]
+    pub exercise_spec: Option<ExerciseSpec>,
     #[serde(default)]
     pub last_used_unix_ms: u64,
 }
@@ -172,6 +177,7 @@ pub struct RecentSongSummary {
     pub content_id: String,
     pub display_name: String,
     pub source_path: Option<PathBuf>,
+    pub exercise_spec: Option<ExerciseSpec>,
     pub last_used_unix_ms: u64,
     pub session_count: usize,
     pub latest_accuracy: Option<f32>,
@@ -639,6 +645,7 @@ impl PracticeHistoryStore {
                         .source_path
                         .clone()
                         .or_else(|| setup.and_then(|setup| setup.source_path.clone())),
+                    exercise_spec: setup.and_then(|setup| setup.exercise_spec),
                     last_used_unix_ms,
                     session_count: song.sessions.len(),
                     latest_accuracy: latest_session
@@ -1067,6 +1074,7 @@ mod tests {
                 end_measure: 8,
             }),
             source_path: Some(PathBuf::from("C:/Music/Old Name.mid")),
+            exercise_spec: None,
             last_used_unix_ms: 0,
         };
         store
@@ -1092,6 +1100,62 @@ mod tests {
     }
 
     #[test]
+    fn generated_exercise_source_survives_setup_and_recent_library_round_trip() {
+        let path = temp_history_path("exercise-source");
+        let mut store = PracticeHistoryStore::load(&path);
+        let spec = ExerciseSpec {
+            tonic: 1,
+            tempo_bpm: 70,
+            ..Default::default()
+        };
+        store
+            .save_setup(
+                "exercise-id",
+                "C# Major Scale",
+                SongPracticeSetup {
+                    tracks: Vec::new(),
+                    speed: 1.0,
+                    loop_setup: None,
+                    source_path: None,
+                    exercise_spec: Some(spec),
+                    last_used_unix_ms: 0,
+                },
+            )
+            .unwrap();
+
+        let loaded = PracticeHistoryStore::load(&path);
+
+        assert_eq!(
+            loaded.setup("exercise-id").unwrap().exercise_spec,
+            Some(spec)
+        );
+        assert_eq!(loaded.recent_songs(1)[0].exercise_spec, Some(spec));
+        assert_eq!(loaded.recent_songs(1)[0].source_path, None);
+
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn setup_saved_before_generated_sources_remains_readable() {
+        let setup = SongPracticeSetup {
+            tracks: Vec::new(),
+            speed: 0.8,
+            loop_setup: None,
+            source_path: Some(PathBuf::from("C:/Music/Legacy.mid")),
+            exercise_spec: None,
+            last_used_unix_ms: 7,
+        };
+        let serialized = ron_options().to_string(&setup).unwrap();
+        let legacy = serialized.replace("exercise_spec:None,", "");
+        assert_ne!(legacy, serialized);
+
+        let loaded: SongPracticeSetup = ron_options().from_str(&legacy).unwrap();
+
+        assert_eq!(loaded.exercise_spec, None);
+        assert_eq!(loaded.source_path, setup.source_path);
+    }
+
+    #[test]
     fn recent_songs_are_ordered_by_latest_activity() {
         let path = temp_history_path("recent-songs");
         let mut store = PracticeHistoryStore::load(&path);
@@ -1100,6 +1164,7 @@ mod tests {
             speed: 1.0,
             loop_setup: None,
             source_path: Some(PathBuf::from(path)),
+            exercise_spec: None,
             last_used_unix_ms: 0,
         };
         store

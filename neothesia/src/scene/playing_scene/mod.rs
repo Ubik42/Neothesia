@@ -22,6 +22,9 @@ use super::{NuonRenderer, Scene};
 pub(crate) mod practice_ui_ids {
     pub const MENU_START: &str = "practice.menu.start";
     pub const MENU_EXERCISES: &str = "practice.menu.exercises";
+    pub const MENU_LIBRARY: &str = "practice.menu.library";
+    #[cfg(any(debug_assertions, test))]
+    pub const LIBRARY_OPEN_RECENT_EXERCISE: &str = "practice.library.open-recent-exercise";
     pub const EXERCISE_START: &str = "practice.exercise.start";
     pub const EXERCISE_KEY_PREVIOUS: &str = "practice.exercise.key.previous";
     pub const EXERCISE_KEY_NEXT: &str = "practice.exercise.key.next";
@@ -57,6 +60,8 @@ pub(crate) mod practice_ui_ids {
     pub const ALL: &[&str] = &[
         MENU_START,
         MENU_EXERCISES,
+        MENU_LIBRARY,
+        LIBRARY_OPEN_RECENT_EXERCISE,
         EXERCISE_START,
         EXERCISE_KEY_PREVIOUS,
         EXERCISE_KEY_NEXT,
@@ -364,6 +369,7 @@ impl PlayingScene {
             speed: ctx.config.speed_multiplier(),
             loop_setup: self.top_bar.practice_loop_setup(&self.player),
             source_path: self.player.song().file.source_path.clone(),
+            exercise_spec: self.player.song().exercise_spec,
             last_used_unix_ms: 0,
         };
         if let Err(error) = ctx.practice_history.save_setup(

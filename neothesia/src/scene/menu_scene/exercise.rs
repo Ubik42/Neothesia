@@ -195,15 +195,21 @@ impl MenuScene {
     }
 
     pub(super) fn start_exercise(&mut self, ctx: &mut Context) -> bool {
+        self.open_exercise(ctx, self.state.exercise_spec)
+    }
+
+    pub(super) fn open_exercise(&mut self, ctx: &mut Context, spec: ExerciseSpec) -> bool {
         let range = KeyboardRange::new(ctx.config.piano_range());
-        let result = ExercisePlan::generate(self.state.exercise_spec, &range)
+        let result = ExercisePlan::generate(spec, &range)
             .map_err(|error| error.to_string())
             .and_then(|plan| Song::from_exercise(&plan));
         match result {
-            Ok(song) => {
+            Ok(mut song) => {
+                song.apply_saved_setup(ctx);
                 self.state.exercise_message = None;
                 self.state.song = Some(song);
-                ctx.config.set_last_exercise_spec(self.state.exercise_spec);
+                self.state.exercise_spec = spec;
+                ctx.config.set_last_exercise_spec(spec);
                 state::play(&self.state, ctx);
                 true
             }

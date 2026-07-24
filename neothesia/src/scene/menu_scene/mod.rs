@@ -232,7 +232,12 @@ impl MenuScene {
 
                         nuon::translate().y(h + gap).add_to_current(ui);
 
-                        if neo_btn().size(w, h).label("Practice Library").build(ui) {
+                        if neo_btn()
+                            .id(super::playing_scene::practice_ui_ids::MENU_LIBRARY)
+                            .size(w, h)
+                            .label("Practice Library")
+                            .build(ui)
+                        {
                             self.state.go_to(Page::Library);
                         }
 
@@ -338,6 +343,7 @@ impl MenuScene {
                         content_id: song.content_id,
                         display_name: song.display_name,
                         source_path: song.source_path,
+                        exercise_spec: song.exercise_spec,
                         session_count: song.session_count,
                         latest_accuracy: song.latest_accuracy,
                         last_used_unix_ms: song.last_used_unix_ms,
@@ -366,6 +372,7 @@ impl MenuScene {
                         content_id: song.content_id.clone(),
                         display_name: song.display_name.clone(),
                         source_path: available_path,
+                        exercise_spec: None,
                         session_count: 0,
                         latest_accuracy: None,
                         last_used_unix_ms: 0,
@@ -543,11 +550,19 @@ impl MenuScene {
                                 .source_path
                                 .as_deref()
                                 .is_some_and(|path| path.is_file());
+                            let generated_available = song.exercise_spec.is_some();
+                            let available = path_available || generated_available;
                             let accuracy = song
                                 .latest_accuracy
                                 .map(|value| format!(" · latest {}%", (value * 100.0).round()))
                                 .unwrap_or_default();
-                            let action = if path_available { "Open" } else { "Locate" };
+                            let action = if generated_available {
+                                "Practice"
+                            } else if path_available {
+                                "Open"
+                            } else {
+                                "Locate"
+                            };
                             let recommendation = song
                                 .recommended_measures
                                 .map(|(start, end)| {
@@ -585,12 +600,12 @@ impl MenuScene {
                                 .y(index as f32 * 62.0)
                                 .size(open_width, 52.0)
                                 .label(label)
-                                .color(if path_available {
+                                .color(if available {
                                     [48, 91, 82]
                                 } else {
                                     [91, 72, 52]
                                 })
-                                .hover_color(if path_available {
+                                .hover_color(if available {
                                     [57, 112, 99]
                                 } else {
                                     [112, 88, 60]
@@ -599,7 +614,10 @@ impl MenuScene {
                                 .border_radius([7.0; 4])
                                 .build(ui)
                             {
-                                if let Some(path) = song.source_path.clone().filter(|p| p.is_file())
+                                if let Some(spec) = song.exercise_spec {
+                                    self.open_exercise(ctx, spec);
+                                } else if let Some(path) =
+                                    song.source_path.clone().filter(|p| p.is_file())
                                 {
                                     self.futures.push(open_saved_midi(
                                         &mut self.state,
@@ -784,6 +802,7 @@ struct LibraryRow {
     content_id: String,
     display_name: String,
     source_path: Option<PathBuf>,
+    exercise_spec: Option<neothesia_core::exercise::ExerciseSpec>,
     session_count: usize,
     latest_accuracy: Option<f32>,
     last_used_unix_ms: u64,
@@ -1011,6 +1030,22 @@ impl Scene for MenuScene {
             {
                 self.state.go_to(Page::Exercises);
                 true
+            }
+            super::playing_scene::practice_ui_ids::MENU_LIBRARY
+                if *self.state.current() == Page::Main =>
+            {
+                self.state.go_to(Page::Library);
+                true
+            }
+            super::playing_scene::practice_ui_ids::LIBRARY_OPEN_RECENT_EXERCISE
+                if *self.state.current() == Page::Library =>
+            {
+                let spec = ctx
+                    .practice_history
+                    .recent_songs(usize::MAX)
+                    .into_iter()
+                    .find_map(|song| song.exercise_spec);
+                spec.is_some_and(|spec| self.open_exercise(ctx, spec))
             }
             super::playing_scene::practice_ui_ids::EXERCISE_START
                 if *self.state.current() == Page::Exercises =>

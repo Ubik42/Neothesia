@@ -172,6 +172,7 @@ pub fn play(data: &UiState, ctx: &mut Context) {
         speed: ctx.config.speed_multiplier(),
         loop_setup: existing.and_then(|setup| setup.loop_setup),
         source_path: song.file.source_path.clone(),
+        exercise_spec: song.exercise_spec,
         last_used_unix_ms: 0,
     };
     if let Err(error) =

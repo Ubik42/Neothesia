@@ -362,6 +362,39 @@ try {
     $menuAgain = Invoke-DebugDriver "SNAPSHOT"
     Assert-True ($null -eq $menuAgain.snapshot) "Player did not return to menu"
 
+    $libraryReopen = $null
+    if ($ExerciseFixture) {
+        $openLibrary = Invoke-DebugDriver "ACTION practice.menu.library"
+        Assert-True (
+            $openLibrary.ok -and $openLibrary.accepted
+        ) "Practice Library did not open"
+        $openRecentExercise = Invoke-DebugDriver (
+            "ACTION practice.library.open-recent-exercise"
+        )
+        Assert-True (
+            $openRecentExercise.ok -and $openRecentExercise.accepted
+        ) "Generated exercise could not be reopened from Practice Library"
+        for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            Start-Sleep -Milliseconds 100
+            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            if ($null -ne $candidate) {
+                $libraryReopen = $candidate
+                break
+            }
+        }
+        Assert-True (
+            $null -ne $libraryReopen
+        ) "Reopened library exercise did not enter the player"
+        Assert-True (
+            $libraryReopen.hands -eq "Right"
+        ) "Reopened exercise did not restore the latest hand setup"
+        $backFromReopen = Invoke-DebugDriver "ACTION practice.player.back"
+        Assert-True (
+            $backFromReopen.ok -and $backFromReopen.accepted
+        ) "Reopened exercise did not return to the menu"
+        Start-Sleep -Milliseconds 100
+    }
+
     $exit = Invoke-DebugDriver "EXIT"
     Assert-True $exit.ok "Clean debug exit was not acknowledged"
     if (-not $process.WaitForExit(5000)) {
@@ -394,6 +427,7 @@ try {
     [pscustomobject]@{
         Source = if ($ExerciseFixture) { "generated exercise" } else { $midi }
         ExercisePersistence = $exercisePersistence
+        LibraryReopen = if ($libraryReopen) { $libraryReopen.hands } else { $null }
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
         MatchedAfterInput = [int]$afterInput.matched_notes
