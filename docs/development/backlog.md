@@ -14,8 +14,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 ## NEXT — M1 practice intelligence
 
 - [x] `PRA-010` Extract a deterministic practice matcher from `MidiPlayer`.
-- [ ] `PRA-011` Define timing windows and correct/wrong/missed/early/late results.
-- [ ] `PRA-012` Match chords, repeated pitches and overlapping same-pitch notes.
+- [x] `PRA-011` Define timing windows and correct/wrong/missed/early/late results.
+- [x] `PRA-012` Match chords, repeated pitches and overlapping same-pitch notes.
 - [x] `PRA-013` Expose a stable live practice snapshot to the UI.
 - [x] `PRA-014` Show a compact live accuracy/timing panel.
 - [ ] `PRA-015` Show an end-of-attempt summary.

@@ -4,6 +4,42 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 003: Repeated and missed notes (DONE)
+
+### Outcome
+
+Practice results no longer lose repeated same-pitch presses, and flow practice
+can distinguish a note that was never played from an unrelated wrong key.
+
+### Implemented
+
+- Replaced one-entry-per-pitch maps with FIFO occurrence queues.
+- Matched successive and overlapping same-pitch occurrences independently.
+- Added a configurable late-match window and missed-note finalization.
+- Fed human-track targets into the matcher in both guided and flow practice.
+- Kept guided targets pending while allowing flow targets to expire as missed.
+- Included missed and still-needed counts in the live top-bar status.
+
+### Verification
+
+- Added tests for repeated presses, overlapping targets and missed finalization.
+- Added application integration tests proving wait mode does not create misses
+  and flow mode does.
+- `cargo test -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Existing compiler warnings are unchanged and unrelated.
+
+Implementation commit: `fbee89d`
+(`feat: score repeated and missed practice notes`).
+
+### Known limitations
+
+- Match outcomes do not yet carry track, hand, score time or measure identity.
+- Session totals are not yet finalized into a summary or saved.
+
 ## 2026-07-25 — Cycle 002: Deterministic practice feedback (DONE)
 
 ### Outcome

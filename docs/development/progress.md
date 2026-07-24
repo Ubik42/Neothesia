@@ -10,6 +10,27 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 003 — Repeated notes and missed-note lifecycle
+
+State: **DONE**
+
+Delivered:
+
+- replaced pitch-keyed single entries with FIFO occurrence queues;
+- matched repeated and overlapping same-pitch targets independently;
+- added a configurable late window and explicit missed-note totals;
+- enabled the same matcher in flow practice when wait mode is off;
+- kept guided wait targets pending indefinitely instead of misclassifying the
+  learner while they search for the note;
+- expanded the live status to show hits, wrong notes, misses and current need.
+
+Verification:
+
+- eight practice-domain tests and ten application tests pass;
+- application integration tests distinguish guided waits from flow misses;
+- release build passes;
+- implementation commit: `fbee89d`.
+
 ### Cycle 002 — Deterministic practice feedback
 
 State: **DONE**
@@ -76,15 +97,14 @@ Acceptance checklist:
 
 ## Next decision
 
-Continue `PRA-011` and `PRA-012`: define a missed-note lifecycle and replace the
-pitch-keyed transient maps with occurrence-aware matching for repeated and
-overlapping same-pitch notes. Then the live panel can grow into a trustworthy
-attempt summary instead of a misleading whole-song percentage.
+Begin `PRA-015` and `PRA-016`: attach score-note context (track/hand, MIDI time
+and measure) to match outcomes, aggregate a completed attempt, and present an
+end-of-attempt summary. This keeps the next UI grounded in passage-level data
+instead of a misleading whole-song percentage.
 
 ## Known constraints
 
 - The custom GPU UI has no DOM and limited accessibility/automation semantics.
 - The CLI/video package requires local FFmpeg development dependencies.
-- The new matcher is deterministic, but same-pitch overlapping note occurrences
-  and missed-note finalization still need explicit identity and lifecycle rules.
+- Live totals are not yet grouped by measure or hand and are not persisted.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.
