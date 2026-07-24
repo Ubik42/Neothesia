@@ -27,12 +27,20 @@ MetadataSidecar(
         tags: ["impressionism", "voicing"],
         notes: Some("Keep the melody above the accompaniment."),
     ),
+    fingerings: [
+        FingerHint(track_id: 1, note_index: 0, finger: 5),
+        FingerHint(track_id: 2, note_index: 0, finger: 1),
+    ],
 )
 ```
 
 Every descriptive field is optional. Empty strings are removed, surrounding
 spaces are trimmed, and tags are sorted and deduplicated without regard to
 case.
+
+Finger hints identify one exact note by MIDI track and its zero-based index
+inside that track. Fingers must be 1 through 5. Neothesia writes these technical
+identifiers itself; the player workflow never asks the learner to type them.
 
 ## Identity safety
 
@@ -76,8 +84,31 @@ Tags are entered as a comma-separated list. Saving returns to the library and
 refreshes the title, credit and search index. **Cancel**, `Escape` and the mouse
 back button discard the unsaved edit.
 
+## Add finger hints in the player
+
+1. Open an imported local MIDI.
+2. Select **Edit fingers** in the top bar, or press `Ctrl+I`.
+3. Neothesia pauses and selects the nearest visible piano note.
+4. Use `Left` / `Right` to move through notes. Notes sharing an onset are
+   ordered from low to high, so chord fingers can be entered one at a time.
+5. Press `1` through `5` to assign a finger. The selection advances
+   automatically.
+6. Press `Delete` or `Backspace` to clear the selected hint.
+7. Select **Edit: ON**, press `Ctrl+I`, or press `Escape` to leave edit mode.
+
+The status message names the hand/part, one-based measure and piano pitch, and
+shows an existing finger when present. Every assignment is saved immediately;
+there is no unsaved batch to lose. Manual numbers use the same independently
+switchable **Fingers: ON/OFF** layer as reviewed Technique Studio guidance.
+
+Finger editing is offered only for an imported MIDI with a real source file.
+Generated Technique Studio exercises already use reviewed tables and must be
+exported before they can own a portable adjacent sidecar.
+
 ## Persistence guarantees
 
 Neothesia writes a complete temporary file in the same directory, flushes it,
 then atomically replaces the previous sidecar. A failed save removes the
-temporary file and leaves the previous metadata intact.
+temporary file and leaves the previous metadata and finger hints intact.
+Editing descriptive metadata preserves finger hints, and editing finger hints
+preserves descriptive metadata.

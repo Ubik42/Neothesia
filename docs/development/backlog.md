@@ -54,7 +54,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `LIB-004` Add recent, favourite and practice-queue views.
 - [x] `LIB-005` Add a recent-practice library with verified missing-file repair.
 - [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
-- [ ] `MUS-002` Add manual finger hints in portable sidecars.
+- [x] `MUS-002` Add manual finger hints in portable sidecars.
+- [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
+- [x] `MUS-002B` Load manual hints into the independently switchable waterfall
+  guidance layer.
+- [x] `MUS-002C` Add a native paused, sequential finger-annotation workflow.
 - [ ] `MUS-003` Prototype explainable fingering suggestions.
 - [x] `MUS-004` Capture and display descriptive pedal/dynamics evidence.
 - [x] `MUS-005` Add calibrated pedal timing and dynamics-contour feedback.

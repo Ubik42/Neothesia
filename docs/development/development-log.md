@@ -4,6 +4,73 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 062: Portable manual finger hints (DONE)
+
+### Outcome
+
+Imported repertoire can now carry learner-reviewed fingering without changing
+the MIDI. Annotation happens directly against the falling notes: pause, step
+through the score, press 1–5, and continue. The guidance reappears when the
+piece is reopened or moved together with its sidecar.
+
+### Implemented
+
+- Added `FingerHint { track_id, note_index, finger }` to the version-1 sidecar.
+- Validated finger range and canonicalized duplicate exact-note hints.
+- Preserved fingerings during metadata saves and metadata during fingering
+  saves.
+- Loaded valid hints automatically when constructing an imported `Song`.
+- Included track identity in renderer keys, removing ambiguity between
+  same-time/same-pitch notes on different tracks.
+- Generalized exercise-only maps and labels into shared finger guidance.
+- Added a sequential editor over visible non-drum notes in stable score order.
+- Started at the nearest score time, paused playback and sought each selected
+  note to the keyboard line.
+- Added low-to-high chord navigation, 1–5 assignment, automatic advance and
+  Delete/Backspace clearing.
+- Saved every edit atomically before changing live state.
+- Added a persistent top-bar edit button, Ctrl+I shortcut and detailed target
+  toasts.
+- Kept generated reviewed exercises read-only until exported.
+- Renamed Settings copy from Exercise Fingerings to Finger Guidance.
+- Added semantic automation actions and snapshot counts.
+- Added a real-process fingering fixture that verifies UI state and sidecar
+  bytes.
+- Repositioned persistent output/panic pills while the top bar is expanded to
+  prevent control overlap.
+- Completed `MUS-002`.
+
+### Verification
+
+- Eight library-sidecar tests include mutual preservation and invalid rollback.
+- Song reload maps an imported exact-note hint.
+- Player tests cover score ordering, navigation, pitch labels and replacement.
+- `scripts/debug-practice-smoke.ps1 -FingeringFixture` passes with one live
+  manual hint and an adjacent sidecar containing finger 1.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `scripts/debug-practice-smoke.ps1 -ExerciseFixture`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, ninety-two core tests and
+sixty-six application tests. Both real-process smokes pass. Clippy and release
+builds report only the repository's pre-existing platform-helper and
+`unused_mut` warnings.
+
+Implementation commit: `f012ef4`
+(`feat: add portable manual finger hints`).
+
+### Known limitations
+
+- The selected unassigned note is identified by score position and toast, not
+  yet by a dedicated colored outline.
+- Manual hints do not infer thumb-under/finger-over turn markers.
+- The editor follows visible tracks; temporarily hidden parts are intentionally
+  excluded.
+- There is no automatic fingering suggestion yet; that remains `MUS-003`.
+
 ## 2026-07-25 — Cycle 061: Native song metadata editor (DONE)
 
 ### Outcome

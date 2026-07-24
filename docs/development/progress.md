@@ -10,6 +10,42 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 062 — Portable manual finger hints
+
+State: **DONE**
+
+Delivered:
+
+- extended content-bound song sidecars with exact `track_id + note_index`
+  finger hints;
+- accepted only piano fingers 1 through 5 and preserved the previous sidecar
+  after invalid edits;
+- made metadata and finger edits preserve each other;
+- mapped imported hints to exact start/pitch/channel/track waterfall notes;
+- generalized the reviewed-fingering renderer for imported songs;
+- added **Edit fingers** / `Ctrl+I`, paused score-order navigation, immediate
+  1–5 assignment, automatic advance and deletion;
+- exposed persistent edit state plus hand, measure, pitch and current-finger
+  feedback;
+- moved output/panic badges below the expanded top bar so the new and existing
+  finger controls remain clickable at minimum window width;
+- added native automation for edit, live rendering state and sidecar
+  persistence;
+- completed `MUS-002A` through `MUS-002C` and parent `MUS-002`.
+
+Verification:
+
+- metadata/fingering preservation and invalid-finger rollback pass;
+- an imported song reload maps a saved hint to one exact note;
+- target ordering, bounded navigation, pitch naming and replace/clear behavior
+  are deterministic;
+- real-process automation starts with zero hints, pauses in edit mode, assigns
+  finger 1, observes one live/manual hint and verifies the adjacent sidecar;
+- ninety-two core, sixty-six application and two MIDI-file tests pass;
+- Clippy, release build, manual-fingering and Technique Studio native smokes,
+  formatting and diff checks pass with only pre-existing warnings;
+- implementation commit: `f012ef4`.
+
 ### Cycle 061 — Native song metadata editor
 
 State: **DONE**
