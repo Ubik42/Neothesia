@@ -74,6 +74,26 @@ pub struct ScoreMidiAlignment {
     pub navigation_diagnostics: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlignmentReadiness {
+    Ready,
+    Review,
+    Poor,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlignmentCompatibility {
+    pub readiness: AlignmentReadiness,
+    pub matched_notes: usize,
+    pub unmatched_score_notes: usize,
+    pub unmatched_midi_notes: usize,
+    pub inexact_projection_matches: usize,
+    pub coverage_percent: u8,
+    pub mean_confidence_percent: u8,
+    pub navigation_diagnostics: Vec<String>,
+}
+
 impl Default for ScoreMidiAlignment {
     fn default() -> Self {
         Self {
@@ -85,6 +105,38 @@ impl Default for ScoreMidiAlignment {
             navigation_complete: true,
             navigation_diagnostics: Vec::new(),
         }
+    }
+}
+
+/// Produces a compact, structured import verdict suitable for a picker or
+/// diagnostics panel. It intentionally keeps navigation failure separate from
+/// note coverage so a high percentage cannot hide an unsafe playback plan.
+pub fn summarize_alignment(alignment: &ScoreMidiAlignment) -> AlignmentCompatibility {
+    let readiness = if !alignment.navigation_complete {
+        AlignmentReadiness::Blocked
+    } else if alignment.coverage_percent >= 95
+        && alignment.mean_confidence_percent >= 85
+        && alignment.unmatched_score.is_empty()
+    {
+        AlignmentReadiness::Ready
+    } else if alignment.coverage_percent >= 75 && alignment.mean_confidence_percent >= 70 {
+        AlignmentReadiness::Review
+    } else {
+        AlignmentReadiness::Poor
+    };
+    AlignmentCompatibility {
+        readiness,
+        matched_notes: alignment.matches.len(),
+        unmatched_score_notes: alignment.unmatched_score.len(),
+        unmatched_midi_notes: alignment.unmatched_midi.len(),
+        inexact_projection_matches: alignment
+            .matches
+            .iter()
+            .filter(|item| !item.exact_score_projection)
+            .count(),
+        coverage_percent: alignment.coverage_percent,
+        mean_confidence_percent: alignment.mean_confidence_percent,
+        navigation_diagnostics: alignment.navigation_diagnostics.clone(),
     }
 }
 
@@ -758,7 +810,7 @@ mod tests {
         )
         .unwrap();
         let performance = [performed(0, 60, 0), performed(1, 60, 500)];
-        let alignment = align_score_occurrences(
+        let mut alignment = align_score_occurrences(
             &score,
             &TempoTrack::build(&[], 480),
             &performance,
@@ -780,6 +832,10 @@ mod tests {
         );
         assert!(alignment.navigation_complete);
         assert!(alignment.navigation_diagnostics.is_empty());
+        alignment.matches[0].exact_score_projection = false;
+        let compatibility = summarize_alignment(&alignment);
+        assert_eq!(compatibility.readiness, AlignmentReadiness::Ready);
+        assert_eq!(compatibility.inexact_projection_matches, 1);
     }
 
     #[test]
@@ -808,6 +864,10 @@ mod tests {
         assert!(!alignment.navigation_complete);
         assert_eq!(alignment.navigation_diagnostics.len(), 1);
         assert!(alignment.navigation_diagnostics[0].contains("part P2"));
+        assert_eq!(
+            summarize_alignment(&alignment).readiness,
+            AlignmentReadiness::Blocked
+        );
     }
 
     fn three_note_score(pitches: [&str; 3]) -> Score {
@@ -874,6 +934,10 @@ mod tests {
         assert_eq!(alignment.matches[2].confidence_percent, 95);
         assert_eq!(alignment.coverage_percent, 75);
         assert_eq!(alignment.mean_confidence_percent, 98);
+        assert_eq!(
+            summarize_alignment(&alignment).readiness,
+            AlignmentReadiness::Review
+        );
     }
 
     #[test]
@@ -903,5 +967,9 @@ mod tests {
         assert_eq!(alignment.unmatched_score.len(), 3);
         assert_eq!(alignment.unmatched_midi.len(), 1);
         assert_eq!(alignment.coverage_percent, 0);
+        assert_eq!(
+            summarize_alignment(&alignment).readiness,
+            AlignmentReadiness::Poor
+        );
     }
 }
