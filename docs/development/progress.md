@@ -10,6 +10,45 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 080 — Score-note to MIDI-note alignment
+
+State: **DONE**
+
+Delivered:
+
+- aligned pitched score events to concrete MIDI `track_id` / `note_index`
+  identities while preserving stable score IDs;
+- matched each pitch as an order-preserving sequence so MusicXML chord order
+  cannot disturb simultaneous notes and gaps do not shift later repeats;
+- used dynamic programming with explicit score/MIDI skip costs and refused
+  matches outside a 250 ms onset window;
+- reported unmatched notes on both sides instead of forcing false equivalence;
+- derived confidence from onset error, duration error and exact/inexact PPQ
+  projection;
+- excluded General MIDI drum channel 10 from piano candidates;
+- bounded each pitch matrix to one million cells and supplied a deterministic
+  linear fallback for unusually large inputs;
+- completed `MUS-001C3` and the core `MUS-001C` alignment milestone.
+
+Verification:
+
+- an extra MIDI note between valid notes remains unmatched without consuming a
+  later score note;
+- a missing middle occurrence of a repeated pitch does not shift the final
+  occurrence;
+- equal pitches separated by 400 ms remain explicit gaps on both sides;
+- 127 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `e2e4905`.
+
+Next:
+
+- model repeat/ending playback semantics before claiming complete alignment for
+  non-linear scores;
+- add a user-facing compatibility/diagnostic surface before consuming matches
+  in synchronized notation.
+
 ### Cycle 079 — Score-to-MIDI time projection
 
 State: **DONE**

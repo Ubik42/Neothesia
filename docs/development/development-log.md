@@ -4,6 +4,57 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 080: Score-note to MIDI-note alignment (DONE)
+
+### Outcome
+
+Imported score notes can now be associated with the exact MIDI notes used by
+the player. Downstream notation, fingering and practice feedback can refer to a
+stable score event and a concrete track/note occurrence without pretending
+that every source pair aligns perfectly.
+
+### Implemented
+
+- Added public MIDI note IDs, performance-note inputs, aligned-note evidence
+  and an aggregate alignment result.
+- Collected non-drum MIDI notes directly from the parsed `MidiFile`.
+- Converted written MusicXML pitch and octave to MIDI pitch with explicit
+  out-of-range handling.
+- Split matching by pitch, then used order-preserving dynamic programming with
+  explicit gaps. This avoids dependence on MusicXML chord ordering and prevents
+  an omitted repeated note from shifting every later occurrence.
+- Refused candidates more than 250 ms apart.
+- Recorded signed onset and duration deltas plus whether the score time landed
+  exactly on the paired MIDI's PPQ grid.
+- Calculated explainable confidence from onset, duration and projection
+  precision, along with aggregate coverage and mean confidence.
+- Returned unmatched stable score IDs and unmatched MIDI track/note IDs.
+- Bounded dynamic-programming memory to one million cells per pitch and used a
+  deterministic chronological fallback above that bound.
+
+### Verification
+
+- An unrelated extra MIDI F between C–D–C does not displace any correspondence.
+- C–C–C in the score against first/last C in MIDI matches ordinals zero and two
+  and leaves ordinal one unmatched.
+- A same-pitch note 400 ms away is rejected and leaves explicit gaps on both
+  sides.
+- 127 core, 64 application and four MIDI-file tests pass.
+- The eight-score pinned compatibility audit is unchanged.
+- Clippy, release build, both native smoke suites, formatting and diff checks
+  pass with only pre-existing warnings.
+
+Implementation commit: `e2e4905` (`feat: align score notes with MIDI`).
+
+### Known limitations
+
+- Repeat and ending expansion is not modeled, so non-linear score playback can
+  still diverge structurally from a flattened MIDI.
+- The matcher does not yet estimate a global time offset or transposition.
+- The 250 ms gate is a conservative import heuristic, not a learner timing
+  grade.
+- The alignment API is not yet surfaced in the player or notation UI.
+
 ## 2026-07-25 — Cycle 079: Score-to-MIDI time projection (DONE)
 
 ### Outcome

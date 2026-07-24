@@ -29,9 +29,33 @@ grand staff synchronized with the existing player clock
 - deterministic part/measure/kind/ordinal identities for notes and directions.
 - exact score-time projection through a paired MIDI PPQ and tempo map, including
   explicit pulse-rounding and unprojected gaps.
+- confidence-bearing score-note to MIDI-note alignment with stable
+  `track_id`/`note_index` identities and explicit gaps on both sides.
 
 The model deliberately has no SVG, DOM, webview or wgpu layout types. Learning
 features must remain usable if the renderer changes later.
+
+## Alignment contract
+
+Alignment is evidence, not source mutation. For each written pitch, the matcher
+compares an ordered score sequence with the ordered non-drum MIDI sequence. A
+bounded dynamic-programming pass can skip either side, so an added note or a
+missing repeated pitch does not cascade into false matches. Candidates more
+than 250 ms apart are never forced together.
+
+Every accepted pair retains:
+
+- the stable score event ID;
+- the MIDI track ID and note index already used by the player;
+- signed onset and duration differences;
+- whether score time projected exactly to a MIDI pulse;
+- confidence derived from those timing facts.
+
+Unmatched score and MIDI identities remain first-class results. A one-million
+cell limit per pitch bounds memory; very large sequences use a deterministic
+chronological fallback. This core does not yet compensate global offset,
+transposition, repeats or endings, and the current player UI does not consume
+the mapping.
 
 ## Renderer decision
 
@@ -58,7 +82,8 @@ The pinned real-score evidence and exact counts live in the
 3. Model repeats/endings, tuplets, transposition, pedal and ornament semantics
    needed by learning features.
 4. Give score notes and measures stable identities and align them with the
-   player's performance timeline.
+   player's performance timeline. The linear-timeline core is complete; repeat
+   and ending playback policy remains.
 5. Measure Verovio import fidelity, SVG generation time, binary size and
    highlight latency outside the main application.
 6. Add a synchronized grand-staff proof of concept only after the spike meets
