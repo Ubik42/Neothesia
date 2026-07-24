@@ -8,6 +8,7 @@ export default defineConfig({
     nav: [
       { text: "Home", link: "/" },
       { text: "How-to", link: "/pages/installation" },
+      { text: "Roadmap", link: "/pages/plugin-hosting-roadmap" },
     ],
 
     sidebar: [
@@ -18,6 +19,15 @@ export default defineConfig({
           { text: "Shortcuts", link: "/pages/shortcuts" },
           { text: "Customization", link: "/pages/customization" },
           { text: "Video Encoding", link: "/pages/video-encoding" },
+        ],
+      },
+      {
+        text: "Development",
+        items: [
+          {
+            text: "Piano Plug-in Hosting",
+            link: "/pages/plugin-hosting-roadmap",
+          },
         ],
       },
     ],

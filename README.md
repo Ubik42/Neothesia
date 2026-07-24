@@ -39,6 +39,10 @@ All binary releases:
 - [FAQ](https://polymeilex.github.io/Neothesia/pages/installation.html)
 - [Video encoding](https://polymeilex.github.io/Neothesia/pages/video-encoding.html)
 
+## Development roadmap
+
+- [Piano plug-in hosting (VST3 and Pianoteq)](docs/pages/plugin-hosting-roadmap.md)
+
 ## Thanks to
 
 - [WGPU](https://wgpu.rs/)
