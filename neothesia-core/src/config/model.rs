@@ -52,6 +52,9 @@ impl Default for WaterfallConfig {
 pub struct PlaybackConfigV1 {
     #[serde(default = "default_speed_multiplier")]
     pub speed_multiplier: f32,
+
+    #[serde(default = "default_wait_for_notes")]
+    pub wait_for_notes: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,6 +66,7 @@ impl Default for PlaybackConfig {
     fn default() -> Self {
         Self::V1(PlaybackConfigV1 {
             speed_multiplier: default_speed_multiplier(),
+            wait_for_notes: default_wait_for_notes(),
         })
     }
 }
@@ -170,6 +174,12 @@ pub struct AppearanceConfigV1 {
     #[serde(default = "default_horizontal_guidelines")]
     pub horizontal_guidelines: bool,
 
+    #[serde(default = "default_beat_guidelines")]
+    pub beat_guidelines: bool,
+
+    #[serde(default = "default_measure_numbers")]
+    pub measure_numbers: bool,
+
     #[serde(default = "default_glow")]
     pub glow: bool,
 }
@@ -186,6 +196,8 @@ impl Default for AppearanceConfig {
             background_color: Default::default(),
             vertical_guidelines: default_vertical_guidelines(),
             horizontal_guidelines: default_horizontal_guidelines(),
+            beat_guidelines: default_beat_guidelines(),
+            measure_numbers: default_measure_numbers(),
             glow: default_glow(),
         })
     }
@@ -197,6 +209,10 @@ fn default_piano_range() -> (u8, u8) {
 
 fn default_speed_multiplier() -> f32 {
     1.0
+}
+
+fn default_wait_for_notes() -> bool {
+    true
 }
 
 fn default_animation_speed() -> f32 {
@@ -220,6 +236,14 @@ fn default_vertical_guidelines() -> bool {
 }
 
 fn default_horizontal_guidelines() -> bool {
+    true
+}
+
+fn default_beat_guidelines() -> bool {
+    false
+}
+
+fn default_measure_numbers() -> bool {
     true
 }
 
@@ -262,4 +286,19 @@ fn default_color_schema() -> Vec<ColorSchemaV1> {
 
 fn default_output() -> Option<String> {
     Some("Buildin Synth".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn practice_and_timeline_defaults_are_user_focused() {
+        let PlaybackConfig::V1(playback) = PlaybackConfig::default();
+        assert!(playback.wait_for_notes);
+
+        let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
+        assert!(appearance.measure_numbers);
+        assert!(!appearance.beat_guidelines);
+    }
 }

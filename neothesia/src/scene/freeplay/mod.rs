@@ -73,6 +73,8 @@ impl FreeplayScene {
             *keyboard.pos(),
             ctx.config.vertical_guidelines(),
             false,
+            false,
+            Default::default(),
             Default::default(),
         );
 

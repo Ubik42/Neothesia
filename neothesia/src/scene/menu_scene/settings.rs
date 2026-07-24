@@ -98,6 +98,19 @@ impl super::MenuScene {
                 self::keyboard_layout_preview(ctx, body_w, keyboard_h, ui);
                 nuon::translate().y(keyboard_h).add_to_current(ui);
 
+                nuon::settings_section("Practice")
+                    .width(body_w)
+                    .build(ui, |ui, rows, _spacer| {
+                        if nuon::settings_row_toggler()
+                            .title("Wait for Me")
+                            .subtitle("Pause until you play every required note")
+                            .value(ctx.config.wait_for_notes())
+                            .build(ui, rows)
+                        {
+                            ctx.config.set_wait_for_notes(!ctx.config.wait_for_notes());
+                        }
+                    });
+
                 nuon::settings_section("Render")
                     .width(body_w)
                     .build(ui, |ui, rows, spacer| {
@@ -121,6 +134,30 @@ impl super::MenuScene {
                         {
                             ctx.config
                                 .set_horizontal_guidelines(!ctx.config.horizontal_guidelines());
+                        }
+
+                        spacer(ui);
+
+                        if nuon::settings_row_toggler()
+                            .title("Quarter-note Guidelines")
+                            .subtitle("Display beat subdivisions inside each measure")
+                            .value(ctx.config.beat_guidelines())
+                            .build(ui, rows)
+                        {
+                            ctx.config
+                                .set_beat_guidelines(!ctx.config.beat_guidelines());
+                        }
+
+                        spacer(ui);
+
+                        if nuon::settings_row_toggler()
+                            .title("Measure Numbers")
+                            .subtitle("Label every measure with its number")
+                            .value(ctx.config.measure_numbers())
+                            .build(ui, rows)
+                        {
+                            ctx.config
+                                .set_measure_numbers(!ctx.config.measure_numbers());
                         }
 
                         spacer(ui);

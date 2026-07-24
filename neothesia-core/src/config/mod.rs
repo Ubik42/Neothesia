@@ -142,6 +142,22 @@ impl Config {
         self.appearance.horizontal_guidelines = horizontal_guidelines;
     }
 
+    pub fn beat_guidelines(&self) -> bool {
+        self.appearance.beat_guidelines
+    }
+
+    pub fn set_beat_guidelines(&mut self, beat_guidelines: bool) {
+        self.appearance.beat_guidelines = beat_guidelines;
+    }
+
+    pub fn measure_numbers(&self) -> bool {
+        self.appearance.measure_numbers
+    }
+
+    pub fn set_measure_numbers(&mut self, measure_numbers: bool) {
+        self.appearance.measure_numbers = measure_numbers;
+    }
+
     pub fn glow(&self) -> bool {
         self.appearance.glow
     }
@@ -241,6 +257,14 @@ impl Config {
 
     pub fn set_speed_multiplier(&mut self, speed_multiplier: f32) {
         self.playback.speed_multiplier = speed_multiplier.max(0.0);
+    }
+
+    pub fn wait_for_notes(&self) -> bool {
+        self.playback.wait_for_notes
+    }
+
+    pub fn set_wait_for_notes(&mut self, wait_for_notes: bool) {
+        self.playback.wait_for_notes = wait_for_notes;
     }
 
     pub fn save(&self) {

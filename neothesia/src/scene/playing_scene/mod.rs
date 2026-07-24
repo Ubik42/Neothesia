@@ -64,7 +64,9 @@ impl PlayingScene {
             *keyboard.pos(),
             ctx.config.vertical_guidelines(),
             ctx.config.horizontal_guidelines(),
+            ctx.config.beat_guidelines(),
             song.file.measures.clone(),
+            song.file.beats.clone(),
         );
 
         let hidden_tracks: Vec<usize> = song
@@ -97,6 +99,7 @@ impl PlayingScene {
             song,
             keyboard_layout.range.clone(),
             ctx.config.separate_channels(),
+            ctx.config.wait_for_notes(),
         );
         waterfall.update(player.time_without_lead_in());
 
@@ -165,13 +168,40 @@ impl PlayingScene {
             self.keyboard.reset_notes();
         }
 
-        if self.player.play_along().are_required_keys_pressed() {
+        if self.player.should_advance() {
             let delta = (delta / 10) * (ctx.config.speed_multiplier() * 10.0) as u32;
             let midi_events = self.player.update(delta);
             self.keyboard.file_midi_events(&ctx.config, &midi_events);
         }
 
         self.player.time_without_lead_in() + ctx.config.animation_offset()
+    }
+
+    fn queue_measure_numbers(&mut self, ctx: &Context, time: f32) {
+        if !ctx.config.horizontal_guidelines() || !ctx.config.measure_numbers() {
+            return;
+        }
+
+        let animation_speed = ctx.config.animation_speed() / ctx.window_state.scale_factor as f32;
+
+        for (index, measure) in self
+            .player
+            .song()
+            .file
+            .measures
+            .iter()
+            .enumerate()
+            .skip_while(|(_, measure)| measure.as_secs_f32() < time)
+        {
+            let y = self.keyboard.pos().y - (measure.as_secs_f32() - time) * animation_speed;
+            if y < 0.0 {
+                break;
+            }
+
+            let label = TextRenderer::gen_buffer_bold(14.0, &(index + 1).to_string());
+            self.text_renderer
+                .queue_buffer(8.0, (y - 18.0).max(0.0), label);
+        }
     }
 
     #[profiling::function]
@@ -207,6 +237,7 @@ impl Scene for PlayingScene {
             time,
             ctx.window_state.logical_size,
         );
+        self.queue_measure_numbers(ctx, time);
         self.keyboard
             .update(&mut self.quad_renderer_fg, &mut self.text_renderer);
         if let Some(note_labels) = self.note_labels.as_mut() {

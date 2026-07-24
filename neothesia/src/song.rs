@@ -29,7 +29,11 @@ impl SongConfig {
                 let is_drums = t.has_drums && !t.has_other_than_drums;
                 TrackConfig {
                     track_id: t.track_id,
-                    player: PlayerConfig::Auto,
+                    player: if t.notes.is_empty() || is_drums {
+                        PlayerConfig::Auto
+                    } else {
+                        PlayerConfig::Human
+                    },
                     visible: !is_drums,
                 }
             })

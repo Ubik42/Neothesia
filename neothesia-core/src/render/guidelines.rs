@@ -11,9 +11,11 @@ pub struct GuidelineRenderer {
     layout: piano_layout::KeyboardLayout,
     vertical_guidelines: bool,
     horizontal_guidelines: bool,
+    beat_guidelines: bool,
 
     cache: Vec<QuadInstance>,
     measures: Arc<[Duration]>,
+    beats: Arc<[Duration]>,
 }
 
 impl GuidelineRenderer {
@@ -22,15 +24,19 @@ impl GuidelineRenderer {
         pos: Point<f32>,
         vertical_guidelines: bool,
         horizontal_guidelines: bool,
+        beat_guidelines: bool,
         measures: Arc<[Duration]>,
+        beats: Arc<[Duration]>,
     ) -> Self {
         Self {
             pos,
             layout,
             vertical_guidelines,
             horizontal_guidelines,
+            beat_guidelines,
             cache: Vec::new(),
             measures,
+            beats,
         }
     }
 
@@ -110,6 +116,38 @@ impl GuidelineRenderer {
     }
 
     #[profiling::function]
+    fn update_beat_guidelines(
+        &mut self,
+        quads: &mut QuadRenderer,
+        animation_speed: f32,
+        time: f32,
+        size: dpi::LogicalSize<f32>,
+    ) {
+        for (index, beat) in self
+            .beats
+            .iter()
+            .enumerate()
+            .skip_while(|(_, beat)| beat.as_secs_f32() < time)
+        {
+            if index % 4 == 0 {
+                continue;
+            }
+
+            let y = self.pos.y - (beat.as_secs_f32() - time) * animation_speed;
+            if y < 0.0 {
+                break;
+            }
+
+            quads.layer().push(QuadInstance {
+                position: [0.0, y],
+                size: [size.width, 1.0],
+                color: [0.025, 0.025, 0.025, 1.0],
+                border_radius: [0.0; 4],
+            });
+        }
+    }
+
+    #[profiling::function]
     pub fn update(
         &mut self,
         quads: &mut QuadRenderer,
@@ -124,6 +162,9 @@ impl GuidelineRenderer {
 
         if self.horizontal_guidelines {
             let animation_speed = animation_speed / scale;
+            if self.beat_guidelines {
+                self.update_beat_guidelines(quads, animation_speed, time, size);
+            }
             self.update_horizontal_guidelines(quads, animation_speed, time, size);
         }
 

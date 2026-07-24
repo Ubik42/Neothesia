@@ -16,6 +16,7 @@ pub struct MidiPlayer {
     song: Song,
     play_along: PlayAlong,
     separate_channels: bool,
+    wait_for_notes: bool,
 }
 
 impl MidiPlayer {
@@ -24,12 +25,14 @@ impl MidiPlayer {
         song: Song,
         user_keyboard_range: piano_layout::KeyboardRange,
         separate_channels: bool,
+        wait_for_notes: bool,
     ) -> Self {
         Self::new_with_lead_in(
             output,
             song,
             user_keyboard_range,
             separate_channels,
+            wait_for_notes,
             Duration::from_secs(3),
         )
     }
@@ -39,6 +42,7 @@ impl MidiPlayer {
         song: Song,
         user_keyboard_range: piano_layout::KeyboardRange,
         separate_channels: bool,
+        wait_for_notes: bool,
         lead_in: Duration,
     ) -> Self {
         let mut player = Self {
@@ -47,6 +51,7 @@ impl MidiPlayer {
             play_along: PlayAlong::new(user_keyboard_range),
             song,
             separate_channels,
+            wait_for_notes,
         };
         // Let's reset programs,
         // for timestamp 0 most likely all programs will be 0, so this should clean any leftovers
@@ -83,13 +88,17 @@ impl MidiPlayer {
                         .midi_event(u4::new(channel), event.message);
                 }
                 PlayerConfig::Human => {
-                    self.play_along
-                        .midi_event(MidiEventSource::File, &event.message);
+                    if self.wait_for_notes {
+                        self.play_along
+                            .midi_event(MidiEventSource::File, &event.message);
 
-                    // In Human mode note events from the file are targets for the player,
-                    // not notes to be played by the synthesizer. Keep forwarding controller
-                    // and other non-note events so the track still sounds as intended.
-                    if should_forward_human_event(&event.message) {
+                        // In Human mode note events from the file are targets for the player,
+                        // not notes to be played by the synthesizer. Keep forwarding controller
+                        // and other non-note events so the track still sounds as intended.
+                        if should_forward_human_event(&event.message) {
+                            self.output.midi_event(u4::new(channel), event.message);
+                        }
+                    } else {
                         self.output.midi_event(u4::new(channel), event.message);
                     }
                 }
@@ -208,8 +217,19 @@ impl MidiPlayer {
 }
 
 impl MidiPlayer {
-    pub fn play_along(&self) -> &PlayAlong {
-        &self.play_along
+    pub fn should_advance(&self) -> bool {
+        !self.wait_for_notes || self.play_along.are_required_keys_pressed()
+    }
+
+    pub fn wait_for_notes(&self) -> bool {
+        self.wait_for_notes
+    }
+
+    pub fn set_wait_for_notes(&mut self, wait_for_notes: bool) {
+        if self.wait_for_notes != wait_for_notes {
+            self.wait_for_notes = wait_for_notes;
+            self.play_along.clear();
+        }
     }
 
     pub fn user_midi_event(&mut self, channel: u8, message: &MidiMessage) {
@@ -391,5 +411,31 @@ impl PlayAlong {
 
     pub fn are_required_keys_pressed(&self) -> bool {
         self.required_notes.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{output_manager::OutputConnection, song::Song};
+
+    #[test]
+    fn wait_mode_can_release_a_blocked_practice_track() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let mut player = MidiPlayer::new_with_lead_in(
+            OutputConnection::DummyOutput,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+
+        player.update(Duration::from_secs(10));
+        assert!(!player.should_advance());
+
+        player.set_wait_for_notes(false);
+        assert!(player.should_advance());
     }
 }

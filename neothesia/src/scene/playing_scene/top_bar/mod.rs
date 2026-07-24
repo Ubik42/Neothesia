@@ -120,6 +120,30 @@ impl TopBar {
                 .send_event(NeothesiaEvent::MainMenu(Some(this.player.song().clone())))
                 .ok();
         }
+
+        let wait_for_notes = this.player.wait_for_notes();
+        if nuon::button()
+            .x(38.0)
+            .size(110.0, 30.0)
+            .label(if wait_for_notes {
+                "Wait: ON"
+            } else {
+                "Wait: OFF"
+            })
+            .color(if wait_for_notes {
+                [56, 145, 255]
+            } else {
+                [74, 68, 88]
+            })
+            .hover_color([87, 155, 255])
+            .preseed_color([97, 165, 255])
+            .border_radius([5.0; 4])
+            .build(ui)
+        {
+            let enabled = !wait_for_notes;
+            this.player.set_wait_for_notes(enabled);
+            ctx.config.set_wait_for_notes(enabled);
+        }
     }
 
     fn panel_center(_this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {

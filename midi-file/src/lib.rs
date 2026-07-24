@@ -146,6 +146,9 @@ mod tests {
 
     #[test]
     fn load() {
-        let _midi = MidiFile::new("../test.mid").unwrap();
+        let midi = MidiFile::new("../test.mid").unwrap();
+        assert!(!midi.measures.is_empty());
+        assert!(midi.beats.len() > midi.measures.len());
+        assert!(midi.beats.windows(2).all(|pair| pair[0] < pair[1]));
     }
 }

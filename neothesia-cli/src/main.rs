@@ -99,7 +99,9 @@ impl Recorder {
             *keyboard.pos(),
             config.vertical_guidelines(),
             config.horizontal_guidelines(),
+            config.beat_guidelines(),
             midi.measures.clone(),
+            midi.beats.clone(),
         );
 
         let mut waterfall = WaterfallRenderer::new(

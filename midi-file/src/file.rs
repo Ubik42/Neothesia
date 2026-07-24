@@ -10,6 +10,7 @@ pub struct MidiFile {
     pub program_track: ProgramTrack,
     pub tempo_track: TempoTrack,
     pub measures: Arc<[std::time::Duration]>,
+    pub beats: Arc<[std::time::Duration]>,
 }
 
 impl MidiFile {
@@ -91,6 +92,28 @@ impl MidiFile {
             masures
         };
 
+        let beats = {
+            let last_note_end = tracks
+                .iter()
+                .fold(std::time::Duration::ZERO, |last, track| {
+                    if let Some(note) = track.notes.last() {
+                        last.max(note.start + note.duration)
+                    } else {
+                        last
+                    }
+                });
+
+            let mut beats = Vec::new();
+            let mut time = std::time::Duration::ZERO;
+            let mut id = 0;
+            while time <= last_note_end {
+                time = tempo_track.pulses_to_duration(id * u_per_quarter_note as u64);
+                beats.push(time);
+                id += 1;
+            }
+            beats
+        };
+
         let program_track = ProgramTrack::new(&tracks);
 
         Ok(Self {
@@ -100,6 +123,7 @@ impl MidiFile {
             program_track,
             tempo_track,
             measures: measures.into(),
+            beats: beats.into(),
         })
     }
 }
