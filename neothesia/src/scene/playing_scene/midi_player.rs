@@ -460,6 +460,31 @@ mod tests {
     }
 
     #[test]
+    fn practice_clock_is_delta_driven_and_freezes_while_paused() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let mut player = MidiPlayer::new_with_lead_in(
+            OutputConnection::DummyOutput,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            false,
+            Duration::ZERO,
+        );
+
+        player.tick_practice_clock(Duration::from_millis(250));
+        assert_eq!(player.session_time, Duration::from_millis(250));
+
+        player.pause();
+        player.tick_practice_clock(Duration::from_secs(30));
+        assert_eq!(player.session_time, Duration::from_millis(250));
+
+        player.resume();
+        player.tick_practice_clock(Duration::from_millis(125));
+        assert_eq!(player.session_time, Duration::from_millis(375));
+    }
+
+    #[test]
     fn transport_changes_and_drop_silence_the_output() {
         let file = midi_file::MidiFile::new("../test.mid").unwrap();
         let song = Song::new(file);
