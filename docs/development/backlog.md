@@ -54,6 +54,14 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `LIB-004` Add recent, favourite and practice-queue views.
 - [x] `LIB-005` Add a recent-practice library with verified missing-file repair.
 - [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
+- [x] `MUS-001A` Add a notation-neutral score model and a tested uncompressed
+  partwise MusicXML importer.
+- [ ] `MUS-001B` Add compressed MXL input, timewise conversion and a
+  representative piano fixture corpus.
+- [ ] `MUS-001C` Align imported score events with the performance timeline and
+  expose stable note/measure identities.
+- [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
+  coupling practice logic to the renderer.
 - [x] `MUS-002` Add manual finger hints in portable sidecars.
 - [x] `MUS-002A` Add exact-note, content-bound finger hints to song sidecars.
 - [x] `MUS-002B` Load manual hints into the independently switchable waterfall
@@ -143,6 +151,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `UI-R09` Reach completion tabs and Retry with a deterministic MIDI fixture.
 - [ ] `UI-R02` Evaluate a React library/analytics panel only after its API exists.
 - [ ] `MUS-R01` Compare direct MusicXML rendering with an embedded notation engine.
+- [x] `MUS-R01A` Record the native, Verovio and MuseScore boundaries and choose
+  the next renderer spike.
+- [ ] `MUS-R01B` Measure Verovio import fidelity, SVG generation time, binary
+  size and interactive highlight latency on representative piano scores.
 
 ## Definition of done
 

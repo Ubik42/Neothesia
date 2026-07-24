@@ -63,7 +63,7 @@ New product logic should move out of scene code into explicit domains:
       |                  |                  |
       +------------ application services --+
                          |
-             MIDI timeline + persistence
+      MIDI timeline + semantic score + persistence
 ```
 
 ### Required boundaries
@@ -73,6 +73,8 @@ New product logic should move out of scene code into explicit domains:
 - `library`: stable song identity derived from content, not only file path.
 - `instrument`: one interface for SoundFont, MIDI out and future VST3.
 - `storage`: versioned, atomic local data with migration tests.
+- `score`: notation-neutral parts, measures, voices and annotations with exact
+  musical time; MusicXML parsers and engraving engines remain adapters.
 - `ui`: scenes render state and send actions; they do not own learning rules.
 
 An optional HTML/React surface may later be prototyped for a rich library or

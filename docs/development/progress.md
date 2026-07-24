@@ -10,6 +10,43 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 073 — MusicXML semantic foundation
+
+State: **DONE**
+
+Delivered:
+
+- separated notation semantics from both MusicXML document structure and any
+  future engraving engine;
+- added exact rational score time so tuplets and changing divisions do not
+  accumulate floating-point drift;
+- imported partwise score metadata, parts, measures, voices, staves, pitches,
+  rests, chords, directions, dynamics, tempo, fingering, ties, slurs and
+  articulations;
+- modeled grand-staff attributes including divisions, key, meter and clefs;
+- handled multi-voice `backup`/`forward` timing and emitted explicit warnings
+  for recognized but deferred notation;
+- compared native engraving, Verovio and MuseScore boundaries and selected an
+  isolated Verovio SVG spike as the next renderer experiment;
+- completed `MUS-001A` and `MUS-R01A`.
+
+Verification:
+
+- a two-staff, two-voice piano fixture retains simultaneous chord notes,
+  rewinds the second voice correctly and preserves learning annotations;
+- timewise input is rejected explicitly instead of being misread;
+- XML entities and typed composer metadata survive import;
+- 113 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `7448f4b`.
+
+Next:
+
+- `MUS-001B`: compressed MXL and a real-world piano fixture corpus;
+- `MUS-R01B`: an isolated Verovio measurement spike before any UI dependency
+  is accepted.
+
 ### Cycle 072 — Rapid repeated-note alternation
 
 State: **DONE**

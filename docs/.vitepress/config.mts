@@ -28,6 +28,10 @@ export default defineConfig({
             text: "Piano Plug-in Hosting",
             link: "/pages/plugin-hosting-roadmap",
           },
+          {
+            text: "MusicXML Architecture",
+            link: "/pages/musicxml-architecture",
+          },
         ],
       },
     ],

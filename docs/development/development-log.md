@@ -4,6 +4,71 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 073: MusicXML semantic foundation (DONE)
+
+### Outcome
+
+Neothesia now has a score-data boundary capable of carrying piano-learning
+meaning that MIDI omits. Future sheet rendering, phrase-aware fingering and
+score/performance comparison can share this model without depending on one XML
+parser or engraving engine.
+
+### Research and architecture decision
+
+- MusicXML 4.0 is an interchange format for notation, education and performance
+  software, but its complete schema is intentionally much larger than this
+  first learning-focused slice:
+  <https://www.w3.org/2021/06/musicxml40/>
+- Verovio is a portable open-source engraving engine that accepts MusicXML and
+  emits SVG. Its official documentation also makes importer-path and compressed
+  MXL constraints explicit:
+  <https://book.verovio.org/toolkit-reference/input-formats.html>
+- MuseScore offers broad MusicXML import and SVG/PDF export, including command
+  line conversion, but is an external desktop application rather than a small
+  embeddable boundary:
+  <https://handbook.musescore.org/file-management/working-with-musicxml-files>
+
+The selected sequence is: own the small semantic model, measure Verovio in an
+isolated spike, then decide how to display SVG in the native wgpu application.
+Native staff engraving from scratch is not accepted into the plan.
+
+### Implemented
+
+- Added a streaming MusicXML importer built on `quick-xml`.
+- Added score, part, measure, note, direction, attribute, pitch and span types.
+- Represented score positions as reduced rational quarter-note values.
+- Imported two-staff piano clefs, key and time signatures, voices, rests,
+  chords, directions, dynamics, tempo, fingerings, ties, slurs and
+  articulations.
+- Implemented MusicXML `backup` and `forward` cursor behavior for polyphonic
+  measures.
+- Preserved XML entities and selected only typed composer creators.
+- Rejected timewise input explicitly and reported recognized deferred notation
+  such as ornaments, tuplets, transposition and pedal markings.
+- Kept compressed MXL and rendering outside this first slice.
+
+### Verification
+
+- Added tests for a two-staff, two-voice, annotated piano measure.
+- Verified exact chord onset, second-voice rewind and rational-time reduction.
+- Verified typed creator and escaped-title import.
+- Verified explicit timewise rejection and deferred-notation warnings.
+- 113 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, formatting and diff checks
+  pass with only pre-existing warnings.
+
+Implementation commit: `7448f4b` (`feat: add MusicXML score semantics`).
+
+### Known limitations
+
+- Only uncompressed `score-partwise` input is accepted.
+- The importer is deliberately not a complete MusicXML round-trip editor.
+- Repeats, endings, tuplets, transposition, pedal directions and ornaments need
+  explicit model work before learning features consume them.
+- There is not yet a mapping between score identities and the MIDI performance
+  used by the falling-note player.
+- No engraving renderer has entered the application dependency graph.
+
 ## 2026-07-25 — Cycle 072: Rapid repeated-note alternation (DONE)
 
 ### Outcome
