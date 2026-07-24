@@ -41,7 +41,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   route diagnostic.
 - [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
 - [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.
-- [ ] `QA-010` Add deterministic player tests that do not use wall-clock sleeps.
+- [x] `QA-010` Add deterministic player tests that do not use wall-clock sleeps.
 
 ## LATER — repertoire and learning
 

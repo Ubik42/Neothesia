@@ -4,6 +4,52 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 059: Deterministic player clock (DONE)
+
+### Outcome
+
+Player timing tests now state and enforce the intended clock boundary directly.
+Thirty simulated seconds pass instantly in the regression suite, and pausing
+does not leak any of that duration into scoring.
+
+### Implemented
+
+- Audited `neothesia_core::practice`, `MidiPlayer` and
+  `midi_file::PlaybackState`.
+- Confirmed that scoring time and score playback both use explicit
+  caller-provided deltas.
+- Added a player regression that:
+  - advances the session clock by 250 ms;
+  - pauses and supplies a 30-second delta without changing the clock;
+  - resumes and advances by exactly another 125 ms.
+- Completed `QA-010`.
+
+### Verification
+
+- `cargo test -p neothesia --bin neothesia
+  practice_clock_is_delta_driven_and_freezes_while_paused`
+- Source search finds no sleep, `Instant::now` or `SystemTime::now` in the
+  practice matcher, MIDI player or playback timeline.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-six core tests and sixty
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `3ad052b`
+(`test: enforce deterministic player clock`).
+
+### Known limitations
+
+- Render-frame timing still originates from the application event loop, as it
+  should in production; deterministic domain/player tests bypass that boundary.
+- Toast expiry uses a wall clock but is presentation-only and does not affect
+  playback, scoring or practice history.
+
 ## 2026-07-25 — Cycle 058: Pianoteq route diagnostics (DONE)
 
 ### Outcome

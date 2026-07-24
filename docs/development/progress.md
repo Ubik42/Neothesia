@@ -10,6 +10,31 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 059 — Deterministic player clock
+
+State: **DONE**
+
+Delivered:
+
+- audited the practice matcher, `MidiPlayer` and MIDI playback timeline for
+  hidden wall-clock access;
+- confirmed all three advance only through caller-supplied `Duration` values;
+- added a focused player regression for explicit advancement, paused clock
+  freezing and deterministic resumed advancement;
+- completed `QA-010`.
+
+Verification:
+
+- source audit finds no sleep, `Instant::now` or `SystemTime::now` in the
+  matcher, player or playback timeline;
+- the new test advances to 250 ms, ignores a simulated 30-second pause and
+  resumes exactly at 375 ms;
+- no test waits for real time or depends on scheduler timing;
+- eighty-six core, sixty application and two MIDI-file tests pass;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `3ad052b`.
+
 ### Cycle 058 — Pianoteq route diagnostics
 
 State: **DONE**
