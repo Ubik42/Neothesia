@@ -10,6 +10,45 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 084 — Repeated occurrence to MIDI alignment
+
+State: **DONE**
+
+Delivered:
+
+- changed alignment evidence from source-only score IDs to stable
+  source-plus-occurrence IDs;
+- made the primary score/MIDI alignment entry point expand common repeats and
+  numbered endings before matching;
+- retained the explicit written-order matcher for callers that require a
+  strictly linear score;
+- matched repeated pitches with the existing gap-aware per-pitch dynamic
+  programming and confidence model;
+- compared performed measure/pass signatures across parts;
+- exposed navigation completeness and part-specific diagnostics in alignment
+  results;
+- completed `MUS-001G4` and the common-repeat `MUS-001G` milestone.
+
+Verification:
+
+- two occurrences of one repeated source C match MIDI C notes at 0/500 ms,
+  retain one source ID and expose visit IDs zero/one;
+- conflicting repeated right-hand and linear left-hand parts return
+  `navigation_complete=false` with a P2 diagnostic;
+- all prior extra-note, missing-repeat and refusal-window regressions remain
+  green after the identity migration;
+- 136 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `5f99c7a`.
+
+Next:
+
+- expose a compact compatibility summary suitable for the future score picker
+  and notation UI;
+- begin the isolated Verovio renderer feasibility spike without coupling it to
+  the now-complete semantic/alignment core.
+
 ### Cycle 083 — Repeated event occurrence timing
 
 State: **DONE**

@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 084: Repeated occurrence to MIDI alignment (DONE)
+
+### Outcome
+
+Common MusicXML repeats and numbered endings now reach the concrete MIDI-note
+matcher. Each match answers both “which written note?” and “which performed
+visit?”, so repeated passages can later drive synchronized notation and
+practice evidence without identity collisions.
+
+### Implemented
+
+- Migrated aligned and unmatched score evidence to `ScoreEventOccurrenceId`.
+- Made `align_score_to_midi` build bounded performed-order plans by default.
+- Projected each part's repeated pitched occurrences through the MIDI tempo map
+  before using the existing gap-aware matcher.
+- Preserved the explicit linear `align_score_notes` API with deterministic
+  occurrence identities for callers that need written order.
+- Kept rests and directions out of pitched alignment while retaining invalid or
+  unprojectable pitched occurrences as explicit unmatched score evidence.
+- Compared source-measure/repeat-pass visit signatures across score parts.
+- Added navigation completeness and readable part/measure diagnostics to the
+  aggregate result.
+
+### Verification
+
+- A source C repeated twice matches MIDI occurrences at 0 and 500 ms.
+- Both matches retain the same stable source ID and distinct visit IDs.
+- A repeated P1 and linear P2 are reported as incompatible navigation.
+- Prior extra MIDI note, missing repeated note and 400 ms refusal regressions
+  remain green after the identity change.
+- 136 core, 64 application and four MIDI-file tests pass.
+- The pinned compatibility corpus, Clippy, release build, both native smokes,
+  formatting and diff checks pass with only pre-existing warnings.
+
+Implementation commit: `5f99c7a` (`feat: align repeated score occurrences`).
+
+### Known limitations
+
+- Nested repeats and textual jump navigation are still diagnostic-only.
+- Navigation diagnostics exist in the core but are not shown in an import UI.
+- A global offset or transposition estimator is still absent.
+
 ## 2026-07-25 — Cycle 083: Repeated event occurrence timing (DONE)
 
 ### Outcome

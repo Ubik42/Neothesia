@@ -79,9 +79,12 @@ plus measure-visit occurrence ID; their measure-relative onsets are projected
 through the paired MIDI PPQ and tempo map. This correctly gives repeated source
 notes distinct player-clock times without duplicating source semantics.
 
-The gap-aware MIDI-note matcher does not yet consume these repeated
-occurrences, and piano parts are not yet checked for compatible navigation. Da
-capo, dal segno, coda and fine require a later explicit navigation model.
+The primary gap-aware MIDI-note matcher now consumes these repeated
+occurrences. Match and unmatched evidence uses stable source-plus-occurrence
+IDs, and performed measure/pass signatures are compared across piano parts.
+Navigation conflicts and bounded-plan warnings remain explicit in the
+alignment result. Da capo, dal segno, coda and fine require a later explicit
+navigation model.
 
 ## Renderer decision
 
