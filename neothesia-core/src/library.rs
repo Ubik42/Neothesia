@@ -37,10 +37,17 @@ pub struct FingerHint {
     pub finger: u8,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ScoreAssociation {
+    pub path: PathBuf,
+    pub content_id: String,
+}
+
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SongSidecar {
     pub metadata: SongMetadata,
     pub fingerings: Vec<FingerHint>,
+    pub score: Option<ScoreAssociation>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -50,6 +57,8 @@ struct MetadataSidecar {
     metadata: SongMetadata,
     #[serde(default)]
     fingerings: Vec<FingerHint>,
+    #[serde(default)]
+    score: Option<ScoreAssociation>,
 }
 
 #[derive(Debug, Error)]
@@ -71,6 +80,8 @@ pub enum MetadataError {
         note_index: usize,
         finger: u8,
     },
+    #[error("paired score is not usable MusicXML: {0}")]
+    InvalidScore(#[source] crate::musicxml::ImportError),
     #[error("could not serialize metadata sidecar: {0}")]
     Serialize(#[source] ron::Error),
     #[error("could not save metadata sidecar: {0}")]
@@ -272,6 +283,7 @@ pub fn load_song_sidecar(
     Ok(SongSidecar {
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
+        score: sidecar.score,
     })
 }
 
@@ -293,6 +305,53 @@ pub fn save_song_fingerings(
     let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
     sidecar.fingerings = fingerings;
     save_song_sidecar(midi_path, content_id, sidecar)
+}
+
+pub fn save_score_association(
+    midi_path: &Path,
+    content_id: &str,
+    score_path: &Path,
+) -> Result<PathBuf, MetadataError> {
+    let source = fs::read(score_path)
+        .map_err(|error| MetadataError::InvalidScore(crate::musicxml::ImportError::Io(error)))?;
+    crate::musicxml::import_musicxml_document(&source).map_err(MetadataError::InvalidScore)?;
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.score = Some(ScoreAssociation {
+        path: portable_score_path(midi_path, score_path),
+        content_id: blake3::hash(&source).to_hex().to_string(),
+    });
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+
+pub fn resolve_score_path(midi_path: &Path, association: &ScoreAssociation) -> PathBuf {
+    if association.path.is_absolute() {
+        association.path.clone()
+    } else {
+        midi_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(&association.path)
+    }
+}
+
+pub fn verify_score_association(
+    midi_path: &Path,
+    association: &ScoreAssociation,
+) -> Result<bool, MetadataError> {
+    let source = fs::read(resolve_score_path(midi_path, association))
+        .map_err(|error| MetadataError::InvalidScore(crate::musicxml::ImportError::Io(error)))?;
+    crate::musicxml::import_musicxml_document(&source).map_err(MetadataError::InvalidScore)?;
+    Ok(blake3::hash(&source).to_hex().as_str() == association.content_id)
+}
+
+fn portable_score_path(midi_path: &Path, score_path: &Path) -> PathBuf {
+    let Some(parent) = midi_path.parent() else {
+        return score_path.to_path_buf();
+    };
+    score_path
+        .strip_prefix(parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| score_path.to_path_buf())
 }
 
 fn existing_sidecar_or_default(
@@ -317,6 +376,7 @@ fn save_song_sidecar(
         content_id: content_id.to_owned(),
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
+        score: sidecar.score,
     };
     let contents = ron::ser::to_string_pretty(
         &sidecar,
@@ -821,6 +881,55 @@ mod tests {
             [valid]
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn score_association_is_validated_content_bound_and_portable() {
+        let root = temp_directory("score-association");
+        let midi_path = root.join("Song.mid");
+        let score_path = root.join("Song.musicxml");
+        write_midi(&midi_path, 60);
+        fs::write(
+            &score_path,
+            br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1"><note><rest/><duration>1</duration></note></measure></part>
+</score-partwise>"#,
+        )
+        .unwrap();
+        let content_id = midi_file::MidiFile::new(&midi_path).unwrap().content_id;
+
+        save_score_association(&midi_path, &content_id, &score_path).unwrap();
+        let sidecar = load_song_sidecar(&midi_path, &content_id).unwrap();
+        let association = sidecar.score.unwrap();
+        assert_eq!(association.path, PathBuf::from("Song.musicxml"));
+        assert_eq!(resolve_score_path(&midi_path, &association), score_path);
+        assert!(verify_score_association(&midi_path, &association).unwrap());
+
+        fs::write(
+            resolve_score_path(&midi_path, &association),
+            br#"<score-partwise><part-list/></score-partwise>"#,
+        )
+        .unwrap();
+        assert!(!verify_score_association(&midi_path, &association).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_score_is_rejected_without_creating_a_sidecar() {
+        let root = temp_directory("invalid-score-association");
+        let midi_path = root.join("Song.mid");
+        let score_path = root.join("Broken.musicxml");
+        write_midi(&midi_path, 60);
+        fs::write(&score_path, b"not XML").unwrap();
+        let content_id = midi_file::MidiFile::new(&midi_path).unwrap().content_id;
+
+        assert!(matches!(
+            save_score_association(&midi_path, &content_id, &score_path),
+            Err(MetadataError::InvalidScore(_))
+        ));
+        assert!(!metadata_sidecar_path(&midi_path).exists());
         fs::remove_dir_all(root).unwrap();
     }
 }
