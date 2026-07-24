@@ -139,6 +139,30 @@ try {
         Assert-True ($afterHands.hands -ne $player.hands) "Hand mode did not change"
     }
 
+    $loop = Invoke-DebugDriver "ACTION practice.player.loop"
+    Assert-True ($loop.ok -and $loop.accepted) "Loop toggle was rejected"
+    $loopState = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    Assert-True $loopState.loop_active "Loop did not become active"
+    Assert-True (
+        $null -ne $loopState.loop_start_measure -and
+        $null -ne $loopState.loop_end_measure -and
+        $loopState.loop_start_measure -le $loopState.loop_end_measure
+    ) "Loop did not expose a valid measure range"
+
+    $restart = Invoke-DebugDriver "ACTION practice.player.restart"
+    Assert-True ($restart.ok -and $restart.accepted) "Practice restart was rejected"
+    $afterRestart = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    Assert-True $afterRestart.loop_active "Restart unexpectedly disabled the loop"
+    Assert-True (
+        $afterRestart.loop_start_measure -eq $loopState.loop_start_measure -and
+        $afterRestart.loop_end_measure -eq $loopState.loop_end_measure
+    ) "Restart did not preserve the loop range"
+
+    $loopOff = Invoke-DebugDriver "ACTION practice.player.loop"
+    Assert-True ($loopOff.ok -and $loopOff.accepted) "Loop disable was rejected"
+    $afterLoopOff = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    Assert-True (-not $afterLoopOff.loop_active) "Loop remained active after toggling off"
+
     $back = Invoke-DebugDriver "ACTION practice.player.back"
     Assert-True ($back.ok -and $back.accepted) "Return-to-menu action was rejected"
     Start-Sleep -Milliseconds 100
@@ -157,6 +181,9 @@ try {
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
         HandsBefore = $player.hands
         HandsAfter = if ($afterHands) { $afterHands.hands } else { $null }
+        LoopRange = "$($loopState.loop_start_measure)-$($loopState.loop_end_measure)"
+        LoopRestarted = [bool]$afterRestart.loop_active
+        LoopDisabled = -not [bool]$afterLoopOff.loop_active
         ExitCode = $process.ExitCode
     }
 }

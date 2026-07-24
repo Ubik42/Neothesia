@@ -141,13 +141,20 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
             Some(snapshot) => format!(
                 concat!(
                     r#"{{"ok":true,"snapshot":{{"#,
-                    r#""wait_for_notes":{},"adaptive_tempo":{},"hands":{},"completion_tab":{},"#,
+                    r#""wait_for_notes":{},"adaptive_tempo":{},"hands":{},"#,
+                    r#""loop_active":{},"loop_start_measure":{},"loop_end_measure":{},"#,
+                    r#""counting_in":{},"paused":{},"completion_tab":{},"#,
                     r#""matched_notes":{},"wrong_notes":{},"missed_notes":{},"input_latency_ms":{}"#,
                     "}}}}\n"
                 ),
                 snapshot.wait_for_notes,
                 snapshot.adaptive_tempo,
                 json_string(snapshot.hands.map(|hands| hands.label())),
+                snapshot.loop_active,
+                json_number(snapshot.loop_start_measure),
+                json_number(snapshot.loop_end_measure),
+                snapshot.counting_in,
+                snapshot.paused,
                 json_string(snapshot.completion_tab),
                 snapshot.matched_notes,
                 snapshot.wrong_notes,
@@ -169,6 +176,10 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
 
 fn json_string(value: Option<&str>) -> String {
     value.map_or_else(|| "null".into(), |value| format!("\"{value}\""))
+}
+
+fn json_number(value: Option<usize>) -> String {
+    value.map_or_else(|| "null".into(), |value| value.to_string())
 }
 
 fn error_response(error: &str) -> String {
@@ -198,6 +209,8 @@ mod tests {
     #[test]
     fn snapshot_values_have_stable_json_scalars() {
         assert_eq!(json_string(None), "null");
+        assert_eq!(json_number(None), "null");
+        assert_eq!(json_number(Some(12)), "12");
         assert_eq!(json_string(Some(PracticeHands::Right.label())), "\"Right\"");
         assert_eq!(
             error_response("bad-command"),

@@ -520,25 +520,12 @@ impl TopBar {
 
                 nuon::translate().x(-30.0).add_to_current(ui);
 
-                if Self::button().icon(icons::repeat_icon()).build(ui) {
-                    if this.top_bar.looper_active {
-                        let was_counting_in = this.top_bar.count_in.take().is_some();
-                        this.top_bar.looper_active = false;
-                        this.top_bar.attempts.clear();
-                        this.top_bar.reset_tempo_coach();
-                        this.player.reset_practice_attempt();
-                        if was_counting_in {
-                            this.player.resume();
-                        }
-                    } else {
-                        this.top_bar.looper_active = true;
-                        if this.top_bar.loop_start.is_zero() && this.top_bar.loop_end.is_zero() {
-                            (this.top_bar.loop_start, this.top_bar.loop_end) =
-                                default_loop_range(this);
-                        }
-                        begin_loop_take(this, true);
-                    }
-                    this.save_practice_setup(ctx);
+                if Self::button()
+                    .id(super::practice_ui_ids::PLAYER_LOOP)
+                    .icon(icons::repeat_icon())
+                    .build(ui)
+                {
+                    toggle_loop(this, ctx);
                 }
 
                 nuon::translate().x(-30.0).add_to_current(ui);
@@ -743,6 +730,26 @@ impl TopBar {
                 .build(ui);
         }
     }
+}
+
+pub(super) fn toggle_loop(scene: &mut PlayingScene, ctx: &mut Context) {
+    if scene.top_bar.looper_active {
+        let was_counting_in = scene.top_bar.count_in.take().is_some();
+        scene.top_bar.looper_active = false;
+        scene.top_bar.attempts.clear();
+        scene.top_bar.reset_tempo_coach();
+        scene.player.reset_practice_attempt();
+        if was_counting_in {
+            scene.player.resume();
+        }
+    } else {
+        scene.top_bar.looper_active = true;
+        if scene.top_bar.loop_start.is_zero() && scene.top_bar.loop_end.is_zero() {
+            (scene.top_bar.loop_start, scene.top_bar.loop_end) = default_loop_range(scene);
+        }
+        begin_loop_take(scene, true);
+    }
+    scene.save_practice_setup(ctx);
 }
 
 fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {

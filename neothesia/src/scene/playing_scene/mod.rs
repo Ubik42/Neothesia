@@ -25,6 +25,9 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
     pub const PLAYER_HANDS: &str = "practice.player.hands";
+    pub const PLAYER_LOOP: &str = "practice.player.loop";
+    #[cfg(debug_assertions)]
+    pub const PLAYER_RESTART: &str = "practice.player.restart";
     pub const COMPLETION_OVERVIEW: &str = "practice.completion.tab.overview";
     pub const COMPLETION_TECHNIQUE: &str = "practice.completion.tab.technique";
     pub const COMPLETION_HISTORY: &str = "practice.completion.tab.history";
@@ -41,6 +44,8 @@ pub(crate) mod practice_ui_ids {
         PLAYER_WAIT,
         PLAYER_COACH,
         PLAYER_HANDS,
+        PLAYER_LOOP,
+        PLAYER_RESTART,
         COMPLETION_OVERVIEW,
         COMPLETION_TECHNIQUE,
         COMPLETION_HISTORY,
@@ -59,6 +64,8 @@ enum DebugPracticeAction {
     ToggleWait,
     ToggleCoach,
     CycleHands,
+    ToggleLoop,
+    Restart,
     ShowOverview,
     ShowTechnique,
     ShowHistory,
@@ -73,6 +80,8 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_WAIT => Some(Self::ToggleWait),
             practice_ui_ids::PLAYER_COACH => Some(Self::ToggleCoach),
             practice_ui_ids::PLAYER_HANDS => Some(Self::CycleHands),
+            practice_ui_ids::PLAYER_LOOP => Some(Self::ToggleLoop),
+            practice_ui_ids::PLAYER_RESTART => Some(Self::Restart),
             practice_ui_ids::COMPLETION_OVERVIEW => Some(Self::ShowOverview),
             practice_ui_ids::COMPLETION_TECHNIQUE => Some(Self::ShowTechnique),
             practice_ui_ids::COMPLETION_HISTORY => Some(Self::ShowHistory),
@@ -280,6 +289,14 @@ impl PlayingScene {
         self.completion = None;
         self.saved_session_count = None;
         self.completion_view = CompletionView::Overview;
+    }
+
+    fn restart_practice_scope(&mut self) {
+        if self.top_bar.is_looper_active() {
+            top_bar::restart_loop_take(self);
+        } else {
+            self.retry_practice();
+        }
     }
 
     fn cycle_practice_hands(&mut self, ctx: &mut Context) {
@@ -1543,6 +1560,10 @@ impl Scene for PlayingScene {
         if event.key_released(Key::Named(NamedKey::Space)) {
             self.player.pause_resume();
         }
+        if event.key_released(Key::Character("r")) {
+            self.restart_practice_scope();
+            self.toast_manager.toast("Practice restarted");
+        }
 
         let speed_before = ctx.config.speed_multiplier();
         handle_settings_input(ctx, &mut self.toast_manager, &mut self.waterfall, event);
@@ -1584,6 +1605,8 @@ impl Scene for PlayingScene {
             DebugPracticeAction::ToggleWait => self.toggle_wait_for_notes(ctx),
             DebugPracticeAction::ToggleCoach => self.toggle_tempo_coach(ctx),
             DebugPracticeAction::CycleHands => self.cycle_practice_hands(ctx),
+            DebugPracticeAction::ToggleLoop => top_bar::toggle_loop(self, ctx),
+            DebugPracticeAction::Restart => self.restart_practice_scope(),
             DebugPracticeAction::Back => {
                 ctx.proxy
                     .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
@@ -1609,10 +1632,19 @@ impl Scene for PlayingScene {
     #[cfg(debug_assertions)]
     fn debug_practice_snapshot(&self, ctx: &Context) -> Option<super::DebugPracticeSnapshot> {
         let snapshot = self.player.practice_snapshot();
+        let loop_range = self
+            .top_bar
+            .is_looper_active()
+            .then(|| self.top_bar.loop_measure_range(&self.player));
         Some(super::DebugPracticeSnapshot {
             wait_for_notes: self.player.wait_for_notes(),
             adaptive_tempo: ctx.config.adaptive_tempo(),
             hands: self.player.practice_hands(),
+            loop_active: self.top_bar.is_looper_active(),
+            loop_start_measure: loop_range.map(|range| range.0),
+            loop_end_measure: loop_range.map(|range| range.1),
+            counting_in: self.top_bar.is_counting_in(),
+            paused: self.player.is_paused(),
             completion_tab: self
                 .completion
                 .as_ref()
@@ -1845,6 +1877,14 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_HANDS,
                 DebugPracticeAction::CycleHands,
+            ),
+            (
+                practice_ui_ids::PLAYER_LOOP,
+                DebugPracticeAction::ToggleLoop,
+            ),
+            (
+                practice_ui_ids::PLAYER_RESTART,
+                DebugPracticeAction::Restart,
             ),
             (
                 practice_ui_ids::COMPLETION_OVERVIEW,

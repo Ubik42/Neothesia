@@ -13,6 +13,8 @@ of text or screen coordinates.
 | `practice.player.wait` | Toggle wait-for-notes |
 | `practice.player.coach` | Toggle adaptive tempo |
 | `practice.player.hands` | Cycle both/right/left-hand practice |
+| `practice.player.loop` | Toggle the current measure-snapped loop |
+| `practice.player.restart` | Restart the current whole-song or loop scope |
 | `practice.completion.tab.overview` | Open completion Overview |
 | `practice.completion.tab.technique` | Open completion Technique |
 | `practice.completion.tab.history` | Open completion History |
@@ -33,8 +35,9 @@ automation independent of translated labels. Debug builds now expose an
 in-process harness that sends semantic actions through the normal application
 event loop and requests a read-only practice snapshot through that same loop.
 
-The snapshot currently exposes wait mode, Tempo Coach, selected hands,
-completion tab, matched/wrong/missed totals and input-latency compensation.
+The snapshot currently exposes wait mode, Tempo Coach, selected hands, loop
+activation/range/count-in state, pause state, completion tab,
+matched/wrong/missed totals and input-latency compensation.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active
