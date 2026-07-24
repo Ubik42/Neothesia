@@ -79,7 +79,7 @@ pub struct Direction {
     pub pedals: Vec<PedalMark>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScoreEventId {
     pub part_id: String,
     pub measure_ordinal: u32,
@@ -87,7 +87,7 @@ pub struct ScoreEventId {
     pub ordinal: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScoreEventKind {
     Note,
     Direction,
@@ -194,7 +194,7 @@ impl ScoreTime {
         }
     }
 
-    fn add(self, other: Self) -> Self {
+    pub(crate) fn add(self, other: Self) -> Self {
         Self::new(
             self.numerator * i64::from(other.denominator)
                 + other.numerator * i64::from(self.denominator),

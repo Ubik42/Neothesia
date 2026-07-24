@@ -15,6 +15,13 @@ pub struct TempoTrack {
     events: Arc<[TempoEvent]>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TempoProjection {
+    pub timestamp: Duration,
+    pub pulses: u64,
+    pub exact_to_pulse: bool,
+}
+
 impl TempoTrack {
     pub fn build(track_events: &[Vec<TrackEvent>], pulses_per_quarter_note: u16) -> TempoTrack {
         // This map will help us get rid of duplicate events if
@@ -92,6 +99,28 @@ impl TempoTrack {
         let delta_pulses = event_pulses - previous_absolute_pulses;
         res + pulse_to_duration(delta_pulses, tempo, self.pulses_per_quarter_note)
     }
+
+    /// Projects an exact quarter-note fraction onto this MIDI file's pulse and
+    /// tempo timeline. Fractions between pulses are rounded to the nearest
+    /// pulse and reported through `exact_to_pulse`.
+    pub fn project_quarter_fraction(
+        &self,
+        numerator: i64,
+        denominator: u32,
+    ) -> Option<TempoProjection> {
+        if numerator < 0 || denominator == 0 {
+            return None;
+        }
+        let scaled = i128::from(numerator) * i128::from(self.pulses_per_quarter_note);
+        let denominator = i128::from(denominator);
+        let rounded = (scaled + denominator / 2) / denominator;
+        let pulses = u64::try_from(rounded).ok()?;
+        Some(TempoProjection {
+            timestamp: self.pulses_to_duration(pulses),
+            pulses,
+            exact_to_pulse: scaled % denominator == 0,
+        })
+    }
 }
 
 fn pulse_to_duration(pulses: u64, tempo: u32, pulses_per_quarter_note: u16) -> Duration {
@@ -100,4 +129,36 @@ fn pulse_to_duration(pulses: u64, tempo: u32, pulses_per_quarter_note: u16) -> D
     // so if we want to test for timing regresions we have to do the same
     let time = (u_time * tempo as f64).floor() as u64;
     Duration::from_micros(time)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projects_exact_and_inexact_quarter_fractions() {
+        let tempo = TempoTrack::build(&[], 480);
+        let triplet = tempo.project_quarter_fraction(1, 3).unwrap();
+        assert_eq!(triplet.pulses, 160);
+        assert_eq!(triplet.timestamp, Duration::from_micros(166_666));
+        assert!(triplet.exact_to_pulse);
+
+        let septuplet = tempo.project_quarter_fraction(1, 7).unwrap();
+        assert_eq!(septuplet.pulses, 69);
+        assert!(!septuplet.exact_to_pulse);
+        assert_eq!(tempo.project_quarter_fraction(-1, 1), None);
+        assert_eq!(tempo.project_quarter_fraction(1, 0), None);
+    }
+
+    #[test]
+    fn projection_uses_tempo_changes_from_the_paired_midi() {
+        let tracks = vec![vec![TrackEvent {
+            delta: midly::num::u28::new(480),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(midly::num::u24::new(1_000_000))),
+        }]];
+        let tempo = TempoTrack::build(&tracks, 480);
+        let after_change = tempo.project_quarter_fraction(2, 1).unwrap();
+        assert_eq!(after_change.pulses, 960);
+        assert_eq!(after_change.timestamp, Duration::from_millis(1_500));
+    }
 }
