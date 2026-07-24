@@ -19,7 +19,8 @@ use self::top_bar::TopBar;
 
 use super::{NuonRenderer, Scene};
 
-pub(super) mod practice_ui_ids {
+pub(crate) mod practice_ui_ids {
+    pub const MENU_START: &str = "practice.menu.start";
     pub const PLAYER_BACK: &str = "practice.player.back";
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
@@ -35,6 +36,7 @@ pub(super) mod practice_ui_ids {
 
     #[cfg(test)]
     pub const ALL: &[&str] = &[
+        MENU_START,
         PLAYER_BACK,
         PLAYER_WAIT,
         PLAYER_COACH,

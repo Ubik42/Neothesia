@@ -5,6 +5,8 @@
 #![allow(clippy::collapsible_match, clippy::single_match)]
 
 mod context;
+#[cfg(debug_assertions)]
+mod debug_driver;
 mod icons;
 mod input_manager;
 mod output_manager;
@@ -417,6 +419,15 @@ fn main() {
 
     let event_loop: EventLoop<NeothesiaEvent> = EventLoop::with_user_event().build().unwrap();
     let proxy = event_loop.create_proxy();
+
+    #[cfg(debug_assertions)]
+    let _debug_driver = match debug_driver::DebugDriver::start_from_env(proxy.clone()) {
+        Ok(driver) => driver,
+        Err(err) => {
+            log::error!("Debug UI driver disabled: {err}");
+            None
+        }
+    };
 
     event_loop
         .run_app(&mut NeothesiaBootstrap(None, proxy))

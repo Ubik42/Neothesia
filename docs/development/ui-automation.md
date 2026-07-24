@@ -8,6 +8,7 @@ of text or screen coordinates.
 
 | Action ID | Meaning |
 | --- | --- |
+| `practice.menu.start` | Start the currently loaded song |
 | `practice.player.back` | Leave the active player |
 | `practice.player.wait` | Toggle wait-for-notes |
 | `practice.player.coach` | Toggle adaptive tempo |
@@ -34,23 +35,45 @@ event loop and requests a read-only practice snapshot through that same loop.
 
 The snapshot currently exposes wait mode, Tempo Coach, selected hands,
 completion tab, matched/wrong/missed totals and input-latency compensation.
-The harness can activate player back/wait/coach/hands, completion tab
-navigation, retry and back. Each activation waits for an explicit accepted or
-rejected result from the active scene, with a caller-supplied timeout.
+The harness can start the currently loaded song, activate player
+back/wait/coach/hands, and navigate completion tabs, retry and back. Each
+activation waits for an explicit accepted or rejected result from the active
+scene, with a caller-supplied timeout.
 Calibration and recommendation actions remain click-only because their
 parameters are derived from the rendered completion model; they must not be
 reported as supported by an external driver yet.
 
 Both the harness and its event variants are excluded from release builds with
-`debug_assertions`. It is not yet exposed through Windows UI Automation or an
-external inspection protocol.
+`debug_assertions`.
+
+## Local debug driver
+
+Debug builds can expose the harness to a local test process by setting
+`NEOTHESIA_DEBUG_DRIVER_ADDR` to an explicit loopback socket such as
+`127.0.0.1:32123` before launch. The driver is off by default, rejects
+non-loopback addresses and is not compiled into release builds.
+
+Open one TCP connection per command and send one newline-terminated command:
+
+| Command | Result |
+| --- | --- |
+| `ACTION practice.player.wait` | JSON with `ok` and `accepted` |
+| `SNAPSHOT` | JSON with `ok` and a snapshot object or `null` |
+
+Commands are limited to 4096 bytes and action/state waits time out after two
+seconds. An accepted value of `false` means the active scene does not support
+that action in its current state. A `null` snapshot means the active scene is
+not the player.
+
+This is a narrow test protocol, not a general remote-control API or a Windows
+UI Automation implementation.
 
 The next automation layer should:
 
-1. expose a controlled driver endpoint for the in-process debug harness;
-2. capture deterministic screenshots at supported window sizes;
-3. cover parameterized calibration and recommendation actions without
+1. capture deterministic screenshots at supported window sizes;
+2. cover parameterized calibration and recommendation actions without
    duplicating their product logic;
+3. add a launch-and-drive smoke fixture for a known MIDI;
 4. retain compile-time exclusion from release builds.
 
 Screen-coordinate automation remains a temporary smoke-test fallback and must

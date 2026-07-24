@@ -274,6 +274,7 @@ impl MenuScene {
                 nuon::translate().x(-btn_w - gap).add_to_current(ui);
 
                 if neo_btn()
+                    .id(super::playing_scene::practice_ui_ids::MENU_START)
                     .size(btn_w, btn_h)
                     .icon(icons::play_icon())
                     .tooltip("Play")
@@ -978,6 +979,15 @@ impl Scene for MenuScene {
                 }
             }
         }
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_semantic_action(&mut self, ctx: &mut Context, id: &str) -> bool {
+        if id != super::playing_scene::practice_ui_ids::MENU_START || self.state.song().is_none() {
+            return false;
+        }
+        state::play(&self.state, ctx);
+        true
     }
 }
 
