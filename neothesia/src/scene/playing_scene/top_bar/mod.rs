@@ -319,6 +319,7 @@ impl TopBar {
             .map(|mode| format!("Hands: {}", mode.label()))
             .unwrap_or_else(|| "Hands: --".to_owned());
         if nuon::button()
+            .id(super::practice_ui_ids::PLAYER_HANDS)
             .x(x)
             .y(y)
             .size(width, height)
@@ -346,7 +347,11 @@ impl TopBar {
     }
 
     fn panel_left(this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {
-        if Self::button().icon(icons::left_arrow_icon()).build(ui) {
+        if Self::button()
+            .id(super::practice_ui_ids::PLAYER_BACK)
+            .icon(icons::left_arrow_icon())
+            .build(ui)
+        {
             ctx.proxy
                 .send_event(NeothesiaEvent::MainMenu(Some(this.player.song().clone())))
                 .ok();
@@ -354,6 +359,7 @@ impl TopBar {
 
         let wait_for_notes = this.player.wait_for_notes();
         if nuon::button()
+            .id(super::practice_ui_ids::PLAYER_WAIT)
             .x(38.0)
             .size(110.0, 30.0)
             .label(if wait_for_notes {
@@ -381,6 +387,7 @@ impl TopBar {
         } else {
             let coach_enabled = ctx.config.adaptive_tempo();
             if nuon::button()
+                .id(super::practice_ui_ids::PLAYER_COACH)
                 .x(156.0)
                 .size(100.0, 30.0)
                 .label(if coach_enabled {

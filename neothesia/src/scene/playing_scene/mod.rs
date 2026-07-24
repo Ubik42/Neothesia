@@ -18,6 +18,37 @@ use winit::{
 use self::top_bar::TopBar;
 
 use super::{NuonRenderer, Scene};
+
+pub(super) mod practice_ui_ids {
+    pub const PLAYER_BACK: &str = "practice.player.back";
+    pub const PLAYER_WAIT: &str = "practice.player.wait";
+    pub const PLAYER_COACH: &str = "practice.player.coach";
+    pub const PLAYER_HANDS: &str = "practice.player.hands";
+    pub const COMPLETION_OVERVIEW: &str = "practice.completion.tab.overview";
+    pub const COMPLETION_TECHNIQUE: &str = "practice.completion.tab.technique";
+    pub const COMPLETION_HISTORY: &str = "practice.completion.tab.history";
+    pub const COMPLETION_CALIBRATE: &str = "practice.completion.calibrate";
+    pub const COMPLETION_NOTES_LOOP: &str = "practice.completion.notes-loop";
+    pub const COMPLETION_RHYTHM_LOOP: &str = "practice.completion.rhythm-loop";
+    pub const COMPLETION_RETRY: &str = "practice.completion.retry";
+    pub const COMPLETION_BACK: &str = "practice.completion.back";
+
+    #[cfg(test)]
+    pub const ALL: &[&str] = &[
+        PLAYER_BACK,
+        PLAYER_WAIT,
+        PLAYER_COACH,
+        PLAYER_HANDS,
+        COMPLETION_OVERVIEW,
+        COMPLETION_TECHNIQUE,
+        COMPLETION_HISTORY,
+        COMPLETION_CALIBRATE,
+        COMPLETION_NOTES_LOOP,
+        COMPLETION_RHYTHM_LOOP,
+        COMPLETION_RETRY,
+        COMPLETION_BACK,
+    ];
+}
 use crate::{
     NeothesiaEvent, context::Context, render::WaterfallRenderer, scene::MouseToMidiEventState,
     song::Song, utils::window::WinitEvent,
@@ -431,6 +462,7 @@ impl PlayingScene {
 
                 let (tab_x, tab_w, tab_gap) = completion_tab_layout(panel_w);
                 if nuon::button()
+                    .id(practice_ui_ids::COMPLETION_OVERVIEW)
                     .x(tab_x)
                     .y(26.0)
                     .size(tab_w, 34.0)
@@ -448,6 +480,7 @@ impl PlayingScene {
                     requested_view = Some(CompletionView::Overview);
                 }
                 if nuon::button()
+                    .id(practice_ui_ids::COMPLETION_TECHNIQUE)
                     .x(tab_x + tab_w + tab_gap)
                     .y(26.0)
                     .size(tab_w, 34.0)
@@ -465,6 +498,7 @@ impl PlayingScene {
                     requested_view = Some(CompletionView::Technique);
                 }
                 if nuon::button()
+                    .id(practice_ui_ids::COMPLETION_HISTORY)
                     .x(tab_x + (tab_w + tab_gap) * 2.0)
                     .y(26.0)
                     .size(tab_w, 34.0)
@@ -588,6 +622,7 @@ impl PlayingScene {
 
                     if let Some(suggestion) = calibration
                         && nuon::button()
+                            .id(practice_ui_ids::COMPLETION_CALIBRATE)
                             .x(panel_w - 204.0)
                             .y(128.0)
                             .size(176.0, 30.0)
@@ -673,6 +708,7 @@ impl PlayingScene {
                 if completion_view == CompletionView::Overview
                     && let Some(recommendation) = recommendation
                     && nuon::button()
+                        .id(practice_ui_ids::COMPLETION_NOTES_LOOP)
                         .x(28.0)
                         .y(button_y - 56.0)
                         .size(
@@ -705,6 +741,7 @@ impl PlayingScene {
                 if completion_view == CompletionView::Overview
                     && let Some(recommendation) = rhythm_recommendation
                     && nuon::button()
+                        .id(practice_ui_ids::COMPLETION_RHYTHM_LOOP)
                         .x(if has_note_recommendation {
                             28.0 + button_w + button_gap
                         } else {
@@ -738,6 +775,7 @@ impl PlayingScene {
                 }
 
                 if nuon::button()
+                    .id(practice_ui_ids::COMPLETION_RETRY)
                     .x(28.0)
                     .y(button_y)
                     .size(button_w, 44.0)
@@ -752,6 +790,7 @@ impl PlayingScene {
                 }
 
                 if nuon::button()
+                    .id(practice_ui_ids::COMPLETION_BACK)
                     .x(28.0 + button_w + button_gap)
                     .y(button_y)
                     .size(button_w, 44.0)
@@ -1547,6 +1586,7 @@ fn handle_settings_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn playback_delta_preserves_five_percent_speed_steps() {
@@ -1664,5 +1704,17 @@ mod tests {
         assert_eq!(CompletionView::Technique.next(), CompletionView::History);
         assert_eq!(CompletionView::History.next(), CompletionView::Overview);
         assert_eq!(CompletionView::Overview.previous(), CompletionView::History);
+    }
+
+    #[test]
+    fn practice_ui_action_ids_are_stable_unique_and_namespaced() {
+        let unique: HashSet<_> = practice_ui_ids::ALL.iter().copied().collect();
+
+        assert_eq!(unique.len(), practice_ui_ids::ALL.len());
+        assert!(
+            practice_ui_ids::ALL
+                .iter()
+                .all(|id| id.starts_with("practice."))
+        );
     }
 }
