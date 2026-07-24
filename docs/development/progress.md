@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 012 — Global emergency panic
+
+State: **DONE**
+
+Delivered:
+
+- added a high-contrast `PANIC F12` control that remains visible even while the
+  rest of the player toolbar is collapsed;
+- promoted F12 to an application-level emergency shortcut across player,
+  completion, free-play and preview scenes;
+- silenced the instrument, paused playback and cleared pending practice input;
+- cancelled an active loop count-in without changing the song or completed
+  history;
+- cleared user/file keyboard highlights, mouse-held notes and free-play chord
+  display;
+- fixed zero-velocity Note On visual handling so release messages cannot leave
+  a highlighted key behind.
+
+Verification:
+
+- two MIDI-file tests, twenty-three practice/core tests and twenty-six
+  application tests pass;
+- emergency-stop tests cover output panic, paused state and pending matcher
+  cleanup;
+- visual note-state tests cover zero-velocity releases;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commits: `2b52463`, `235be25`.
+
 ### Cycle 011 — Expressive MIDI fidelity
 
 State: **DONE**
@@ -323,10 +352,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 012 with a learner-visible emergency `Panic` action and a stable
-keyboard shortcut. It must clear held notes, pedal/controller state, keyboard
-visual state and pending practice input without changing the current song or
-losing the completed history.
+Begin Cycle 013 with a persistent output-status badge in the player. It should
+say clearly whether sound is using the built-in SoundFont, an external MIDI
+port such as the Pianoteq route, or no output, and expose a direct path to fix
+the selection without guessing which instrument is active.
 
 ## Known constraints
 

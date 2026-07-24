@@ -4,6 +4,49 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 012: Global emergency panic (DONE)
+
+### Outcome
+
+A stuck external note or pedal now has an immediate, discoverable recovery
+path. The red player action remains visible while the toolbar is collapsed, and
+F12 performs the same emergency stop in every active scene.
+
+### Implemented
+
+- Added the persistent `PANIC F12` player control.
+- Added application-level F12 interception before scene key handling.
+- Added a scene emergency-stop contract with a safe default.
+- Paused song/preview playback and cleared transient practice matching.
+- Cancelled visual count-in and reset keyboard plus mouse-held state.
+- Cleared free-play chord state.
+- Corrected zero-velocity visual releases.
+
+### Verification
+
+- Added emergency-stop state and zero-velocity visual tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commits:
+
+- `2b52463` (`feat: add persistent emergency MIDI panic`)
+- `235be25` (`fix: make F12 panic global across scenes`)
+
+### Known limitations
+
+- The visible button is player-specific; free-play uses the globally documented
+  F12 shortcut.
+- Panic intentionally pauses playback. The learner chooses when to resume or
+  restart the current attempt.
+- Hardware confirmation still belongs to the Pianoteq soak checklist.
+
 ## 2026-07-25 — Cycle 011: Expressive MIDI fidelity (DONE)
 
 ### Outcome
