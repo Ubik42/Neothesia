@@ -125,7 +125,7 @@ impl super::MenuScene {
 
                         if nuon::settings_row_toggler()
                             .title("Expression Summary")
-                            .subtitle("Describe matched velocity and sustain-pedal evidence")
+                            .subtitle("Describe velocity, key-hold and sustain-pedal evidence")
                             .value(ctx.config.expression_feedback())
                             .build(ui, rows)
                         {

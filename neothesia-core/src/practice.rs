@@ -53,6 +53,7 @@ pub struct PracticeTarget {
     pub note: NoteId,
     pub velocity: u8,
     pub score_time: Duration,
+    pub duration: Duration,
     pub track_id: usize,
     /// One-based measure number. Zero means that measure context is unknown.
     pub measure: usize,
@@ -65,6 +66,7 @@ impl PracticeTarget {
             note,
             velocity: 0,
             score_time: Duration::ZERO,
+            duration: Duration::ZERO,
             track_id: 0,
             measure: 0,
             part: PracticePart::Other,
@@ -218,6 +220,8 @@ pub struct PedalSummary {
 pub struct ExpressionSummary {
     pub velocity: VelocitySummary,
     pub pedal: PedalSummary,
+    #[serde(default)]
+    pub articulation: ArticulationSummary,
 }
 
 impl ExpressionSummary {
@@ -228,6 +232,19 @@ impl ExpressionSummary {
     pub fn has_pedal_evidence(self) -> bool {
         self.pedal.user_used || self.pedal.target_present
     }
+
+    pub fn has_articulation_evidence(self) -> bool {
+        self.articulation.matched_samples >= 4
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ArticulationSummary {
+    pub matched_samples: usize,
+    pub median_duration_ratio_percent: Option<u16>,
+    pub shorter_count: usize,
+    pub similar_count: usize,
+    pub longer_count: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -433,6 +450,7 @@ struct NotePress {
     timestamp: Duration,
     note: NoteId,
     velocity: u8,
+    released_at: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -473,6 +491,14 @@ struct ExpressionTracker {
     target_max: Option<u8>,
     user_pedal: PedalEvidence,
     target_pedal: PedalEvidence,
+    active_articulations: HashMap<NoteId, VecDeque<ArticulationPress>>,
+    duration_ratios: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ArticulationPress {
+    started_at: Duration,
+    target_duration: Duration,
 }
 
 impl ExpressionTracker {
@@ -487,6 +513,17 @@ impl ExpressionTracker {
     }
 
     fn summary(&self) -> ExpressionSummary {
+        let mut duration_ratios = self.duration_ratios.clone();
+        duration_ratios.sort_unstable();
+        let median_duration_ratio_percent = (!duration_ratios.is_empty()).then(|| {
+            let middle = duration_ratios.len() / 2;
+            if duration_ratios.len().is_multiple_of(2) {
+                (u32::from(duration_ratios[middle - 1]) + u32::from(duration_ratios[middle]))
+                    .div_ceil(2) as u16
+            } else {
+                duration_ratios[middle]
+            }
+        });
         ExpressionSummary {
             velocity: VelocitySummary {
                 matched_samples: self.velocity_samples,
@@ -507,7 +544,66 @@ impl ExpressionTracker {
                 user_continuous_samples: self.user_pedal.continuous_samples,
                 target_continuous_samples: self.target_pedal.continuous_samples,
             },
+            articulation: ArticulationSummary {
+                matched_samples: duration_ratios.len(),
+                median_duration_ratio_percent,
+                shorter_count: duration_ratios.iter().filter(|ratio| **ratio < 75).count(),
+                similar_count: duration_ratios
+                    .iter()
+                    .filter(|ratio| (75..=125).contains(*ratio))
+                    .count(),
+                longer_count: duration_ratios.iter().filter(|ratio| **ratio > 125).count(),
+            },
         }
+    }
+
+    fn start_articulation(
+        &mut self,
+        note: NoteId,
+        started_at: Duration,
+        released_at: Option<Duration>,
+        target_duration: Duration,
+    ) {
+        if target_duration.is_zero() {
+            return;
+        }
+        if let Some(released_at) = released_at {
+            self.record_duration(started_at, released_at, target_duration);
+        } else {
+            self.active_articulations
+                .entry(note)
+                .or_default()
+                .push_back(ArticulationPress {
+                    started_at,
+                    target_duration,
+                });
+        }
+    }
+
+    fn release_articulation(&mut self, note: NoteId, released_at: Duration) {
+        let Some(active) = pop_front(&mut self.active_articulations, note) else {
+            return;
+        };
+        self.record_duration(active.started_at, released_at, active.target_duration);
+    }
+
+    fn record_duration(
+        &mut self,
+        started_at: Duration,
+        released_at: Duration,
+        target_duration: Duration,
+    ) {
+        let played_duration = released_at.saturating_sub(started_at);
+        if played_duration.is_zero() || target_duration.is_zero() {
+            return;
+        }
+        let ratio = played_duration.as_secs_f64() / target_duration.as_secs_f64() * 100.0;
+        self.duration_ratios
+            .push(ratio.round().clamp(0.0, u16::MAX as f64) as u16);
+    }
+
+    fn clear_pending(&mut self) {
+        self.active_articulations.clear();
     }
 }
 
@@ -596,7 +692,19 @@ impl PracticeMatcher {
         active: bool,
         velocity: u8,
     ) -> Option<MatchedNote> {
-        if !active || !self.user_keyboard_range.contains(note) {
+        if !self.user_keyboard_range.contains(note) {
+            return None;
+        }
+        if !active {
+            if let Some(press) = self
+                .user_pressed_recently
+                .get_mut(&note)
+                .and_then(|queue| queue.iter_mut().find(|press| press.released_at.is_none()))
+            {
+                press.released_at = Some(now);
+            } else {
+                self.expression.release_articulation(note, now);
+            }
             return None;
         }
 
@@ -606,6 +714,8 @@ impl PracticeMatcher {
                 required.target,
                 TimingGrade::Late(now.saturating_sub(required.timestamp)),
                 velocity,
+                now,
+                None,
             ));
         }
 
@@ -616,6 +726,7 @@ impl PracticeMatcher {
                 timestamp: now,
                 note,
                 velocity,
+                released_at: None,
             });
 
         None
@@ -647,6 +758,8 @@ impl PracticeMatcher {
                 target,
                 TimingGrade::Early(now.saturating_sub(press.timestamp)),
                 press.velocity,
+                press.timestamp,
+                press.released_at,
             ));
         }
 
@@ -748,6 +861,7 @@ impl PracticeMatcher {
         self.user_pressed_recently.clear();
         self.snapshot.required_notes = 0;
         self.last_target = None;
+        self.expression.clear_pending();
     }
 
     pub fn reset(&mut self) {
@@ -762,6 +876,8 @@ impl PracticeMatcher {
         target: PracticeTarget,
         timing: TimingGrade,
         played_velocity: u8,
+        played_at: Duration,
+        released_at: Option<Duration>,
     ) -> MatchedNote {
         let timing = match timing {
             TimingGrade::Early(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
@@ -782,6 +898,8 @@ impl PracticeMatcher {
         });
         self.expression
             .record_velocity(played_velocity, target.velocity);
+        self.expression
+            .start_articulation(target.note, played_at, released_at, target.duration);
 
         MatchedNote {
             note: target.note,
@@ -1011,6 +1129,7 @@ mod tests {
             note: 72,
             velocity: 90,
             score_time: Duration::from_secs(2),
+            duration: Duration::from_millis(500),
             track_id: 1,
             measure: 3,
             part: PracticePart::RightHand,
@@ -1019,6 +1138,7 @@ mod tests {
             note: 48,
             velocity: 70,
             score_time: Duration::from_secs(4),
+            duration: Duration::from_millis(500),
             track_id: 2,
             measure: 5,
             part: PracticePart::LeftHand,
@@ -1069,6 +1189,7 @@ mod tests {
             note,
             velocity,
             score_time: Duration::from_millis(millis),
+            duration: Duration::from_millis(100),
             track_id: 1,
             measure: 1,
             part: PracticePart::RightHand,
@@ -1076,12 +1197,16 @@ mod tests {
 
         matcher.score_target(Duration::from_millis(100), target(60, 40, 100), true);
         matcher.user_note_with_velocity(Duration::from_millis(110), 60, true, 55);
+        matcher.user_note(Duration::from_millis(210), 60, false);
         matcher.user_note_with_velocity(Duration::from_millis(190), 62, true, 100);
+        matcher.user_note(Duration::from_millis(290), 62, false);
         matcher.score_target(Duration::from_millis(200), target(62, 80, 200), true);
         matcher.score_target(Duration::from_millis(300), target(64, 70, 300), true);
         matcher.user_note_with_velocity(Duration::from_millis(310), 64, true, 60);
+        matcher.user_note(Duration::from_millis(360), 64, false);
         matcher.score_target(Duration::from_millis(400), target(65, 90, 400), true);
         matcher.user_note_with_velocity(Duration::from_millis(410), 65, true, 85);
+        matcher.user_note(Duration::from_millis(610), 65, false);
 
         matcher.user_pedal(0);
         matcher.user_pedal(64);
@@ -1115,6 +1240,16 @@ mod tests {
                 target_continuous_samples: 0,
             }
         );
+        assert_eq!(
+            expression.articulation,
+            ArticulationSummary {
+                matched_samples: 4,
+                median_duration_ratio_percent: Some(100),
+                shorter_count: 1,
+                similar_count: 2,
+                longer_count: 1,
+            }
+        );
     }
 
     #[test]
@@ -1125,6 +1260,31 @@ mod tests {
         matcher.reset();
 
         assert_eq!(matcher.summary().expression, ExpressionSummary::default());
+    }
+
+    #[test]
+    fn expression_saved_before_articulation_remains_readable() {
+        let legacy = r#"(
+            velocity: (
+                matched_samples: 0,
+                mean_abs_difference: None,
+                played_min: None,
+                played_max: None,
+                target_min: None,
+                target_max: None,
+            ),
+            pedal: (
+                user_changes: 0,
+                target_changes: 0,
+                user_used: false,
+                target_present: false,
+                user_continuous_samples: 0,
+                target_continuous_samples: 0,
+            ),
+        )"#;
+
+        let expression: ExpressionSummary = ron::from_str(legacy).unwrap();
+        assert_eq!(expression.articulation, ArticulationSummary::default());
     }
 
     #[test]

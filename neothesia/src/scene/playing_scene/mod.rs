@@ -493,7 +493,8 @@ impl PlayingScene {
                         .build(ui);
 
                     if ctx.config.expression_feedback() {
-                        let (dynamics, pedal) = format_expression_summary(summary.expression);
+                        let (dynamics, pedal, articulation) =
+                            format_expression_summary(summary.expression);
                         nuon::label()
                             .x(28.0)
                             .y(258.0)
@@ -510,18 +511,26 @@ impl PlayingScene {
                             .color([184, 178, 205])
                             .text(pedal)
                             .build(ui);
+                        nuon::label()
+                            .x(28.0)
+                            .y(306.0)
+                            .size(panel_w - 56.0, 24.0)
+                            .font_size(14.0)
+                            .color([184, 178, 205])
+                            .text(articulation)
+                            .build(ui);
                     }
 
                     nuon::quad()
                         .x(28.0)
-                        .y(314.0)
+                        .y(338.0)
                         .size(panel_w - 56.0, 1.0)
                         .color([83, 78, 98])
                         .build(ui);
 
                     nuon::label()
                         .x(28.0)
-                        .y(328.0)
+                        .y(352.0)
                         .size(panel_w - 56.0, 44.0)
                         .font_size(17.0)
                         .text(review)
@@ -530,7 +539,7 @@ impl PlayingScene {
                     if let Some(session_count) = self.saved_session_count {
                         nuon::label()
                             .x(28.0)
-                            .y(368.0)
+                            .y(392.0)
                             .size(panel_w - 56.0, 28.0)
                             .font_size(14.0)
                             .color([143, 205, 171])
@@ -552,7 +561,7 @@ impl PlayingScene {
                     if completion_view == CompletionView::Current {
                         nuon::label()
                             .x(28.0)
-                            .y(398.0)
+                            .y(422.0)
                             .size(panel_w - 56.0, 30.0)
                             .font_size(14.0)
                             .color([255, 205, 124])
@@ -882,7 +891,7 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
-fn format_expression_summary(expression: ExpressionSummary) -> (String, String) {
+fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
     let velocity = expression.velocity;
     let dynamics = if expression.has_velocity_evidence() {
         format!(
@@ -919,7 +928,23 @@ fn format_expression_summary(expression: ExpressionSummary) -> (String, String) 
         (false, false) => "Pedal: no sustain evidence in this take".to_owned(),
     };
 
-    (dynamics, pedal)
+    let articulation = expression.articulation;
+    let articulation = if expression.has_articulation_evidence() {
+        format!(
+            "Key hold vs score: median {}% · <75% {} / 75–125% {} / >125% {}",
+            articulation.median_duration_ratio_percent.unwrap_or(0),
+            articulation.shorter_count,
+            articulation.similar_count,
+            articulation.longer_count,
+        )
+    } else {
+        format!(
+            "Key hold: need 4 completed notes · {} captured (pedal excluded)",
+            articulation.matched_samples
+        )
+    };
+
+    (dynamics, pedal, articulation)
 }
 
 fn persist_practice_session(
@@ -1239,7 +1264,7 @@ mod tests {
 
     #[test]
     fn expression_copy_stays_descriptive_when_reference_is_incomplete() {
-        let (dynamics, pedal) = format_expression_summary(ExpressionSummary {
+        let (dynamics, pedal, articulation) = format_expression_summary(ExpressionSummary {
             velocity: neothesia_core::practice::VelocitySummary {
                 matched_samples: 4,
                 mean_abs_difference: Some(8),
@@ -1253,6 +1278,7 @@ mod tests {
                 user_used: true,
                 ..Default::default()
             },
+            articulation: Default::default(),
         });
 
         assert!(dynamics.contains("descriptive"));
@@ -1261,5 +1287,6 @@ mod tests {
             pedal,
             "Pedal: 2 user changes captured · score has no pedal reference"
         );
+        assert!(articulation.contains("pedal excluded"));
     }
 }

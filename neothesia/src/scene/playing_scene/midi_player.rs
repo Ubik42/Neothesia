@@ -8,7 +8,7 @@ use neothesia_core::{
     piano_layout,
     practice::{AttemptSummary, PracticeHands, PracticeMatcher, PracticeSnapshot, PracticeTarget},
 };
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 pub struct MidiPlayer {
     playback: midi_file::PlaybackState,
@@ -18,6 +18,7 @@ pub struct MidiPlayer {
     session_time: Duration,
     separate_channels: bool,
     wait_for_notes: bool,
+    target_durations: HashMap<(usize, u8, Duration), Duration>,
 }
 
 impl MidiPlayer {
@@ -46,6 +47,17 @@ impl MidiPlayer {
         wait_for_notes: bool,
         lead_in: Duration,
     ) -> Self {
+        let target_durations = song
+            .file
+            .tracks
+            .iter()
+            .flat_map(|track| {
+                track
+                    .notes
+                    .iter()
+                    .map(|note| ((note.track_id, note.note, note.start), note.duration))
+            })
+            .collect();
         let mut player = Self {
             playback: midi_file::PlaybackState::new(lead_in, song.file.tracks.clone()),
             output,
@@ -54,6 +66,7 @@ impl MidiPlayer {
             song,
             separate_channels,
             wait_for_notes,
+            target_durations,
         };
         // Let's reset programs,
         // for timestamp 0 most likely all programs will be 0, so this should clean any leftovers
@@ -104,6 +117,11 @@ impl MidiPlayer {
                                 note,
                                 velocity,
                                 score_time: event.timestamp,
+                                duration: self
+                                    .target_durations
+                                    .get(&(event.track_id, note, event.timestamp))
+                                    .copied()
+                                    .unwrap_or_default(),
                                 track_id: event.track_id,
                                 measure,
                                 part: config.practice_part,
@@ -537,11 +555,15 @@ mod tests {
         events.borrow_mut().clear();
         player.update(Duration::from_secs(1));
 
-        let user_messages = [
-            MidiMessage::NoteOn {
-                key: u7::new(60),
-                vel: u7::new(70),
-            },
+        let note_on = MidiMessage::NoteOn {
+            key: u7::new(60),
+            vel: u7::new(70),
+        };
+        let note_off = MidiMessage::NoteOff {
+            key: u7::new(60),
+            vel: u7::new(0),
+        };
+        let pedal_messages = [
             MidiMessage::Controller {
                 controller: u7::new(64),
                 value: u7::new(0),
@@ -555,7 +577,10 @@ mod tests {
                 value: u7::new(127),
             },
         ];
-        for message in user_messages {
+        player.user_midi_event(5, &note_on);
+        player.tick_practice_clock(Duration::from_millis(250));
+        player.user_midi_event(5, &note_off);
+        for message in pedal_messages {
             player.user_midi_event(5, &message);
         }
 
@@ -565,7 +590,19 @@ mod tests {
         assert_eq!(summary.expression.pedal.target_changes, 1);
         assert_eq!(summary.expression.pedal.user_changes, 2);
         assert_eq!(summary.expression.pedal.user_continuous_samples, 1);
+        assert_eq!(summary.expression.articulation.matched_samples, 1);
+        assert_eq!(
+            summary
+                .expression
+                .articulation
+                .median_duration_ratio_percent,
+            Some(50)
+        );
 
+        let expected_user = [note_on, note_off]
+            .into_iter()
+            .chain(pedal_messages)
+            .collect::<Vec<_>>();
         let forwarded_user: Vec<_> = events
             .borrow()
             .iter()
@@ -576,7 +613,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(forwarded_user, user_messages);
+        assert_eq!(forwarded_user, expected_user);
     }
 
     fn expressive_messages() -> [MidiMessage; 4] {
