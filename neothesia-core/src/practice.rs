@@ -118,6 +118,7 @@ pub enum PracticeJudgement {
 pub struct PracticeResult {
     pub target: Option<PracticeTarget>,
     pub judgement: PracticeJudgement,
+    pub timing_offset_ms: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -185,6 +186,8 @@ pub struct MeasureSummary {
 pub struct PartSummary {
     pub part: PracticePart,
     pub breakdown: PracticeBreakdown,
+    #[serde(default)]
+    pub timing: TimingSummary,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
@@ -740,6 +743,7 @@ impl PracticeMatcher {
                 judgement: PracticeJudgement::Wrong {
                     played_note: press.note,
                 },
+                timing_offset_ms: None,
             }));
     }
 
@@ -754,6 +758,7 @@ impl PracticeMatcher {
             .extend(expired.into_iter().map(|press| PracticeResult {
                 target: Some(press.target),
                 judgement: PracticeJudgement::Missed,
+                timing_offset_ms: None,
             }));
         self.update_required_count();
     }
@@ -877,6 +882,7 @@ impl PracticeMatcher {
                     judgement: PracticeJudgement::Wrong {
                         played_note: press.note,
                     },
+                    timing_offset_ms: None,
                 });
             }
         }
@@ -887,6 +893,7 @@ impl PracticeMatcher {
                 self.results.push(PracticeResult {
                     target: Some(press.target),
                     judgement: PracticeJudgement::Missed,
+                    timing_offset_ms: None,
                 });
             }
         }
@@ -896,6 +903,7 @@ impl PracticeMatcher {
     pub fn summary(&self) -> AttemptSummary {
         let mut measures = BTreeMap::<usize, PracticeBreakdown>::new();
         let mut parts = BTreeMap::<PracticePart, PracticeBreakdown>::new();
+        let mut part_timing = BTreeMap::<PracticePart, Vec<i32>>::new();
 
         for result in &self.results {
             let Some(target) = result.target else {
@@ -912,6 +920,9 @@ impl PracticeMatcher {
                 .entry(target.part)
                 .or_default()
                 .record(result.judgement);
+            if let Some(offset) = result.timing_offset_ms {
+                part_timing.entry(target.part).or_default().push(offset);
+            }
         }
 
         AttemptSummary {
@@ -922,7 +933,16 @@ impl PracticeMatcher {
                 .collect(),
             parts: parts
                 .into_iter()
-                .map(|(part, breakdown)| PartSummary { part, breakdown })
+                .map(|(part, breakdown)| PartSummary {
+                    part,
+                    breakdown,
+                    timing: summarize_timing_offsets(
+                        part_timing
+                            .get(&part)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
+                    ),
+                })
                 .collect(),
             timing: summarize_timing_offsets(&self.timing_offsets_ms),
             expression: self.expression.summary(),
@@ -958,11 +978,12 @@ impl PracticeMatcher {
         played_at: Duration,
         released_at: Option<Duration>,
     ) -> MatchedNote {
-        self.timing_offsets_ms.push(match timing {
+        let timing_offset_ms = match timing {
             TimingGrade::Early(delta) => -duration_millis_i32(delta),
             TimingGrade::OnTime => 0,
             TimingGrade::Late(delta) => duration_millis_i32(delta),
-        });
+        };
+        self.timing_offsets_ms.push(timing_offset_ms);
         let timing = match timing {
             TimingGrade::Early(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
             TimingGrade::Late(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
@@ -979,6 +1000,7 @@ impl PracticeMatcher {
         self.results.push(PracticeResult {
             target: Some(target),
             judgement: PracticeJudgement::Matched(timing),
+            timing_offset_ms: Some(timing_offset_ms),
         });
         self.expression
             .record_velocity(played_velocity, target.velocity);
@@ -1320,6 +1342,47 @@ mod tests {
     }
 
     #[test]
+    fn summary_keeps_left_and_right_timing_profiles_separate() {
+        let mut matcher = matcher();
+        for index in 0..8 {
+            let base = Duration::from_millis(1_000 + index * 200);
+            for (note, part, lateness) in [
+                (72, PracticePart::RightHand, 20),
+                (48, PracticePart::LeftHand, 60),
+            ] {
+                matcher.score_target(
+                    base,
+                    PracticeTarget {
+                        note,
+                        velocity: 80,
+                        score_time: base,
+                        duration: Duration::ZERO,
+                        track_id: usize::from(note),
+                        measure: index as usize + 1,
+                        part,
+                    },
+                    true,
+                );
+                matcher.user_note(base + Duration::from_millis(lateness), note, true);
+            }
+        }
+
+        let summary = matcher.summary();
+        let timing = |part| {
+            summary
+                .parts
+                .iter()
+                .find(|summary| summary.part == part)
+                .unwrap()
+                .timing
+        };
+        assert_eq!(timing(PracticePart::RightHand).median_offset_ms, Some(20));
+        assert_eq!(timing(PracticePart::LeftHand).median_offset_ms, Some(60));
+        assert_eq!(timing(PracticePart::RightHand).median_deviation_ms, Some(0));
+        assert!(timing(PracticePart::LeftHand).has_profile());
+    }
+
+    #[test]
     fn expression_summary_pairs_velocity_and_tracks_pedal_evidence() {
         let mut matcher = matcher();
         let target = |note, velocity, millis| PracticeTarget {
@@ -1422,6 +1485,25 @@ mod tests {
 
         let expression: ExpressionSummary = ron::from_str(legacy).unwrap();
         assert_eq!(expression.articulation, ArticulationSummary::default());
+    }
+
+    #[test]
+    fn part_summaries_saved_before_timing_profiles_remain_readable() {
+        let legacy = r#"(
+            part: RightHand,
+            breakdown: (
+                target_notes: 1,
+                matched_notes: 1,
+                on_time_notes: 1,
+                early_notes: 0,
+                late_notes: 0,
+                wrong_notes: 0,
+                missed_notes: 0,
+            ),
+        )"#;
+
+        let part: PartSummary = ron::from_str(legacy).unwrap();
+        assert_eq!(part.timing, TimingSummary::default());
     }
 
     #[test]

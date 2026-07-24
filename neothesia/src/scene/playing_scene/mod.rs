@@ -524,9 +524,9 @@ impl PlayingScene {
 
                     nuon::label()
                         .x(28.0)
-                        .y(226.0)
-                        .size(panel_w - 56.0, 34.0)
-                        .font_size(17.0)
+                        .y(222.0)
+                        .size(panel_w - 56.0, 24.0)
+                        .font_size(16.0)
                         .text(format!(
                             "Right hand {}    Left hand {}",
                             format_accuracy(part_accuracy(PracticePart::RightHand)),
@@ -534,12 +534,21 @@ impl PlayingScene {
                         ))
                         .build(ui);
 
+                    nuon::label()
+                        .x(28.0)
+                        .y(246.0)
+                        .size(panel_w - 56.0, 20.0)
+                        .font_size(13.0)
+                        .color([184, 178, 205])
+                        .text(format_hand_timing(&summary.parts))
+                        .build(ui);
+
                     if ctx.config.expression_feedback() {
                         let (dynamics, pedal, articulation) =
                             format_expression_summary(summary.expression);
                         nuon::label()
                             .x(28.0)
-                            .y(258.0)
+                            .y(270.0)
                             .size(panel_w - 56.0, 24.0)
                             .font_size(14.0)
                             .color([184, 178, 205])
@@ -547,7 +556,7 @@ impl PlayingScene {
                             .build(ui);
                         nuon::label()
                             .x(28.0)
-                            .y(282.0)
+                            .y(294.0)
                             .size(panel_w - 56.0, 24.0)
                             .font_size(14.0)
                             .color([184, 178, 205])
@@ -555,7 +564,7 @@ impl PlayingScene {
                             .build(ui);
                         nuon::label()
                             .x(28.0)
-                            .y(306.0)
+                            .y(318.0)
                             .size(panel_w - 56.0, 24.0)
                             .font_size(14.0)
                             .color([184, 178, 205])
@@ -565,14 +574,14 @@ impl PlayingScene {
 
                     nuon::quad()
                         .x(28.0)
-                        .y(338.0)
+                        .y(350.0)
                         .size(panel_w - 56.0, 1.0)
                         .color([83, 78, 98])
                         .build(ui);
 
                     nuon::label()
                         .x(28.0)
-                        .y(352.0)
+                        .y(364.0)
                         .size(panel_w - 56.0, 44.0)
                         .font_size(17.0)
                         .text(review)
@@ -581,7 +590,7 @@ impl PlayingScene {
                     if let Some(session_count) = self.saved_session_count {
                         nuon::label()
                             .x(28.0)
-                            .y(392.0)
+                            .y(404.0)
                             .size(panel_w - 56.0, 28.0)
                             .font_size(14.0)
                             .color([143, 205, 171])
@@ -603,7 +612,7 @@ impl PlayingScene {
                     if completion_view == CompletionView::Current {
                         nuon::label()
                             .x(28.0)
-                            .y(422.0)
+                            .y(434.0)
                             .size(panel_w - 56.0, 30.0)
                             .font_size(14.0)
                             .color([255, 205, 124])
@@ -987,6 +996,40 @@ fn format_timing_profile(
         TimingCalibrationStatus::Suggested(_) => {}
     }
     profile
+}
+
+fn format_hand_timing(parts: &[neothesia_core::practice::PartSummary]) -> String {
+    let describe = |part| {
+        let timing = parts
+            .iter()
+            .find(|summary| summary.part == part)
+            .map(|summary| summary.timing)
+            .unwrap_or_default();
+        if !timing.has_profile() {
+            return format!(
+                "need {} more",
+                8usize.saturating_sub(timing.matched_samples)
+            );
+        }
+        let offset = timing.median_offset_ms.unwrap_or(0);
+        let bias = if offset < 0 {
+            format!("{}ms early", offset.unsigned_abs())
+        } else if offset > 0 {
+            format!("{offset}ms late")
+        } else {
+            "centered".to_owned()
+        };
+        format!(
+            "{bias}, spread {}ms",
+            timing.median_deviation_ms.unwrap_or(0)
+        )
+    };
+
+    format!(
+        "Hand timing · right: {} · left: {}",
+        describe(PracticePart::RightHand),
+        describe(PracticePart::LeftHand)
+    )
 }
 
 fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
@@ -1402,5 +1445,25 @@ mod tests {
             "Timing profile: median 18 ms early · typical spread 9 ms · calibration needs 24"
         );
         assert!(format_timing_profile(Default::default(), 0).contains("need 8 matched notes"));
+    }
+
+    #[test]
+    fn hand_timing_copy_keeps_each_hand_evidence_separate() {
+        let part = |part, samples, offset, deviation| neothesia_core::practice::PartSummary {
+            part,
+            breakdown: Default::default(),
+            timing: neothesia_core::practice::TimingSummary {
+                matched_samples: samples,
+                median_offset_ms: Some(offset),
+                median_deviation_ms: Some(deviation),
+            },
+        };
+        let copy = format_hand_timing(&[
+            part(PracticePart::RightHand, 8, 14, 9),
+            part(PracticePart::LeftHand, 6, -20, 11),
+        ]);
+
+        assert!(copy.contains("right: 14ms late, spread 9ms"));
+        assert!(copy.contains("left: need 2 more"));
     }
 }
