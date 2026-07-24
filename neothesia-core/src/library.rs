@@ -323,6 +323,15 @@ pub fn save_score_association(
     save_song_sidecar(midi_path, content_id, sidecar)
 }
 
+pub fn clear_score_association(
+    midi_path: &Path,
+    content_id: &str,
+) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.score = None;
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+
 pub fn resolve_score_path(midi_path: &Path, association: &ScoreAssociation) -> PathBuf {
     if association.path.is_absolute() {
         association.path.clone()
@@ -913,6 +922,13 @@ mod tests {
         )
         .unwrap();
         assert!(!verify_score_association(&midi_path, &association).unwrap());
+        clear_score_association(&midi_path, &content_id).unwrap();
+        assert!(
+            load_song_sidecar(&midi_path, &content_id)
+                .unwrap()
+                .score
+                .is_none()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

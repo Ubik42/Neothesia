@@ -16,7 +16,10 @@ mod tracks;
 use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
-use neothesia_core::library::{SongMetadata, save_song_metadata};
+use neothesia_core::library::{
+    ScoreAssociation, SongMetadata, clear_score_association, load_song_sidecar, resolve_score_path,
+    save_score_association, save_song_metadata, verify_score_association,
+};
 use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
 
@@ -79,10 +82,30 @@ struct MetadataEditor {
     fields: [String; 7],
     active: usize,
     message: Option<String>,
+    score: Option<ScoreAssociation>,
+    score_status: String,
 }
 
 impl MetadataEditor {
     fn new(content_id: String, source_path: PathBuf, metadata: SongMetadata) -> Self {
+        let score = load_song_sidecar(&source_path, &content_id)
+            .ok()
+            .and_then(|sidecar| sidecar.score);
+        let score_status = score
+            .as_ref()
+            .map(|association| {
+                let name = resolve_score_path(&source_path, association)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                match verify_score_association(&source_path, association) {
+                    Ok(true) => format!("Verified · {name}"),
+                    Ok(false) => format!("Changed · {name}"),
+                    Err(_) => format!("Missing or invalid · {name}"),
+                }
+            })
+            .unwrap_or_else(|| "No score paired".into());
         Self {
             content_id,
             source_path,
@@ -97,6 +120,8 @@ impl MetadataEditor {
             ],
             active: 0,
             message: None,
+            score,
+            score_status,
         }
     }
 
@@ -865,6 +890,8 @@ impl MenuScene {
         let form_x = nuon::center_x(win_w, form_w);
         let mut save = false;
         let mut cancel = false;
+        let mut pair_score = false;
+        let mut remove_score = false;
 
         let Some(editor) = self.metadata_editor.as_mut() else {
             self.state.go_back();
@@ -942,6 +969,54 @@ impl MenuScene {
             }
         }
 
+        let score_y = 92.0 + METADATA_FIELDS.len() as f32 * row_h;
+        nuon::label()
+            .x(form_x)
+            .y(score_y)
+            .size(174.0, 44.0)
+            .font_size(15.0)
+            .color([194, 191, 204])
+            .text("MusicXML score")
+            .build(ui);
+        if nuon::button()
+            .x(form_x + 180.0)
+            .y(score_y)
+            .size(form_w - 300.0, 44.0)
+            .label(truncate_menu_label(&editor.score_status, 48))
+            .color([55, 52, 64])
+            .hover_color([98, 73, 132])
+            .preseed_color([118, 86, 157])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            pair_score = true;
+        }
+        if nuon::button()
+            .x(form_x + form_w - 114.0)
+            .y(score_y)
+            .size(114.0, 44.0)
+            .label(if editor.score.is_some() {
+                "Remove"
+            } else {
+                "Pair…"
+            })
+            .color(if editor.score.is_some() {
+                [112, 62, 58]
+            } else {
+                [48, 91, 82]
+            })
+            .hover_color([109, 78, 164])
+            .preseed_color([132, 96, 191])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            if editor.score.is_some() {
+                remove_score = true;
+            } else {
+                pair_score = true;
+            }
+        }
+
         if let Some(message) = editor.message.as_deref() {
             nuon::label()
                 .x(form_x)
@@ -980,7 +1055,25 @@ impl MenuScene {
             save = true;
         }
 
-        if cancel {
+        if pair_score {
+            self.futures.push(pair_musicxml_score(
+                &mut self.state,
+                editor.source_path.clone(),
+                editor.content_id.clone(),
+            ));
+        } else if remove_score {
+            match clear_score_association(&editor.source_path, &editor.content_id) {
+                Ok(_) => {
+                    editor.score = None;
+                    editor.score_status = "No score paired".into();
+                    editor.message = Some("Removed paired score; metadata was preserved.".into());
+                    self.state.library_index = None;
+                }
+                Err(error) => {
+                    editor.message = Some(format!("Could not remove paired score: {error}"));
+                }
+            }
+        } else if cancel {
             self.metadata_editor = None;
             self.state.go_back();
         } else if save {
@@ -1100,6 +1193,53 @@ async fn scan_library(roots: Vec<PathBuf>) -> neothesia_core::library::LibraryIn
     .join()
     .await
     .unwrap_or_default()
+}
+
+fn pair_musicxml_score(
+    data: &mut UiState,
+    midi_path: PathBuf,
+    content_id: String,
+) -> BoxFuture<MsgFn> {
+    data.is_loading = true;
+    on_async(
+        async move {
+            let file = rfd::AsyncFileDialog::new()
+                .add_filter("MusicXML score", &["musicxml", "xml", "mxl"])
+                .pick_file()
+                .await;
+            let Some(file) = file else {
+                return Ok(None);
+            };
+            let score_path = file.path().to_path_buf();
+            crate::utils::task::thread::spawn("score-association".into(), move || {
+                save_score_association(&midi_path, &content_id, &score_path)
+                    .map(|_| score_path)
+                    .map_err(|error| error.to_string())
+            })
+            .join()
+            .await
+            .map_err(|_| "Score association task failed.".to_owned())?
+            .map(Some)
+        },
+        |result: Result<Option<PathBuf>, String>, data, _ctx| {
+            data.is_loading = false;
+            match result {
+                Ok(Some(path)) => {
+                    data.library_index = None;
+                    data.library_message = Some(format!(
+                        "Paired score {}; reopen Info to verify or replace it.",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                    data.go_back();
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    data.library_message = Some(format!("Could not pair score: {error}"));
+                    data.go_back();
+                }
+            }
+        },
+    )
 }
 
 async fn choose_library_folder() -> Option<PathBuf> {
