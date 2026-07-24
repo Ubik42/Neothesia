@@ -61,6 +61,8 @@ pub struct Note {
     pub grace: bool,
     pub ties: Vec<SpanType>,
     pub slurs: Vec<NumberedSpan>,
+    pub time_modification: Option<TupletRatio>,
+    pub tuplets: Vec<TupletSpan>,
     pub fingering: Option<String>,
     pub articulations: Vec<String>,
 }
@@ -185,6 +187,22 @@ pub enum SpanType {
 pub struct NumberedSpan {
     pub kind: SpanType,
     pub number: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TupletRatio {
+    pub actual_notes: u16,
+    pub normal_notes: u16,
+    pub normal_type: Option<String>,
+    pub normal_dots: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TupletSpan {
+    pub kind: SpanType,
+    pub number: u8,
+    pub bracket: Option<bool>,
+    pub show_number: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -401,6 +419,11 @@ struct NoteBuilder {
     grace: bool,
     ties: Vec<SpanType>,
     slurs: Vec<NumberedSpan>,
+    tuplet_actual: Option<u16>,
+    tuplet_normal: Option<u16>,
+    tuplet_normal_type: Option<String>,
+    tuplet_normal_dots: u8,
+    tuplets: Vec<TupletSpan>,
     fingering: Option<String>,
     articulations: Vec<String>,
 }
@@ -544,6 +567,13 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .slurs
                             .push(NumberedSpan { kind, number });
                     }
+                    b"tuplet" if note.is_some() => {
+                        push_tuplet(&start, &mut note.as_mut().unwrap().tuplets)?;
+                    }
+                    b"normal-dot" if note.is_some() => {
+                        let builder = note.as_mut().unwrap();
+                        builder.tuplet_normal_dots = builder.tuplet_normal_dots.saturating_add(1);
+                    }
                     b"sound" if direction.is_some() => {
                         direction.as_mut().unwrap().tempo_bpm = attribute(&start, b"tempo")?;
                     }
@@ -566,8 +596,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .dynamics
                             .push(str::from_utf8(name)?.to_owned());
                     }
-                    b"transpose" | b"time-modification" | b"tuplet" | b"ornaments" | b"pedal"
-                    | b"wedge" => {
+                    b"transpose" | b"ornaments" | b"pedal" | b"wedge" => {
                         warn_deferred(
                             &mut score.warnings,
                             current_part.as_ref(),
@@ -591,12 +620,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                 let name = start.name();
                 if matches!(
                     name.as_ref(),
-                    b"transpose"
-                        | b"time-modification"
-                        | b"tuplet"
-                        | b"ornaments"
-                        | b"pedal"
-                        | b"wedge"
+                    b"transpose" | b"ornaments" | b"pedal" | b"wedge"
                 ) {
                     warn_deferred(
                         &mut score.warnings,
@@ -738,6 +762,17 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     b"fingering" if note.is_some() => {
                         note.as_mut().unwrap().fingering = nonempty(value)
                     }
+                    b"actual-notes" if note.is_some() => {
+                        note.as_mut().unwrap().tuplet_actual =
+                            Some(parse_u16("tuplet actual-notes", &value)?);
+                    }
+                    b"normal-notes" if note.is_some() => {
+                        note.as_mut().unwrap().tuplet_normal =
+                            Some(parse_u16("tuplet normal-notes", &value)?);
+                    }
+                    b"normal-type" if note.is_some() => {
+                        note.as_mut().unwrap().tuplet_normal_type = nonempty(value);
+                    }
                     b"words" if direction.is_some() => {
                         if let Some(value) = nonempty(value) {
                             direction.as_mut().unwrap().words.push(value);
@@ -748,6 +783,33 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"note" => {
                         let built = note.take().unwrap();
+                        let time_modification = match (built.tuplet_actual, built.tuplet_normal) {
+                            (Some(actual_notes), Some(normal_notes))
+                                if actual_notes > 0 && normal_notes > 0 =>
+                            {
+                                Some(TupletRatio {
+                                    actual_notes,
+                                    normal_notes,
+                                    normal_type: built.tuplet_normal_type,
+                                    normal_dots: built.tuplet_normal_dots,
+                                })
+                            }
+                            (None, None) => None,
+                            _ => {
+                                warn_once(
+                                    &mut score.warnings,
+                                    current_part
+                                        .as_ref()
+                                        .zip(current_measure.as_ref())
+                                        .map(|(part, measure)| {
+                                            format!("{} measure {}", part.id, measure.number)
+                                        })
+                                        .unwrap_or_else(|| "score".into()),
+                                    "incomplete or zero tuplet ratio was ignored".into(),
+                                );
+                                None
+                            }
+                        };
                         let onset = if built.chord {
                             previous_note_onset
                         } else {
@@ -777,6 +839,8 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 grace: built.grace,
                                 ties: built.ties,
                                 slurs: built.slurs,
+                                time_modification,
+                                tuplets: built.tuplets,
                                 fingering: built.fingering,
                                 articulations: built.articulations,
                             }));
@@ -867,6 +931,13 @@ fn handle_empty(
                 .slurs
                 .push(NumberedSpan { kind, number });
         }
+        b"tuplet" if note.is_some() => {
+            push_tuplet(start, &mut note.as_mut().unwrap().tuplets)?;
+        }
+        b"normal-dot" if note.is_some() => {
+            let builder = note.as_mut().unwrap();
+            builder.tuplet_normal_dots = builder.tuplet_normal_dots.saturating_add(1);
+        }
         name if note.is_some() && path.iter().any(|part| part == b"articulations") => {
             note.as_mut()
                 .unwrap()
@@ -904,6 +975,26 @@ fn attribute(start: &BytesStart<'_>, name: &[u8]) -> Result<Option<String>, Impo
 
 fn push_span(start: &BytesStart<'_>, spans: &mut Vec<SpanType>) -> Result<(), ImportError> {
     spans.push(span_attribute(start)?);
+    Ok(())
+}
+
+fn push_tuplet(start: &BytesStart<'_>, tuplets: &mut Vec<TupletSpan>) -> Result<(), ImportError> {
+    let kind = span_attribute(start)?;
+    let number = attribute(start, b"number")?
+        .map(|value| parse_u8("tuplet number", &value))
+        .transpose()?
+        .unwrap_or(1);
+    let bracket = match attribute(start, b"bracket")?.as_deref() {
+        Some("yes") => Some(true),
+        Some("no") => Some(false),
+        _ => None,
+    };
+    tuplets.push(TupletSpan {
+        kind,
+        number,
+        bracket,
+        show_number: attribute(start, b"show-number")?,
+    });
     Ok(())
 }
 
@@ -981,6 +1072,7 @@ macro_rules! parse_integer {
 }
 
 parse_integer!(parse_u8, u8);
+parse_integer!(parse_u16, u16);
 parse_integer!(parse_u32, u32);
 parse_integer!(parse_i8, i8);
 parse_integer!(parse_i64, i64);
@@ -1188,5 +1280,49 @@ mod tests {
         assert!(score.warnings.iter().any(|warning| {
             warning.location == "P1 measure 1" && warning.message.starts_with("pedal directions")
         }));
+    }
+
+    #[test]
+    fn preserves_tuplet_ratio_and_display_span() {
+        let source = br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1"><attributes><divisions>12</divisions></attributes>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration>
+<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes><normal-type>eighth</normal-type></time-modification>
+<notations><tuplet type="start" number="1" bracket="yes" show-number="actual"/></notations></note>
+<note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration>
+<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes><normal-type>eighth</normal-type></time-modification>
+<notations><tuplet type="stop" number="1"/></notations></note>
+</measure></part></score-partwise>"#;
+        let score = import_musicxml(source).unwrap();
+        assert!(score.warnings.is_empty());
+        let notes: Vec<_> = score.parts[0].measures[0]
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                ScoreEvent::Note(note) => Some(note),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(notes[0].duration, ScoreTime::new(1, 3));
+        assert_eq!(
+            notes[0].time_modification,
+            Some(TupletRatio {
+                actual_notes: 3,
+                normal_notes: 2,
+                normal_type: Some("eighth".into()),
+                normal_dots: 0,
+            })
+        );
+        assert_eq!(
+            notes[0].tuplets,
+            [TupletSpan {
+                kind: SpanType::Start,
+                number: 1,
+                bracket: Some(true),
+                show_number: Some("actual".into()),
+            }]
+        );
+        assert_eq!(notes[1].tuplets[0].kind, SpanType::Stop);
     }
 }

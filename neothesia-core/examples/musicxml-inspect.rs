@@ -21,7 +21,7 @@ fn main() -> ExitCode {
     }
 
     let mut failed = false;
-    println!("file\tparts\tmeasures\tnotes\tdirections\twarnings\ttitle");
+    println!("file\tparts\tmeasures\tnotes\ttuplet-notes\tdirections\twarnings\ttitle");
     for path in paths {
         match import_musicxml_file(&path) {
             Ok(score) => {
@@ -31,6 +31,7 @@ fn main() -> ExitCode {
                     .map(|part| part.measures.len())
                     .sum::<usize>();
                 let mut notes = 0;
+                let mut tuplet_notes = 0;
                 let mut directions = 0;
                 for event in score
                     .parts
@@ -39,12 +40,15 @@ fn main() -> ExitCode {
                     .flat_map(|measure| &measure.events)
                 {
                     match event {
-                        ScoreEvent::Note(_) => notes += 1,
+                        ScoreEvent::Note(note) => {
+                            notes += 1;
+                            tuplet_notes += usize::from(note.time_modification.is_some());
+                        }
                         ScoreEvent::Direction(_) => directions += 1,
                     }
                 }
                 println!(
-                    "{}\t{}\t{measures}\t{notes}\t{directions}\t{}\t{}",
+                    "{}\t{}\t{measures}\t{notes}\t{tuplet_notes}\t{directions}\t{}\t{}",
                     path.display(),
                     score.parts.len(),
                     score.warnings.len(),
