@@ -172,6 +172,15 @@ impl PlayingScene {
         }
     }
 
+    fn emergency_panic(&mut self) {
+        self.player.emergency_stop();
+        self.keyboard.reset_notes();
+        self.mouse_to_midi_state.reset();
+        self.top_bar.cancel_count_in();
+        self.toast_manager
+            .toast("PANIC: output silenced and playback paused");
+    }
+
     #[profiling::function]
     fn update_midi_player(&mut self, ctx: &mut Context, delta: Duration) -> f32 {
         if self.top_bar.update_count_in(delta) {
@@ -945,6 +954,9 @@ impl Scene for PlayingScene {
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) {
         if self.completion.is_some() {
+            if event.key_released(Key::Named(NamedKey::F12)) {
+                self.emergency_panic();
+            }
             if event.back_mouse_pressed() || event.key_released(Key::Named(NamedKey::Escape)) {
                 ctx.proxy
                     .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
@@ -972,6 +984,10 @@ impl Scene for PlayingScene {
 
         if event.key_released(Key::Named(NamedKey::Space)) {
             self.player.pause_resume();
+        }
+
+        if event.key_released(Key::Named(NamedKey::F12)) {
+            self.emergency_panic();
         }
 
         let speed_before = ctx.config.speed_multiplier();

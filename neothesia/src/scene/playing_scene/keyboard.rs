@@ -113,10 +113,8 @@ impl Keyboard {
     pub fn user_midi_event(&mut self, message: &MidiMessage) {
         let range_start = self.range().start() as usize;
 
-        let (is_on, key) = match message {
-            MidiMessage::NoteOn { key, .. } => (true, key.as_int()),
-            MidiMessage::NoteOff { key, .. } => (false, key.as_int()),
-            _ => return,
+        let Some((is_on, key)) = visual_note_state(message) else {
+            return;
         };
 
         if self.range().contains(key) {
@@ -137,10 +135,8 @@ impl Keyboard {
                 continue;
             }
 
-            let (is_on, key) = match e.message {
-                MidiMessage::NoteOn { key, .. } => (true, key.as_int()),
-                MidiMessage::NoteOff { key, .. } => (false, key.as_int()),
-                _ => continue,
+            let Some((is_on, key)) = visual_note_state(&e.message) else {
+                continue;
             };
 
             if self.range().contains(key) && e.channel != 9 {
@@ -158,5 +154,30 @@ impl Keyboard {
                 self.renderer.invalidate_cache();
             }
         }
+    }
+}
+
+fn visual_note_state(message: &MidiMessage) -> Option<(bool, u8)> {
+    match message {
+        MidiMessage::NoteOn { key, vel } => Some((vel.as_int() > 0, key.as_int())),
+        MidiMessage::NoteOff { key, .. } => Some((false, key.as_int())),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use midi_file::midly::num::u7;
+
+    #[test]
+    fn zero_velocity_note_on_releases_visual_key_state() {
+        assert_eq!(
+            visual_note_state(&MidiMessage::NoteOn {
+                key: u7::new(60),
+                vel: u7::new(0),
+            }),
+            Some((false, 60))
+        );
     }
 }

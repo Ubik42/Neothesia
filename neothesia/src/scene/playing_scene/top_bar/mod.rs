@@ -108,6 +108,10 @@ impl TopBar {
         self.count_in = Some(CountIn::new(duration));
     }
 
+    pub fn cancel_count_in(&mut self) {
+        self.count_in = None;
+    }
+
     pub fn record_attempt(
         &mut self,
         summary: AttemptSummary,
@@ -171,6 +175,19 @@ impl TopBar {
             .build(&mut ui, |ui| {
                 Self::panel(this, ctx, ui);
             });
+
+        if nuon::button()
+            .x(ctx.window_state.logical_size.width - 178.0)
+            .size(80.0, 30.0)
+            .label("PANIC  F12")
+            .color([143, 48, 61])
+            .hover_color([178, 58, 72])
+            .preseed_color([198, 68, 82])
+            .border_radius([5.0; 4])
+            .build(&mut ui)
+        {
+            this.emergency_panic();
+        }
 
         if let Some(count_in) = this.top_bar.count_in {
             let win_w = ctx.window_state.logical_size.width;

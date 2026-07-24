@@ -150,6 +150,12 @@ impl MidiPlayer {
         self.playback.pause();
     }
 
+    pub fn emergency_stop(&mut self) {
+        self.clear();
+        self.playback.pause();
+        self.practice.clear_pending();
+    }
+
     pub fn resume(&mut self) {
         self.playback.resume();
         self.practice.clear_pending();
@@ -388,6 +394,34 @@ mod tests {
             .filter(|event| matches!(event, TestOutputEvent::StopAll))
             .count();
         assert_eq!(panic_count, 4);
+    }
+
+    #[test]
+    fn emergency_stop_pauses_and_clears_pending_practice_input() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let (output, events) = OutputConnection::test();
+        let mut player = MidiPlayer::new_with_lead_in(
+            output,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+        player.update(Duration::from_secs(10));
+        assert!(!player.should_advance());
+        events.borrow_mut().clear();
+
+        player.emergency_stop();
+
+        assert!(player.is_paused());
+        assert!(player.should_advance());
+        assert_eq!(player.practice_snapshot().required_notes, 0);
+        assert!(matches!(
+            events.borrow().as_slice(),
+            [TestOutputEvent::StopAll]
+        ));
     }
 
     #[test]

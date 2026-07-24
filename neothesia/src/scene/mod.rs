@@ -85,6 +85,12 @@ struct MouseToMidiEventState {
     mouse_key_press: Option<u8>,
 }
 
+impl MouseToMidiEventState {
+    fn reset(&mut self) {
+        self.mouse_key_press = None;
+    }
+}
+
 fn handle_mouse_to_midi_event(
     keyboard: &mut Keyboard,
     state: &mut MouseToMidiEventState,
