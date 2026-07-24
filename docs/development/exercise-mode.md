@@ -7,10 +7,11 @@ Coach, history and completion feedback remain consistent.
 
 ## Using Technique Studio
 
-Open **Technique Studio** from the home screen. Click a parameter card to cycle
-through its choices, then choose **Start Exercise** or press Enter. The initial
-preset is C major scale, up and down, both hands, one octave at 60 BPM. Escape
-returns to the home screen.
+Open **Technique Studio** from the home screen. Use each parameter's left and
+right arrows, then choose **Start Exercise** or press Enter. The initial preset
+is C major scale, up and down, both hands, one octave at 60 BPM. After starting
+an exercise, that complete selection becomes the default for the next launch.
+Escape returns to the home screen.
 
 The generated exercise opens in the normal practice player with wait-for-notes
 enabled. Hand switching, loops, tempo changes, scoring, completion feedback and
@@ -62,6 +63,11 @@ practice shortcuts without a second player implementation.
 The player entry path also assigns hand identity explicitly from the generated
 track contract. This keeps right-only and left-only exercise feedback correctly
 scoped even though generic one-track MIDI cannot safely infer a hand.
+
+The last-used specification is stored in the versioned application settings.
+Older settings default to the initial C-major preset. Structurally invalid
+persisted values are rejected before the menu renders, preventing an invalid
+tonic, octave span or tempo from crashing the selector.
 
 Fingering is deliberately absent from the generator today. Generic
 one-pattern-fits-all scale fingering would teach incorrect crossings in several

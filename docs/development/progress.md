@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 041 — Persistent exercise choices
+
+State: **DONE**
+
+Delivered:
+
+- replaced one-way parameter cycling with explicit previous/next controls;
+- covered key, tonality, pattern, direction, hands, octaves and tempo;
+- gave every selector control a stable semantic automation identity;
+- persisted the complete last-started exercise specification;
+- restored that specification when the application starts again;
+- kept older settings files compatible through a defaulted field;
+- rejected invalid persisted tonic, span or tempo before rendering;
+- shared one adjustment path between visible controls and automation;
+- completed `EX-001C`.
+
+Verification:
+
+- selectors wrap safely in both directions;
+- the full exercise specification survives RON serialization;
+- settings without the new field load the default exercise;
+- invalid persisted exercise values fall back safely;
+- real-process automation changes C to C♯ and observes MIDI notes 37 and 61;
+- the process writes the selected C♯ specification to `settings.ron`;
+- two MIDI-file tests, sixty practice/core tests and fifty-two application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `e613901`.
+
 ### Cycle 040 — Technique Studio
 
 State: **DONE**

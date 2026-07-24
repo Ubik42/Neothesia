@@ -4,6 +4,69 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 041: Persistent exercise choices (DONE)
+
+### Outcome
+
+Technique Studio now behaves like a durable practice workspace. Every choice
+can move backward or forward explicitly, and the next launch resumes the last
+exercise the learner actually started.
+
+### Implemented
+
+- Replaced click-to-cycle cards with visible previous and next buttons.
+- Added bidirectional wrapping for all twelve keys, three patterns, three
+  directions, three hand modes, three octave spans and the graduated tempo
+  list.
+- Preserved a clear centered value panel between each arrow pair.
+- Added stable semantic action IDs to all fourteen selector buttons.
+- Used one adjustment implementation for native controls and automated tests.
+- Added `last_exercise_spec` to the versioned history/settings section.
+- Saved the specification only after generation succeeds and the learner
+  starts the exercise.
+- Restored the saved specification in new menu scenes.
+- Added public structural validation to `ExerciseSpec`.
+- Fell back to the default exercise if persisted numeric values are invalid.
+- Kept legacy settings compatible through Serde defaults.
+- Extended the native smoke fixture to select C♯ and inspect the generated
+  required notes.
+- Inspected the settings file after clean process exit to verify persistence.
+
+### Verification
+
+- Previous/next unit coverage for key, pattern, direction, hands, octaves and
+  tempo boundary wrapping.
+- Full specification RON serialization round trip.
+- Legacy history settings load without `last_exercise_spec`.
+- Invalid tonic 99 falls back safely.
+- Semantic action IDs remain unique and namespaced.
+- Real-process fixture confirms:
+  - C♯ selection is accepted;
+  - first required notes are MIDI 37 and 61;
+  - played notes score;
+  - hand and loop controls still work;
+  - `settings.ron` contains tonic 1;
+  - process exits with code 0.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, sixty core tests and fifty-two
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `e613901`
+(`feat: persist technique studio choices`).
+
+### Known limitations
+
+- Only the last-started exercise is persisted; named favourites and a recent
+  variant list remain under `EX-002`.
+- The selector page does not yet show due/review evidence for an exercise.
+- Fingering remains deferred pending reviewed per-key/per-hand tables.
+
 ## 2026-07-25 — Cycle 040: Technique Studio (DONE)
 
 ### Outcome

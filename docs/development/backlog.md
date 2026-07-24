@@ -68,6 +68,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `COACH-002` Schedule local spaced review.
 - [x] `EX-001A` Define deterministic scale, arpeggio and chord exercise plans.
 - [x] `EX-001B` Convert exercise plans to stable in-memory Type-1 MIDI.
+- [x] `EX-001C` Persist the last exercise and add bidirectional selectors.
 - [x] `EX-001` Add scales, arpeggios and chord exercise mode.
 - [ ] `EX-002` Persist favourite exercise presets and recent exercise variants.
 - [ ] `EX-003` Add reviewed key- and hand-specific fingering guidance.
