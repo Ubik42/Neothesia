@@ -4,6 +4,60 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 030: Debug practice automation harness (DONE)
+
+### Outcome
+
+Debug builds can now drive important practice controls by stable semantic ID
+and inspect learner-facing state without screen coordinates. Actions travel
+through the real application event loop and reuse the same behavior as visible
+buttons.
+
+### Implemented
+
+- Added a debug-only event-loop proxy harness.
+- Added semantic action and practice snapshot application events.
+- Routed the active scene's debug requests through the normal event loop.
+- Exposed wait mode, Tempo Coach, hand scope, completion tab, matched/wrong/
+  missed counts and input-latency compensation in a read-only snapshot.
+- Activated player back, wait, coach and hands by semantic ID.
+- Activated completion Overview, Technique, History, retry and back by semantic
+  ID when the completion screen is active.
+- Extracted shared wait, coach and retry methods so automation cannot drift
+  from visible button behavior.
+- Added an explicit supported-action parser and mapping test.
+- Kept calibration and recommendation actions unsupported until their
+  parameterized product logic can be shared safely.
+- Compile-time excluded the harness, events and snapshot from release builds.
+- Updated the native UI automation contract.
+
+### Verification
+
+- Verified the supported semantic mapping and rejected unsupported IDs.
+- Verified the complete stable-ID catalogue remains unique and namespaced.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-five
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `d428acf`
+(`feat: add debug practice automation harness`).
+
+### Known limitations
+
+- The harness is currently in-process; no controlled external driver endpoint
+  exists yet.
+- Action dispatch reports queueing success, not whether the active scene
+  accepted the action.
+- Deterministic GPU screenshot capture is not implemented.
+- Calibration and recommendation actions remain click-only.
+- OS accessibility still depends on future Nuon platform integration.
+
 ## 2026-07-25 — Cycle 029: Stable practice action identities (DONE)
 
 ### Outcome

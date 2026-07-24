@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 030 — Debug practice automation harness
+
+State: **DONE**
+
+Delivered:
+
+- added a debug-only harness that sends semantic actions through the normal
+  application event loop;
+- exposed a read-only practice snapshot for wait mode, Tempo Coach, hands,
+  completion tab, attempt counts and input latency;
+- routed wait, coach and retry through the same product methods used by visible
+  controls;
+- supported player navigation, mode toggles, completion tabs and retry/back;
+- documented the exact supported boundary instead of claiming click-only
+  parameterized actions;
+- compile-time excluded the harness and event variants from release builds.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-five application
+  tests pass;
+- tests cover the explicit action mapping, unsupported boundary and stable ID
+  catalogue;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes without debug-harness code or new warnings;
+- implementation commit: `d428acf`.
+
 ### Cycle 029 — Stable practice action identities
 
 State: **DONE**
