@@ -143,6 +143,8 @@ impl Preview {
             *keyboard.pos(),
             waterfall.notes(),
             ctx.text_renderer_factory.new_renderer(),
+            true,
+            std::collections::HashMap::new(),
         ));
 
         let mut player = MidiPlayer::new_with_lead_in(

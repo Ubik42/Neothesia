@@ -59,6 +59,8 @@ pub struct DebugPracticeSnapshot {
     pub required_notes: usize,
     pub required_note_pitches: Vec<u8>,
     pub input_latency_ms: i32,
+    pub fingerings_available: bool,
+    pub fingerings_enabled: bool,
 }
 
 #[cfg(debug_assertions)]

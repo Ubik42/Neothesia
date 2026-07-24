@@ -158,9 +158,11 @@ try {
             $openExercises.ok -and $openExercises.accepted
         ) "Technique Studio did not open"
         $nextKey = Invoke-DebugDriver "ACTION practice.exercise.key.next"
+        $previousKey = Invoke-DebugDriver "ACTION practice.exercise.key.previous"
         Assert-True (
-            $nextKey.ok -and $nextKey.accepted
-        ) "Exercise key selector did not advance"
+            $nextKey.ok -and $nextKey.accepted -and
+            $previousKey.ok -and $previousKey.accepted
+        ) "Exercise key selector did not move in both directions"
         $previousTonality = Invoke-DebugDriver (
             "ACTION practice.exercise.tonality.previous"
         )
@@ -220,6 +222,23 @@ try {
     }
     Assert-True ($null -ne $player) "Player scene did not become active"
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
+    if ($ExerciseFixture) {
+        Assert-True (
+            $player.fingerings_available -and $player.fingerings_enabled
+        ) "Reviewed C-scale fingering was not enabled by default"
+        $toggleFingeringsOff = Invoke-DebugDriver (
+            "ACTION practice.player.fingerings"
+        )
+        $fingeringOff = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        $toggleFingeringsOn = Invoke-DebugDriver (
+            "ACTION practice.player.fingerings"
+        )
+        Assert-True (
+            $toggleFingeringsOff.ok -and $toggleFingeringsOff.accepted -and
+            -not $fingeringOff.fingerings_enabled -and
+            $toggleFingeringsOn.ok -and $toggleFingeringsOn.accepted
+        ) "Reviewed fingering toggle did not work in both states"
+    }
 
     if ($CompletionFixture) {
         $completion = $null
@@ -321,9 +340,9 @@ try {
     ) "Required-note count and pitch list disagree"
     if ($ExerciseFixture) {
         Assert-True (
-            @($waiting.required_note_pitches).Contains(37) -and
-            @($waiting.required_note_pitches).Contains(61)
-        ) "C-sharp exercise did not expose the selected two-hand tonic"
+            @($waiting.required_note_pitches).Contains(36) -and
+            @($waiting.required_note_pitches).Contains(60)
+        ) "C exercise did not expose the selected two-hand tonic"
     }
 
     $matchedBeforeInput = [int]$waiting.matched_notes
@@ -486,13 +505,13 @@ try {
         $settingsText = [System.IO.File]::ReadAllText($settingsPath)
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
-            $settingsText -match "tonic:\s*1" -and
+            $settingsText -match "tonic:\s*0" -and
             $settingsText -match "minor_form:\s*Natural" -and
             $settingsText -match "repetitions:\s*2" -and
             $settingsText -match "tempo_bpm:\s*70" -and
             $settingsText -match "recent_exercise_specs:\s*\[" -and
             $settingsText -match "favourite_exercise_specs:\s*\["
-        ) "Selected, recent and favourite C-sharp exercise were not persisted"
+        ) "Selected, recent and favourite C exercise were not persisted"
         $historyPath = Join-Path $runDirectory "practice-history.ron"
         Assert-True (
             [System.IO.File]::Exists($historyPath)
@@ -504,7 +523,7 @@ try {
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
         $exercisePersistence = (
-            "C-sharp 70 BPM two-pass recent/favourite preset and attempt saved"
+            "C 70 BPM two-pass recent/favourite preset and attempt saved"
         )
     }
 

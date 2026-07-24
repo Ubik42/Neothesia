@@ -540,6 +540,31 @@ impl TopBar {
                 {
                     this.player.pause_resume();
                 }
+
+                if this.fingering_state().0 {
+                    nuon::translate().x(-92.0).add_to_current(ui);
+                    let enabled = this.fingering_state().1;
+                    if nuon::button()
+                        .id(super::practice_ui_ids::PLAYER_FINGERINGS)
+                        .size(86.0, 30.0)
+                        .label(if enabled {
+                            "Fingers: ON"
+                        } else {
+                            "Fingers: OFF"
+                        })
+                        .color(if enabled {
+                            [109, 78, 164]
+                        } else {
+                            [74, 68, 88]
+                        })
+                        .hover_color([132, 96, 191])
+                        .preseed_color([144, 108, 203])
+                        .border_radius([5.0; 4])
+                        .build(ui)
+                    {
+                        this.toggle_fingerings();
+                    }
+                }
             });
     }
 

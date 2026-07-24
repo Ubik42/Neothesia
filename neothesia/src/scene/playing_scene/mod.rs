@@ -52,6 +52,7 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_COACH: &str = "practice.player.coach";
     pub const PLAYER_HANDS: &str = "practice.player.hands";
     pub const PLAYER_LOOP: &str = "practice.player.loop";
+    pub const PLAYER_FINGERINGS: &str = "practice.player.fingerings";
     #[cfg(debug_assertions)]
     pub const PLAYER_RESTART: &str = "practice.player.restart";
     pub const COMPLETION_OVERVIEW: &str = "practice.completion.tab.overview";
@@ -96,6 +97,7 @@ pub(crate) mod practice_ui_ids {
         PLAYER_COACH,
         PLAYER_HANDS,
         PLAYER_LOOP,
+        PLAYER_FINGERINGS,
         PLAYER_RESTART,
         COMPLETION_OVERVIEW,
         COMPLETION_TECHNIQUE,
@@ -116,6 +118,7 @@ enum DebugPracticeAction {
     ToggleCoach,
     CycleHands,
     ToggleLoop,
+    ToggleFingerings,
     Restart,
     ShowOverview,
     ShowTechnique,
@@ -132,6 +135,7 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_COACH => Some(Self::ToggleCoach),
             practice_ui_ids::PLAYER_HANDS => Some(Self::CycleHands),
             practice_ui_ids::PLAYER_LOOP => Some(Self::ToggleLoop),
+            practice_ui_ids::PLAYER_FINGERINGS => Some(Self::ToggleFingerings),
             practice_ui_ids::PLAYER_RESTART => Some(Self::Restart),
             practice_ui_ids::COMPLETION_OVERVIEW => Some(Self::ShowOverview),
             practice_ui_ids::COMPLETION_TECHNIQUE => Some(Self::ShowTechnique),
@@ -228,11 +232,15 @@ impl PlayingScene {
 
         let text_renderer = ctx.text_renderer_factory.new_renderer();
 
-        let note_labels = ctx.config.note_labels().then_some(NoteLabels::new(
-            *keyboard.pos(),
-            waterfall.notes(),
-            ctx.text_renderer_factory.new_renderer(),
-        ));
+        let has_exercise_fingerings = !song.exercise_fingerings.is_empty();
+        let note_labels =
+            (ctx.config.note_labels() || has_exercise_fingerings).then_some(NoteLabels::new(
+                *keyboard.pos(),
+                waterfall.notes(),
+                ctx.text_renderer_factory.new_renderer(),
+                ctx.config.note_labels(),
+                song.exercise_fingerings.clone(),
+            ));
 
         let mut player = MidiPlayer::new(
             ctx.output_manager.connection().clone(),
@@ -332,6 +340,28 @@ impl PlayingScene {
         } else {
             "Tempo Coach OFF: speed stays under manual control"
         });
+    }
+
+    fn toggle_fingerings(&mut self) -> bool {
+        let Some(labels) = self.note_labels.as_mut() else {
+            return false;
+        };
+        if !labels.toggle_fingerings() {
+            return false;
+        }
+        self.toast_manager.toast(if labels.fingerings_enabled() {
+            "Reviewed fingering ON"
+        } else {
+            "Reviewed fingering OFF"
+        });
+        true
+    }
+
+    fn fingering_state(&self) -> (bool, bool) {
+        self.note_labels
+            .as_ref()
+            .map(|labels| (labels.has_fingerings(), labels.fingerings_enabled()))
+            .unwrap_or((false, false))
     }
 
     fn retry_practice(&mut self) {
@@ -1770,6 +1800,11 @@ impl Scene for PlayingScene {
             DebugPracticeAction::ToggleCoach => self.toggle_tempo_coach(ctx),
             DebugPracticeAction::CycleHands => self.cycle_practice_hands(ctx),
             DebugPracticeAction::ToggleLoop => top_bar::toggle_loop(self, ctx),
+            DebugPracticeAction::ToggleFingerings => {
+                if !self.toggle_fingerings() {
+                    return false;
+                }
+            }
             DebugPracticeAction::Restart => self.restart_practice_scope(),
             DebugPracticeAction::Back => {
                 ctx.proxy
@@ -1819,6 +1854,8 @@ impl Scene for PlayingScene {
             required_notes: snapshot.required_notes,
             required_note_pitches: self.player.required_note_pitches(),
             input_latency_ms: self.player.input_latency_ms(),
+            fingerings_available: self.fingering_state().0,
+            fingerings_enabled: self.fingering_state().1,
         })
     }
 
@@ -2150,6 +2187,10 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_LOOP,
                 DebugPracticeAction::ToggleLoop,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERINGS,
+                DebugPracticeAction::ToggleFingerings,
             ),
             (
                 practice_ui_ids::PLAYER_RESTART,

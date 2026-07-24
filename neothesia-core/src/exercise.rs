@@ -107,6 +107,12 @@ pub struct ExercisePlan {
     pub moments: Vec<ExerciseMoment>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExerciseFingerings {
+    pub right: Vec<u8>,
+    pub left: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Eq, Error, PartialEq)]
 pub enum ExerciseError {
     #[error("tonic must be a pitch class from 0 to 11")]
@@ -250,6 +256,39 @@ impl ExercisePlan {
         blake3::hash(canonical.as_bytes()).to_hex().to_string()
     }
 
+    /// Returns reviewed fingering for the exact generated note sequence.
+    ///
+    /// The first supported family is C major/minor scales, whose finger-number
+    /// pattern is shared by all three minor forms. Unsupported keys and
+    /// patterns deliberately return `None` rather than guessing.
+    pub fn fingerings(&self) -> Option<ExerciseFingerings> {
+        if self.spec.tonic != 0 || self.spec.pattern != ExercisePattern::Scale {
+            return None;
+        }
+        let right = directional_fingering(
+            ascending_c_scale_fingering(PracticePart::RightHand, self.spec.octaves),
+            self.spec.direction,
+            self.spec.repetitions,
+        );
+        let left = directional_fingering(
+            ascending_c_scale_fingering(PracticePart::LeftHand, self.spec.octaves),
+            self.spec.direction,
+            self.spec.repetitions,
+        );
+        Some(ExerciseFingerings {
+            right: if self.spec.hands == ExerciseHands::Left {
+                Vec::new()
+            } else {
+                right
+            },
+            left: if self.spec.hands == ExerciseHands::Right {
+                Vec::new()
+            } else {
+                left
+            },
+        })
+    }
+
     pub fn to_midi_file(&self) -> Result<MidiFile, String> {
         let total_ticks = self
             .moments
@@ -358,6 +397,48 @@ impl ExercisePlan {
         });
         events
     }
+}
+
+fn ascending_c_scale_fingering(part: PracticePart, octaves: u8) -> Vec<u8> {
+    let note_count = usize::from(octaves) * 7 + 1;
+    match part {
+        PracticePart::RightHand => (0..note_count)
+            .map(|index| {
+                if index + 1 == note_count {
+                    5
+                } else {
+                    [1, 2, 3, 1, 2, 3, 4][index % 7]
+                }
+            })
+            .collect(),
+        PracticePart::LeftHand => (0..note_count)
+            .map(|index| {
+                if index == 0 {
+                    5
+                } else {
+                    [4, 3, 2, 1, 3, 2, 1][(index - 1) % 7]
+                }
+            })
+            .collect(),
+        PracticePart::Other => Vec::new(),
+    }
+}
+
+fn directional_fingering(
+    ascending: Vec<u8>,
+    direction: ExerciseDirection,
+    repetitions: u8,
+) -> Vec<u8> {
+    let phrase = match direction {
+        ExerciseDirection::Ascending => ascending,
+        ExerciseDirection::Descending => ascending.into_iter().rev().collect(),
+        ExerciseDirection::UpAndDown => {
+            let mut phrase = ascending.clone();
+            phrase.extend(ascending.into_iter().rev().skip(1));
+            phrase
+        }
+    };
+    phrase.repeat(usize::from(repetitions))
 }
 
 fn validate_spec(spec: ExerciseSpec) -> Result<(), ExerciseError> {
@@ -599,6 +680,55 @@ mod tests {
                 .map(|note| vec![note])
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn c_scale_fingering_handles_hands_directions_octaves_and_repetitions() {
+        let plan = ExercisePlan::generate(
+            ExerciseSpec {
+                octaves: 2,
+                repetitions: 2,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap();
+        let fingerings = plan.fingerings().unwrap();
+        let right_phrase = [1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5]
+            .into_iter()
+            .chain([4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1])
+            .collect::<Vec<_>>();
+        let left_phrase = [5, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1]
+            .into_iter()
+            .chain([2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5])
+            .collect::<Vec<_>>();
+
+        assert_eq!(fingerings.right, right_phrase.repeat(2));
+        assert_eq!(fingerings.left, left_phrase.repeat(2));
+    }
+
+    #[test]
+    fn fingering_is_explicitly_unavailable_outside_reviewed_c_scales() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let other_key = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 1,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+        let arpeggio = ExercisePlan::generate(
+            ExerciseSpec {
+                pattern: ExercisePattern::Arpeggio,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+
+        assert!(other_key.fingerings().is_none());
+        assert!(arpeggio.fingerings().is_none());
     }
 
     #[test]

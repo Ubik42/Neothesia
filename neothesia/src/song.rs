@@ -189,6 +189,7 @@ pub struct Song {
     pub config: SongConfig,
     pub exercise_spec: Option<ExerciseSpec>,
     pub exercise_phrase_duration: Option<Duration>,
+    pub exercise_fingerings: HashMap<(Duration, u8, u8), u8>,
 }
 
 impl Song {
@@ -199,6 +200,7 @@ impl Song {
             config,
             exercise_spec: None,
             exercise_phrase_duration: None,
+            exercise_fingerings: HashMap::new(),
         }
     }
 
@@ -210,6 +212,19 @@ impl Song {
         song.exercise_phrase_duration = Some(Duration::from_micros(
             u64::from(plan.beats_per_repetition()) * micros_per_beat,
         ));
+        if let Some(fingerings) = plan.fingerings() {
+            for track in song.file.tracks.iter() {
+                let fingers = match track.notes.first().map(|note| note.channel) {
+                    Some(0) => &fingerings.right,
+                    Some(1) => &fingerings.left,
+                    _ => continue,
+                };
+                for (note, finger) in track.notes.iter().zip(fingers) {
+                    song.exercise_fingerings
+                        .insert((note.start, note.note, note.channel), *finger);
+                }
+            }
+        }
         for track in &mut song.config.tracks {
             let channel = song.file.tracks[track.track_id]
                 .notes
@@ -269,6 +284,20 @@ mod tests {
 
         assert_eq!(song.config.practice_hands(), Some(PracticeHands::Both));
         assert_eq!(song.config.tracks.len(), 3);
+        assert_eq!(song.exercise_fingerings.len(), 30);
+        assert_eq!(
+            song.exercise_fingerings.get(&(Duration::ZERO, 60, 0)),
+            Some(&1)
+        );
+        assert_eq!(
+            song.exercise_fingerings.get(&(Duration::ZERO, 36, 1)),
+            Some(&5)
+        );
+        assert_eq!(
+            song.exercise_fingerings
+                .get(&(Duration::from_secs(7), 72, 0)),
+            Some(&5)
+        );
         assert_eq!(
             song.config
                 .tracks
