@@ -56,7 +56,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   recommendation.
 - [x] `COACH-004` Show current-song attempt trends and persistent weak-measure
   ranking.
-- [ ] `COACH-002` Schedule local spaced review.
+- [x] `COACH-002` Schedule local spaced review.
 - [ ] `EX-001` Add scales, arpeggios and chord exercise mode.
 
 ## RESEARCH — architecture spikes

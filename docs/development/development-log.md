@@ -4,6 +4,53 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 019: Explainable spaced review (DONE)
+
+### Outcome
+
+Neothesia can now distinguish “needs work now” from “successfully learned;
+check retention later.” The schedule is local, conservative and visible: every
+due label follows directly from measured note/timing performance rather than an
+opaque engagement score.
+
+### Implemented
+
+- Added pure review-status and reason models.
+- Reused the established 90% accuracy and 70% on-time mastery thresholds.
+- Counted consecutive mastered attempts only inside the latest practice scope.
+- Added 1/3/7/14-day review intervals.
+- Made weak and evidence-free attempts immediately due.
+- Added ceiling-rounded days-remaining calculations.
+- Added All, Queue and Due library modes.
+- Ordered due work by due timestamp.
+- Added compact explanatory labels for reinforcement, retention and waiting.
+- Kept queue insertion available directly beside every due item.
+
+### Verification
+
+- Added mastery-streak, interval, due-boundary, immediate-reinforcement and
+  UI-explanation tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `c5ee410`
+(`feat: add explainable spaced review`).
+
+### Known limitations
+
+- Review intervals are fixed policy bands, not user-configurable yet.
+- The schedule uses note/timing mastery; pedal, dynamics and duration evidence
+  are not included yet.
+- A take with no judged notes is conservatively due but still needs a proper
+  calibration/session workflow.
+- Queue insertion remains explicit rather than automatic by design.
+
 ## 2026-07-25 — Cycle 018: Favourites and ordered practice queue (DONE)
 
 ### Outcome

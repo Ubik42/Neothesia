@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 019 — Explainable spaced review
+
+State: **DONE**
+
+Delivered:
+
+- added a deterministic, local spaced-review policy based on measured accuracy
+  and on-time-note ratio;
+- required both 90% note accuracy and 70% on-time matches for a mastered take;
+- scheduled first, second and repeated mastery at conservative 1, 3, 7 and
+  eventually 14-day intervals;
+- made weak or unmeasured latest takes due immediately instead of granting a
+  misleading retention interval;
+- computed mastery streaks only within the same whole-song/loop and hand scope;
+- added a Due library view ordered by oldest due date;
+- displayed an explicit reason: needs measured take, reinforce, retention
+  check, or days remaining with mastery streak;
+- retained the existing per-row Queue action so due work can be placed into the
+  learner's ordered plan.
+
+Verification:
+
+- two MIDI-file tests, thirty-five practice/core tests and thirty-five
+  application tests pass;
+- tests cover immediate reinforcement, repeated-mastery intervals, due-date
+  boundaries, days remaining and learner-facing explanations;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `c5ee410`.
+
 ### Cycle 018 — Favourites and ordered practice queue
 
 State: **DONE**
@@ -515,7 +545,7 @@ Acceptance checklist:
 | Measure/beat grid | Verifying | Current Cycle 001 |
 | Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
-| Practice history | Working | Hand-scoped trends and weak-passage action |
+| Practice history | Working | Hand-scoped trends, weak passages and spaced review |
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
@@ -524,9 +554,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 019 with explainable spaced review. Derive a conservative due date
-from repeated passage stability, show why a piece is due, and let the learner
-add due work to the existing queue without opaque engagement scoring.
+Begin Cycle 020 with musical-expression feedback. Capture pedal and played
+velocity evidence without changing expressive MIDI forwarding, then expose a
+small, optional end-of-attempt dynamics/pedal summary with calibrated and
+clearly limited claims.
 
 ## Known constraints
 
