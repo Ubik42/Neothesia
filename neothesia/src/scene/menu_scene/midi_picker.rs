@@ -14,6 +14,7 @@ pub fn open_midi_file_picker(data: &mut UiState) -> BoxFuture<MsgFn> {
         if let Some((midi, path)) = res {
             ctx.config.set_last_opened_song(Some(path));
             data.song = Some(Song::new(midi));
+            super::state::play(data, ctx);
         }
         data.is_loading = false;
     })
@@ -33,6 +34,8 @@ async fn open_midi_file_picker_fut() -> Option<(midi_file::MidiFile, PathBuf)> {
 
             if let Err(e) = &midi {
                 log::error!("{e}");
+            } else {
+                log::info!("MIDI loaded successfully");
             }
 
             midi.map(|midi| (midi, file.path().to_path_buf())).ok()
