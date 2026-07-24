@@ -527,6 +527,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             ..Default::default()
                         });
                     }
+                    b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
+                    b"chord" if note.is_some() => note.as_mut().unwrap().chord = true,
+                    b"grace" if note.is_some() => note.as_mut().unwrap().grace = true,
                     b"tie" | b"tied" if note.is_some() => {
                         push_span(&start, &mut note.as_mut().unwrap().ties)?
                     }
@@ -565,17 +568,11 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"transpose" | b"time-modification" | b"tuplet" | b"ornaments" | b"pedal"
                     | b"wedge" => {
-                        let location = current_measure
-                            .as_ref()
-                            .map(|measure| format!("measure {}", measure.number))
-                            .unwrap_or_else(|| "score".into());
-                        warn_once(
+                        warn_deferred(
                             &mut score.warnings,
-                            location,
-                            format!(
-                                "{} is preserved neither in the feasibility model nor playback yet",
-                                str::from_utf8(&name)?
-                            ),
+                            current_part.as_ref(),
+                            current_measure.as_ref(),
+                            str::from_utf8(&name)?,
                         );
                     }
                     _ => {}
@@ -590,6 +587,23 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         return Err(ImportError::UnsupportedRoot(root));
                     }
                     score.version = attribute(&start, b"version")?;
+                }
+                let name = start.name();
+                if matches!(
+                    name.as_ref(),
+                    b"transpose"
+                        | b"time-modification"
+                        | b"tuplet"
+                        | b"ornaments"
+                        | b"pedal"
+                        | b"wedge"
+                ) {
+                    warn_deferred(
+                        &mut score.warnings,
+                        current_part.as_ref(),
+                        current_measure.as_ref(),
+                        str::from_utf8(name.as_ref())?,
+                    );
                 }
                 handle_empty(&start, &path, &mut note, &mut direction)?;
             }
@@ -914,6 +928,31 @@ fn warn_once(warnings: &mut Vec<ImportWarning>, location: String, message: Strin
     }
 }
 
+fn warn_deferred(
+    warnings: &mut Vec<ImportWarning>,
+    part: Option<&Part>,
+    measure: Option<&Measure>,
+    element: &str,
+) {
+    let location = match (part, measure) {
+        (Some(part), Some(measure)) => format!("{} measure {}", part.id, measure.number),
+        (None, Some(measure)) => format!("measure {}", measure.number),
+        _ => "score".into(),
+    };
+    let message = match element {
+        "time-modification" => {
+            "tuplet ratio is not represented yet; exact event duration is preserved"
+        }
+        "tuplet" => "tuplet bracket and number spans are not represented yet",
+        "pedal" => "pedal directions are not represented yet",
+        "ornaments" => "ornament notation and playback are not represented yet",
+        "transpose" => "written-to-sounding transposition is not represented yet",
+        "wedge" => "crescendo and diminuendo wedge spans are not represented yet",
+        _ => "notation element is not represented yet",
+    };
+    warn_once(warnings, location, message.into());
+}
+
 fn parse_step(value: &str) -> Result<Step, ImportError> {
     match value {
         "C" => Ok(Step::C),
@@ -1019,11 +1058,12 @@ mod tests {
         assert_eq!(score.title.as_deref(), Some("Learning & Study"));
         assert_eq!(score.composer.as_deref(), Some("Neothesia"));
         assert_eq!(score.parts[0].name, "Piano");
-        assert!(score.warnings.iter().any(|warning| {
-            warning
-                .message
-                .starts_with("ornaments is preserved neither")
-        }));
+        assert!(
+            score
+                .warnings
+                .iter()
+                .any(|warning| { warning.message.starts_with("ornament notation") })
+        );
 
         let measure = &score.parts[0].measures[0];
         assert_eq!(measure.duration, ScoreTime::new(2, 1));
@@ -1119,5 +1159,34 @@ mod tests {
             import_musicxml_document(&source).unwrap_err(),
             ImportError::MissingContainer
         ));
+    }
+
+    #[test]
+    fn accepts_explicit_rest_tags_from_older_exporters() {
+        let source = br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1"><attributes><divisions>2</divisions></attributes>
+<note><rest></rest><duration>2</duration><voice>1</voice></note>
+</measure></part></score-partwise>"#;
+        let score = import_musicxml(source).unwrap();
+        let ScoreEvent::Note(rest) = &score.parts[0].measures[0].events[0] else {
+            panic!("rest should remain a score event");
+        };
+        assert_eq!(rest.pitch, None);
+        assert_eq!(rest.duration, ScoreTime::new(1, 1));
+    }
+
+    #[test]
+    fn reports_empty_deferred_direction_elements() {
+        let source = br#"<score-partwise>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1"><measure number="1">
+<direction><direction-type><pedal type="start"/></direction-type></direction>
+<note><rest/><duration>1</duration></note>
+</measure></part></score-partwise>"#;
+        let score = import_musicxml(source).unwrap();
+        assert!(score.warnings.iter().any(|warning| {
+            warning.location == "P1 measure 1" && warning.message.starts_with("pedal directions")
+        }));
     }
 }
