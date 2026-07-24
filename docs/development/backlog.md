@@ -13,11 +13,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
 
 ## NEXT — M1 practice intelligence
 
-- [ ] `PRA-010` Extract a deterministic practice matcher from `MidiPlayer`.
+- [x] `PRA-010` Extract a deterministic practice matcher from `MidiPlayer`.
 - [ ] `PRA-011` Define timing windows and correct/wrong/missed/early/late results.
 - [ ] `PRA-012` Match chords, repeated pitches and overlapping same-pitch notes.
-- [ ] `PRA-013` Expose a stable live practice snapshot to the UI.
-- [ ] `PRA-014` Show a compact live accuracy/timing panel.
+- [x] `PRA-013` Expose a stable live practice snapshot to the UI.
+- [x] `PRA-014` Show a compact live accuracy/timing panel.
 - [ ] `PRA-015` Show an end-of-attempt summary.
 - [ ] `PRA-016` Aggregate results by measure and hand.
 - [ ] `PRA-017` Add count-in and attempt reset for loop practice.

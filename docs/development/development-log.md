@@ -4,6 +4,47 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 002: Deterministic practice feedback (DONE)
+
+### Outcome
+
+Guided practice now has a deterministic, reusable source of live feedback
+instead of hidden counters tied directly to the operating-system clock.
+
+### Implemented
+
+- Added `neothesia_core::practice::PracticeMatcher`.
+- Made the caller provide monotonic session time so exact timing cases are
+  reproducible without sleeps.
+- Added configurable early-match and on-time windows.
+- Classified correct notes as early, on-time or late.
+- Counted expired unmatched and duplicate user presses as wrong.
+- Tracked required chord notes without penalizing the order in which they are
+  played.
+- Added a stable snapshot containing matched, timing, wrong and waiting totals.
+- Added a compact live status line next to the wait-mode control.
+- Pauses freeze the practice clock; guided waits continue it.
+- Normalized live `NoteOn velocity=0` as a release for matching.
+
+### Verification
+
+- Five new deterministic unit tests.
+- `cargo test -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Existing compiler warnings are unchanged and unrelated.
+
+Implementation commit: `bab60ea` (`feat: add deterministic practice feedback`).
+
+### Known limitations
+
+- A pitch is still the transient match key, so overlapping occurrences of the
+  same pitch are intentionally deferred to `PRA-012`.
+- Missed score notes are not finalized yet; wait mode keeps them required.
+- Live totals are session-level and not yet grouped by measure or hand.
+
 ## 2026-07-25 — Cycle 001: Guided-practice baseline (IN PROGRESS)
 
 ### Intended outcome

@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 002 — Deterministic practice feedback
+
+State: **DONE**
+
+Delivered:
+
+- extracted matching and session totals from `MidiPlayer` into
+  `neothesia_core::practice`;
+- replaced direct wall-clock reads with a caller-supplied monotonic session
+  time, allowing precise tests without sleeps;
+- classified matched notes as early, on-time or late with configurable windows;
+- counted expired and duplicate presses as wrong notes;
+- tracked unordered target chords and exposed the number of notes still needed;
+- added a compact live `Correct / Wrong / Waiting` status in the player;
+- froze practice timing while paused while continuing it during guided waits.
+
+Verification:
+
+- five focused matcher tests cover timing, expiry, chords, keyboard range and
+  duplicate presses;
+- full `neothesia-core` and `neothesia` target tests pass;
+- release build passes;
+- implementation commit: `bab60ea`.
+
 ### Cycle 001 — Guided-practice baseline
 
 Goal: make a selected two-hand piano MIDI immediately usable for practice.
@@ -52,15 +76,15 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin `PRA-010` while the manual portion of `QA-001` remains visible: extract
-deterministic note matching from the playback scene. This is the foundation for
-live feedback, summaries, measure heatmaps, adaptive tempo and persistent
-progress.
+Continue `PRA-011` and `PRA-012`: define a missed-note lifecycle and replace the
+pitch-keyed transient maps with occurrence-aware matching for repeated and
+overlapping same-pitch notes. Then the live panel can grow into a trustworthy
+attempt summary instead of a misleading whole-song percentage.
 
 ## Known constraints
 
 - The custom GPU UI has no DOM and limited accessibility/automation semantics.
 - The CLI/video package requires local FFmpeg development dependencies.
-- Current practice statistics use `Instant`, which makes musical-time tests and
-  speed-adjusted scoring unreliable; replace them rather than extending them.
+- The new matcher is deterministic, but same-pitch overlapping note occurrences
+  and missed-note finalization still need explicit identity and lifecycle rules.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.
