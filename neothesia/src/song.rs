@@ -307,6 +307,8 @@ mod tests {
             }],
             speed: 0.7,
             loop_setup: None,
+            source_path: None,
+            last_used_unix_ms: 0,
         };
         assert!(config.apply_practice_setup(&valid));
         assert_eq!(config.tracks[0].player, PlayerConfig::Auto);

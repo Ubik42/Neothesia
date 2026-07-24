@@ -149,6 +149,7 @@ mod tests {
         let midi = MidiFile::new("../test.mid").unwrap();
         assert_eq!(midi.content_id.len(), 64);
         assert!(midi.content_id.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert!(midi.source_path.is_some());
         assert!(!midi.measures.is_empty());
         assert!(midi.beats.len() > midi.measures.len());
         assert!(midi.beats.windows(2).all(|pair| pair[0] < pair[1]));

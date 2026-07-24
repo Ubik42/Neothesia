@@ -15,6 +15,7 @@ pub struct UiState {
     pub is_loading: bool,
 
     pub song: Option<Song>,
+    pub library_message: Option<String>,
 
     page_stack: VecDeque<Page>,
 }
@@ -31,6 +32,7 @@ impl UiState {
             selected_input: None,
             is_loading: false,
             song,
+            library_message: None,
 
             page_stack,
         }
@@ -106,6 +108,7 @@ pub enum Page {
     Main,
     Settings,
     TrackSelection,
+    Library,
 }
 
 fn connect_io(data: &UiState, ctx: &mut Context) {
@@ -145,6 +148,8 @@ pub fn play(data: &UiState, ctx: &mut Context) {
         tracks: song.config.practice_track_setup(),
         speed: ctx.config.speed_multiplier(),
         loop_setup: existing.and_then(|setup| setup.loop_setup),
+        source_path: song.file.source_path.clone(),
+        last_used_unix_ms: 0,
     };
     if let Err(error) =
         ctx.practice_history

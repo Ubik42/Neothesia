@@ -58,6 +58,10 @@ pub struct SongPracticeSetup {
     pub tracks: Vec<PracticeTrackSetup>,
     pub speed: f32,
     pub loop_setup: Option<PracticeLoopSetup>,
+    #[serde(default)]
+    pub source_path: Option<PathBuf>,
+    #[serde(default)]
+    pub last_used_unix_ms: u64,
 }
 
 impl PracticeSession {
@@ -122,6 +126,16 @@ pub struct PracticeHistoryOverview {
     pub accuracy_delta: Option<f32>,
     pub speed_delta: Option<f32>,
     pub weak_measures: Vec<WeakMeasure>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecentSongSummary {
+    pub content_id: String,
+    pub display_name: String,
+    pub source_path: Option<PathBuf>,
+    pub last_used_unix_ms: u64,
+    pub session_count: usize,
+    pub latest_accuracy: Option<f32>,
 }
 
 impl SongPracticeHistory {
@@ -343,8 +357,9 @@ impl PracticeHistoryStore {
         &mut self,
         song_id: &str,
         display_name: &str,
-        setup: SongPracticeSetup,
+        mut setup: SongPracticeSetup,
     ) -> Result<(), PracticeHistoryError> {
+        setup.last_used_unix_ms = unix_time_ms();
         let song = self
             .songs_mut()
             .entry(song_id.to_owned())
@@ -360,6 +375,40 @@ impl PracticeHistoryStore {
 
     pub fn setup(&self, song_id: &str) -> Option<&SongPracticeSetup> {
         self.song(song_id)?.setup.as_ref()
+    }
+
+    pub fn recent_songs(&self, limit: usize) -> Vec<RecentSongSummary> {
+        let mut songs: Vec<_> = self
+            .songs()
+            .iter()
+            .filter_map(|(content_id, song)| {
+                let setup = song.setup.as_ref()?;
+                let latest_session = song.sessions.last();
+                let last_used_unix_ms = setup.last_used_unix_ms.max(
+                    latest_session
+                        .map(|session| session.recorded_at_unix_ms)
+                        .unwrap_or_default(),
+                );
+                Some(RecentSongSummary {
+                    content_id: content_id.clone(),
+                    display_name: song.display_name.clone(),
+                    source_path: setup.source_path.clone(),
+                    last_used_unix_ms,
+                    session_count: song.sessions.len(),
+                    latest_accuracy: latest_session
+                        .and_then(|session| session.summary.overall.accuracy()),
+                })
+            })
+            .collect();
+        songs.sort_by(|left, right| {
+            right
+                .last_used_unix_ms
+                .cmp(&left.last_used_unix_ms)
+                .then_with(|| left.display_name.cmp(&right.display_name))
+                .then_with(|| left.content_id.cmp(&right.content_id))
+        });
+        songs.truncate(limit);
+        songs
     }
 
     pub fn song(&self, song_id: &str) -> Option<&SongPracticeHistory> {
@@ -603,6 +652,8 @@ mod tests {
                 start_measure: 7,
                 end_measure: 8,
             }),
+            source_path: Some(PathBuf::from("C:/Music/Old Name.mid")),
+            last_used_unix_ms: 0,
         };
         store
             .save_setup("content-id", "Old Name.mid", setup.clone())
@@ -612,11 +663,58 @@ mod tests {
             .unwrap();
 
         let loaded = PracticeHistoryStore::load(&path);
-        assert_eq!(loaded.setup("content-id"), Some(&setup));
+        let loaded_setup = loaded.setup("content-id").unwrap();
+        assert_eq!(loaded_setup.tracks, setup.tracks);
+        assert_eq!(loaded_setup.speed, setup.speed);
+        assert_eq!(loaded_setup.loop_setup, setup.loop_setup);
+        assert_eq!(loaded_setup.source_path, setup.source_path);
+        assert!(loaded_setup.last_used_unix_ms > 0);
         assert_eq!(
             loaded.song("content-id").unwrap().display_name,
             "New Name.mid"
         );
+
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn recent_songs_are_ordered_by_latest_activity() {
+        let path = temp_history_path("recent-songs");
+        let mut store = PracticeHistoryStore::load(&path);
+        let setup = |path: &str| SongPracticeSetup {
+            tracks: Vec::new(),
+            speed: 1.0,
+            loop_setup: None,
+            source_path: Some(PathBuf::from(path)),
+            last_used_unix_ms: 0,
+        };
+        store
+            .save_setup("older", "Older.mid", setup("C:/Older.mid"))
+            .unwrap();
+        store
+            .save_setup("newer", "Newer.mid", setup("C:/Newer.mid"))
+            .unwrap();
+        store
+            .songs_mut()
+            .get_mut("older")
+            .unwrap()
+            .setup
+            .as_mut()
+            .unwrap()
+            .last_used_unix_ms = 1;
+        store
+            .songs_mut()
+            .get_mut("newer")
+            .unwrap()
+            .setup
+            .as_mut()
+            .unwrap()
+            .last_used_unix_ms = 2;
+
+        let recent = store.recent_songs(1);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].content_id, "newer");
+        assert_eq!(recent[0].source_path, Some(PathBuf::from("C:/Newer.mid")));
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

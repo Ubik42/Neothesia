@@ -224,6 +224,8 @@ impl PlayingScene {
             tracks: self.player.song().config.practice_track_setup(),
             speed: ctx.config.speed_multiplier(),
             loop_setup: self.top_bar.practice_loop_setup(&self.player),
+            source_path: self.player.song().file.source_path.clone(),
+            last_used_unix_ms: 0,
         };
         if let Err(error) = ctx.practice_history.save_setup(
             &self.player.song().file.content_id,

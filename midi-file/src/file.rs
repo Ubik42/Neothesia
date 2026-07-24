@@ -1,6 +1,10 @@
 use crate::{MidiTrack, program_track::ProgramTrack, tempo_track::TempoTrack};
 use midly::{Format, Smf, Timing};
-use std::{fs, path::Path, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 #[derive(Debug, Clone)]
 pub struct MidiFile {
@@ -8,6 +12,7 @@ pub struct MidiFile {
     /// Stable content identity; moving or renaming the source file does not
     /// change this value.
     pub content_id: String,
+    pub source_path: Option<PathBuf>,
     pub format: Format,
     pub tracks: Arc<[MidiTrack]>,
     pub program_track: ProgramTrack,
@@ -25,7 +30,7 @@ impl MidiFile {
             .to_string_lossy()
             .to_string();
 
-        let data = match fs::read(path) {
+        let data = match fs::read(path.as_ref()) {
             Ok(buff) => buff,
             Err(_) => return Err(String::from("Could Not Open File")),
         };
@@ -36,7 +41,9 @@ impl MidiFile {
             Err(_) => return Err(String::from("Midi Parsing Error (midly lib)")),
         };
 
-        Self::from_parsed_smf(name, content_id, &smf)
+        let mut file = Self::from_parsed_smf(name, content_id, &smf)?;
+        file.source_path = Some(path.as_ref().to_path_buf());
+        Ok(file)
     }
 
     pub fn from_smf(name: impl Into<String>, smf: &Smf<'_>) -> Result<Self, String> {
@@ -127,6 +134,7 @@ impl MidiFile {
         Ok(Self {
             name,
             content_id,
+            source_path: None,
             format: smf.header.format,
             tracks: tracks.into(),
             program_track,

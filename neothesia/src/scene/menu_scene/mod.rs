@@ -3,7 +3,7 @@ use bytes::Bytes;
 use state::{Page, UiState};
 
 mod midi_picker;
-use midi_picker::open_midi_file_picker;
+use midi_picker::{locate_saved_midi, open_midi_file_picker, open_saved_midi};
 
 mod neo_btn;
 use neo_btn::{neo_btn, neo_btn_icon};
@@ -11,7 +11,7 @@ use neo_btn::{neo_btn, neo_btn_icon};
 mod settings;
 mod tracks;
 
-use std::{future::Future, time::Duration};
+use std::{future::Future, hash::Hash, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
@@ -74,6 +74,7 @@ pub struct MenuScene {
     nuon: nuon::Ui,
 
     tracks_scroll: nuon::ScrollState,
+    library_scroll: nuon::ScrollState,
     settings_scroll: nuon::ScrollState,
     popup: Popup,
 }
@@ -108,6 +109,7 @@ impl MenuScene {
             quad_pipeline,
             nuon: nuon::Ui::new(),
             tracks_scroll: nuon::ScrollState::new(),
+            library_scroll: nuon::ScrollState::new(),
             settings_scroll: nuon::ScrollState::new(),
             popup: Popup::None,
         }
@@ -140,6 +142,7 @@ impl MenuScene {
             Page::Main => self.main_page_ui(ctx, &mut nuon),
             Page::Settings => self.settings_page_ui(ctx, &mut nuon),
             Page::TrackSelection => self.tracks_page_ui(ctx, &mut nuon),
+            Page::Library => self.library_page_ui(ctx, &mut nuon),
         }
 
         self.nuon = nuon;
@@ -188,7 +191,7 @@ impl MenuScene {
         let win_h = ctx.window_state.logical_size.height;
 
         let w = 450.0;
-        let h = 80.0;
+        let h = 60.0;
         let gap = 10.0;
 
         let logo_w = 650.0;
@@ -216,6 +219,12 @@ impl MenuScene {
 
                         if neo_btn().size(w, h).label("Settings").build(ui) {
                             self.state.go_to(Page::Settings);
+                        }
+
+                        nuon::translate().y(h + gap).add_to_current(ui);
+
+                        if neo_btn().size(w, h).label("Practice Library").build(ui) {
+                            self.state.go_to(Page::Library);
                         }
 
                         nuon::translate().y(h + gap).add_to_current(ui);
@@ -285,6 +294,130 @@ impl MenuScene {
             });
         });
     }
+
+    fn library_page_ui(&mut self, ctx: &mut Context, ui: &mut nuon::Ui) {
+        let win_w = ctx.window_state.logical_size.width;
+        let win_h = ctx.window_state.logical_size.height;
+        let row_w = (win_w - 80.0).clamp(420.0, 760.0);
+        let recent = ctx.practice_history.recent_songs(24);
+
+        nuon::label()
+            .x(30.0)
+            .y(18.0)
+            .size(win_w - 60.0, 46.0)
+            .font_size(30.0)
+            .bold(true)
+            .text("Practice Library")
+            .build(ui);
+        nuon::label()
+            .x(30.0)
+            .y(60.0)
+            .size(win_w - 60.0, 28.0)
+            .font_size(15.0)
+            .color([178, 175, 190])
+            .text("Recent pieces · saved by MIDI content, not filename")
+            .build(ui);
+
+        if let Some(message) = self.state.library_message.as_deref() {
+            nuon::label()
+                .x(30.0)
+                .y(90.0)
+                .size(win_w - 60.0, 34.0)
+                .font_size(15.0)
+                .color([255, 205, 124])
+                .text(message)
+                .build(ui);
+        }
+
+        if recent.is_empty() {
+            nuon::label()
+                .x(30.0)
+                .y(140.0)
+                .size(win_w - 60.0, 40.0)
+                .font_size(20.0)
+                .text("No saved pieces yet. Open a MIDI to start your library.")
+                .build(ui);
+        } else {
+            nuon::translate().y(126.0).build(ui, |ui| {
+                self.library_scroll = nuon::scroll()
+                    .scissor_size(win_w, (win_h - 206.0).max(0.0))
+                    .scroll(self.library_scroll)
+                    .build(ui, |ui| {
+                        for (index, song) in recent.iter().enumerate() {
+                            let path_available = song
+                                .source_path
+                                .as_deref()
+                                .is_some_and(|path| path.is_file());
+                            let accuracy = song
+                                .latest_accuracy
+                                .map(|value| format!(" · latest {}%", (value * 100.0).round()))
+                                .unwrap_or_default();
+                            let action = if path_available { "Open" } else { "Locate" };
+                            let label = format!(
+                                "{}  ·  {} session{}{}  ·  {}",
+                                truncate_menu_label(&song.display_name, 54),
+                                song.session_count,
+                                if song.session_count == 1 { "" } else { "s" },
+                                accuracy,
+                                action
+                            );
+                            if nuon::button()
+                                .id(nuon::Id::hash_with(|hasher| {
+                                    "library-song".hash(hasher);
+                                    song.content_id.hash(hasher);
+                                }))
+                                .x(nuon::center_x(win_w, row_w))
+                                .y(index as f32 * 62.0)
+                                .size(row_w, 52.0)
+                                .label(label)
+                                .color(if path_available {
+                                    [48, 91, 82]
+                                } else {
+                                    [91, 72, 52]
+                                })
+                                .hover_color(if path_available {
+                                    [57, 112, 99]
+                                } else {
+                                    [112, 88, 60]
+                                })
+                                .preseed_color([109, 78, 164])
+                                .border_radius([7.0; 4])
+                                .build(ui)
+                            {
+                                if let Some(path) = song.source_path.clone().filter(|p| p.is_file())
+                                {
+                                    self.futures.push(open_saved_midi(
+                                        &mut self.state,
+                                        path,
+                                        song.content_id.clone(),
+                                    ));
+                                } else {
+                                    self.futures.push(locate_saved_midi(
+                                        &mut self.state,
+                                        song.content_id.clone(),
+                                    ));
+                                }
+                            }
+                        }
+                    });
+            });
+        }
+
+        nuon::translate().x(10.0).y(win_h - 70.0).build(ui, |ui| {
+            if neo_btn_icon(ui, 80.0, 60.0, icons::left_arrow_icon()) {
+                self.state.go_back();
+            }
+        });
+    }
+}
+
+fn truncate_menu_label(label: &str, max_chars: usize) -> String {
+    if label.chars().count() <= max_chars {
+        return label.to_owned();
+    }
+    let mut shortened: String = label.chars().take(max_chars.saturating_sub(1)).collect();
+    shortened.push('…');
+    shortened
 }
 
 impl Scene for MenuScene {
@@ -331,10 +464,12 @@ impl Scene for MenuScene {
                     let y = y * 60.0;
                     self.settings_scroll.update(y);
                     self.tracks_scroll.update(y);
+                    self.library_scroll.update(y);
                 }
                 winit::event::MouseScrollDelta::PixelDelta(position) => {
                     self.settings_scroll.update(position.y as f32);
                     self.tracks_scroll.update(position.y as f32);
+                    self.library_scroll.update(position.y as f32);
                 }
             }
         }
@@ -401,6 +536,22 @@ impl Scene for MenuScene {
                     self.state.go_back();
                 }
             }
+            Page::Library => {
+                if event.key_pressed(Key::Named(NamedKey::Escape)) {
+                    self.state.go_back();
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_menu_label;
+
+    #[test]
+    fn library_titles_are_shortened_without_splitting_unicode() {
+        assert_eq!(truncate_menu_label("夜に駆ける Piano", 8), "夜に駆ける P…");
+        assert_eq!(truncate_menu_label("Clair de Lune", 30), "Clair de Lune");
     }
 }
