@@ -6,7 +6,7 @@ use crate::{
 };
 use neothesia_core::{
     piano_layout,
-    practice::{PracticeMatcher, PracticeSnapshot},
+    practice::{AttemptSummary, PracticeMatcher, PracticeSnapshot, PracticeTarget},
 };
 use std::time::Duration;
 
@@ -89,7 +89,22 @@ impl MidiPlayer {
                 }
                 PlayerConfig::Human => {
                     if let Some((note, active)) = note_state(&event.message) {
-                        self.practice.score_note(self.session_time, note, active);
+                        let measure = self
+                            .song
+                            .file
+                            .measures
+                            .partition_point(|start| *start <= event.timestamp);
+                        self.practice.score_target(
+                            self.session_time,
+                            PracticeTarget {
+                                note,
+                                score_time: event.timestamp,
+                                track_id: event.track_id,
+                                measure,
+                                part: config.practice_part,
+                            },
+                            active,
+                        );
                     }
 
                     if self.wait_for_notes {
@@ -249,6 +264,18 @@ impl MidiPlayer {
         self.practice.snapshot()
     }
 
+    pub fn finish_practice(&mut self) -> AttemptSummary {
+        self.practice.finish();
+        self.practice.summary()
+    }
+
+    pub fn restart_practice(&mut self) {
+        self.practice.reset();
+        self.session_time = Duration::ZERO;
+        self.set_time(Duration::ZERO);
+        self.resume();
+    }
+
     pub fn user_midi_event(&mut self, channel: u8, message: &MidiMessage) {
         self.output.midi_event(u4::new(channel), *message);
         if !self.playback.is_paused()
@@ -320,5 +347,10 @@ mod tests {
 
         assert!(player.practice_snapshot().missed_notes > 0);
         assert!(player.should_advance());
+
+        let summary = player.finish_practice();
+        assert!(summary.overall.missed_notes > 0);
+        assert!(!summary.measures.is_empty());
+        assert!(summary.measures.iter().all(|item| item.measure > 0));
     }
 }

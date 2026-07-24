@@ -1,11 +1,41 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     time::Duration,
 };
 
 use piano_layout::KeyboardRange;
 
 pub type NoteId = u8;
+
+#[derive(Debug, Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PracticePart {
+    LeftHand,
+    RightHand,
+    #[default]
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct PracticeTarget {
+    pub note: NoteId,
+    pub score_time: Duration,
+    pub track_id: usize,
+    /// One-based measure number. Zero means that measure context is unknown.
+    pub measure: usize,
+    pub part: PracticePart,
+}
+
+impl PracticeTarget {
+    pub fn unknown(note: NoteId) -> Self {
+        Self {
+            note,
+            score_time: Duration::ZERO,
+            track_id: 0,
+            measure: 0,
+            part: PracticePart::Other,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct PracticeWindows {
@@ -40,6 +70,19 @@ pub struct MatchedNote {
     pub timing: TimingGrade,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum PracticeJudgement {
+    Matched(TimingGrade),
+    Missed,
+    Wrong { played_note: NoteId },
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct PracticeResult {
+    pub target: Option<PracticeTarget>,
+    pub judgement: PracticeJudgement,
+}
+
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct PracticeSnapshot {
     pub matched_notes: usize,
@@ -58,9 +101,72 @@ impl PracticeSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub struct PracticeBreakdown {
+    pub target_notes: usize,
+    pub matched_notes: usize,
+    pub on_time_notes: usize,
+    pub early_notes: usize,
+    pub late_notes: usize,
+    pub wrong_notes: usize,
+    pub missed_notes: usize,
+}
+
+impl PracticeBreakdown {
+    pub fn accuracy(self) -> Option<f32> {
+        let judged = self.matched_notes + self.wrong_notes + self.missed_notes;
+        (judged != 0).then(|| self.matched_notes as f32 / judged as f32)
+    }
+
+    fn record(&mut self, judgement: PracticeJudgement) {
+        match judgement {
+            PracticeJudgement::Matched(timing) => {
+                self.target_notes += 1;
+                self.matched_notes += 1;
+                match timing {
+                    TimingGrade::Early(_) => self.early_notes += 1,
+                    TimingGrade::OnTime => self.on_time_notes += 1,
+                    TimingGrade::Late(_) => self.late_notes += 1,
+                }
+            }
+            PracticeJudgement::Missed => {
+                self.target_notes += 1;
+                self.missed_notes += 1;
+            }
+            PracticeJudgement::Wrong { .. } => self.wrong_notes += 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct MeasureSummary {
+    pub measure: usize,
+    pub breakdown: PracticeBreakdown,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PartSummary {
+    pub part: PracticePart,
+    pub breakdown: PracticeBreakdown,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AttemptSummary {
+    pub overall: PracticeSnapshot,
+    pub measures: Vec<MeasureSummary>,
+    pub parts: Vec<PartSummary>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct NotePress {
     timestamp: Duration,
+    note: NoteId,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TargetPress {
+    timestamp: Duration,
+    target: PracticeTarget,
 }
 
 /// Matches score note events with live keyboard input.
@@ -73,10 +179,12 @@ pub struct PracticeMatcher {
     user_keyboard_range: KeyboardRange,
     windows: PracticeWindows,
 
-    required_notes: HashMap<NoteId, VecDeque<NotePress>>,
+    required_notes: HashMap<NoteId, VecDeque<TargetPress>>,
     user_pressed_recently: HashMap<NoteId, VecDeque<NotePress>>,
 
     snapshot: PracticeSnapshot,
+    results: Vec<PracticeResult>,
+    last_target: Option<PracticeTarget>,
 }
 
 impl PracticeMatcher {
@@ -91,15 +199,26 @@ impl PracticeMatcher {
             required_notes: HashMap::new(),
             user_pressed_recently: HashMap::new(),
             snapshot: PracticeSnapshot::default(),
+            results: Vec::new(),
+            last_target: None,
         }
     }
 
     pub fn tick(&mut self, now: Duration) {
-        self.snapshot.wrong_notes += expire_before(
+        let context = self.current_context();
+        let expired = drain_expired(
             &mut self.user_pressed_recently,
             now,
             self.windows.early_match,
         );
+        self.snapshot.wrong_notes += expired.len();
+        self.results
+            .extend(expired.into_iter().map(|press| PracticeResult {
+                target: context,
+                judgement: PracticeJudgement::Wrong {
+                    played_note: press.note,
+                },
+            }));
     }
 
     /// Finalizes score notes that were not played in the allowed late window.
@@ -107,8 +226,13 @@ impl PracticeMatcher {
     /// Guided wait mode should not call this: its required notes intentionally
     /// remain pending until the pianist plays them.
     pub fn finalize_missed(&mut self, now: Duration) {
-        self.snapshot.missed_notes +=
-            expire_before(&mut self.required_notes, now, self.windows.late_match);
+        let expired = drain_expired(&mut self.required_notes, now, self.windows.late_match);
+        self.snapshot.missed_notes += expired.len();
+        self.results
+            .extend(expired.into_iter().map(|press| PracticeResult {
+                target: Some(press.target),
+                judgement: PracticeJudgement::Missed,
+            }));
         self.update_required_count();
     }
 
@@ -120,7 +244,7 @@ impl PracticeMatcher {
         if let Some(required) = pop_front(&mut self.required_notes, note) {
             self.update_required_count();
             return Some(self.record_match(
-                note,
+                required.target,
                 TimingGrade::Late(now.saturating_sub(required.timestamp)),
             ));
         }
@@ -128,12 +252,25 @@ impl PracticeMatcher {
         self.user_pressed_recently
             .entry(note)
             .or_default()
-            .push_back(NotePress { timestamp: now });
+            .push_back(NotePress {
+                timestamp: now,
+                note,
+            });
 
         None
     }
 
     pub fn score_note(&mut self, now: Duration, note: NoteId, active: bool) -> Option<MatchedNote> {
+        self.score_target(now, PracticeTarget::unknown(note), active)
+    }
+
+    pub fn score_target(
+        &mut self,
+        now: Duration,
+        target: PracticeTarget,
+        active: bool,
+    ) -> Option<MatchedNote> {
+        let note = target.note;
         if !self.user_keyboard_range.contains(note) {
             return None;
         }
@@ -142,9 +279,11 @@ impl PracticeMatcher {
             return None;
         }
 
+        self.last_target = Some(target);
+
         if let Some(press) = pop_front(&mut self.user_pressed_recently, note) {
             return Some(self.record_match(
-                note,
+                target,
                 TimingGrade::Early(now.saturating_sub(press.timestamp)),
             ));
         }
@@ -152,13 +291,80 @@ impl PracticeMatcher {
         self.required_notes
             .entry(note)
             .or_default()
-            .push_back(NotePress { timestamp: now });
+            .push_back(TargetPress {
+                timestamp: now,
+                target,
+            });
         self.update_required_count();
         None
     }
 
     pub fn snapshot(&self) -> PracticeSnapshot {
         self.snapshot
+    }
+
+    pub fn results(&self) -> &[PracticeResult] {
+        &self.results
+    }
+
+    pub fn finish(&mut self) {
+        let context = self.current_context();
+        for (_, queue) in self.user_pressed_recently.drain() {
+            for press in queue {
+                self.snapshot.wrong_notes += 1;
+                self.results.push(PracticeResult {
+                    target: context,
+                    judgement: PracticeJudgement::Wrong {
+                        played_note: press.note,
+                    },
+                });
+            }
+        }
+
+        for (_, queue) in self.required_notes.drain() {
+            for press in queue {
+                self.snapshot.missed_notes += 1;
+                self.results.push(PracticeResult {
+                    target: Some(press.target),
+                    judgement: PracticeJudgement::Missed,
+                });
+            }
+        }
+        self.snapshot.required_notes = 0;
+    }
+
+    pub fn summary(&self) -> AttemptSummary {
+        let mut measures = BTreeMap::<usize, PracticeBreakdown>::new();
+        let mut parts = BTreeMap::<PracticePart, PracticeBreakdown>::new();
+
+        for result in &self.results {
+            let Some(target) = result.target else {
+                continue;
+            };
+
+            if target.measure != 0 {
+                measures
+                    .entry(target.measure)
+                    .or_default()
+                    .record(result.judgement);
+            }
+            parts
+                .entry(target.part)
+                .or_default()
+                .record(result.judgement);
+        }
+
+        AttemptSummary {
+            overall: self.snapshot,
+            measures: measures
+                .into_iter()
+                .map(|(measure, breakdown)| MeasureSummary { measure, breakdown })
+                .collect(),
+            parts: parts
+                .into_iter()
+                .map(|(part, breakdown)| PartSummary { part, breakdown })
+                .collect(),
+        }
     }
 
     pub fn are_required_notes_pressed(&self) -> bool {
@@ -170,14 +376,16 @@ impl PracticeMatcher {
         self.required_notes.clear();
         self.user_pressed_recently.clear();
         self.snapshot.required_notes = 0;
+        self.last_target = None;
     }
 
     pub fn reset(&mut self) {
         self.clear_pending();
         self.snapshot = PracticeSnapshot::default();
+        self.results.clear();
     }
 
-    fn record_match(&mut self, note: NoteId, timing: TimingGrade) -> MatchedNote {
+    fn record_match(&mut self, target: PracticeTarget, timing: TimingGrade) -> MatchedNote {
         let timing = match timing {
             TimingGrade::Early(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
             TimingGrade::Late(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
@@ -191,15 +399,48 @@ impl PracticeMatcher {
             TimingGrade::Late(_) => self.snapshot.late_notes += 1,
         }
 
-        MatchedNote { note, timing }
+        self.results.push(PracticeResult {
+            target: Some(target),
+            judgement: PracticeJudgement::Matched(timing),
+        });
+
+        MatchedNote {
+            note: target.note,
+            timing,
+        }
     }
 
     fn update_required_count(&mut self) {
         self.snapshot.required_notes = self.required_notes.values().map(VecDeque::len).sum();
     }
+
+    fn current_context(&self) -> Option<PracticeTarget> {
+        self.required_notes
+            .values()
+            .filter_map(|queue| queue.front())
+            .min_by_key(|press| press.timestamp)
+            .map(|press| press.target)
+            .or(self.last_target)
+    }
 }
 
-fn pop_front(notes: &mut HashMap<NoteId, VecDeque<NotePress>>, note: NoteId) -> Option<NotePress> {
+trait Timestamped {
+    fn timestamp(&self) -> Duration;
+}
+
+impl Timestamped for NotePress {
+    fn timestamp(&self) -> Duration {
+        self.timestamp
+    }
+}
+
+impl Timestamped for TargetPress {
+    fn timestamp(&self) -> Duration {
+        self.timestamp
+    }
+}
+
+fn pop_front<T>(notes: &mut HashMap<NoteId, VecDeque<T>>, note: NoteId) -> Option<T> {
     let queue = notes.get_mut(&note)?;
     let press = queue.pop_front();
     if queue.is_empty() {
@@ -208,19 +449,20 @@ fn pop_front(notes: &mut HashMap<NoteId, VecDeque<NotePress>>, note: NoteId) -> 
     press
 }
 
-fn expire_before(
-    notes: &mut HashMap<NoteId, VecDeque<NotePress>>,
+fn drain_expired<T: Timestamped>(
+    notes: &mut HashMap<NoteId, VecDeque<T>>,
     now: Duration,
     window: Duration,
-) -> usize {
-    let mut expired = 0;
+) -> Vec<T> {
+    let mut expired = Vec::new();
     notes.retain(|_, queue| {
         while queue
             .front()
-            .is_some_and(|press| now.saturating_sub(press.timestamp) > window)
+            .is_some_and(|press| now.saturating_sub(press.timestamp()) > window)
         {
-            queue.pop_front();
-            expired += 1;
+            if let Some(press) = queue.pop_front() {
+                expired.push(press);
+            }
         }
         !queue.is_empty()
     });
@@ -381,5 +623,61 @@ mod tests {
         assert_eq!(matcher.snapshot().missed_notes, 1);
         assert_eq!(matcher.snapshot().required_notes, 1);
         assert_eq!(matcher.snapshot().accuracy(), Some(0.0));
+    }
+
+    #[test]
+    fn summary_groups_results_by_measure_and_hand() {
+        let mut matcher = matcher();
+        let right = PracticeTarget {
+            note: 72,
+            score_time: Duration::from_secs(2),
+            track_id: 1,
+            measure: 3,
+            part: PracticePart::RightHand,
+        };
+        let left = PracticeTarget {
+            note: 48,
+            score_time: Duration::from_secs(4),
+            track_id: 2,
+            measure: 5,
+            part: PracticePart::LeftHand,
+        };
+
+        matcher.score_target(Duration::from_secs(2), right, true);
+        matcher.user_note(Duration::from_millis(2_040), 72, true);
+
+        matcher.score_target(Duration::from_secs(4), left, true);
+        matcher.user_note(Duration::from_millis(4_100), 49, true);
+        matcher.tick(Duration::from_millis(4_601));
+        matcher.finish();
+
+        let summary = matcher.summary();
+        assert_eq!(summary.overall.matched_notes, 1);
+        assert_eq!(summary.overall.wrong_notes, 1);
+        assert_eq!(summary.overall.missed_notes, 1);
+
+        let measure_3 = summary
+            .measures
+            .iter()
+            .find(|item| item.measure == 3)
+            .unwrap();
+        assert_eq!(measure_3.breakdown.matched_notes, 1);
+        assert_eq!(measure_3.breakdown.on_time_notes, 1);
+
+        let measure_5 = summary
+            .measures
+            .iter()
+            .find(|item| item.measure == 5)
+            .unwrap();
+        assert_eq!(measure_5.breakdown.missed_notes, 1);
+        assert_eq!(measure_5.breakdown.wrong_notes, 1);
+
+        let left_hand = summary
+            .parts
+            .iter()
+            .find(|item| item.part == PracticePart::LeftHand)
+            .unwrap();
+        assert_eq!(left_hand.breakdown.missed_notes, 1);
+        assert_eq!(left_hand.breakdown.wrong_notes, 1);
     }
 }

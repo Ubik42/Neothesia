@@ -1,4 +1,5 @@
 use midi_file::midly::MidiMessage;
+use neothesia_core::practice::{AttemptSummary, PracticePart};
 use neothesia_core::render::{
     GlowRenderer, GuidelineRenderer, NoteLabels, QuadRenderer, TextRenderer,
 };
@@ -51,6 +52,7 @@ pub struct PlayingScene {
     mouse_to_midi_state: MouseToMidiEventState,
 
     top_bar: TopBar,
+    completion: Option<AttemptSummary>,
 }
 
 impl PlayingScene {
@@ -131,6 +133,7 @@ impl PlayingScene {
             mouse_to_midi_state: MouseToMidiEventState::default(),
 
             top_bar: TopBar::new(),
+            completion: None,
         }
     }
 
@@ -206,6 +209,180 @@ impl PlayingScene {
         }
     }
 
+    fn completion_ui(&mut self, ctx: &mut Context) {
+        let Some(summary) = self.completion.clone() else {
+            return;
+        };
+
+        let mut weak_measures = summary.measures.clone();
+        weak_measures.sort_by(|left, right| {
+            left.breakdown
+                .accuracy()
+                .unwrap_or(1.0)
+                .total_cmp(&right.breakdown.accuracy().unwrap_or(1.0))
+                .then_with(|| left.measure.cmp(&right.measure))
+        });
+        let review = weak_measures
+            .iter()
+            .filter(|item| item.breakdown.accuracy().unwrap_or(1.0) < 0.999)
+            .take(4)
+            .map(|item| format!("{} ({}%)", item.measure, percent(item.breakdown.accuracy())))
+            .collect::<Vec<_>>();
+        let review = if review.is_empty() {
+            "No weak measures detected".to_owned()
+        } else {
+            format!("Review measures {}", review.join(", "))
+        };
+
+        let part_accuracy = |part| {
+            summary
+                .parts
+                .iter()
+                .find(|item| item.part == part)
+                .and_then(|item| item.breakdown.accuracy())
+        };
+
+        let mut action = None;
+        let mut ui = std::mem::replace(&mut self.nuon, nuon::Ui::new());
+        let win_w = ctx.window_state.logical_size.width;
+        let win_h = ctx.window_state.logical_size.height;
+        let panel_w = (win_w - 40.0).clamp(320.0, 720.0);
+        let panel_h = (win_h - 40.0).clamp(390.0, 470.0);
+        let panel_x = nuon::center_x(win_w, panel_w);
+        let panel_y = nuon::center_y(win_h, panel_h);
+
+        nuon::layer().overlay(true).build(&mut ui, |ui| {
+            nuon::quad()
+                .size(win_w, win_h)
+                .color([8, 7, 12, 220])
+                .build(ui);
+
+            nuon::translate().x(panel_x).y(panel_y).build(ui, |ui| {
+                nuon::quad()
+                    .size(panel_w, panel_h)
+                    .color([37, 35, 48])
+                    .border_radius([16.0; 4])
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(24.0)
+                    .size(panel_w - 56.0, 44.0)
+                    .font_size(30.0)
+                    .bold(true)
+                    .text("Practice complete")
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(78.0)
+                    .size(panel_w - 56.0, 54.0)
+                    .font_size(38.0)
+                    .bold(true)
+                    .text(format!("{}% accuracy", percent(summary.overall.accuracy())))
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(140.0)
+                    .size(panel_w - 56.0, 34.0)
+                    .font_size(17.0)
+                    .text(format!(
+                        "Hit {}    On time {}    Early {}    Late {}",
+                        summary.overall.matched_notes,
+                        summary.overall.on_time_notes,
+                        summary.overall.early_notes,
+                        summary.overall.late_notes
+                    ))
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(178.0)
+                    .size(panel_w - 56.0, 34.0)
+                    .font_size(17.0)
+                    .text(format!(
+                        "Wrong {}    Missed {}",
+                        summary.overall.wrong_notes, summary.overall.missed_notes
+                    ))
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(226.0)
+                    .size(panel_w - 56.0, 34.0)
+                    .font_size(17.0)
+                    .text(format!(
+                        "Right hand {}    Left hand {}",
+                        format_accuracy(part_accuracy(PracticePart::RightHand)),
+                        format_accuracy(part_accuracy(PracticePart::LeftHand))
+                    ))
+                    .build(ui);
+
+                nuon::quad()
+                    .x(28.0)
+                    .y(278.0)
+                    .size(panel_w - 56.0, 1.0)
+                    .color([83, 78, 98])
+                    .build(ui);
+
+                nuon::label()
+                    .x(28.0)
+                    .y(294.0)
+                    .size(panel_w - 56.0, 44.0)
+                    .font_size(17.0)
+                    .text(review)
+                    .build(ui);
+
+                let button_gap = 12.0;
+                let button_w = (panel_w - 56.0 - button_gap) / 2.0;
+                let button_y = panel_h - 68.0;
+                if nuon::button()
+                    .x(28.0)
+                    .y(button_y)
+                    .size(button_w, 44.0)
+                    .label("Practice again")
+                    .color([56, 145, 255])
+                    .hover_color([87, 165, 255])
+                    .preseed_color([97, 175, 255])
+                    .border_radius([8.0; 4])
+                    .build(ui)
+                {
+                    action = Some(CompletionAction::Retry);
+                }
+
+                if nuon::button()
+                    .x(28.0 + button_w + button_gap)
+                    .y(button_y)
+                    .size(button_w, 44.0)
+                    .label("Back to songs")
+                    .color([74, 68, 88])
+                    .hover_color([94, 88, 108])
+                    .preseed_color([104, 98, 118])
+                    .border_radius([8.0; 4])
+                    .build(ui)
+                {
+                    action = Some(CompletionAction::Back);
+                }
+            });
+        });
+        self.nuon = ui;
+
+        match action {
+            Some(CompletionAction::Retry) => {
+                self.player.restart_practice();
+                self.keyboard.reset_notes();
+                self.completion = None;
+            }
+            Some(CompletionAction::Back) => {
+                ctx.proxy
+                    .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
+                    .ok();
+            }
+            None => {}
+        }
+    }
+
     #[profiling::function]
     fn resize(&mut self, ctx: &mut Context) {
         self.keyboard.resize(ctx);
@@ -219,6 +396,22 @@ impl PlayingScene {
         self.waterfall
             .resize(&ctx.config, self.keyboard.layout().clone());
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CompletionAction {
+    Retry,
+    Back,
+}
+
+fn percent(accuracy: Option<f32>) -> u32 {
+    (accuracy.unwrap_or(0.0) * 100.0).round() as u32
+}
+
+fn format_accuracy(accuracy: Option<f32>) -> String {
+    accuracy
+        .map(|accuracy| format!("{}%", percent(Some(accuracy))))
+        .unwrap_or_else(|| "--".to_owned())
 }
 
 impl Scene for PlayingScene {
@@ -254,7 +447,14 @@ impl Scene for PlayingScene {
 
         self.update_glow(delta);
 
+        if self.completion.is_none() && self.player.is_finished() && !self.player.is_paused() {
+            let summary = self.player.finish_practice();
+            self.player.pause();
+            self.completion = Some(summary);
+        }
+
         TopBar::update(self, ctx);
+        self.completion_ui(ctx);
 
         super::render_nuon(&mut self.nuon, &mut self.nuon_renderer, ctx);
 
@@ -276,12 +476,6 @@ impl Scene for PlayingScene {
             ctx.window_state.physical_size,
             ctx.window_state.scale_factor as f32,
         );
-
-        if self.player.is_finished() && !self.player.is_paused() {
-            ctx.proxy
-                .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
-                .ok();
-        }
     }
 
     #[profiling::function]
@@ -301,6 +495,19 @@ impl Scene for PlayingScene {
     }
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) {
+        if self.completion.is_some() {
+            if event.back_mouse_pressed() || event.key_released(Key::Named(NamedKey::Escape)) {
+                ctx.proxy
+                    .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
+                    .ok();
+            }
+            if event.window_resized() || event.scale_factor_changed() {
+                self.resize(ctx)
+            }
+            super::handle_nuon_window_event(&mut self.nuon, event, ctx);
+            return;
+        }
+
         self.rewind_controller
             .handle_window_event(ctx, event, &mut self.player);
 
