@@ -10,6 +10,28 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 031 — Confirmed semantic action dispatch
+
+State: **DONE**
+
+Delivered:
+
+- changed debug action dispatch from queue-only success to an explicit
+  accepted/rejected result from the active scene;
+- added caller-controlled timeouts so a stalled event loop cannot hang a test;
+- requested redraws only for actions accepted by the active scene;
+- documented the worker-thread requirement and the stronger assertion
+  contract.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-five application
+  tests pass;
+- all semantic mapping and stable-ID tests remain green;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes without debug action events;
+- implementation commit: `19a7d13`.
+
 ### Cycle 030 — Debug practice automation harness
 
 State: **DONE**

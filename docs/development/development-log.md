@@ -4,6 +4,47 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 031: Confirmed semantic action dispatch (DONE)
+
+### Outcome
+
+An automation caller can now distinguish “the action was accepted by the
+active scene” from “the message was merely placed on the event queue.” This
+removes a major source of false-positive native UI tests.
+
+### Implemented
+
+- Added a one-shot reply channel to every debug semantic action event.
+- Returned the active scene's accepted/rejected decision to the caller.
+- Added a caller-supplied timeout to prevent indefinite waits.
+- Requested a redraw only after an accepted action.
+- Documented that activation must run on a worker thread.
+- Updated the automation contract and removed action acknowledgement from the
+  remaining work list.
+
+### Verification
+
+- Existing tests cover supported and unsupported semantic action mappings.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-five
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `19a7d13`
+(`feat: acknowledge debug practice actions`).
+
+### Known limitations
+
+- The acknowledgement is available only to in-process debug callers.
+- No external local driver endpoint exists yet.
+- Deterministic screenshot capture and parameterized completion actions remain
+  future work.
+
 ## 2026-07-25 — Cycle 030: Debug practice automation harness (DONE)
 
 ### Outcome
