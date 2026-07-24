@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 005 — Structured loop practice
+
+State: **DONE**
+
+Delivered:
+
+- changed the loop from a raw playback jump into isolated practice attempts;
+- snapped new and dragged loop boundaries to actual measure starts;
+- defaulted a new loop to a two-measure passage around the current position;
+- added a one-measure visual `4–3–2–1` count-in before every take;
+- reset matching state at each repetition so attempts do not contaminate one
+  another;
+- tracked take number, previous accuracy and best accuracy in the top bar;
+- ranked equal-accuracy attempts by on-time notes, then matched-note count;
+- labelled the highlighted timeline range with its measure numbers;
+- fixed seeking so notes exactly on the loop boundary are played instead of
+  being discarded.
+
+Verification:
+
+- eleven practice-domain tests, fifteen application tests and two MIDI-file
+  tests pass;
+- boundary tests prove seek retains events exactly at the target timestamp;
+- loop helper tests cover snapping, count-in duration and countdown state;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `243829b`.
+
 ### Cycle 004 — Measure-aware attempt summary
 
 State: **DONE**
@@ -124,9 +152,9 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin `PRA-017`: turn the existing loop handles into explicit practice
-attempts, with count-in, clean matcher reset and last/best comparison. This is
-the bridge from passive statistics to deliberate passage practice.
+Begin `PRA-018`: add an explicit adaptive-tempo practice option. It should raise
+speed only after a configurable mastery threshold, hold or reduce it after a
+weak take, impose safe bounds, and always show why the speed changed.
 
 ## Known constraints
 
@@ -135,4 +163,5 @@ the bridge from passive statistics to deliberate passage practice.
 - Attempt summaries are not yet persisted.
 - Hand inference is intentionally conservative for arrangements with more than
   two playable note tracks.
+- Loop count-in is visual only; an optional metronome click remains future work.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

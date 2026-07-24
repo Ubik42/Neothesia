@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 005: Structured loop practice (DONE)
+
+### Outcome
+
+The timeline loop now behaves as a deliberate-practice tool. Each repetition
+starts cleanly, gives preparation time and can be compared with the previous
+and best takes.
+
+### Implemented
+
+- Added reusable attempt history with deterministic best-take rules.
+- Snapped loop handles to MIDI measure boundaries.
+- Chose a two-measure default range around the current playback position.
+- Added a one-measure visual four-count before each take.
+- Reset practice matching at each loop boundary.
+- Displayed take number plus last and best accuracy.
+- Added a measure-range label inside the highlighted loop.
+- Cleared attempt history when the practised range changes.
+- Fixed playback seek semantics to retain events exactly on the target
+  boundary, preventing the first beat of a loop from disappearing.
+
+### Verification
+
+- Added attempt-history, snapping, count-in and exact-boundary seek tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing platform
+helper and `unused_mut` warnings.
+
+Implementation commit: `243829b`
+(`feat: turn loops into structured practice attempts`).
+
+### Known limitations
+
+- The count-in is visual and does not yet produce metronome clicks.
+- Attempt history is in-memory until practice-history persistence is delivered.
+- The loop workflow still needs a multi-DPI visual smoke test.
+
 ## 2026-07-25 — Cycle 004: Measure-aware attempt summary (DONE)
 
 ### Outcome
