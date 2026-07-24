@@ -4,6 +4,7 @@ use std::{
 };
 
 use midi_file::{MidiFile, tempo_track::TempoTrack};
+use serde::{Deserialize, Serialize};
 
 use crate::musicxml::{Pitch, Score, ScoreEvent, ScoreEventId, ScoreTime, Step};
 use crate::score_playback::{
@@ -74,7 +75,7 @@ pub struct ScoreMidiAlignment {
     pub navigation_diagnostics: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]
 pub enum AlignmentReadiness {
     Ready,
     Review,

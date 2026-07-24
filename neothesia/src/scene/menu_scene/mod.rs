@@ -17,11 +17,14 @@ use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
 use neothesia_core::library::{
-    ScoreAssociation, SongMetadata, clear_score_association, load_song_sidecar, resolve_score_path,
-    save_score_association, save_song_metadata, verify_score_association,
+    ScoreAnalysisSnapshot, ScoreAssociation, SongMetadata, clear_score_association,
+    load_song_sidecar, resolve_score_path, save_score_analysis, save_score_association,
+    save_song_metadata, verify_score_association,
 };
+use neothesia_core::musicxml::import_musicxml_file;
 use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
+use neothesia_core::score_alignment::{align_score_to_midi, summarize_alignment};
 
 use winit::{
     event::WindowEvent,
@@ -84,13 +87,27 @@ struct MetadataEditor {
     message: Option<String>,
     score: Option<ScoreAssociation>,
     score_status: String,
+    analysis_status: Option<String>,
 }
 
 impl MetadataEditor {
     fn new(content_id: String, source_path: PathBuf, metadata: SongMetadata) -> Self {
-        let score = load_song_sidecar(&source_path, &content_id)
-            .ok()
-            .and_then(|sidecar| sidecar.score);
+        let sidecar = load_song_sidecar(&source_path, &content_id).ok();
+        let score = sidecar.as_ref().and_then(|sidecar| sidecar.score.clone());
+        let analysis_status = sidecar
+            .as_ref()
+            .and_then(|sidecar| sidecar.score_analysis.as_ref())
+            .filter(|analysis| {
+                score
+                    .as_ref()
+                    .is_some_and(|score| score.content_id == analysis.score_content_id)
+            })
+            .map(|analysis| {
+                format!(
+                    "{:?} · {}% coverage · {}% confidence",
+                    analysis.readiness, analysis.coverage_percent, analysis.mean_confidence_percent
+                )
+            });
         let score_status = score
             .as_ref()
             .map(|association| {
@@ -122,6 +139,7 @@ impl MetadataEditor {
             message: None,
             score,
             score_status,
+            analysis_status,
         }
     }
 
@@ -892,6 +910,7 @@ impl MenuScene {
         let mut cancel = false;
         let mut pair_score = false;
         let mut remove_score = false;
+        let mut analyze_score = false;
 
         let Some(editor) = self.metadata_editor.as_mut() else {
             self.state.go_back();
@@ -981,8 +1000,14 @@ impl MenuScene {
         if nuon::button()
             .x(form_x + 180.0)
             .y(score_y)
-            .size(form_w - 300.0, 44.0)
-            .label(truncate_menu_label(&editor.score_status, 48))
+            .size(form_w - 400.0, 44.0)
+            .label(truncate_menu_label(
+                editor
+                    .analysis_status
+                    .as_deref()
+                    .unwrap_or(&editor.score_status),
+                42,
+            ))
             .color([55, 52, 64])
             .hover_color([98, 73, 132])
             .preseed_color([118, 86, 157])
@@ -990,6 +1015,20 @@ impl MenuScene {
             .build(ui)
         {
             pair_score = true;
+        }
+        if nuon::button()
+            .x(form_x + form_w - 214.0)
+            .y(score_y)
+            .size(94.0, 44.0)
+            .label("Analyze")
+            .color([65, 62, 73])
+            .hover_color([109, 78, 164])
+            .preseed_color([132, 96, 191])
+            .border_radius([6.0; 4])
+            .build(ui)
+            && editor.score.is_some()
+        {
+            analyze_score = true;
         }
         if nuon::button()
             .x(form_x + form_w - 114.0)
@@ -1055,7 +1094,13 @@ impl MenuScene {
             save = true;
         }
 
-        if pair_score {
+        if analyze_score {
+            self.futures.push(analyze_paired_score(
+                &mut self.state,
+                editor.source_path.clone(),
+                editor.content_id.clone(),
+            ));
+        } else if pair_score {
             self.futures.push(pair_musicxml_score(
                 &mut self.state,
                 editor.source_path.clone(),
@@ -1066,6 +1111,7 @@ impl MenuScene {
                 Ok(_) => {
                     editor.score = None;
                     editor.score_status = "No score paired".into();
+                    editor.analysis_status = None;
                     editor.message = Some("Removed paired score; metadata was preserved.".into());
                     self.state.library_index = None;
                 }
@@ -1236,6 +1282,75 @@ fn pair_musicxml_score(
                 Err(error) => {
                     data.library_message = Some(format!("Could not pair score: {error}"));
                     data.go_back();
+                }
+            }
+        },
+    )
+}
+
+fn analyze_paired_score(
+    data: &mut UiState,
+    midi_path: PathBuf,
+    content_id: String,
+) -> BoxFuture<MsgFn> {
+    data.is_loading = true;
+    on_async(
+        async move {
+            crate::utils::task::thread::spawn(
+                "score-alignment".into(),
+                move || -> Result<ScoreAnalysisSnapshot, String> {
+                    let sidecar = load_song_sidecar(&midi_path, &content_id)
+                        .map_err(|error| error.to_string())?;
+                    let association = sidecar
+                        .score
+                        .ok_or_else(|| "No score is paired with this MIDI.".to_owned())?;
+                    if !verify_score_association(&midi_path, &association)
+                        .map_err(|error| error.to_string())?
+                    {
+                        return Err("The paired score changed; replace it before analysis.".into());
+                    }
+                    let score = import_musicxml_file(resolve_score_path(&midi_path, &association))
+                        .map_err(|error| error.to_string())?;
+                    let midi =
+                        midi_file::MidiFile::new(&midi_path).map_err(|error| error.to_string())?;
+                    let compatibility = summarize_alignment(&align_score_to_midi(&score, &midi));
+                    let snapshot = ScoreAnalysisSnapshot {
+                        score_content_id: association.content_id,
+                        readiness: compatibility.readiness,
+                        matched_notes: compatibility.matched_notes,
+                        unmatched_score_notes: compatibility.unmatched_score_notes,
+                        unmatched_midi_notes: compatibility.unmatched_midi_notes,
+                        inexact_projection_matches: compatibility.inexact_projection_matches,
+                        coverage_percent: compatibility.coverage_percent,
+                        mean_confidence_percent: compatibility.mean_confidence_percent,
+                        navigation_diagnostics: compatibility.navigation_diagnostics,
+                    };
+                    save_score_analysis(&midi_path, &content_id, snapshot.clone())
+                        .map_err(|error| error.to_string())?;
+                    Ok(snapshot)
+                },
+            )
+            .join()
+            .await
+        },
+        |result, data, _ctx| {
+            data.is_loading = false;
+            data.go_back();
+            match result {
+                Ok(Ok(snapshot)) => {
+                    data.library_index = None;
+                    data.library_message = Some(format!(
+                        "Score alignment: {:?}, {}% coverage, {}% confidence.",
+                        snapshot.readiness,
+                        snapshot.coverage_percent,
+                        snapshot.mean_confidence_percent
+                    ));
+                }
+                Ok(Err(error)) => {
+                    data.library_message = Some(format!("Could not analyze score: {error}"));
+                }
+                Err(_) => {
+                    data.library_message = Some("Score analysis task failed.".into());
                 }
             }
         },

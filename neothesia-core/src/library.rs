@@ -43,11 +43,25 @@ pub struct ScoreAssociation {
     pub content_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ScoreAnalysisSnapshot {
+    pub score_content_id: String,
+    pub readiness: crate::score_alignment::AlignmentReadiness,
+    pub matched_notes: usize,
+    pub unmatched_score_notes: usize,
+    pub unmatched_midi_notes: usize,
+    pub inexact_projection_matches: usize,
+    pub coverage_percent: u8,
+    pub mean_confidence_percent: u8,
+    pub navigation_diagnostics: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct SongSidecar {
     pub metadata: SongMetadata,
     pub fingerings: Vec<FingerHint>,
     pub score: Option<ScoreAssociation>,
+    pub score_analysis: Option<ScoreAnalysisSnapshot>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
@@ -59,6 +73,8 @@ struct MetadataSidecar {
     fingerings: Vec<FingerHint>,
     #[serde(default)]
     score: Option<ScoreAssociation>,
+    #[serde(default)]
+    score_analysis: Option<ScoreAnalysisSnapshot>,
 }
 
 #[derive(Debug, Error)]
@@ -284,6 +300,7 @@ pub fn load_song_sidecar(
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
         score: sidecar.score,
+        score_analysis: sidecar.score_analysis,
     })
 }
 
@@ -320,6 +337,7 @@ pub fn save_score_association(
         path: portable_score_path(midi_path, score_path),
         content_id: blake3::hash(&source).to_hex().to_string(),
     });
+    sidecar.score_analysis = None;
     save_song_sidecar(midi_path, content_id, sidecar)
 }
 
@@ -329,6 +347,7 @@ pub fn clear_score_association(
 ) -> Result<PathBuf, MetadataError> {
     let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
     sidecar.score = None;
+    sidecar.score_analysis = None;
     save_song_sidecar(midi_path, content_id, sidecar)
 }
 
@@ -341,6 +360,16 @@ pub fn resolve_score_path(midi_path: &Path, association: &ScoreAssociation) -> P
             .unwrap_or_else(|| Path::new(""))
             .join(&association.path)
     }
+}
+
+pub fn save_score_analysis(
+    midi_path: &Path,
+    content_id: &str,
+    analysis: ScoreAnalysisSnapshot,
+) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.score_analysis = Some(analysis);
+    save_song_sidecar(midi_path, content_id, sidecar)
 }
 
 pub fn verify_score_association(
@@ -386,6 +415,7 @@ fn save_song_sidecar(
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
         score: sidecar.score,
+        score_analysis: sidecar.score_analysis,
     };
     let contents = ron::ser::to_string_pretty(
         &sidecar,
@@ -915,6 +945,35 @@ mod tests {
         assert_eq!(association.path, PathBuf::from("Song.musicxml"));
         assert_eq!(resolve_score_path(&midi_path, &association), score_path);
         assert!(verify_score_association(&midi_path, &association).unwrap());
+        save_score_analysis(
+            &midi_path,
+            &content_id,
+            ScoreAnalysisSnapshot {
+                score_content_id: association.content_id.clone(),
+                readiness: crate::score_alignment::AlignmentReadiness::Poor,
+                matched_notes: 0,
+                unmatched_score_notes: 1,
+                unmatched_midi_notes: 1,
+                inexact_projection_matches: 0,
+                coverage_percent: 0,
+                mean_confidence_percent: 0,
+                navigation_diagnostics: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert!(
+            load_song_sidecar(&midi_path, &content_id)
+                .unwrap()
+                .score_analysis
+                .is_some()
+        );
+        save_score_association(&midi_path, &content_id, &score_path).unwrap();
+        assert!(
+            load_song_sidecar(&midi_path, &content_id)
+                .unwrap()
+                .score_analysis
+                .is_none()
+        );
 
         fs::write(
             resolve_score_path(&midi_path, &association),
