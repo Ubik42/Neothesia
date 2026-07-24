@@ -57,7 +57,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `COACH-006` Compare robust left/right-hand timing profiles.
 - [x] `COACH-007` Rank reliable measure-level rhythm trouble spots.
 - [x] `MUS-007` Measure block-chord attack synchronization safely.
-- [ ] `UI-010` Split completion feedback into Overview/Technique/History tabs.
+- [x] `UI-010` Split completion feedback into Overview/Technique/History tabs.
 - [x] `COACH-005` Report signed timing bias and robust consistency.
 - [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.

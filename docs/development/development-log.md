@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 028: Completion feedback information architecture (DONE)
+
+### Outcome
+
+The completion screen is no longer one dense wall of metrics. Overview,
+Technique and History now have separate, predictable responsibilities while
+the primary retry/back controls remain available everywhere.
+
+### Implemented
+
+- Replaced the two-tab header with Overview, Technique and History.
+- Kept accuracy, counts, hand accuracy, weak measures and focused-loop actions
+  in Overview.
+- Moved timing profile, calibration confirmation, hand timing, chord
+  synchronization, dynamics, pedal and key-hold evidence into Technique.
+- Kept saved-session trends and weak-history detail in History.
+- Hid note/rhythm recommendation actions outside Overview.
+- Kept Practice again and Back to songs available on every tab.
+- Added an explicit disabled-state explanation when Expression Summary is off.
+- Added compact header copy for panels below 600 px.
+- Calculated a fixed three-tab layout that fits the 480 px minimum panel.
+- Added left/right arrow-key cycling with wraparound.
+
+### Verification
+
+- Added exact minimum-width tab-boundary coverage.
+- Added forward/backward keyboard-cycle coverage.
+- Existing feedback copy, recommendation, calibration and history tests pass.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-three
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `a8bcf89`
+(`feat: organize completion feedback tabs`).
+
+### Known limitations
+
+- Layout geometry is tested, but a captured GPU-rendered completion fixture is
+  not automated yet.
+- Tab selection is not persisted, intentionally returning each take to
+  Overview.
+- The custom GPU UI still lacks stable semantic action IDs for external UI
+  automation.
+
 ## 2026-07-25 — Cycle 027: Block-chord synchronization evidence (DONE)
 
 ### Outcome

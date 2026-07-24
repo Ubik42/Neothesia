@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 028 — Completion feedback information architecture
+
+State: **DONE**
+
+Delivered:
+
+- split completion feedback into Overview, Technique and History;
+- reserved Overview for outcomes and practice actions;
+- moved detailed timing/expression evidence and calibration to Technique;
+- retained trends and weak-history detail in History;
+- kept primary retry/back actions global;
+- added responsive compact title behavior and a tested 480 px tab layout;
+- added wraparound left/right keyboard navigation.
+
+Verification:
+
+- two MIDI-file tests, fifty practice/core tests and forty-three application
+  tests pass;
+- tests cover minimum-width geometry, keyboard navigation and all existing
+  learner-facing feedback helpers;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `a8bcf89`.
+
 ### Cycle 027 — Block-chord synchronization evidence
 
 State: **DONE**
@@ -745,10 +769,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 028 with completion-screen information architecture. Split the
-current dense take view into clear Overview and Technique tabs while retaining
-History, keep all practice actions reachable, and verify the layout at the
-minimum supported panel width.
+Begin Cycle 029 with semantic practice UI identities. Assign stable IDs to the
+completion tabs and practice actions, define a small uniqueness-tested action
+catalogue, and use it as the first dependable boundary for automated native UI
+smoke tests.
 
 ## Known constraints
 
