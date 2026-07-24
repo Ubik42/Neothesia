@@ -4,6 +4,67 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 038: Deterministic exercise plans (DONE)
+
+### Outcome
+
+Exercise mode now has a tested musical domain model instead of a placeholder
+screen. It can deterministically describe playable scale, arpeggio and
+primary-chord material that will enter the existing practice player in the
+next integration layer.
+
+### Implemented
+
+- Added `neothesia_core::exercise`.
+- Added exercise pattern types for Scale, Arpeggio and Primary Chords.
+- Added Major and Minor tonalities.
+- Added Ascending, Descending and Up-and-Down directions.
+- Added Right, Left and Both hand scopes.
+- Added a serializable specification with tonic, one-to-three octaves and
+  20–240 BPM.
+- Generated:
+  - major and natural-minor scale intervals;
+  - tonic major/minor arpeggios;
+  - I–IV–V–I major cadences;
+  - i–iv–V–i minor cadences with a functional major dominant.
+- Positioned right-hand tonic at C4–B4 and left-hand tonic at C2–B2.
+- Kept both hands parallel and two octaves apart.
+- Removed duplicate apex moments from up/down exercises.
+- Assigned one beat to melodic moments and two beats to chord moments.
+- Rejected every generated note outside the configured keyboard range.
+- Added explicit errors for invalid tonic, octave span, tempo and range.
+- Documented why fingering is deferred until reviewed key/hand-specific tables
+  exist.
+- Documented the required in-memory MIDI and UI integration layers.
+
+### Verification
+
+- Exact C-major both-hand up/down sequence test.
+- Exact A-minor descending arpeggio test.
+- Exact c-minor i–iv–V–i voicing test.
+- B-major three-octave 88-key boundary test.
+- Restricted-keyboard rejection test.
+- Invalid tonic, four-octave and 241 BPM rejection tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty-six core tests and forty-nine
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `d45b7c5`
+(`feat: add deterministic exercise plans`).
+
+### Known limitations
+
+- Plans are not converted into a `MidiFile` yet.
+- There is no exercise selection UI or persisted exercise identity yet.
+- Fingering is intentionally absent pending reviewed per-key/per-hand data.
+- Harmonic minor scales and contrary-motion exercises are future variants.
+
 ## 2026-07-25 — Cycle 037: Pedal timing and dynamics contour (DONE)
 
 ### Outcome

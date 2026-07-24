@@ -10,6 +10,35 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 038 — Deterministic exercise plans
+
+State: **DONE**
+
+Delivered:
+
+- defined serializable exercise specifications for tonic, tonality, pattern,
+  direction, hands, octave span and tempo;
+- generated major/minor scales, tonic arpeggios and primary-chord cadences;
+- generated right, left or parallel both-hand moments in stable registers;
+- supported ascending, descending and apex-deduplicated up/down forms;
+- validated tonic, one-to-three-octave span, 20–240 BPM and keyboard range;
+- represented melodic and chord durations without coupling to rendering;
+- documented the in-memory MIDI, player, identity, UI and future fingering
+  boundaries;
+- completed `EX-001A` while leaving the full `EX-001` mode open.
+
+Verification:
+
+- C major both-hand up/down pitches are exact;
+- A minor descending arpeggio uses the minor third;
+- c minor cadence uses i–iv–V–i with a major functional dominant;
+- three-octave B major fits the 88-key range and fails a smaller range;
+- invalid tonic, octave span and tempo are rejected;
+- two MIDI-file tests, fifty-six practice/core tests and forty-nine application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `d45b7c5`.
+
 ### Cycle 037 — Pedal timing and dynamics contour
 
 State: **DONE**
