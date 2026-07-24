@@ -7,10 +7,13 @@ use crate::utils::Point;
 
 use super::{KeyboardRenderer, TextRenderer, waterfall::NoteList};
 
+type FingeringKey = (Duration, u8, u8, usize);
+type FingeringSelection = (FingeringKey, Option<u8>);
+
 #[derive(Default)]
 struct LabelsCache {
     labels: Option<[glyphon::Buffer; 12]>,
-    fingers: Option<[glyphon::Buffer; 10]>,
+    fingers: Option<[glyphon::Buffer; 12]>,
     note_name_width: f32,
     finger_neutral_width: f32,
     finger_sharp_width: f32,
@@ -67,7 +70,7 @@ impl LabelsCache {
     }
 
     #[profiling::function]
-    fn finger_numbers(&mut self, keyboard: &KeyboardRenderer) -> &[glyphon::Buffer; 10] {
+    fn finger_numbers(&mut self, keyboard: &KeyboardRenderer) -> &[glyphon::Buffer; 12] {
         let font_system = crate::font_system::font_system();
         let font_system = &mut font_system.borrow_mut();
         let sharp_width = keyboard.layout().sizing.sharp_width;
@@ -77,7 +80,11 @@ impl LabelsCache {
             || self.finger_sharp_width != sharp_width
         {
             self.fingers = Some(std::array::from_fn(|index| {
-                let label = (index / 2 + 1).to_string();
+                let label = if index < 10 {
+                    (index / 2 + 1).to_string()
+                } else {
+                    "•".to_owned()
+                };
                 let note_width = if index % 2 == 0 {
                     neutral_width
                 } else {
@@ -111,9 +118,28 @@ pub struct NoteLabels {
     labels_cache: LabelsCache,
     text_renderer: TextRenderer,
     note_names_enabled: bool,
-    fingerings: HashMap<(Duration, u8, u8, usize), u8>,
-    fingering_crossings: HashSet<(Duration, u8, u8, usize)>,
+    fingerings: HashMap<FingeringKey, u8>,
+    fingering_crossings: HashSet<FingeringKey>,
     fingerings_enabled: bool,
+    fingering_selection: Option<FingeringSelection>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum FingeringGlyph {
+    Finger(u8),
+    Marker,
+}
+
+fn fingering_glyph(
+    stored_finger: Option<u8>,
+    selected: bool,
+    preview_finger: Option<u8>,
+) -> Option<FingeringGlyph> {
+    preview_finger
+        .filter(|finger| (1..=5).contains(finger))
+        .or(stored_finger.filter(|finger| (1..=5).contains(finger)))
+        .map(FingeringGlyph::Finger)
+        .or_else(|| selected.then_some(FingeringGlyph::Marker))
 }
 
 impl NoteLabels {
@@ -126,7 +152,7 @@ impl NoteLabels {
         notes: &NoteList,
         text_renderer: TextRenderer,
         note_names_enabled: bool,
-        fingerings: HashMap<(Duration, u8, u8, usize), u8>,
+        fingerings: HashMap<FingeringKey, u8>,
         fingerings_enabled: bool,
     ) -> Self {
         Self::with_fingering_guidance(
@@ -145,8 +171,8 @@ impl NoteLabels {
         notes: &NoteList,
         text_renderer: TextRenderer,
         note_names_enabled: bool,
-        fingerings: HashMap<(Duration, u8, u8, usize), u8>,
-        fingering_crossings: HashSet<(Duration, u8, u8, usize)>,
+        fingerings: HashMap<FingeringKey, u8>,
+        fingering_crossings: HashSet<FingeringKey>,
         fingerings_enabled: bool,
     ) -> Self {
         let fingerings_enabled = !fingerings.is_empty() && fingerings_enabled;
@@ -159,6 +185,7 @@ impl NoteLabels {
             fingerings,
             fingering_crossings,
             fingerings_enabled,
+            fingering_selection: None,
         }
     }
 
@@ -182,7 +209,7 @@ impl NoteLabels {
         true
     }
 
-    pub fn set_fingering(&mut self, key: (Duration, u8, u8, usize), finger: Option<u8>) {
+    pub fn set_fingering(&mut self, key: FingeringKey, finger: Option<u8>) {
         if let Some(finger) = finger.filter(|finger| (1..=5).contains(finger)) {
             self.fingerings.insert(key, finger);
             self.fingerings_enabled = true;
@@ -192,6 +219,21 @@ impl NoteLabels {
             if self.fingerings.is_empty() {
                 self.fingerings_enabled = false;
             }
+        }
+    }
+
+    pub fn set_fingering_selection(&mut self, key: FingeringKey, preview_finger: Option<u8>) {
+        self.fingering_selection = Some((
+            key,
+            preview_finger.filter(|finger| (1..=5).contains(finger)),
+        ));
+        self.fingerings_enabled = true;
+    }
+
+    pub fn clear_fingering_selection(&mut self) {
+        self.fingering_selection = None;
+        if self.fingerings.is_empty() {
+            self.fingerings_enabled = false;
         }
     }
 
@@ -216,16 +258,23 @@ impl NoteLabels {
 
         if self.fingerings_enabled {
             let labels = self.labels_cache.finger_numbers(keyboard);
+            let selection = self.fingering_selection;
             let iter = self
                 .notes
                 .inner
                 .iter()
                 .filter(|note| layout.range.contains(note.note) && note.channel != 9)
                 .filter_map(|note| {
-                    let finger = self
-                        .fingerings
-                        .get(&(note.start, note.note, note.channel, note.track_id))
-                        .copied()?;
+                    let note_key = (note.start, note.note, note.channel, note.track_id);
+                    let selected = selection.is_some_and(|(key, _)| key == note_key);
+                    let preview = selection
+                        .filter(|(key, _)| *key == note_key)
+                        .and_then(|(_, finger)| finger);
+                    let glyph = fingering_glyph(
+                        self.fingerings.get(&note_key).copied(),
+                        selected,
+                        preview,
+                    )?;
                     let crossing = self.fingering_crossings.contains(&(
                         note.start,
                         note.note,
@@ -233,23 +282,29 @@ impl NoteLabels {
                         note.track_id,
                     ));
                     let key = &layout.keys[note.note as usize - range_start];
-                    let finger_index = usize::from(finger.saturating_sub(1).min(4));
                     let kind_index = usize::from(key.kind().is_sharp());
-                    let buffer = &labels[finger_index * 2 + kind_index];
+                    let buffer = if let FingeringGlyph::Finger(finger) = glyph {
+                        let finger_index = usize::from(finger.saturating_sub(1).min(4));
+                        &labels[finger_index * 2 + kind_index]
+                    } else {
+                        &labels[10 + kind_index]
+                    };
                     let x = key.x();
                     let y = self.pos.y
                         - (note.start.as_secs_f32() - time) * animation_speed
                         - label_width;
-                    Some((buffer, x, y, crossing))
+                    Some((buffer, x, y, crossing, selected))
                 })
-                .take_while(|(_buffer, _x, y, _crossing)| *y > 0.0)
-                .skip_while(|(_buffer, _x, y, _crossing)| *y > keyboard.pos().y)
-                .map(|(buffer, x, y, crossing)| {
+                .take_while(|(_buffer, _x, y, _crossing, _selected)| *y > 0.0)
+                .skip_while(|(_buffer, _x, y, _crossing, _selected)| *y > keyboard.pos().y)
+                .map(|(buffer, x, y, crossing, selected)| {
                     text_area((
                         buffer,
                         x,
                         y,
-                        if crossing {
+                        if selected {
+                            glyphon::Color::rgb(80, 220, 255)
+                        } else if crossing {
                             glyphon::Color::rgb(255, 196, 64)
                         } else {
                             glyphon::Color::rgb(255, 255, 255)
@@ -308,5 +363,31 @@ fn text_area(
         },
         default_color: color,
         custom_glyphs: &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selection_marker_and_preview_have_unambiguous_precedence() {
+        assert_eq!(fingering_glyph(None, false, None), None);
+        assert_eq!(
+            fingering_glyph(None, true, None),
+            Some(FingeringGlyph::Marker)
+        );
+        assert_eq!(
+            fingering_glyph(Some(2), true, None),
+            Some(FingeringGlyph::Finger(2))
+        );
+        assert_eq!(
+            fingering_glyph(Some(2), true, Some(4)),
+            Some(FingeringGlyph::Finger(4))
+        );
+        assert_eq!(
+            fingering_glyph(Some(3), false, None),
+            Some(FingeringGlyph::Finger(3))
+        );
     }
 }

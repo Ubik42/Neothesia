@@ -492,6 +492,9 @@ impl PlayingScene {
 
     fn toggle_fingering_editor(&mut self, ctx: &mut Context) -> bool {
         if self.fingering_editor.take().is_some() {
+            if let Some(labels) = self.note_labels.as_mut() {
+                labels.clear_fingering_selection();
+            }
             self.toast_manager
                 .toast("Finger edit closed · saved hints remain visible");
             return true;
@@ -546,7 +549,20 @@ impl PlayingScene {
         };
         self.player.set_time(target.start + *self.player.leed_in());
         self.player.pause();
+        self.refresh_fingering_selection(target);
         self.toast_fingering_target(target);
+    }
+
+    fn refresh_fingering_selection(&mut self, target: FingeringTarget) {
+        let preview = self
+            .pending_fingering_suggestion()
+            .map(|suggestion| suggestion.finger);
+        if let Some(labels) = self.note_labels.as_mut() {
+            labels.set_fingering_selection(
+                (target.start, target.pitch, target.channel, target.track_id),
+                preview,
+            );
+        }
     }
 
     fn toast_fingering_target(&mut self, target: FingeringTarget) {
@@ -616,6 +632,7 @@ impl PlayingScene {
             }
             self.seek_to_fingering_target();
         } else {
+            self.refresh_fingering_selection(target);
             self.toast_fingering_target(target);
         }
         true
@@ -678,6 +695,7 @@ impl PlayingScene {
         };
         let selected = self.fingering_editor.as_ref().unwrap().selected;
         self.fingering_editor.as_mut().unwrap().suggestion = Some((selected, suggestion));
+        self.refresh_fingering_selection(target);
         self.toast_manager.toast(format!(
             "SUGGEST {} · {}% · {} · Enter accepts",
             suggestion.finger,
@@ -702,7 +720,6 @@ impl PlayingScene {
         self.set_selected_finger(Some(suggestion.finger))
     }
 
-    #[cfg(debug_assertions)]
     fn pending_fingering_suggestion(&self) -> Option<FingerSuggestion> {
         let editor = self.fingering_editor.as_ref()?;
         let (selected, suggestion) = editor.suggestion?;
