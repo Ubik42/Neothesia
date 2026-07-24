@@ -151,7 +151,7 @@ impl PlayingScene {
             top_bar: TopBar::new(),
             completion: None,
             saved_session_count: None,
-            completion_view: CompletionView::Current,
+            completion_view: CompletionView::Overview,
         };
         if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
             top_bar::restore_loop_setup(&mut scene, loop_setup);
@@ -419,21 +419,23 @@ impl PlayingScene {
                 nuon::label()
                     .x(28.0)
                     .y(24.0)
-                    .size(panel_w - 256.0, 44.0)
-                    .font_size(30.0)
+                    .size(panel_w - 324.0, 40.0)
+                    .font_size(24.0)
                     .bold(true)
-                    .text("Practice complete")
+                    .text(if panel_w < 600.0 {
+                        "Complete"
+                    } else {
+                        "Practice complete"
+                    })
                     .build(ui);
 
-                let tab_gap = 8.0;
-                let tab_w = 92.0;
-                let tab_x = panel_w - 28.0 - tab_w * 2.0 - tab_gap;
+                let (tab_x, tab_w, tab_gap) = completion_tab_layout(panel_w);
                 if nuon::button()
                     .x(tab_x)
                     .y(26.0)
                     .size(tab_w, 34.0)
-                    .label("This take")
-                    .color(if completion_view == CompletionView::Current {
+                    .label("Overview")
+                    .color(if completion_view == CompletionView::Overview {
                         [56, 145, 255]
                     } else {
                         [61, 57, 73]
@@ -443,10 +445,27 @@ impl PlayingScene {
                     .border_radius([8.0; 4])
                     .build(ui)
                 {
-                    requested_view = Some(CompletionView::Current);
+                    requested_view = Some(CompletionView::Overview);
                 }
                 if nuon::button()
                     .x(tab_x + tab_w + tab_gap)
+                    .y(26.0)
+                    .size(tab_w, 34.0)
+                    .label("Technique")
+                    .color(if completion_view == CompletionView::Technique {
+                        [132, 96, 191]
+                    } else {
+                        [61, 57, 73]
+                    })
+                    .hover_color([151, 112, 215])
+                    .preseed_color([163, 124, 227])
+                    .border_radius([8.0; 4])
+                    .build(ui)
+                {
+                    requested_view = Some(CompletionView::Technique);
+                }
+                if nuon::button()
+                    .x(tab_x + (tab_w + tab_gap) * 2.0)
                     .y(26.0)
                     .size(tab_w, 34.0)
                     .label("History")
@@ -463,7 +482,7 @@ impl PlayingScene {
                     requested_view = Some(CompletionView::History);
                 }
 
-                if completion_view == CompletionView::Current {
+                if completion_view == CompletionView::Overview {
                     nuon::label()
                         .x(28.0)
                         .y(78.0)
@@ -489,16 +508,77 @@ impl PlayingScene {
 
                     nuon::label()
                         .x(28.0)
-                        .y(164.0)
+                        .y(176.0)
+                        .size(panel_w - 56.0, 30.0)
+                        .font_size(17.0)
+                        .text(format!(
+                            "Wrong {}    Missed {}",
+                            summary.overall.wrong_notes, summary.overall.missed_notes
+                        ))
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(210.0)
+                        .size(panel_w - 56.0, 24.0)
+                        .font_size(16.0)
+                        .text(format!(
+                            "Right hand {}    Left hand {}",
+                            format_accuracy(part_accuracy(PracticePart::RightHand)),
+                            format_accuracy(part_accuracy(PracticePart::LeftHand))
+                        ))
+                        .build(ui);
+
+                    nuon::quad()
+                        .x(28.0)
+                        .y(254.0)
+                        .size(panel_w - 56.0, 1.0)
+                        .color([83, 78, 98])
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(272.0)
+                        .size(panel_w - 56.0, 44.0)
+                        .font_size(17.0)
+                        .text(review)
+                        .build(ui);
+
+                    if let Some(session_count) = self.saved_session_count {
+                        nuon::label()
+                            .x(28.0)
+                            .y(320.0)
+                            .size(panel_w - 56.0, 28.0)
+                            .font_size(14.0)
+                            .color([143, 205, 171])
+                            .text(format!(
+                                "Saved locally  ·  {session_count} session{} for this MIDI",
+                                if session_count == 1 { "" } else { "s" }
+                            ))
+                            .build(ui);
+                    }
+                } else if completion_view == CompletionView::Technique {
+                    nuon::label()
+                        .x(28.0)
+                        .y(88.0)
+                        .size(panel_w - 56.0, 38.0)
+                        .font_size(26.0)
+                        .bold(true)
+                        .text("Timing & coordination")
+                        .build(ui);
+
+                    nuon::label()
+                        .x(28.0)
+                        .y(132.0)
                         .size(
                             if calibration.is_some() {
                                 panel_w - 244.0
                             } else {
                                 panel_w - 56.0
                             },
-                            22.0,
+                            24.0,
                         )
-                        .font_size(13.0)
+                        .font_size(14.0)
                         .color([184, 178, 205])
                         .text(format_timing_profile(
                             summary.timing,
@@ -509,8 +589,8 @@ impl PlayingScene {
                     if let Some(suggestion) = calibration
                         && nuon::button()
                             .x(panel_w - 204.0)
-                            .y(160.0)
-                            .size(176.0, 28.0)
+                            .y(128.0)
+                            .size(176.0, 30.0)
                             .label(format!("Apply {:+} ms & retry", suggestion.suggested_ms))
                             .color([132, 96, 191])
                             .hover_color([151, 112, 215])
@@ -525,68 +605,16 @@ impl PlayingScene {
 
                     nuon::label()
                         .x(28.0)
-                        .y(190.0)
-                        .size(panel_w - 56.0, 30.0)
-                        .font_size(17.0)
-                        .text(format!(
-                            "Wrong {}    Missed {}",
-                            summary.overall.wrong_notes, summary.overall.missed_notes
-                        ))
-                        .build(ui);
-
-                    nuon::label()
-                        .x(28.0)
-                        .y(222.0)
+                        .y(170.0)
                         .size(panel_w - 56.0, 24.0)
-                        .font_size(16.0)
-                        .text(format!(
-                            "Right hand {}    Left hand {}",
-                            format_accuracy(part_accuracy(PracticePart::RightHand)),
-                            format_accuracy(part_accuracy(PracticePart::LeftHand))
-                        ))
-                        .build(ui);
-
-                    nuon::label()
-                        .x(28.0)
-                        .y(246.0)
-                        .size(panel_w - 56.0, 20.0)
-                        .font_size(13.0)
+                        .font_size(14.0)
                         .color([184, 178, 205])
                         .text(format_hand_timing(&summary.parts))
                         .build(ui);
 
-                    if ctx.config.expression_feedback() {
-                        let (dynamics, pedal, articulation) =
-                            format_expression_summary(summary.expression);
-                        nuon::label()
-                            .x(28.0)
-                            .y(270.0)
-                            .size(panel_w - 56.0, 24.0)
-                            .font_size(14.0)
-                            .color([184, 178, 205])
-                            .text(dynamics)
-                            .build(ui);
-                        nuon::label()
-                            .x(28.0)
-                            .y(294.0)
-                            .size(panel_w - 56.0, 24.0)
-                            .font_size(14.0)
-                            .color([184, 178, 205])
-                            .text(pedal)
-                            .build(ui);
-                        nuon::label()
-                            .x(28.0)
-                            .y(318.0)
-                            .size(panel_w - 56.0, 24.0)
-                            .font_size(14.0)
-                            .color([184, 178, 205])
-                            .text(articulation)
-                            .build(ui);
-                    }
-
                     nuon::label()
                         .x(28.0)
-                        .y(342.0)
+                        .y(202.0)
                         .size(panel_w - 56.0, 24.0)
                         .font_size(14.0)
                         .color([184, 178, 205])
@@ -595,30 +623,42 @@ impl PlayingScene {
 
                     nuon::quad()
                         .x(28.0)
-                        .y(374.0)
+                        .y(238.0)
                         .size(panel_w - 56.0, 1.0)
                         .color([83, 78, 98])
                         .build(ui);
 
                     nuon::label()
                         .x(28.0)
-                        .y(388.0)
-                        .size(panel_w - 56.0, 44.0)
-                        .font_size(17.0)
-                        .text(review)
+                        .y(256.0)
+                        .size(panel_w - 56.0, 34.0)
+                        .font_size(22.0)
+                        .bold(true)
+                        .text("Expression evidence")
                         .build(ui);
 
-                    if let Some(session_count) = self.saved_session_count {
+                    if ctx.config.expression_feedback() {
+                        let (dynamics, pedal, articulation) =
+                            format_expression_summary(summary.expression);
+                        for (index, text) in [dynamics, pedal, articulation].into_iter().enumerate()
+                        {
+                            nuon::label()
+                                .x(28.0)
+                                .y(300.0 + index as f32 * 34.0)
+                                .size(panel_w - 56.0, 28.0)
+                                .font_size(14.0)
+                                .color([184, 178, 205])
+                                .text(text)
+                                .build(ui);
+                        }
+                    } else {
                         nuon::label()
                             .x(28.0)
-                            .y(432.0)
+                            .y(300.0)
                             .size(panel_w - 56.0, 28.0)
                             .font_size(14.0)
-                            .color([143, 205, 171])
-                            .text(format!(
-                                "Saved locally  ·  {session_count} session{} for this MIDI",
-                                if session_count == 1 { "" } else { "s" }
-                            ))
+                            .color([143, 139, 156])
+                            .text("Expression Summary is disabled in Settings")
                             .build(ui);
                     }
                 } else {
@@ -630,7 +670,8 @@ impl PlayingScene {
                 let button_w = (panel_w - 56.0 - button_gap) / 2.0;
                 let has_note_recommendation = recommendation.is_some();
 
-                if let Some(recommendation) = recommendation
+                if completion_view == CompletionView::Overview
+                    && let Some(recommendation) = recommendation
                     && nuon::button()
                         .x(28.0)
                         .y(button_y - 56.0)
@@ -661,7 +702,8 @@ impl PlayingScene {
                     });
                 }
 
-                if let Some(recommendation) = rhythm_recommendation
+                if completion_view == CompletionView::Overview
+                    && let Some(recommendation) = rhythm_recommendation
                     && nuon::button()
                         .x(if has_note_recommendation {
                             28.0 + button_w + button_gap
@@ -737,7 +779,7 @@ impl PlayingScene {
                 if top_bar::begin_measure_loop(self, start_measure, end_measure) {
                     self.completion = None;
                     self.saved_session_count = None;
-                    self.completion_view = CompletionView::Current;
+                    self.completion_view = CompletionView::Overview;
                 }
             }
             Some(CompletionAction::ApplyCalibration { suggested_ms }) => {
@@ -747,7 +789,7 @@ impl PlayingScene {
                 self.keyboard.reset_notes();
                 self.completion = None;
                 self.saved_session_count = None;
-                self.completion_view = CompletionView::Current;
+                self.completion_view = CompletionView::Overview;
                 self.toast_manager.toast(format!(
                     "Timing offset saved at {suggested_ms:+} ms · verify with this take"
                 ));
@@ -759,7 +801,7 @@ impl PlayingScene {
                 if top_bar::begin_measure_loop(self, start_measure, end_measure) {
                     self.completion = None;
                     self.saved_session_count = None;
-                    self.completion_view = CompletionView::Current;
+                    self.completion_view = CompletionView::Overview;
                     self.toast_manager.toast(format!(
                         "Rhythm focus: measures {start_measure}–{end_measure}"
                     ));
@@ -770,7 +812,7 @@ impl PlayingScene {
                 self.keyboard.reset_notes();
                 self.completion = None;
                 self.saved_session_count = None;
-                self.completion_view = CompletionView::Current;
+                self.completion_view = CompletionView::Overview;
             }
             Some(CompletionAction::Back) => {
                 ctx.proxy
@@ -798,8 +840,34 @@ impl PlayingScene {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum CompletionView {
-    Current,
+    Overview,
+    Technique,
     History,
+}
+
+impl CompletionView {
+    fn next(self) -> Self {
+        match self {
+            Self::Overview => Self::Technique,
+            Self::Technique => Self::History,
+            Self::History => Self::Overview,
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Overview => Self::History,
+            Self::Technique => Self::Overview,
+            Self::History => Self::Technique,
+        }
+    }
+}
+
+fn completion_tab_layout(panel_width: f32) -> (f32, f32, f32) {
+    let gap = 8.0;
+    let width = 84.0;
+    let x = panel_width - 28.0 - width * 3.0 - gap * 2.0;
+    (x, width, gap)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1345,6 +1413,12 @@ impl Scene for PlayingScene {
                     .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
                     .ok();
             }
+            if event.key_released(Key::Named(NamedKey::ArrowRight)) {
+                self.completion_view = self.completion_view.next();
+            }
+            if event.key_released(Key::Named(NamedKey::ArrowLeft)) {
+                self.completion_view = self.completion_view.previous();
+            }
             if event.window_resized() || event.scale_factor_changed() {
                 self.resize(ctx)
             }
@@ -1572,5 +1646,23 @@ mod tests {
             })
             .contains("median span 28ms")
         );
+    }
+
+    #[test]
+    fn completion_tabs_fit_the_minimum_panel_width() {
+        let panel_width = 480.0;
+        let (x, width, gap) = completion_tab_layout(panel_width);
+        let right = x + width * 3.0 + gap * 2.0;
+
+        assert!(x >= 28.0);
+        assert_eq!(right, panel_width - 28.0);
+    }
+
+    #[test]
+    fn completion_tabs_cycle_in_both_keyboard_directions() {
+        assert_eq!(CompletionView::Overview.next(), CompletionView::Technique);
+        assert_eq!(CompletionView::Technique.next(), CompletionView::History);
+        assert_eq!(CompletionView::History.next(), CompletionView::Overview);
+        assert_eq!(CompletionView::Overview.previous(), CompletionView::History);
     }
 }
