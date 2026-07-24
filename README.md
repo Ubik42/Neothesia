@@ -43,6 +43,7 @@ All binary releases:
 
 - [Sustained piano-learning development](docs/development/README.md)
 - [Piano plug-in hosting (VST3 and Pianoteq)](docs/pages/plugin-hosting-roadmap.md)
+- [External Pianoteq practice workflow](docs/pages/pianoteq-external-routing.md)
 
 ## Thanks to
 

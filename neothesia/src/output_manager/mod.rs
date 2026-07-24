@@ -14,6 +14,9 @@ use std::{
 
 use midi_file::midly::{MidiMessage, num::u4};
 
+#[cfg(test)]
+use std::{cell::RefCell, rc::Rc};
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum OutputDescriptor {
     #[cfg(feature = "synth")]
@@ -57,6 +60,15 @@ pub enum OutputConnection {
     #[cfg(feature = "synth")]
     Synth(synth_backend::SynthOutputConnection),
     DummyOutput,
+    #[cfg(test)]
+    Test(Rc<RefCell<Vec<TestOutputEvent>>>),
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy)]
+pub enum TestOutputEvent {
+    Midi,
+    StopAll,
 }
 
 impl OutputConnection {
@@ -66,12 +78,16 @@ impl OutputConnection {
             #[cfg(feature = "synth")]
             OutputConnection::Synth(b) => b.midi_event(channel, msg),
             OutputConnection::DummyOutput => {}
+            #[cfg(test)]
+            OutputConnection::Test(events) => events.borrow_mut().push(TestOutputEvent::Midi),
         }
     }
     pub fn set_gain(&self, gain: f32) {
         match self {
             #[cfg(feature = "synth")]
             OutputConnection::Synth(b) => b.set_gain(gain),
+            #[cfg(test)]
+            OutputConnection::Test(_) => {}
             _ => {}
         }
     }
@@ -81,7 +97,15 @@ impl OutputConnection {
             #[cfg(feature = "synth")]
             OutputConnection::Synth(b) => b.stop_all(),
             OutputConnection::DummyOutput => {}
+            #[cfg(test)]
+            OutputConnection::Test(events) => events.borrow_mut().push(TestOutputEvent::StopAll),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test() -> (Self, Rc<RefCell<Vec<TestOutputEvent>>>) {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        (Self::Test(events.clone()), events)
     }
 }
 
@@ -145,6 +169,11 @@ impl OutputManager {
 
     pub fn connect(&mut self, desc: OutputDescriptor) {
         if desc != self.output_connection.0 {
+            // Silence the currently selected instrument before replacing its
+            // connection. This also reaches any player clone sharing the same
+            // MIDI backend and prevents held pedal notes from surviving an
+            // output change.
+            self.output_connection.1.stop_all();
             match desc {
                 #[cfg(feature = "synth")]
                 OutputDescriptor::Synth(ref font) => {

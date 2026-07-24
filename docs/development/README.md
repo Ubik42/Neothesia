@@ -11,6 +11,8 @@ second.
 - [Progress](progress.md) — current release, active cycle and product status
 - [Development log](development-log.md) — append-only record of completed cycles
 - [Piano plug-in hosting](../pages/plugin-hosting-roadmap.md) — VST3/Pianoteq plan
+- [External Pianoteq routing](../pages/pianoteq-external-routing.md) — current
+  standalone workflow and acceptance checklist
 
 ## Working agreement
 
@@ -52,4 +54,3 @@ recovery, persistence, tests and documentation are part of the feature.
 - `RESEARCH` — requires a prototype or product decision
 - `DONE` — acceptance criteria passed and the result was logged
 - `BLOCKED` — has a named external or technical blocker
-

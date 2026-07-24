@@ -304,7 +304,10 @@ fn note_state(message: &MidiMessage) -> Option<(u8, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{output_manager::OutputConnection, song::Song};
+    use crate::{
+        output_manager::{OutputConnection, TestOutputEvent},
+        song::Song,
+    };
 
     #[test]
     fn wait_mode_can_release_a_blocked_practice_track() {
@@ -352,5 +355,34 @@ mod tests {
         assert!(summary.overall.missed_notes > 0);
         assert!(!summary.measures.is_empty());
         assert!(summary.measures.iter().all(|item| item.measure > 0));
+    }
+
+    #[test]
+    fn transport_changes_and_drop_silence_the_output() {
+        let file = midi_file::MidiFile::new("../test.mid").unwrap();
+        let song = Song::new(file);
+        let (output, events) = OutputConnection::test();
+        let mut player = MidiPlayer::new_with_lead_in(
+            output,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            false,
+            Duration::ZERO,
+        );
+        events.borrow_mut().clear();
+
+        player.pause();
+        player.resume();
+        player.set_time(Duration::from_millis(250));
+        player.restart_practice();
+        drop(player);
+
+        let panic_count = events
+            .borrow()
+            .iter()
+            .filter(|event| matches!(event, TestOutputEvent::StopAll))
+            .count();
+        assert_eq!(panic_count, 4);
     }
 }
