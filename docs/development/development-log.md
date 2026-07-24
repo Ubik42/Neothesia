@@ -4,6 +4,57 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 017: Watched-folder indexing and search (DONE)
+
+### Outcome
+
+The Practice Library can now discover a real MIDI collection instead of only
+remembering files opened in the past. Scanning does not freeze the renderer,
+duplicates do not clutter the list, and a learner can find a piece using any
+combination of title or folder terms.
+
+### Implemented
+
+- Added a tested `library` domain independent of scene rendering.
+- Added persistent watched-folder configuration with backward-compatible
+  defaults and path-aware duplicate prevention.
+- Added recursive MIDI discovery without following directory symlinks.
+- Parsed candidates on a named worker thread.
+- Counted and reported unreadable MIDI while retaining valid results.
+- Deduplicated files by content identity and retained alternate source paths.
+- Cached normalized searchable text in the index.
+- Added type-anywhere multi-term search over filenames and full paths.
+- Merged indexed pieces with recent sessions and latest accuracy.
+- Added Add Folder and Refresh actions in Practice Library.
+- Added watched-folder add/remove controls in Settings.
+- Kept direct open and content-verified missing-file repair.
+
+### Verification
+
+- Added recursive scan, duplicate-content, malformed-file, search, config
+  uniqueness and settings-migration tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `e993f2c`
+(`feat: index and search watched MIDI folders`).
+
+### Known limitations
+
+- The index is rebuilt when the library is opened or refreshed; an incremental
+  disk cache and filesystem watcher are future performance work.
+- Search currently uses filename and path because editable musical metadata is
+  not implemented yet.
+- Very large first scans cannot yet be cancelled, although they remain off the
+  render thread.
+- Favourites, ordered practice queues and mastery filters are next.
+
 ## 2026-07-25 — Cycle 016: Recent practice library (DONE)
 
 ### Outcome

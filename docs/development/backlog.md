@@ -41,7 +41,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 
 ## LATER — repertoire and learning
 
-- [ ] `LIB-001` Scan watched folders and build a searchable local library.
+- [x] `LIB-001` Scan watched folders and build a searchable local library.
 - [ ] `LIB-002` Add stable content-based song identity and metadata sidecars.
 - [x] `LIB-003` Save per-song hand/track, loop and speed settings.
 - [ ] `LIB-004` Add recent, favourite and practice-queue views.

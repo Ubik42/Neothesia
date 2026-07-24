@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 017 — Watched-folder indexing and search
+
+State: **DONE**
+
+Delivered:
+
+- added persistent watched-folder configuration with add and remove controls;
+- recursively scanned `.mid` and `.midi` files away from the render thread;
+- avoided following directory symlinks and tolerated unreadable directories;
+- parsed candidate files and skipped malformed MIDI without aborting the scan;
+- deduplicated identical files by BLAKE3 MIDI content identity while retaining
+  every discovered path;
+- cached normalized title/path text for fast multi-term search;
+- merged discovered repertoire with existing sessions, accuracy and relocation
+  information in Practice Library;
+- added type-anywhere search, Backspace editing, Escape-to-clear and a refresh
+  action;
+- retained direct open and hash-verified Locate behaviour for every result;
+- migrated older settings files to an empty watched-folder list automatically.
+
+Verification:
+
+- two MIDI-file tests, thirty-one practice/core tests and thirty-four
+  application tests pass;
+- tests cover recursive discovery, content deduplication, malformed MIDI,
+  multi-term title/path search, unique/removable folder configuration and
+  legacy-settings migration;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `e993f2c`.
+
 ### Cycle 016 — Recent practice library
 
 State: **DONE**
@@ -459,14 +490,15 @@ Acceptance checklist:
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
-| Library | Working baseline | Recent list and relocation repair; folder search remains |
+| Library | Working | Watched folders, search, history merge and relocation repair |
 | UI automation | Partial | OS input/screenshot; semantic actions planned |
 
 ## Next decision
 
-Begin Cycle 017 with watched-folder indexing and fast title/path search. Keep
-file parsing off the render thread, deduplicate by content identity, and surface
-missing or changed files without discarding their practice records.
+Begin Cycle 018 with deliberate-practice organization: favourites and a small
+ordered practice queue whose items retain their content identity even when
+files move. Make queue actions visible in the library and connect each item to
+its latest result and recommended weak passage.
 
 ## Known constraints
 
