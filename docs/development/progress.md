@@ -10,6 +10,30 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 064 — Visual fingering selection and preview
+
+State: **DONE**
+
+Delivered:
+
+- rendered a cyan dot on the exact selected note before it has a finger;
+- replaced the dot with the cyan suggested digit after preview;
+- let an accepted digit return to normal saved-guidance white after advancing;
+- retained gold exclusively for reviewed thumb-under/finger-over landings;
+- cleared transient selection state when Finger edit closes;
+- completed `MUS-003E`.
+
+Verification:
+
+- glyph precedence proves preview overrides a saved digit only while selected;
+- unassigned selection produces a marker, ordinary unselected notes do not;
+- stored hints remain ordinary digits outside selection;
+- real-process preview/accept and sidecar persistence continue to pass;
+- ninety-nine core, sixty-six application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `de7a2f0`.
+
 ### Cycle 063 — Explainable fingering suggestion prototype
 
 State: **DONE**

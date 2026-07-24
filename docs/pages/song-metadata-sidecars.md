@@ -102,6 +102,8 @@ The status message names the hand/part, one-based measure and piano pitch, and
 shows an existing finger when present. Every assignment is saved immediately;
 there is no unsaved batch to lose. Manual numbers use the same independently
 switchable **Fingers: ON/OFF** layer as reviewed Technique Studio guidance.
+The selected note/preview is cyan, saved guidance is white, and reviewed
+hand-turn landings are gold.
 
 Finger editing is offered only for an imported MIDI with a real source file.
 Generated Technique Studio exercises already use reviewed tables and must be

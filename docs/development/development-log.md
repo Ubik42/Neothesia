@@ -4,6 +4,50 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 064: Visual fingering selection and preview (DONE)
+
+### Outcome
+
+The finger editor now communicates on the music itself. A learner can see which
+waterfall note is selected and distinguish an unaccepted suggestion from saved
+guidance without relying only on a fading status message.
+
+### Implemented
+
+- Expanded the cached finger glyph set with neutral/sharp selection markers.
+- Tracked one transient exact-note selection independently of saved hints.
+- Rendered an unassigned selected note as a cyan dot.
+- Rendered a pending suggested finger as a cyan digit.
+- Preserved an existing saved digit under selection while coloring it cyan.
+- Returned accepted/unselected hints to white.
+- Kept reviewed hand turns gold and lower in color precedence than selection.
+- Cleared selection and disabled an otherwise empty guidance layer on editor
+  exit.
+- Documented the cyan/white/gold visual language.
+- Completed `MUS-003E`.
+
+### Verification
+
+- A focused renderer-domain test covers no glyph, selection marker, stored
+  digit, preview override and ordinary saved digit.
+- The native FingeringFixture still previews finger 3, accepts it and persists
+  one exact-note hint.
+- Full workspace tests, Clippy, release build, Technique Studio smoke,
+  formatting and diff checks pass.
+
+All desktop gates passed: two MIDI-file tests, ninety-nine core tests and
+sixty-six application tests. Both real-process smokes pass. Clippy and release
+builds report only the repository's pre-existing platform-helper and
+`unused_mut` warnings.
+
+Implementation commit: `de7a2f0`
+(`feat: visualize fingering selection previews`).
+
+### Known limitations
+
+- The marker is a centered dot rather than a full note-outline shader.
+- Color is fixed and does not yet expose a high-contrast/color-blind palette.
+
 ## 2026-07-25 — Cycle 063: Explainable fingering suggestions (DONE)
 
 ### Outcome

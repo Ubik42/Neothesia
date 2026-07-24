@@ -11,6 +11,12 @@ Suggestions are previews, never automatic edits:
 
 Only acceptance writes the content-bound sidecar.
 
+The selected unassigned note carries a cyan dot directly on the waterfall.
+After `G`, that dot becomes the cyan preview finger. Accepting and advancing
+returns saved numbers to white; reviewed hand-turn landings remain gold. Cyan,
+white and gold therefore mean selection/preview, saved guidance and technical
+turn respectively.
+
 ## Why a cost model
 
 Automatic fingering is a combinatorial problem with multiple valid answers.
