@@ -4,6 +4,7 @@ use crate::{NeothesiaEvent, context::Context, icons};
 use neothesia_core::practice::{
     AdaptiveTempoCoach, AdaptiveTempoDecision, AdaptiveTempoRules, AttemptHistory, AttemptSummary,
 };
+use neothesia_core::practice_history::PracticeLoopSetup;
 
 use super::{
     PlayingScene,
@@ -138,6 +139,21 @@ impl TopBar {
 
     pub fn loop_measure_range(&self, player: &super::midi_player::MidiPlayer) -> (usize, usize) {
         loop_measure_range(player, self.loop_start, self.loop_end)
+    }
+
+    pub fn practice_loop_setup(
+        &self,
+        player: &super::midi_player::MidiPlayer,
+    ) -> Option<PracticeLoopSetup> {
+        if self.loop_start.is_zero() && self.loop_end.is_zero() {
+            return None;
+        }
+        let (start_measure, end_measure) = self.loop_measure_range(player);
+        Some(PracticeLoopSetup {
+            enabled: self.looper_active,
+            start_measure,
+            end_measure,
+        })
     }
 
     #[profiling::function]
@@ -291,6 +307,7 @@ impl TopBar {
 
     fn hand_mode_button(
         this: &mut PlayingScene,
+        ctx: &mut Context,
         ui: &mut nuon::Ui,
         x: f32,
         y: f32,
@@ -324,7 +341,7 @@ impl TopBar {
             .border_radius([5.0; 4])
             .build(ui)
         {
-            this.cycle_practice_hands();
+            this.cycle_practice_hands(ctx);
         }
     }
 
@@ -360,7 +377,7 @@ impl TopBar {
         }
 
         if ctx.window_state.logical_size.width < 1_060.0 {
-            Self::hand_mode_button(this, ui, 156.0, 0.0, 100.0, 30.0);
+            Self::hand_mode_button(this, ctx, ui, 156.0, 0.0, 100.0, 30.0);
         } else {
             let coach_enabled = ctx.config.adaptive_tempo();
             if nuon::button()
@@ -431,7 +448,7 @@ impl TopBar {
             .x(win_w / 2.0 - group_w / 2.0)
             .build(ui, |ui| {
                 if show_hands {
-                    Self::hand_mode_button(this, ui, 0.0, 5.0, 106.0, 20.0);
+                    Self::hand_mode_button(this, ctx, ui, 0.0, 5.0, 106.0, 20.0);
                 }
 
                 if nuon::button()
@@ -449,6 +466,7 @@ impl TopBar {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() - 0.1);
                     this.top_bar.reset_tempo_coach();
+                    this.save_practice_setup(ctx);
                 }
 
                 nuon::label()
@@ -477,6 +495,7 @@ impl TopBar {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() + 0.1);
                     this.top_bar.reset_tempo_coach();
+                    this.save_practice_setup(ctx);
                 }
             });
     }
@@ -518,6 +537,7 @@ impl TopBar {
                         }
                         begin_loop_take(this, true);
                     }
+                    this.save_practice_setup(ctx);
                 }
 
                 nuon::translate().x(-30.0).add_to_current(ui);
@@ -666,6 +686,7 @@ impl TopBar {
                 || matches!(loop_end_ev, nuon::ClickAreaEvent::PressEnd { .. }))
         {
             begin_loop_take(this, true);
+            this.save_practice_setup(ctx);
         }
 
         // render
@@ -740,6 +761,34 @@ fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {
 
 pub(super) fn restart_loop_take(scene: &mut PlayingScene) {
     begin_loop_take(scene, true);
+}
+
+pub(super) fn restore_loop_setup(scene: &mut PlayingScene, setup: PracticeLoopSetup) -> bool {
+    let boundaries = measure_boundaries(&scene.player);
+    let Some((start, end)) = restored_loop_range(&boundaries, setup) else {
+        return false;
+    };
+    scene.top_bar.loop_start = start;
+    scene.top_bar.loop_end = end;
+    scene.top_bar.looper_active = setup.enabled;
+    if setup.enabled {
+        begin_loop_take(scene, true);
+    }
+    true
+}
+
+fn restored_loop_range(
+    boundaries: &[Duration],
+    setup: PracticeLoopSetup,
+) -> Option<(Duration, Duration)> {
+    let measure_count = boundaries.len().checked_sub(1)?;
+    if setup.start_measure == 0
+        || setup.end_measure < setup.start_measure
+        || setup.end_measure > measure_count
+    {
+        return None;
+    }
+    measure_range_from_boundaries(boundaries, setup.start_measure, setup.end_measure)
 }
 
 pub(super) fn begin_measure_loop(
@@ -940,6 +989,47 @@ mod tests {
         assert_eq!(
             measure_range_from_boundaries(&boundaries, 2, 3),
             Some((Duration::from_secs(4), Duration::from_secs(8)))
+        );
+    }
+
+    #[test]
+    fn saved_loop_range_is_restored_only_when_structurally_valid() {
+        let boundaries = [
+            Duration::from_secs(2),
+            Duration::from_secs(4),
+            Duration::from_secs(6),
+            Duration::from_secs(8),
+        ];
+        let valid = PracticeLoopSetup {
+            enabled: true,
+            start_measure: 2,
+            end_measure: 3,
+        };
+        assert_eq!(
+            restored_loop_range(&boundaries, valid),
+            Some((Duration::from_secs(4), Duration::from_secs(8)))
+        );
+
+        assert_eq!(
+            restored_loop_range(
+                &boundaries,
+                PracticeLoopSetup {
+                    end_measure: 4,
+                    ..valid
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            restored_loop_range(
+                &boundaries,
+                PracticeLoopSetup {
+                    start_measure: 3,
+                    end_measure: 2,
+                    ..valid
+                }
+            ),
+            None
         );
     }
 

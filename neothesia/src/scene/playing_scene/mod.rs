@@ -3,7 +3,7 @@ use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticeHands, PracticePart,
 };
 use neothesia_core::practice_history::{
-    PracticeHistoryOverview, PracticeSession, PracticeSessionKind,
+    PracticeHistoryOverview, PracticeSession, PracticeSessionKind, SongPracticeSetup,
 };
 use neothesia_core::render::{
     GlowRenderer, GuidelineRenderer, NoteLabels, QuadRenderer, TextRenderer,
@@ -64,6 +64,13 @@ pub struct PlayingScene {
 
 impl PlayingScene {
     pub fn new(ctx: &mut Context, song: Song) -> Self {
+        let saved_setup = ctx.practice_history.setup(&song.file.content_id).cloned();
+        if let Some(setup) = &saved_setup
+            && setup.speed.is_finite()
+            && setup.speed >= 0.0
+        {
+            ctx.config.set_speed_multiplier(setup.speed);
+        }
         let keyboard = Keyboard::new(ctx, song.config.clone());
 
         let keyboard_layout = keyboard.layout();
@@ -121,7 +128,7 @@ impl PlayingScene {
             keyboard.layout(),
         ));
 
-        Self {
+        let mut scene = Self {
             keyboard,
             guidelines,
             note_labels,
@@ -143,7 +150,11 @@ impl PlayingScene {
             completion: None,
             saved_session_count: None,
             completion_view: CompletionView::Current,
+        };
+        if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
+            top_bar::restore_loop_setup(&mut scene, loop_setup);
         }
+        scene
     }
 
     fn update_glow(&mut self, delta: Duration) {
@@ -181,7 +192,7 @@ impl PlayingScene {
             .toast("PANIC: output silenced and playback paused");
     }
 
-    fn cycle_practice_hands(&mut self) {
+    fn cycle_practice_hands(&mut self, ctx: &mut Context) {
         let Some(current) = self.player.practice_hands() else {
             self.toast_manager
                 .toast("Hand switch unavailable: assign left/right tracks first");
@@ -205,6 +216,23 @@ impl PlayingScene {
             PracticeHands::Left => "Practice: left hand · right hand plays automatically",
             PracticeHands::Custom | PracticeHands::Unspecified => unreachable!(),
         });
+        self.save_practice_setup(ctx);
+    }
+
+    fn save_practice_setup(&mut self, ctx: &mut Context) {
+        let setup = SongPracticeSetup {
+            tracks: self.player.song().config.practice_track_setup(),
+            speed: ctx.config.speed_multiplier(),
+            loop_setup: self.top_bar.practice_loop_setup(&self.player),
+        };
+        if let Err(error) = ctx.practice_history.save_setup(
+            &self.player.song().file.content_id,
+            &self.player.song().file.name,
+            setup,
+        ) {
+            self.toast_manager
+                .toast(format!("Could not save practice setup: {error}"));
+        }
     }
 
     #[profiling::function]
@@ -247,6 +275,7 @@ impl PlayingScene {
             if let Some(decision) = coach_decision {
                 ctx.config.set_speed_multiplier(decision.speed);
                 self.toast_manager.toast(tempo_coach_message(decision));
+                self.save_practice_setup(ctx);
             }
             self.player.reset_practice_attempt();
             self.player.set_time(self.top_bar.loop_start_timestamp());
@@ -1032,6 +1061,7 @@ impl Scene for PlayingScene {
         handle_settings_input(ctx, &mut self.toast_manager, &mut self.waterfall, event);
         if ctx.config.speed_multiplier() != speed_before {
             self.top_bar.reset_tempo_coach();
+            self.save_practice_setup(ctx);
         }
         super::handle_pc_keyboard_to_midi_event(ctx, event);
         super::handle_mouse_to_midi_event(

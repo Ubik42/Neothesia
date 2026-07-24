@@ -1,5 +1,6 @@
 use midi_file::MidiTrack;
 use neothesia_core::practice::{PracticeHands, PracticePart};
+use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
 use std::collections::HashMap;
 
 use crate::context::Context;
@@ -99,6 +100,49 @@ impl SongConfig {
         }
         true
     }
+
+    pub fn practice_track_setup(&self) -> Vec<PracticeTrackSetup> {
+        self.tracks
+            .iter()
+            .map(|track| PracticeTrackSetup {
+                track_id: track.track_id,
+                mode: match track.player {
+                    PlayerConfig::Mute => PracticeTrackMode::Mute,
+                    PlayerConfig::Auto => PracticeTrackMode::Auto,
+                    PlayerConfig::Human => PracticeTrackMode::Human,
+                },
+                visible: track.visible,
+            })
+            .collect()
+    }
+
+    pub fn apply_practice_setup(&mut self, setup: &SongPracticeSetup) -> bool {
+        if setup.tracks.len() != self.tracks.len()
+            || setup.tracks.iter().any(|saved| {
+                !self
+                    .tracks
+                    .iter()
+                    .any(|track| track.track_id == saved.track_id)
+            })
+        {
+            return false;
+        }
+
+        for saved in &setup.tracks {
+            let track = self
+                .tracks
+                .iter_mut()
+                .find(|track| track.track_id == saved.track_id)
+                .expect("validated track IDs must remain present");
+            track.player = match saved.mode {
+                PracticeTrackMode::Mute => PlayerConfig::Mute,
+                PracticeTrackMode::Auto => PlayerConfig::Auto,
+                PracticeTrackMode::Human => PlayerConfig::Human,
+            };
+            track.visible = saved.visible;
+        }
+        true
+    }
 }
 
 fn infer_practice_parts(tracks: &[MidiTrack]) -> HashMap<usize, PracticePart> {
@@ -159,7 +203,15 @@ impl Song {
             None
         };
 
-        Some(Self::new(midi_file?))
+        let mut song = Self::new(midi_file?);
+        song.apply_saved_setup(ctx);
+        Some(song)
+    }
+
+    pub fn apply_saved_setup(&mut self, ctx: &Context) -> bool {
+        ctx.practice_history
+            .setup(&self.file.content_id)
+            .is_some_and(|setup| self.config.apply_practice_setup(setup))
     }
 }
 
@@ -234,5 +286,41 @@ mod tests {
 
         assert_eq!(config.practice_hands(), None);
         assert!(!config.set_practice_hands(PracticeHands::Right));
+    }
+
+    #[test]
+    fn saved_track_setup_requires_the_same_track_structure() {
+        let mut config = SongConfig {
+            tracks: vec![TrackConfig {
+                track_id: 4,
+                player: PlayerConfig::Human,
+                visible: true,
+                practice_part: PracticePart::RightHand,
+            }]
+            .into(),
+        };
+        let valid = SongPracticeSetup {
+            tracks: vec![PracticeTrackSetup {
+                track_id: 4,
+                mode: PracticeTrackMode::Auto,
+                visible: false,
+            }],
+            speed: 0.7,
+            loop_setup: None,
+        };
+        assert!(config.apply_practice_setup(&valid));
+        assert_eq!(config.tracks[0].player, PlayerConfig::Auto);
+        assert!(!config.tracks[0].visible);
+
+        let incompatible = SongPracticeSetup {
+            tracks: vec![PracticeTrackSetup {
+                track_id: 99,
+                mode: PracticeTrackMode::Mute,
+                visible: true,
+            }],
+            ..valid
+        };
+        assert!(!config.apply_practice_setup(&incompatible));
+        assert_eq!(config.tracks[0].player, PlayerConfig::Auto);
     }
 }

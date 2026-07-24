@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{NeothesiaEvent, context::Context, output_manager::OutputDescriptor, song::Song};
+use neothesia_core::practice_history::SongPracticeSetup;
 
 type InputDescriptor = midi_io::MidiInputPort;
 
@@ -132,6 +133,25 @@ pub fn play(data: &UiState, ctx: &mut Context) {
     let Some(song) = data.song.as_ref() else {
         return;
     };
+
+    let existing = ctx.practice_history.setup(&song.file.content_id).cloned();
+    if let Some(setup) = &existing
+        && setup.speed.is_finite()
+        && setup.speed >= 0.0
+    {
+        ctx.config.set_speed_multiplier(setup.speed);
+    }
+    let setup = SongPracticeSetup {
+        tracks: song.config.practice_track_setup(),
+        speed: ctx.config.speed_multiplier(),
+        loop_setup: existing.and_then(|setup| setup.loop_setup),
+    };
+    if let Err(error) =
+        ctx.practice_history
+            .save_setup(&song.file.content_id, &song.file.name, setup)
+    {
+        log::error!("Could not save the song practice setup: {error}");
+    }
 
     connect_io(data, ctx);
 

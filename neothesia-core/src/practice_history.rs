@@ -32,6 +32,34 @@ pub struct PracticeSession {
     pub summary: AttemptSummary,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PracticeTrackMode {
+    Mute,
+    Auto,
+    Human,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PracticeTrackSetup {
+    pub track_id: usize,
+    pub mode: PracticeTrackMode,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PracticeLoopSetup {
+    pub enabled: bool,
+    pub start_measure: usize,
+    pub end_measure: usize,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
+pub struct SongPracticeSetup {
+    pub tracks: Vec<PracticeTrackSetup>,
+    pub speed: f32,
+    pub loop_setup: Option<PracticeLoopSetup>,
+}
+
 impl PracticeSession {
     pub fn new(
         kind: PracticeSessionKind,
@@ -52,6 +80,8 @@ impl PracticeSession {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
 pub struct SongPracticeHistory {
     pub display_name: String,
+    #[serde(default)]
+    pub setup: Option<SongPracticeSetup>,
     pub sessions: Vec<PracticeSession>,
 }
 
@@ -297,6 +327,7 @@ impl PracticeHistoryStore {
             .entry(song_id.to_owned())
             .or_insert_with(|| SongPracticeHistory {
                 display_name: display_name.to_owned(),
+                setup: None,
                 sessions: Vec::new(),
             });
         song.display_name = display_name.to_owned();
@@ -306,6 +337,29 @@ impl PracticeHistoryStore {
             song.sessions.drain(..excess);
         }
         self.save()
+    }
+
+    pub fn save_setup(
+        &mut self,
+        song_id: &str,
+        display_name: &str,
+        setup: SongPracticeSetup,
+    ) -> Result<(), PracticeHistoryError> {
+        let song = self
+            .songs_mut()
+            .entry(song_id.to_owned())
+            .or_insert_with(|| SongPracticeHistory {
+                display_name: display_name.to_owned(),
+                setup: None,
+                sessions: Vec::new(),
+            });
+        song.display_name = display_name.to_owned();
+        song.setup = Some(setup);
+        self.save()
+    }
+
+    pub fn setup(&self, song_id: &str) -> Option<&SongPracticeSetup> {
+        self.song(song_id)?.setup.as_ref()
     }
 
     pub fn song(&self, song_id: &str) -> Option<&SongPracticeHistory> {
@@ -515,7 +569,10 @@ mod tests {
         let legacy_contents = fs::read_to_string(&path)
             .unwrap()
             .lines()
-            .filter(|line| !line.trim_start().starts_with("hands:"))
+            .filter(|line| {
+                let line = line.trim_start();
+                !line.starts_with("hands:") && !line.starts_with("setup:")
+            })
             .collect::<Vec<_>>()
             .join("\n");
         fs::write(&path, legacy_contents).unwrap();
@@ -524,6 +581,41 @@ mod tests {
         assert_eq!(
             loaded.song("content-id").unwrap().sessions[0].hands,
             PracticeHands::Unspecified
+        );
+        assert_eq!(loaded.setup("content-id"), None);
+
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn song_setup_is_saved_by_content_identity() {
+        let path = temp_history_path("song-setup");
+        let mut store = PracticeHistoryStore::load(&path);
+        let setup = SongPracticeSetup {
+            tracks: vec![PracticeTrackSetup {
+                track_id: 3,
+                mode: PracticeTrackMode::Human,
+                visible: true,
+            }],
+            speed: 0.65,
+            loop_setup: Some(PracticeLoopSetup {
+                enabled: true,
+                start_measure: 7,
+                end_measure: 8,
+            }),
+        };
+        store
+            .save_setup("content-id", "Old Name.mid", setup.clone())
+            .unwrap();
+        store
+            .save_setup("content-id", "New Name.mid", setup.clone())
+            .unwrap();
+
+        let loaded = PracticeHistoryStore::load(&path);
+        assert_eq!(loaded.setup("content-id"), Some(&setup));
+        assert_eq!(
+            loaded.song("content-id").unwrap().display_name,
+            "New Name.mid"
         );
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
@@ -552,6 +644,7 @@ mod tests {
     fn weak_measures_aggregate_across_sessions() {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![session(4, 5, 5), session(4, 8, 2), session(7, 9, 1)],
         };
 
@@ -568,6 +661,7 @@ mod tests {
     fn passage_recommendation_requires_repeated_evidence() {
         let mut history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![session(4, 4, 6), session(8, 9, 1)],
         };
 
@@ -586,6 +680,7 @@ mod tests {
     fn passage_recommendation_ignores_small_samples_and_mastered_measures() {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![
                 session(2, 2, 0),
                 session(2, 1, 1),
@@ -610,6 +705,7 @@ mod tests {
         third.speed = 0.8;
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![first, second, third],
         };
 
@@ -638,6 +734,7 @@ mod tests {
         empty.speed = f32::NAN;
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![empty],
         };
 
@@ -661,6 +758,7 @@ mod tests {
         whole_new.speed = 0.7;
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![whole_old, unrelated_loop, whole_new],
         };
 
@@ -682,6 +780,7 @@ mod tests {
         both_new.speed = 0.7;
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
+            setup: None,
             sessions: vec![both_old, right_only, both_new],
         };
 
