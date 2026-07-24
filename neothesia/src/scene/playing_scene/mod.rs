@@ -1,6 +1,6 @@
 use midi_file::midly::MidiMessage;
 use neothesia_core::practice::{
-    AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticePart,
+    AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticeHands, PracticePart,
 };
 use neothesia_core::practice_history::{
     PracticeHistoryOverview, PracticeSession, PracticeSessionKind,
@@ -179,6 +179,32 @@ impl PlayingScene {
         self.top_bar.cancel_count_in();
         self.toast_manager
             .toast("PANIC: output silenced and playback paused");
+    }
+
+    fn cycle_practice_hands(&mut self) {
+        let Some(current) = self.player.practice_hands() else {
+            self.toast_manager
+                .toast("Hand switch unavailable: assign left/right tracks first");
+            return;
+        };
+        let next = current.next();
+        if !self.player.set_practice_hands(next) {
+            return;
+        }
+
+        self.keyboard.reset_notes();
+        self.top_bar.reset_tempo_coach();
+        if self.top_bar.is_looper_active() {
+            top_bar::restart_loop_take(self);
+        } else {
+            self.player.restart_practice();
+        }
+        self.toast_manager.toast(match next {
+            PracticeHands::Both => "Practice: both hands",
+            PracticeHands::Right => "Practice: right hand · left hand plays automatically",
+            PracticeHands::Left => "Practice: left hand · right hand plays automatically",
+            PracticeHands::Custom | PracticeHands::Unspecified => unreachable!(),
+        });
     }
 
     #[profiling::function]
@@ -645,7 +671,8 @@ fn render_history_overview(
             "{} trend  ·  {} comparable attempt{}",
             overview
                 .trend_kind
-                .map(format_session_kind)
+                .zip(overview.trend_hands)
+                .map(|(kind, hands)| format_practice_scope(kind, hands))
                 .unwrap_or_else(|| "Practice".to_owned()),
             overview.trend_attempts,
             if overview.trend_attempts == 1 {
@@ -702,7 +729,7 @@ fn render_history_overview(
             .text(format!(
                 "{}. {}  ·  {} accuracy  ·  {} speed",
                 index + 1,
-                format_session_kind(session.kind),
+                format_practice_scope(session.kind, session.hands),
                 accuracy,
                 format_speed(session.speed)
             ))
@@ -762,6 +789,17 @@ fn format_session_kind(kind: PracticeSessionKind) -> String {
     }
 }
 
+fn format_practice_scope(kind: PracticeSessionKind, hands: PracticeHands) -> String {
+    let kind = format_session_kind(kind);
+    match hands {
+        PracticeHands::Both => format!("{kind} · Both hands"),
+        PracticeHands::Right => format!("{kind} · Right hand"),
+        PracticeHands::Left => format!("{kind} · Left hand"),
+        PracticeHands::Custom => format!("{kind} · Custom parts"),
+        PracticeHands::Unspecified => kind,
+    }
+}
+
 fn format_trend(label: &str, delta: Option<f32>) -> String {
     let Some(delta) = delta else {
         return format!("{label}: need 2 attempts");
@@ -804,7 +842,14 @@ fn persist_practice_session(
     ctx.practice_history.record_session(
         &song_id,
         &display_name,
-        PracticeSession::new(kind, speed, summary),
+        PracticeSession::new(
+            kind,
+            player
+                .practice_hands()
+                .unwrap_or(PracticeHands::Unspecified),
+            speed,
+            summary,
+        ),
     )?;
     Ok(ctx.practice_history.session_count(&song_id))
 }

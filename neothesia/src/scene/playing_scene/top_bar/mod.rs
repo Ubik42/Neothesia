@@ -289,6 +289,45 @@ impl TopBar {
         nuon::button().size(30.0, 30.0).border_radius([5.0; 4])
     }
 
+    fn hand_mode_button(
+        this: &mut PlayingScene,
+        ui: &mut nuon::Ui,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) {
+        let mode = this.player.practice_hands();
+        let label = mode
+            .map(|mode| format!("Hands: {}", mode.label()))
+            .unwrap_or_else(|| "Hands: --".to_owned());
+        if nuon::button()
+            .x(x)
+            .y(y)
+            .size(width, height)
+            .label(label)
+            .color(if mode.is_some() {
+                [109, 78, 164]
+            } else {
+                [65, 62, 73]
+            })
+            .hover_color(if mode.is_some() {
+                [132, 96, 191]
+            } else {
+                [78, 74, 87]
+            })
+            .preseed_color(if mode.is_some() {
+                [144, 108, 203]
+            } else {
+                [78, 74, 87]
+            })
+            .border_radius([5.0; 4])
+            .build(ui)
+        {
+            this.cycle_practice_hands();
+        }
+    }
+
     fn panel_left(this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {
         if Self::button().icon(icons::left_arrow_icon()).build(ui) {
             ctx.proxy
@@ -320,47 +359,51 @@ impl TopBar {
             ctx.config.set_wait_for_notes(enabled);
         }
 
-        let coach_enabled = ctx.config.adaptive_tempo();
-        if nuon::button()
-            .x(156.0)
-            .size(100.0, 30.0)
-            .label(if coach_enabled {
-                "Coach: ON"
-            } else {
-                "Coach: OFF"
-            })
-            .color(if coach_enabled {
-                [63, 156, 112]
-            } else {
-                [74, 68, 88]
-            })
-            .hover_color([78, 176, 132])
-            .preseed_color([88, 186, 142])
-            .border_radius([5.0; 4])
-            .build(ui)
-        {
-            let enabled = !coach_enabled;
-            ctx.config.set_adaptive_tempo(enabled);
-            this.top_bar.reset_tempo_coach();
-            this.toast_manager.toast(if enabled {
-                "Tempo Coach ON: use loop practice for guided speed changes"
-            } else {
-                "Tempo Coach OFF: speed stays under manual control"
-            });
+        if ctx.window_state.logical_size.width < 1_060.0 {
+            Self::hand_mode_button(this, ui, 156.0, 0.0, 100.0, 30.0);
+        } else {
+            let coach_enabled = ctx.config.adaptive_tempo();
+            if nuon::button()
+                .x(156.0)
+                .size(100.0, 30.0)
+                .label(if coach_enabled {
+                    "Coach: ON"
+                } else {
+                    "Coach: OFF"
+                })
+                .color(if coach_enabled {
+                    [63, 156, 112]
+                } else {
+                    [74, 68, 88]
+                })
+                .hover_color([78, 176, 132])
+                .preseed_color([88, 186, 142])
+                .border_radius([5.0; 4])
+                .build(ui)
+            {
+                let enabled = !coach_enabled;
+                ctx.config.set_adaptive_tempo(enabled);
+                this.top_bar.reset_tempo_coach();
+                this.toast_manager.toast(if enabled {
+                    "Tempo Coach ON: use loop practice for guided speed changes"
+                } else {
+                    "Tempo Coach OFF: speed stays under manual control"
+                });
+            }
         }
 
         if ctx.window_state.logical_size.width >= 1_060.0 {
             let snapshot = this.player.practice_snapshot();
             let status = if this.top_bar.looper_active {
                 format!(
-                    "Take {}   Last {}   Best {}",
+                    "T{} · L {} · B {}",
                     this.top_bar.attempts.current_attempt(),
                     attempt_accuracy(this.top_bar.attempts.last()),
                     attempt_accuracy(this.top_bar.attempts.best())
                 )
             } else {
                 format!(
-                    "Hit {}   Wrong {}   Missed {}   Need {}",
+                    "H {} · W {} · M {} · N {}",
                     snapshot.matched_notes,
                     snapshot.wrong_notes,
                     snapshot.missed_notes,
@@ -369,23 +412,31 @@ impl TopBar {
             };
             nuon::label()
                 .x(264.0)
-                .size(220.0, 30.0)
-                .font_size(14.0)
+                .size(160.0, 30.0)
+                .font_size(13.0)
                 .text(status)
                 .text_justify(nuon::TextJustify::Center)
                 .build(ui);
         }
     }
 
-    fn panel_center(_this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {
+    fn panel_center(this: &mut PlayingScene, ctx: &mut Context, ui: &mut nuon::Ui) {
         let win_w = ctx.window_state.logical_size.width;
         let pill_w = 45.0 * 2.0;
+        let show_hands = win_w >= 1_060.0;
+        let group_w = if show_hands { 206.0 } else { pill_w };
+        let speed_x = if show_hands { 116.0 } else { 0.0 };
 
         nuon::translate()
-            .x(win_w / 2.0 - pill_w / 2.0)
-            .y(5.0)
+            .x(win_w / 2.0 - group_w / 2.0)
             .build(ui, |ui| {
+                if show_hands {
+                    Self::hand_mode_button(this, ui, 0.0, 5.0, 106.0, 20.0);
+                }
+
                 if nuon::button()
+                    .x(speed_x)
+                    .y(5.0)
                     .size(45.0, 20.0)
                     .color([67, 67, 67])
                     .hover_color([87, 87, 87])
@@ -397,10 +448,12 @@ impl TopBar {
                 {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() - 0.1);
-                    _this.top_bar.reset_tempo_coach();
+                    this.top_bar.reset_tempo_coach();
                 }
 
                 nuon::label()
+                    .x(speed_x)
+                    .y(5.0)
                     .text(format!(
                         "{}%",
                         (ctx.config.speed_multiplier() * 100.0).round()
@@ -411,7 +464,8 @@ impl TopBar {
 
                 if nuon::button()
                     .size(45.0, 20.0)
-                    .x(45.0)
+                    .x(speed_x + 45.0)
+                    .y(5.0)
                     .color([67, 67, 67])
                     .hover_color([87, 87, 87])
                     .preseed_color([97, 97, 97])
@@ -422,7 +476,7 @@ impl TopBar {
                 {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() + 0.1);
-                    _this.top_bar.reset_tempo_coach();
+                    this.top_bar.reset_tempo_coach();
                 }
             });
     }
@@ -682,6 +736,10 @@ fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {
     scene.keyboard.reset_notes();
     scene.player.pause();
     scene.top_bar.start_count_in(count_in);
+}
+
+pub(super) fn restart_loop_take(scene: &mut PlayingScene) {
+    begin_loop_take(scene, true);
 }
 
 pub(super) fn begin_measure_loop(

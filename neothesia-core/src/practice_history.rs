@@ -9,7 +9,7 @@ use std::{
 use ron::extensions::Extensions;
 use serde::{Deserialize, Serialize};
 
-use crate::practice::{AttemptSummary, PracticeBreakdown};
+use crate::practice::{AttemptSummary, PracticeBreakdown, PracticeHands};
 
 const MAX_SESSIONS_PER_SONG: usize = 200;
 
@@ -26,15 +26,23 @@ pub enum PracticeSessionKind {
 pub struct PracticeSession {
     pub recorded_at_unix_ms: u64,
     pub kind: PracticeSessionKind,
+    #[serde(default)]
+    pub hands: PracticeHands,
     pub speed: f32,
     pub summary: AttemptSummary,
 }
 
 impl PracticeSession {
-    pub fn new(kind: PracticeSessionKind, speed: f32, summary: AttemptSummary) -> Self {
+    pub fn new(
+        kind: PracticeSessionKind,
+        hands: PracticeHands,
+        speed: f32,
+        summary: AttemptSummary,
+    ) -> Self {
         Self {
             recorded_at_unix_ms: unix_time_ms(),
             kind,
+            hands,
             speed,
             summary,
         }
@@ -67,6 +75,7 @@ pub struct WeakPassageRecommendation {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RecentPracticeSummary {
     pub kind: PracticeSessionKind,
+    pub hands: PracticeHands,
     pub recorded_at_unix_ms: u64,
     pub accuracy: Option<f32>,
     pub speed: f32,
@@ -78,6 +87,7 @@ pub struct PracticeHistoryOverview {
     /// Oldest to newest, so the UI can read it as a progression.
     pub recent: Vec<RecentPracticeSummary>,
     pub trend_kind: Option<PracticeSessionKind>,
+    pub trend_hands: Option<PracticeHands>,
     pub trend_attempts: usize,
     pub accuracy_delta: Option<f32>,
     pub speed_delta: Option<f32>,
@@ -86,8 +96,20 @@ pub struct PracticeHistoryOverview {
 
 impl SongPracticeHistory {
     pub fn weak_measures(&self, limit: usize) -> Vec<WeakMeasure> {
+        self.weak_measures_for_scope(None, limit)
+    }
+
+    fn weak_measures_for_scope(
+        &self,
+        hands: Option<PracticeHands>,
+        limit: usize,
+    ) -> Vec<WeakMeasure> {
         let mut measures = BTreeMap::<usize, (PracticeBreakdown, usize)>::new();
-        for session in &self.sessions {
+        for session in self
+            .sessions
+            .iter()
+            .filter(|session| hands.is_none_or(|hands| session.hands == hands))
+        {
             for item in &session.summary.measures {
                 let (total, attempts) = measures.entry(item.measure).or_default();
                 total.target_notes += item.breakdown.target_notes;
@@ -128,8 +150,9 @@ impl SongPracticeHistory {
     /// needs repeated evidence so a single exploratory take cannot create a
     /// persistent "weak" label.
     pub fn recommended_passage(&self) -> Option<WeakPassageRecommendation> {
+        let hands = self.sessions.last()?.hands;
         let weakest = self
-            .weak_measures(usize::MAX)
+            .weak_measures_for_scope(Some(hands), usize::MAX)
             .into_iter()
             .find(is_reliable_weakness)?;
 
@@ -154,6 +177,7 @@ impl SongPracticeHistory {
             .take(recent_limit)
             .map(|session| RecentPracticeSummary {
                 kind: session.kind,
+                hands: session.hands,
                 recorded_at_unix_ms: session.recorded_at_unix_ms,
                 accuracy: session.summary.overall.accuracy(),
                 speed: session.speed,
@@ -161,12 +185,15 @@ impl SongPracticeHistory {
             .collect();
         recent.reverse();
 
-        let trend_kind = self.sessions.last().map(|session| session.kind);
+        let trend_scope = self
+            .sessions
+            .last()
+            .map(|session| (session.kind, session.hands));
         let mut comparable: Vec<_> = self
             .sessions
             .iter()
             .rev()
-            .filter(|session| Some(session.kind) == trend_kind)
+            .filter(|session| Some((session.kind, session.hands)) == trend_scope)
             .take(recent_limit)
             .collect();
         comparable.reverse();
@@ -185,12 +212,13 @@ impl SongPracticeHistory {
         PracticeHistoryOverview {
             total_sessions: self.sessions.len(),
             recent,
-            trend_kind,
+            trend_kind: trend_scope.map(|(kind, _)| kind),
+            trend_hands: trend_scope.map(|(_, hands)| hands),
             trend_attempts: comparable.len(),
             accuracy_delta,
             speed_delta,
             weak_measures: self
-                .weak_measures(usize::MAX)
+                .weak_measures_for_scope(trend_scope.map(|(_, hands)| hands), usize::MAX)
                 .into_iter()
                 .filter(is_reliable_weakness)
                 .take(weak_measure_limit)
@@ -435,6 +463,7 @@ mod tests {
         PracticeSession {
             recorded_at_unix_ms: 1,
             kind: PracticeSessionKind::WholeSong,
+            hands: PracticeHands::Both,
             speed: 0.75,
             summary: AttemptSummary {
                 overall: PracticeSnapshot {
@@ -471,6 +500,31 @@ mod tests {
         let song = loaded.song("content-id").unwrap();
         assert_eq!(song.display_name, "New Name.mid");
         assert_eq!(song.sessions.len(), 2);
+
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn histories_saved_before_hand_scopes_remain_readable() {
+        let path = temp_history_path("legacy-hand-scope");
+        let mut store = PracticeHistoryStore::load(&path);
+        store
+            .record_session("content-id", "Song.mid", session(2, 8, 2))
+            .unwrap();
+
+        let legacy_contents = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("hands:"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&path, legacy_contents).unwrap();
+
+        let loaded = PracticeHistoryStore::load(&path);
+        assert_eq!(
+            loaded.song("content-id").unwrap().sessions[0].hands,
+            PracticeHands::Unspecified
+        );
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
@@ -563,6 +617,7 @@ mod tests {
 
         assert_eq!(overview.total_sessions, 3);
         assert_eq!(overview.trend_kind, Some(PracticeSessionKind::WholeSong));
+        assert_eq!(overview.trend_hands, Some(PracticeHands::Both));
         assert_eq!(overview.trend_attempts, 2);
         assert_eq!(
             overview
@@ -614,6 +669,29 @@ mod tests {
         assert_eq!(overview.trend_attempts, 2);
         assert!((overview.accuracy_delta.unwrap() - 0.3).abs() < f32::EPSILON);
         assert!((overview.speed_delta.unwrap() - 0.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn overview_does_not_compare_different_hand_goals() {
+        let mut both_old = session(2, 5, 5);
+        both_old.speed = 0.6;
+        let mut right_only = session(2, 1, 9);
+        right_only.hands = PracticeHands::Right;
+        right_only.speed = 0.9;
+        let mut both_new = session(2, 8, 2);
+        both_new.speed = 0.7;
+        let history = SongPracticeHistory {
+            display_name: "Song.mid".to_owned(),
+            sessions: vec![both_old, right_only, both_new],
+        };
+
+        let overview = history.overview(5, 4);
+
+        assert_eq!(overview.trend_hands, Some(PracticeHands::Both));
+        assert_eq!(overview.trend_attempts, 2);
+        assert!((overview.accuracy_delta.unwrap() - 0.3).abs() < f32::EPSILON);
+        assert!((overview.speed_delta.unwrap() - 0.1).abs() < f32::EPSILON);
+        assert!((overview.weak_measures[0].accuracy - 0.65).abs() < f32::EPSILON);
     }
 
     #[test]

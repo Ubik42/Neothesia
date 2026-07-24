@@ -6,7 +6,7 @@ use crate::{
 };
 use neothesia_core::{
     piano_layout,
-    practice::{AttemptSummary, PracticeMatcher, PracticeSnapshot, PracticeTarget},
+    practice::{AttemptSummary, PracticeHands, PracticeMatcher, PracticeSnapshot, PracticeTarget},
 };
 use std::time::Duration;
 
@@ -253,6 +253,21 @@ impl MidiPlayer {
 
     pub fn wait_for_notes(&self) -> bool {
         self.wait_for_notes
+    }
+
+    pub fn practice_hands(&self) -> Option<PracticeHands> {
+        self.song.config.practice_hands()
+    }
+
+    pub fn set_practice_hands(&mut self, mode: PracticeHands) -> bool {
+        if self.song.config.practice_hands() == Some(mode) {
+            return false;
+        }
+        if !self.song.config.set_practice_hands(mode) {
+            return false;
+        }
+        self.practice.reset();
+        true
     }
 
     pub fn set_wait_for_notes(&mut self, wait_for_notes: bool) {

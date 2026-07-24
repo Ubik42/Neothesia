@@ -1,5 +1,5 @@
 use midi_file::MidiTrack;
-use neothesia_core::practice::PracticePart;
+use neothesia_core::practice::{PracticeHands, PracticePart};
 use std::collections::HashMap;
 
 use crate::context::Context;
@@ -46,6 +46,58 @@ impl SongConfig {
         Self {
             tracks: tracks.into(),
         }
+    }
+
+    pub fn practice_hands(&self) -> Option<PracticeHands> {
+        let left: Vec<_> = self
+            .tracks
+            .iter()
+            .filter(|track| track.practice_part == PracticePart::LeftHand)
+            .collect();
+        let right: Vec<_> = self
+            .tracks
+            .iter()
+            .filter(|track| track.practice_part == PracticePart::RightHand)
+            .collect();
+        if left.is_empty() || right.is_empty() {
+            return None;
+        }
+
+        let all =
+            |tracks: &[&TrackConfig], player| tracks.iter().all(|track| track.player == player);
+        Some(
+            if all(&left, PlayerConfig::Human) && all(&right, PlayerConfig::Human) {
+                PracticeHands::Both
+            } else if all(&left, PlayerConfig::Auto) && all(&right, PlayerConfig::Human) {
+                PracticeHands::Right
+            } else if all(&left, PlayerConfig::Human) && all(&right, PlayerConfig::Auto) {
+                PracticeHands::Left
+            } else {
+                PracticeHands::Custom
+            },
+        )
+    }
+
+    pub fn set_practice_hands(&mut self, mode: PracticeHands) -> bool {
+        if matches!(mode, PracticeHands::Custom | PracticeHands::Unspecified)
+            || self.practice_hands().is_none()
+        {
+            return false;
+        }
+
+        for track in &mut self.tracks {
+            track.player = match (mode, track.practice_part) {
+                (PracticeHands::Both, PracticePart::LeftHand | PracticePart::RightHand) => {
+                    PlayerConfig::Human
+                }
+                (PracticeHands::Right, PracticePart::RightHand)
+                | (PracticeHands::Left, PracticePart::LeftHand) => PlayerConfig::Human,
+                (PracticeHands::Right, PracticePart::LeftHand)
+                | (PracticeHands::Left, PracticePart::RightHand) => PlayerConfig::Auto,
+                _ => track.player,
+            };
+        }
+        true
     }
 }
 
@@ -128,5 +180,59 @@ mod tests {
         let parts = infer_practice_parts_from_centers(&[(1, 48.0), (2, 60.0), (3, 72.0)]);
 
         assert!(parts.values().all(|part| *part == PracticePart::Other));
+    }
+
+    #[test]
+    fn hand_modes_keep_the_other_hand_as_accompaniment() {
+        let mut config = SongConfig {
+            tracks: vec![
+                TrackConfig {
+                    track_id: 0,
+                    player: PlayerConfig::Human,
+                    visible: true,
+                    practice_part: PracticePart::LeftHand,
+                },
+                TrackConfig {
+                    track_id: 1,
+                    player: PlayerConfig::Human,
+                    visible: true,
+                    practice_part: PracticePart::RightHand,
+                },
+                TrackConfig {
+                    track_id: 2,
+                    player: PlayerConfig::Mute,
+                    visible: false,
+                    practice_part: PracticePart::Other,
+                },
+            ]
+            .into(),
+        };
+
+        assert_eq!(config.practice_hands(), Some(PracticeHands::Both));
+        assert!(config.set_practice_hands(PracticeHands::Right));
+        assert_eq!(config.tracks[0].player, PlayerConfig::Auto);
+        assert_eq!(config.tracks[1].player, PlayerConfig::Human);
+        assert_eq!(config.tracks[2].player, PlayerConfig::Mute);
+        assert_eq!(config.practice_hands(), Some(PracticeHands::Right));
+
+        assert!(config.set_practice_hands(PracticeHands::Left));
+        assert_eq!(config.tracks[0].player, PlayerConfig::Human);
+        assert_eq!(config.tracks[1].player, PlayerConfig::Auto);
+    }
+
+    #[test]
+    fn ambiguous_parts_do_not_offer_hand_shortcuts() {
+        let mut config = SongConfig {
+            tracks: vec![TrackConfig {
+                track_id: 0,
+                player: PlayerConfig::Human,
+                visible: true,
+                practice_part: PracticePart::Other,
+            }]
+            .into(),
+        };
+
+        assert_eq!(config.practice_hands(), None);
+        assert!(!config.set_practice_hands(PracticeHands::Right));
     }
 }

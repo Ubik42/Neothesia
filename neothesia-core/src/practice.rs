@@ -8,6 +8,36 @@ use serde::{Deserialize, Serialize};
 
 pub type NoteId = u8;
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PracticeHands {
+    Both,
+    Right,
+    Left,
+    Custom,
+    #[default]
+    Unspecified,
+}
+
+impl PracticeHands {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Both => "Both",
+            Self::Right => "Right",
+            Self::Left => "Left",
+            Self::Custom => "Custom",
+            Self::Unspecified => "Unspecified",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Both => Self::Right,
+            Self::Right => Self::Left,
+            Self::Left | Self::Custom | Self::Unspecified => Self::Both,
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
 )]
