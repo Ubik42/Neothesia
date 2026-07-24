@@ -35,6 +35,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   player.
 - [x] `PRA-020` Add in-player both/right/left-hand practice controls.
 - [ ] `AUD-010` Document and validate external Pianoteq routing.
+- [x] `AUD-010A` Add a same-backend route diagnostic for visible, saved and
+  openable MIDI outputs.
+- [ ] `AUD-010B` Create/select the local virtual cable and record a successful
+  route diagnostic.
 - [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
 - [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.
 - [ ] `QA-010` Add deterministic player tests that do not use wall-clock sleeps.

@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 058 — Pianoteq route diagnostics
+
+State: **DONE**
+
+Delivered:
+
+- added a console diagnostic that enumerates the same MIDI input/output ports
+  used by Neothesia;
+- added exact expected-port, saved-selection and non-destructive open probes;
+- added a one-command PowerShell route check with optional Pianoteq-process
+  enforcement;
+- documented what the automated check proves and the physical/audio boundary
+  it cannot prove;
+- split route readiness from the separate 30-minute physical soak.
+
+Verification:
+
+- two argument-boundary tests pass;
+- a visible Keystation output passes the exact-name and open probe;
+- a deliberately absent `Neothesia to Pianoteq` endpoint fails with exit code
+  1 and a specific remediation message;
+- current local discovery finds Pianoteq 6 STAGE installed, but no virtual MIDI
+  cable and an internal `Buildin Synth` saved output;
+- eighty-six core, fifty-nine application and two MIDI-file tests pass;
+- Clippy, release build, native Technique Studio smoke, formatting and diff
+  checks pass with only pre-existing warnings;
+- `AUD-010A` is complete; parent `AUD-010`, `AUD-010B` and physical `AUD-012`
+  remain open until that external route exists.
+- implementation commit: `368936f`.
+
 ### Cycle 057 — Primary-chord fingerings
 
 State: **DONE**

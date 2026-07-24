@@ -4,6 +4,65 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 058: Pianoteq route diagnostics (DONE)
+
+### Outcome
+
+The external Pianoteq workflow now has a truthful machine-checkable boundary.
+A single command can distinguish an absent virtual cable, a stale Neothesia
+selection and an endpoint Windows exposes but cannot open. It never claims
+that inaudible, doubled, delayed or unstable audio has passed.
+
+### Implemented
+
+- Added the `midi-diagnostics` console binary beside the graphical app.
+- Enumerated input and output names through the production `midi-io` backend.
+- Loaded Neothesia's saved input/output selection from the normal settings.
+- Added exact output matching, required saved-selection matching and a
+  no-message open probe.
+- Added `scripts/check-pianoteq-route.ps1`, including optional verification
+  that Pianoteq is running.
+- Expanded the external-routing guide with commands, result semantics,
+  troubleshooting order and the physical-audio boundary.
+- Split `AUD-010` into completed diagnostic infrastructure (`AUD-010A`) and
+  pending successful local cable configuration (`AUD-010B`).
+
+### Verification
+
+- `cargo test -p neothesia --bin midi-diagnostics`
+- `cargo run -p neothesia --bin midi-diagnostics --`
+- An exact `Keystation 61 MK3` output probe succeeds without sending MIDI.
+- An exact `Neothesia to Pianoteq` probe fails with exit code 1 because the
+  endpoint is absent.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build -p neothesia --release`
+- `powershell -ExecutionPolicy Bypass -File
+  .\scripts\debug-practice-smoke.ps1 -ExerciseFixture`
+- `cargo fmt --all`
+- `git diff --check`
+
+The local machine exposes two Keystation inputs, two Keystation outputs and
+Microsoft GS Wavetable Synth. Pianoteq 6 STAGE is installed at
+`C:\Program Files\Modartt\Pianoteq 6 STAGE`, but no virtual MIDI cable is
+installed or visible, and the saved Neothesia output is `Buildin Synth`.
+All desktop gates passed: two MIDI-file tests, eighty-six core tests and
+fifty-nine application tests including the two diagnostic argument tests.
+Clippy and release builds report only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `368936f`
+(`feat: add Pianoteq route diagnostics`).
+
+### Known limitations
+
+- `AUD-010`, `AUD-010B` and `AUD-012` remain open: installing/configuring a
+  third-party virtual cable is external machine setup, not a repository edit.
+- An openable sender endpoint does not reveal Pianoteq's selected MIDI input.
+- Process detection does not prove that Pianoteq generated audible output.
+- The 30-minute latency, dynamics, pedal and stability acceptance run still
+  requires the physical keyboard, Pianoteq and speakers.
+
 ## 2026-07-25 — Cycle 057: Primary-chord fingerings (DONE)
 
 ### Outcome

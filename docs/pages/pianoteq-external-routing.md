@@ -46,10 +46,49 @@ for low latency on Windows:
 The short check catches a wrong input, a duplicate route, a reversed pedal and
 an unusable audio buffer before practice begins.
 
+## Verify the route from Neothesia
+
+Run this from the repository before the first session and whenever Windows
+renames or loses a device:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-pianoteq-route.ps1
+```
+
+The check uses the same `midi-io` backend as Neothesia. It requires all three
+configuration-side conditions:
+
+1. Windows exposes an output named exactly `Neothesia to Pianoteq`.
+2. Neothesia has saved that exact output selection.
+3. The endpoint can be opened without sending any MIDI data.
+
+It also reports whether a process whose name begins with `Pianoteq` is running.
+Require that condition when checking the daily startup sequence:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-pianoteq-route.ps1 `
+  -RequirePianoteq
+```
+
+Use `-PortName "Your exact port name"` when the cable has a different name.
+`RouteReady = True` proves the operating-system endpoint, saved Neothesia
+selection and non-destructive open probe. It deliberately reports
+`PhysicalAudioVerified = False`: software cannot prove what reached the
+speakers, whether the latency felt acceptable or whether a 30-minute session
+remained clean. Record those results in the checklist below.
+
+For lower-level diagnosis, list every port without requiring a configured
+route:
+
+```powershell
+cargo run -p neothesia --bin midi-diagnostics --
+```
+
 ## Pianoteq acceptance checklist
 
 Use a two-hand MIDI containing velocity changes and sustain events. Record the
-date, Pianoteq version, audio driver, buffer size, keyboard and result.
+date, Pianoteq version, audio driver, buffer size, keyboard, exact virtual-port
+name, diagnostic output and result.
 
 ### Notes and dynamics
 
@@ -93,6 +132,7 @@ replacement.
 
 ### No sound
 
+- Run the route check and resolve its first failed condition.
 - Confirm Pianoteq receives the virtual port, not only the physical keyboard.
 - Confirm Neothesia's output is the same virtual port.
 - Check Pianoteq's audio device and output channels.
@@ -121,3 +161,8 @@ This route provides Pianoteq sound but does not embed its editor, audio engine,
 presets or state inside Neothesia. Pianoteq must be started separately. Native
 single-instrument VST3 hosting remains a later, optional phase described in the
 [plug-in hosting roadmap](plugin-hosting-roadmap.md).
+
+The diagnostic opens only Neothesia's sending endpoint. It cannot inspect
+Pianoteq's private device selection, confirm that Pianoteq consumed a message
+or validate audio output. Those remain explicit manual acceptance boundaries,
+not inferred success.
