@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 008 — Evidence-based weak-passage practice
+
+State: **DONE**
+
+Delivered:
+
+- ranked weak measures from persisted attempts rather than only the latest
+  take;
+- required at least two attempts and eight judged notes before making a
+  recommendation;
+- suppressed recommendations at 90% accuracy or above;
+- selected a two-measure context around the weakest qualifying measure;
+- explained the recommendation with its range, accuracy, judged-note count and
+  attempt count;
+- added a full-width completion action that creates the suggested measure loop
+  and immediately begins its normal visual count-in;
+- clamped recommendations and inclusive loop boundaries safely at the end of a
+  song.
+
+Verification:
+
+- two MIDI-file tests, twenty practice/core tests and seventeen application
+  tests pass;
+- recommendation tests cover repeated evidence, small samples and mastered
+  measures;
+- loop mapping tests prove inclusive measure ranges retain the end boundary;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `e1d80d0`.
+
 ### Cycle 007 — Durable local practice history
 
 State: **DONE**
@@ -201,7 +231,7 @@ Acceptance checklist:
 | Measure/beat grid | Verifying | Current Cycle 001 |
 | Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
-| Practice history | Foundation working | Durable sessions; learner-facing browser is next |
+| Practice history | Foundation working | Durable sessions and weak-passage action |
 | Built-in piano | Working | SoundFont fallback |
 | External Pianoteq | Possible | MIDI routing needs validation guide |
 | Native VST3 | Planned | Separate long-term roadmap |
@@ -210,10 +240,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 008 as the first learner-facing continuity slice: use persisted
-multi-session evidence to recommend a weak measure range, show why it was
-chosen, and provide a one-action route into a structured loop. Keep
-recommendation rules deterministic and separate from rendering code.
+Begin Cycle 009 with a compact practice-history view for the current song:
+recent attempts, accuracy/speed trend and persistent weak-measure ranking.
+Include local reset/export controls only after their destructive and privacy
+semantics are explicit.
 
 ## Known constraints
 
@@ -225,4 +255,6 @@ recommendation rules deterministic and separate from rendering code.
 - Adaptive coaching currently operates only on structured loop attempts.
 - Practice history is saved locally but does not yet have a history-management
   or export screen.
+- Recommendations currently optimize note accuracy; timing consistency, hand
+  balance, pedal and dynamics need later goal-specific recommendation rules.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 008: Evidence-based weak-passage practice (DONE)
+
+### Outcome
+
+Persisted practice results now produce a concrete next action. After enough
+evidence accumulates, the completion panel explains the weakest passage and can
+start a correctly bounded, counted-in loop with one action.
+
+### Implemented
+
+- Added deterministic weak-passage recommendations to the practice domain.
+- Required two attempts, eight judged notes and accuracy below 90%.
+- Included accuracy, sample size and take count in recommendation evidence.
+- Chose a two-measure practice range and clamped it at the song boundary.
+- Added a visually prominent recommendation action above the normal completion
+  actions.
+- Converted one-based inclusive measure ranges into exact MIDI loop boundaries.
+- Reused structured attempt reset and count-in behaviour for recommended loops.
+
+### Verification
+
+- Added recommendation threshold and measure-boundary mapping tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `e1d80d0` (`feat: recommend weak passage loops`).
+
+### Known limitations
+
+- The suggestion is available at whole-song completion, not yet from the song
+  library or a dedicated history view.
+- It uses note accuracy only; timing, pedal and dynamics goals remain separate
+  future coaching dimensions.
+- Recommended passages are currently two measures long and are not yet editable
+  before starting.
+
 ## 2026-07-25 — Cycle 007: Durable local practice history (DONE)
 
 ### Outcome

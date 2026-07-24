@@ -44,10 +44,12 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-002` Add manual finger hints in portable sidecars.
 - [ ] `MUS-003` Prototype explainable fingering suggestions.
 - [ ] `MUS-004` Add pedal and dynamics feedback.
-- [ ] `COACH-001` Recommend weak passages from multiple attempts and explain
+- [x] `COACH-001` Recommend weak passages from multiple attempts and explain
   the evidence.
-- [ ] `COACH-003` Start a structured loop directly from a weak-passage
+- [x] `COACH-003` Start a structured loop directly from a weak-passage
   recommendation.
+- [ ] `COACH-004` Show current-song attempt trends and persistent weak-measure
+  ranking.
 - [ ] `COACH-002` Schedule local spaced review.
 - [ ] `EX-001` Add scales, arpeggios and chord exercise mode.
 

@@ -37,11 +37,11 @@ This roadmap borrows outcomes, not implementations:
 
 | Area | Current fork | Target |
 | --- | --- | --- |
-| Guided playback | Wait-for-notes, speed, loop, hand tracks | Countdown, adaptive tempo, attempt controls |
+| Guided playback | Wait, structured loops, adaptive tempo | Goals, editable recommendations |
 | Feedback | Internal rudimentary counters | Correct/wrong/missed, early/late, duration, pedal, dynamics |
 | Learning aids | Falling notes, labels, measures/beats | Fingering, notation, chords, key/scale context |
 | Repertoire | File picker and last file | Searchable library, metadata, favourites, practice queue |
-| Progress | Durable local sessions | History browser, passage mastery, trends |
+| Progress | Durable sessions and weak-passage action | History browser, mastery, trends |
 | Sound | Built-in SoundFont, MIDI output | Reliable external Pianoteq flow, then native VST3 |
 | Creation | Free-play recording, video CLI | Recording review, annotations, shareable song metadata |
 | UX | Native custom GPU UI | Coherent practice workspace, accessible themes, automation hooks |
