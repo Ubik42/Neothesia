@@ -123,6 +123,32 @@ try {
     Assert-True ($null -ne $player) "Player scene did not become active"
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
 
+    $waiting = $null
+    for ($attempt = 0; $attempt -lt 150; $attempt++) {
+        $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        if ($candidate.required_notes -gt 0) {
+            $waiting = $candidate
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    Assert-True ($null -ne $waiting) "Player did not expose a required note"
+    Assert-True (
+        @($waiting.required_note_pitches).Count -eq $waiting.required_notes
+    ) "Required-note count and pitch list disagree"
+
+    $matchedBeforeInput = [int]$waiting.matched_notes
+    foreach ($note in @($waiting.required_note_pitches)) {
+        $noteOn = Invoke-DebugDriver "MIDI 0 $note 100"
+        Assert-True ($noteOn.ok -and $noteOn.accepted) "Debug note-on was rejected"
+        $noteOff = Invoke-DebugDriver "MIDI 0 $note 0"
+        Assert-True ($noteOff.ok -and $noteOff.accepted) "Debug note-off was rejected"
+    }
+    $afterInput = (Invoke-DebugDriver "SNAPSHOT").snapshot
+    Assert-True (
+        $afterInput.matched_notes -gt $matchedBeforeInput
+    ) "Injected performance notes did not reach the practice matcher"
+
     $waitBefore = [bool]$player.wait_for_notes
     $toggle = Invoke-DebugDriver "ACTION practice.player.wait"
     Assert-True ($toggle.ok -and $toggle.accepted) "Wait toggle was rejected"
@@ -179,6 +205,7 @@ try {
         Midi = $midi
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
+        MatchedAfterInput = [int]$afterInput.matched_notes
         HandsBefore = $player.hands
         HandsAfter = if ($afterHands) { $afterHands.hands } else { $null }
         LoopRange = "$($loopState.loop_start_measure)-$($loopState.loop_end_measure)"

@@ -1003,6 +1003,16 @@ impl PracticeMatcher {
         self.required_notes.is_empty()
     }
 
+    pub fn required_note_pitches(&self) -> Vec<NoteId> {
+        let mut notes: Vec<_> = self
+            .required_notes
+            .iter()
+            .flat_map(|(&note, occurrences)| std::iter::repeat_n(note, occurrences.len()))
+            .collect();
+        notes.sort_unstable();
+        notes
+    }
+
     /// Clears transient matching state while retaining the session totals.
     pub fn clear_pending(&mut self) {
         self.required_notes.clear();
@@ -1285,6 +1295,7 @@ mod tests {
         matcher.score_note(target_time, 64, true);
         matcher.score_note(target_time, 67, true);
         assert_eq!(matcher.snapshot().required_notes, 3);
+        assert_eq!(matcher.required_note_pitches(), vec![60, 64, 67]);
         assert!(!matcher.are_required_notes_pressed());
 
         matcher.user_note(Duration::from_millis(2_100), 67, true);

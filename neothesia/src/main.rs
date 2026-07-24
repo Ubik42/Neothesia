@@ -57,6 +57,12 @@ pub enum NeothesiaEvent {
         reply: std::sync::mpsc::Sender<Option<scene::DebugPracticeSnapshot>>,
     },
     #[cfg(debug_assertions)]
+    DebugMidiInput {
+        channel: u8,
+        message: MidiMessage,
+        reply: std::sync::mpsc::Sender<bool>,
+    },
+    #[cfg(debug_assertions)]
     DebugExit {
         reply: std::sync::mpsc::Sender<()>,
     },
@@ -193,6 +199,20 @@ impl Neothesia {
             #[cfg(debug_assertions)]
             NeothesiaEvent::DebugPracticeSnapshot { reply } => {
                 let _ = reply.send(self.game_scene.debug_practice_snapshot(&self.context));
+            }
+            #[cfg(debug_assertions)]
+            NeothesiaEvent::DebugMidiInput {
+                channel,
+                message,
+                reply,
+            } => {
+                let accepted =
+                    self.game_scene
+                        .debug_midi_event(&mut self.context, channel, &message);
+                let _ = reply.send(accepted);
+                if accepted {
+                    self.context.window.request_redraw();
+                }
             }
             #[cfg(debug_assertions)]
             NeothesiaEvent::DebugExit { reply } => {

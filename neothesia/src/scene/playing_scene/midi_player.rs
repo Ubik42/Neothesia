@@ -311,6 +311,11 @@ impl MidiPlayer {
         self.practice.snapshot()
     }
 
+    #[cfg(debug_assertions)]
+    pub fn required_note_pitches(&self) -> Vec<u8> {
+        self.practice.required_note_pitches()
+    }
+
     pub fn finish_practice(&mut self) -> AttemptSummary {
         self.practice.finish();
         self.practice.summary()

@@ -37,7 +37,8 @@ event loop and requests a read-only practice snapshot through that same loop.
 
 The snapshot currently exposes wait mode, Tempo Coach, selected hands, loop
 activation/range/count-in state, pause state, completion tab,
-matched/wrong/missed totals and input-latency compensation.
+matched/wrong/missed totals, currently required note pitches and input-latency
+compensation.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active
@@ -61,13 +62,15 @@ Open one TCP connection per command and send one newline-terminated command:
 | Command | Result |
 | --- | --- |
 | `ACTION practice.player.wait` | JSON with `ok` and `accepted` |
+| `MIDI 0 60 100` | Inject channel, note and velocity through player MIDI input |
 | `SNAPSHOT` | JSON with `ok` and a snapshot object or `null` |
 | `EXIT` | JSON acknowledgement followed by a clean application exit |
 
 Commands are limited to 4096 bytes and action/state waits time out after two
-seconds. An accepted value of `false` means the active scene does not support
-that action in its current state. A `null` snapshot means the active scene is
-not the player.
+seconds. MIDI channels must be 0–15; notes and velocities must be 0–127. A
+velocity of zero is a note release. An accepted value of `false` means the
+active scene does not support that action in its current state. A `null`
+snapshot means the active scene is not the player.
 
 This is a narrow test protocol, not a general remote-control API or a Windows
 UI Automation implementation.
@@ -80,16 +83,18 @@ On Windows, run the checked-in end-to-end smoke sequence with:
 
 The script builds the Debug executable, selects an unused loopback port, uses
 an isolated temporary working directory, starts the loaded song, asserts the
-default wait state, toggles wait mode, cycles hands when available, returns to
-the menu and requests a clean exit. It removes its temporary settings, history
-and SoundFont copy afterward.
+default wait state, waits for required pitches, injects their note-on/releases
+through the real scene MIDI path, asserts that the matcher count increases,
+toggles wait mode, cycles hands when available, exercises loop/restart, returns
+to the menu and requests a clean exit. It removes its temporary settings,
+history and SoundFont copy afterward.
 
 The next automation layer should:
 
 1. capture deterministic screenshots at supported window sizes;
 2. cover parameterized calibration and recommendation actions without
    duplicating their product logic;
-3. add a launch-and-drive smoke fixture for a known MIDI;
+3. add a short deterministic MIDI fixture that reaches completion;
 4. retain compile-time exclusion from release builds.
 
 Screen-coordinate automation remains a temporary smoke-test fallback and must

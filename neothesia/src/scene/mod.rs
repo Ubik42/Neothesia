@@ -30,6 +30,15 @@ pub trait Scene {
     fn debug_practice_snapshot(&self, _ctx: &Context) -> Option<DebugPracticeSnapshot> {
         None
     }
+    #[cfg(debug_assertions)]
+    fn debug_midi_event(
+        &mut self,
+        _ctx: &mut Context,
+        _channel: u8,
+        _message: &MidiMessage,
+    ) -> bool {
+        false
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -47,6 +56,8 @@ pub struct DebugPracticeSnapshot {
     pub matched_notes: usize,
     pub wrong_notes: usize,
     pub missed_notes: usize,
+    pub required_notes: usize,
+    pub required_note_pitches: Vec<u8>,
     pub input_latency_ms: i32,
 }
 
@@ -98,6 +109,31 @@ impl DebugUiHarness {
             return false;
         }
         response.recv_timeout(timeout).is_ok()
+    }
+
+    pub fn midi_note(
+        &self,
+        channel: u8,
+        note: u8,
+        velocity: u8,
+        timeout: Duration,
+    ) -> Option<bool> {
+        if channel > 15 || note > 127 || velocity > 127 {
+            return Some(false);
+        }
+        let (reply, response) = std::sync::mpsc::channel();
+        let message = MidiMessage::NoteOn {
+            key: midi_file::midly::num::u7::new(note),
+            vel: midi_file::midly::num::u7::new(velocity),
+        };
+        self.proxy
+            .send_event(NeothesiaEvent::DebugMidiInput {
+                channel,
+                message,
+                reply,
+            })
+            .ok()?;
+        response.recv_timeout(timeout).ok()
     }
 }
 

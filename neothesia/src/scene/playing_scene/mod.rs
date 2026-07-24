@@ -1652,8 +1652,16 @@ impl Scene for PlayingScene {
             matched_notes: snapshot.matched_notes,
             wrong_notes: snapshot.wrong_notes,
             missed_notes: snapshot.missed_notes,
+            required_notes: snapshot.required_notes,
+            required_note_pitches: self.player.required_note_pitches(),
             input_latency_ms: self.player.input_latency_ms(),
         })
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_midi_event(&mut self, ctx: &mut Context, channel: u8, message: &MidiMessage) -> bool {
+        self.midi_event(ctx, channel, message);
+        true
     }
 }
 

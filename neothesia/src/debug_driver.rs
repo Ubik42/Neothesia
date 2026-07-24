@@ -111,6 +111,7 @@ fn handle_connection(mut stream: TcpStream, harness: &DebugUiHarness) {
 #[derive(Debug, Eq, PartialEq)]
 enum DriverCommand<'a> {
     Action(&'a str),
+    Midi { channel: u8, note: u8, velocity: u8 },
     Snapshot,
     Exit,
 }
@@ -121,6 +122,26 @@ fn parse_command(line: &str) -> Result<DriverCommand<'_>, &'static str> {
     }
     if line == "EXIT" {
         return Ok(DriverCommand::Exit);
+    }
+    if let Some(values) = line.strip_prefix("MIDI ") {
+        let values: Vec<_> = values.split_ascii_whitespace().collect();
+        if let [channel, note, velocity] = values.as_slice()
+            && let (Ok(channel), Ok(note), Ok(velocity)) = (
+                channel.parse::<u8>(),
+                note.parse::<u8>(),
+                velocity.parse::<u8>(),
+            )
+            && channel <= 15
+            && note <= 127
+            && velocity <= 127
+        {
+            return Ok(DriverCommand::Midi {
+                channel,
+                note,
+                velocity,
+            });
+        }
+        return Err("bad-midi");
     }
     if let Some(id) = line.strip_prefix("ACTION ")
         && !id.is_empty()
@@ -137,6 +158,14 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
             Some(accepted) => format!(r#"{{"ok":true,"accepted":{accepted}}}"#) + "\n",
             None => error_response("timeout"),
         },
+        Ok(DriverCommand::Midi {
+            channel,
+            note,
+            velocity,
+        }) => match harness.midi_note(channel, note, velocity, RESPONSE_TIMEOUT) {
+            Some(accepted) => format!(r#"{{"ok":true,"accepted":{accepted}}}"#) + "\n",
+            None => error_response("timeout"),
+        },
         Ok(DriverCommand::Snapshot) => match harness.snapshot(RESPONSE_TIMEOUT) {
             Some(snapshot) => format!(
                 concat!(
@@ -144,7 +173,8 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                     r#""wait_for_notes":{},"adaptive_tempo":{},"hands":{},"#,
                     r#""loop_active":{},"loop_start_measure":{},"loop_end_measure":{},"#,
                     r#""counting_in":{},"paused":{},"completion_tab":{},"#,
-                    r#""matched_notes":{},"wrong_notes":{},"missed_notes":{},"input_latency_ms":{}"#,
+                    r#""matched_notes":{},"wrong_notes":{},"missed_notes":{},"#,
+                    r#""required_notes":{},"required_note_pitches":{},"input_latency_ms":{}"#,
                     "}}}}\n"
                 ),
                 snapshot.wait_for_notes,
@@ -159,6 +189,8 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                 snapshot.matched_notes,
                 snapshot.wrong_notes,
                 snapshot.missed_notes,
+                snapshot.required_notes,
+                json_u8_array(&snapshot.required_note_pitches),
                 snapshot.input_latency_ms,
             ),
             None => r#"{"ok":true,"snapshot":null}"#.to_owned() + "\n",
@@ -182,6 +214,11 @@ fn json_number(value: Option<usize>) -> String {
     value.map_or_else(|| "null".into(), |value| value.to_string())
 }
 
+fn json_u8_array(values: &[u8]) -> String {
+    let values: Vec<_> = values.iter().map(u8::to_string).collect();
+    format!("[{}]", values.join(","))
+}
+
 fn error_response(error: &str) -> String {
     format!(r#"{{"ok":false,"error":"{error}"}}"#) + "\n"
 }
@@ -199,6 +236,16 @@ mod tests {
             parse_command("ACTION practice.player.wait"),
             Ok(DriverCommand::Action("practice.player.wait"))
         );
+        assert_eq!(
+            parse_command("MIDI 0 60 100"),
+            Ok(DriverCommand::Midi {
+                channel: 0,
+                note: 60,
+                velocity: 100,
+            })
+        );
+        assert_eq!(parse_command("MIDI 16 60 100"), Err("bad-midi"));
+        assert_eq!(parse_command("MIDI 0 128 100"), Err("bad-midi"));
         assert_eq!(parse_command("ACTION"), Err("bad-command"));
         assert_eq!(
             parse_command("ACTION practice.player.wait extra"),
@@ -211,6 +258,7 @@ mod tests {
         assert_eq!(json_string(None), "null");
         assert_eq!(json_number(None), "null");
         assert_eq!(json_number(Some(12)), "12");
+        assert_eq!(json_u8_array(&[60, 64, 67]), "[60,64,67]");
         assert_eq!(json_string(Some(PracticeHands::Right.label())), "\"Right\"");
         assert_eq!(
             error_response("bad-command"),
