@@ -5,6 +5,9 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "CompletionFixture")]
     [switch]$CompletionFixture,
 
+    [Parameter(Mandatory = $true, ParameterSetName = "ExerciseFixture")]
+    [switch]$ExerciseFixture,
+
     [string]$Executable = "target\debug\neothesia.exe",
 
     [switch]$SkipBuild
@@ -42,6 +45,7 @@ $runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) (
 [System.IO.Directory]::CreateDirectory($runDirectory) | Out-Null
 Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDirectory
 
+$midi = $null
 if ($CompletionFixture) {
     $midi = Join-Path $runDirectory "completion-fixture.mid"
     # Type-1, 480 PPQ, 4/4 at 120 BPM: one C5 right-hand note and one C3
@@ -56,7 +60,7 @@ if ($CompletionFixture) {
         [System.Convert]::FromBase64String($fixtureBase64)
     )
 }
-else {
+elseif (-not $ExerciseFixture) {
     $midi = (Resolve-Path -LiteralPath $MidiPath).Path
 }
 
@@ -105,7 +109,9 @@ try {
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.Environment["NEOTHESIA_DEBUG_DRIVER_ADDR"] = "127.0.0.1:$port"
-    $startInfo.ArgumentList.Add($midi)
+    if (-not $ExerciseFixture) {
+        $startInfo.ArgumentList.Add($midi)
+    }
     $process = [System.Diagnostics.Process]::Start($startInfo)
 
     $menuSnapshot = $null
@@ -128,8 +134,20 @@ try {
     Assert-True $menuSnapshot.ok "Menu snapshot request failed"
     Assert-True ($null -eq $menuSnapshot.snapshot) "Expected a menu scene snapshot"
 
-    $start = Invoke-DebugDriver "ACTION practice.menu.start"
-    Assert-True ($start.ok -and $start.accepted) "Loaded song was not started"
+    if ($ExerciseFixture) {
+        $openExercises = Invoke-DebugDriver "ACTION practice.menu.exercises"
+        Assert-True (
+            $openExercises.ok -and $openExercises.accepted
+        ) "Technique Studio did not open"
+        $start = Invoke-DebugDriver "ACTION practice.exercise.start"
+        Assert-True (
+            $start.ok -and $start.accepted
+        ) "Generated exercise was not started"
+    }
+    else {
+        $start = Invoke-DebugDriver "ACTION practice.menu.start"
+        Assert-True ($start.ok -and $start.accepted) "Loaded song was not started"
+    }
 
     $player = $null
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -307,7 +325,7 @@ try {
     }
 
     [pscustomobject]@{
-        Midi = $midi
+        Source = if ($ExerciseFixture) { "generated exercise" } else { $midi }
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
         MatchedAfterInput = [int]$afterInput.matched_notes

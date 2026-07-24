@@ -5,6 +5,8 @@ use state::{LibraryView, Page, UiState};
 mod midi_picker;
 use midi_picker::{locate_saved_midi, open_midi_file_picker, open_saved_midi};
 
+mod exercise;
+
 mod neo_btn;
 use neo_btn::{neo_btn, neo_btn_icon};
 
@@ -144,6 +146,7 @@ impl MenuScene {
             Page::Settings => self.settings_page_ui(ctx, &mut nuon),
             Page::TrackSelection => self.tracks_page_ui(ctx, &mut nuon),
             Page::Library => self.library_page_ui(ctx, &mut nuon),
+            Page::Exercises => self.exercise_page_ui(ctx, &mut nuon),
         }
 
         self.nuon = nuon;
@@ -193,11 +196,11 @@ impl MenuScene {
 
         let w = 450.0;
         let h = 60.0;
-        let gap = 10.0;
+        let gap = 8.0;
 
         let logo_w = 650.0;
         let logo_h = 118.0;
-        let post_logo_gap = 40.0;
+        let post_logo_gap = 30.0;
 
         nuon::translate()
             .x(win_w / 2.0)
@@ -218,14 +221,25 @@ impl MenuScene {
 
                         nuon::translate().y(h + gap).add_to_current(ui);
 
-                        if neo_btn().size(w, h).label("Settings").build(ui) {
-                            self.state.go_to(Page::Settings);
+                        if neo_btn()
+                            .id(super::playing_scene::practice_ui_ids::MENU_EXERCISES)
+                            .size(w, h)
+                            .label("Technique Studio")
+                            .build(ui)
+                        {
+                            self.state.go_to(Page::Exercises);
                         }
 
                         nuon::translate().y(h + gap).add_to_current(ui);
 
                         if neo_btn().size(w, h).label("Practice Library").build(ui) {
                             self.state.go_to(Page::Library);
+                        }
+
+                        nuon::translate().y(h + gap).add_to_current(ui);
+
+                        if neo_btn().size(w, h).label("Settings").build(ui) {
+                            self.state.go_to(Page::Settings);
                         }
 
                         nuon::translate().y(h + gap).add_to_current(ui);
@@ -978,16 +992,37 @@ impl Scene for MenuScene {
                     self.state.library_query.push_str(text);
                 }
             }
+            Page::Exercises => {
+                if event.key_pressed(Key::Named(NamedKey::Enter)) {
+                    self.start_exercise(ctx);
+                }
+                if event.key_pressed(Key::Named(NamedKey::Escape)) {
+                    self.state.go_back();
+                }
+            }
         }
     }
 
     #[cfg(debug_assertions)]
     fn debug_semantic_action(&mut self, ctx: &mut Context, id: &str) -> bool {
-        if id != super::playing_scene::practice_ui_ids::MENU_START || self.state.song().is_none() {
-            return false;
+        match id {
+            super::playing_scene::practice_ui_ids::MENU_EXERCISES
+                if *self.state.current() == Page::Main =>
+            {
+                self.state.go_to(Page::Exercises);
+                true
+            }
+            super::playing_scene::practice_ui_ids::EXERCISE_START
+                if *self.state.current() == Page::Exercises =>
+            {
+                self.start_exercise(ctx)
+            }
+            super::playing_scene::practice_ui_ids::MENU_START if self.state.song().is_some() => {
+                state::play(&self.state, ctx);
+                true
+            }
+            _ => false,
         }
-        state::play(&self.state, ctx);
-        true
     }
 }
 

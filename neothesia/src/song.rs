@@ -1,4 +1,5 @@
 use midi_file::MidiTrack;
+use neothesia_core::exercise::ExercisePlan;
 use neothesia_core::practice::{PracticeHands, PracticePart};
 use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
 use std::collections::HashMap;
@@ -193,6 +194,22 @@ impl Song {
         Self { file, config }
     }
 
+    pub fn from_exercise(plan: &ExercisePlan) -> Result<Self, String> {
+        let mut song = Self::new(plan.to_midi_file()?);
+        for track in &mut song.config.tracks {
+            let channel = song.file.tracks[track.track_id]
+                .notes
+                .first()
+                .map(|note| note.channel);
+            track.practice_part = match channel {
+                Some(0) => PracticePart::RightHand,
+                Some(1) => PracticePart::LeftHand,
+                _ => track.practice_part,
+            };
+        }
+        Ok(song)
+    }
+
     pub fn from_env(ctx: &Context) -> Option<Self> {
         let args: Vec<String> = std::env::args().collect();
         let midi_file = if args.len() > 1 {
@@ -223,12 +240,10 @@ mod tests {
 
     #[test]
     fn generated_both_hand_exercise_enters_song_with_hand_shortcuts() {
-        let file =
+        let plan =
             ExercisePlan::generate(ExerciseSpec::default(), &KeyboardRange::standard_88_keys())
-                .unwrap()
-                .to_midi_file()
                 .unwrap();
-        let song = Song::new(file);
+        let song = Song::from_exercise(&plan).unwrap();
 
         assert_eq!(song.config.practice_hands(), Some(PracticeHands::Both));
         assert_eq!(song.config.tracks.len(), 3);
@@ -248,6 +263,34 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn generated_single_hand_exercises_keep_explicit_part_identity() {
+        use neothesia_core::exercise::ExerciseHands;
+
+        for (hands, expected) in [
+            (ExerciseHands::Right, PracticePart::RightHand),
+            (ExerciseHands::Left, PracticePart::LeftHand),
+        ] {
+            let plan = ExercisePlan::generate(
+                ExerciseSpec {
+                    hands,
+                    ..Default::default()
+                },
+                &KeyboardRange::standard_88_keys(),
+            )
+            .unwrap();
+            let song = Song::from_exercise(&plan).unwrap();
+            let played_track = song
+                .config
+                .tracks
+                .iter()
+                .find(|track| track.player == PlayerConfig::Human)
+                .unwrap();
+
+            assert_eq!(played_track.practice_part, expected);
+        }
     }
 
     #[test]

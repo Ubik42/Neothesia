@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{NeothesiaEvent, context::Context, output_manager::OutputDescriptor, song::Song};
+use neothesia_core::exercise::ExerciseSpec;
 use neothesia_core::library::LibraryIndex;
 use neothesia_core::practice_history::SongPracticeSetup;
 
@@ -21,6 +22,8 @@ pub struct UiState {
     pub library_scanning: bool,
     pub library_query: String,
     pub library_view: LibraryView,
+    pub exercise_spec: ExerciseSpec,
+    pub exercise_message: Option<String>,
 
     page_stack: VecDeque<Page>,
 }
@@ -42,6 +45,8 @@ impl UiState {
             library_scanning: false,
             library_query: String::new(),
             library_view: LibraryView::All,
+            exercise_spec: ExerciseSpec::default(),
+            exercise_message: None,
 
             page_stack,
         }
@@ -118,6 +123,7 @@ pub enum Page {
     Settings,
     TrackSelection,
     Library,
+    Exercises,
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]

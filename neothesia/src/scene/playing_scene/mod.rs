@@ -21,6 +21,8 @@ use super::{NuonRenderer, Scene};
 
 pub(crate) mod practice_ui_ids {
     pub const MENU_START: &str = "practice.menu.start";
+    pub const MENU_EXERCISES: &str = "practice.menu.exercises";
+    pub const EXERCISE_START: &str = "practice.exercise.start";
     pub const PLAYER_BACK: &str = "practice.player.back";
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
@@ -40,6 +42,8 @@ pub(crate) mod practice_ui_ids {
     #[cfg(test)]
     pub const ALL: &[&str] = &[
         MENU_START,
+        MENU_EXERCISES,
+        EXERCISE_START,
         PLAYER_BACK,
         PLAYER_WAIT,
         PLAYER_COACH,
