@@ -4,6 +4,45 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 011: Expressive MIDI fidelity (DONE)
+
+### Outcome
+
+The automated boundary now proves that Pianoteq-relevant expressive MIDI is not
+silently reduced to notes and binary pedal events. Live input and guided MIDI
+playback retain their original values through the external-output boundary.
+
+### Implemented
+
+- Made the deterministic test output capture complete MIDI messages.
+- Added live-input forwarding tests.
+- Added a parsed synthetic human-track fixture for wait-mode forwarding.
+- Covered intermediate CC64 values 23 and 91.
+- Covered non-centred 14-bit Pitch Bend and Channel Aftertouch.
+- Added exact MIDI wire-byte assertions for controller, bend and pressure.
+
+### Verification
+
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `2fda08d`
+(`test: prove expressive MIDI output fidelity`).
+
+### Known limitations
+
+- The automated output records and serializes MIDI but cannot hear or inspect a
+  physical Pianoteq instance.
+- Polyphonic aftertouch, release velocity and every possible controller are not
+  exhaustively enumerated; the generic forwarding path is shared.
+- Pedal quality feedback is not yet part of practice scoring.
+
 ## 2026-07-25 — Cycle 010: External MIDI and Pianoteq safety (DONE)
 
 ### Outcome

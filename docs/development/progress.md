@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 011 — Expressive MIDI fidelity
+
+State: **DONE**
+
+Delivered:
+
+- upgraded the test output to retain exact channel and MIDI-message values;
+- proved live keyboard/controller input is forwarded without transformation;
+- proved controller data on human practice tracks remains audible in guided
+  wait mode while score notes remain learner targets;
+- covered two non-binary CC64 values for continuous/half-pedal behaviour;
+- covered a non-centred 14-bit Pitch Bend value and Channel Aftertouch;
+- verified final external MIDI bytes retain the controller, bend and pressure
+  values exactly.
+
+Verification:
+
+- two MIDI-file tests, twenty-three practice/core tests and twenty-four
+  application tests pass;
+- synthetic MIDI fixtures exercise expressive events on a real parsed human
+  track;
+- serialization assertions cover CC, two-byte Pitch Bend and Channel
+  Aftertouch wire bytes;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `2fda08d`.
+
 ### Cycle 010 — External MIDI and Pianoteq safety
 
 State: **DONE**
@@ -296,10 +323,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 011 by proving expressive MIDI preservation end to end: sustain
-pedal including continuous CC64 values, pitch bend, channel pressure and
-controller events through playback and live forwarding. Add deterministic
-fixtures before claiming the external Pianoteq route is validated.
+Begin Cycle 012 with a learner-visible emergency `Panic` action and a stable
+keyboard shortcut. It must clear held notes, pedal/controller state, keyboard
+visual state and pending practice input without changing the current song or
+losing the completed history.
 
 ## Known constraints
 

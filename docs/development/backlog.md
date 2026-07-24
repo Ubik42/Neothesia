@@ -29,7 +29,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 ## NEXT — reliability and sound
 
 - [x] `MIDI-010` Audit stop/seek/loop/output-change panic behaviour.
-- [ ] `MIDI-011` Preserve and test sustain, continuous pedal and pitch bend.
+- [x] `MIDI-011` Preserve and test sustain, continuous pedal and pitch bend.
+- [ ] `MIDI-012` Add a visible panic action and stable keyboard shortcut.
 - [ ] `AUD-010` Document and validate external Pianoteq routing.
 - [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
 - [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.
