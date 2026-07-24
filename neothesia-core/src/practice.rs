@@ -211,6 +211,150 @@ fn is_better_attempt(candidate: &AttemptSummary, best: &AttemptSummary) -> bool 
             && candidate.overall.matched_notes > best.overall.matched_notes)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdaptiveTempoRules {
+    pub mastery_accuracy: f32,
+    pub mastery_timing: f32,
+    pub struggle_accuracy: f32,
+    pub step: f32,
+    pub min_speed: f32,
+    pub max_speed: f32,
+    pub mastery_takes: usize,
+}
+
+impl Default for AdaptiveTempoRules {
+    fn default() -> Self {
+        Self {
+            mastery_accuracy: 0.9,
+            mastery_timing: 0.7,
+            struggle_accuracy: 0.7,
+            step: 0.05,
+            min_speed: 0.5,
+            max_speed: 1.0,
+            mastery_takes: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum AdaptiveTempoReason {
+    NoJudgedNotes,
+    BuildingMastery { completed: usize, required: usize },
+    Mastered,
+    NeedsAccuracy,
+    KeepPractising,
+    AtMaximum,
+    AtMinimum,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdaptiveTempoDecision {
+    pub previous_speed: f32,
+    pub speed: f32,
+    pub reason: AdaptiveTempoReason,
+}
+
+impl AdaptiveTempoDecision {
+    pub fn changed(self) -> bool {
+        self.previous_speed != self.speed
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct AdaptiveTempoCoach {
+    mastery_streak: usize,
+}
+
+impl AdaptiveTempoCoach {
+    pub fn evaluate(
+        &mut self,
+        summary: &AttemptSummary,
+        current_speed: f32,
+        rules: AdaptiveTempoRules,
+    ) -> AdaptiveTempoDecision {
+        let accuracy = summary.overall.accuracy();
+        let timing = (summary.overall.matched_notes != 0)
+            .then(|| summary.overall.on_time_notes as f32 / summary.overall.matched_notes as f32);
+        let min_speed = rules.min_speed.min(rules.max_speed);
+        let max_speed = rules.max_speed.max(rules.min_speed);
+        let current_speed = current_speed.clamp(min_speed, max_speed);
+
+        let Some(accuracy) = accuracy else {
+            self.mastery_streak = 0;
+            return decision(
+                current_speed,
+                current_speed,
+                AdaptiveTempoReason::NoJudgedNotes,
+            );
+        };
+
+        let mastered = accuracy >= rules.mastery_accuracy
+            && timing.is_some_and(|timing| timing >= rules.mastery_timing);
+        if mastered {
+            self.mastery_streak += 1;
+            let required = rules.mastery_takes.max(1);
+            if self.mastery_streak < required {
+                return decision(
+                    current_speed,
+                    current_speed,
+                    AdaptiveTempoReason::BuildingMastery {
+                        completed: self.mastery_streak,
+                        required,
+                    },
+                );
+            }
+
+            self.mastery_streak = 0;
+            if current_speed >= max_speed {
+                return decision(current_speed, current_speed, AdaptiveTempoReason::AtMaximum);
+            }
+            return decision(
+                current_speed,
+                round_speed((current_speed + rules.step).min(max_speed)),
+                AdaptiveTempoReason::Mastered,
+            );
+        }
+
+        self.mastery_streak = 0;
+        if accuracy < rules.struggle_accuracy {
+            if current_speed <= min_speed {
+                return decision(current_speed, current_speed, AdaptiveTempoReason::AtMinimum);
+            }
+            return decision(
+                current_speed,
+                round_speed((current_speed - rules.step).max(min_speed)),
+                AdaptiveTempoReason::NeedsAccuracy,
+            );
+        }
+
+        decision(
+            current_speed,
+            current_speed,
+            AdaptiveTempoReason::KeepPractising,
+        )
+    }
+
+    pub fn reset(&mut self) {
+        self.mastery_streak = 0;
+    }
+
+    pub fn mastery_streak(&self) -> usize {
+        self.mastery_streak
+    }
+}
+
+fn decision(previous_speed: f32, speed: f32, reason: AdaptiveTempoReason) -> AdaptiveTempoDecision {
+    AdaptiveTempoDecision {
+        previous_speed,
+        speed,
+        reason,
+    }
+}
+
+fn round_speed(speed: f32) -> f32 {
+    (speed * 100.0).round() / 100.0
+}
+
 #[derive(Debug, Clone, Copy)]
 struct NotePress {
     timestamp: Duration,
@@ -776,5 +920,64 @@ mod tests {
         history.record(attempt(7));
 
         assert_eq!(history.best().unwrap().overall.on_time_notes, 7);
+    }
+
+    fn tempo_summary(matched: usize, on_time: usize, wrong: usize) -> AttemptSummary {
+        AttemptSummary {
+            overall: PracticeSnapshot {
+                matched_notes: matched,
+                on_time_notes: on_time,
+                wrong_notes: wrong,
+                ..PracticeSnapshot::default()
+            },
+            ..AttemptSummary::default()
+        }
+    }
+
+    #[test]
+    fn adaptive_tempo_requires_two_mastered_takes_before_increasing() {
+        let mut coach = AdaptiveTempoCoach::default();
+        let rules = AdaptiveTempoRules::default();
+        let mastered = tempo_summary(19, 16, 1);
+
+        let first = coach.evaluate(&mastered, 0.7, rules);
+        assert_eq!(first.speed, 0.7);
+        assert_eq!(
+            first.reason,
+            AdaptiveTempoReason::BuildingMastery {
+                completed: 1,
+                required: 2,
+            }
+        );
+
+        let second = coach.evaluate(&mastered, 0.7, rules);
+        assert_eq!(second.speed, 0.75);
+        assert_eq!(second.reason, AdaptiveTempoReason::Mastered);
+    }
+
+    #[test]
+    fn adaptive_tempo_reduces_speed_after_a_weak_take() {
+        let mut coach = AdaptiveTempoCoach::default();
+        let weak = tempo_summary(6, 5, 4);
+
+        let decision = coach.evaluate(&weak, 0.8, AdaptiveTempoRules::default());
+
+        assert_eq!(decision.speed, 0.75);
+        assert_eq!(decision.reason, AdaptiveTempoReason::NeedsAccuracy);
+    }
+
+    #[test]
+    fn adaptive_tempo_holds_moderate_take_and_respects_limits() {
+        let mut coach = AdaptiveTempoCoach::default();
+        let moderate = tempo_summary(8, 6, 2);
+        let weak = tempo_summary(1, 1, 9);
+
+        let hold = coach.evaluate(&moderate, 0.8, AdaptiveTempoRules::default());
+        assert_eq!(hold.speed, 0.8);
+        assert_eq!(hold.reason, AdaptiveTempoReason::KeepPractising);
+
+        let minimum = coach.evaluate(&weak, 0.5, AdaptiveTempoRules::default());
+        assert_eq!(minimum.speed, 0.5);
+        assert_eq!(minimum.reason, AdaptiveTempoReason::AtMinimum);
     }
 }

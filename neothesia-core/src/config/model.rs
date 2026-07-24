@@ -55,6 +55,18 @@ pub struct PlaybackConfigV1 {
 
     #[serde(default = "default_wait_for_notes")]
     pub wait_for_notes: bool,
+
+    #[serde(default = "default_adaptive_tempo")]
+    pub adaptive_tempo: bool,
+
+    #[serde(default = "default_adaptive_tempo_mastery")]
+    pub adaptive_tempo_mastery: f32,
+
+    #[serde(default = "default_adaptive_tempo_min")]
+    pub adaptive_tempo_min: f32,
+
+    #[serde(default = "default_adaptive_tempo_max")]
+    pub adaptive_tempo_max: f32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,6 +79,10 @@ impl Default for PlaybackConfig {
         Self::V1(PlaybackConfigV1 {
             speed_multiplier: default_speed_multiplier(),
             wait_for_notes: default_wait_for_notes(),
+            adaptive_tempo: default_adaptive_tempo(),
+            adaptive_tempo_mastery: default_adaptive_tempo_mastery(),
+            adaptive_tempo_min: default_adaptive_tempo_min(),
+            adaptive_tempo_max: default_adaptive_tempo_max(),
         })
     }
 }
@@ -215,6 +231,22 @@ fn default_wait_for_notes() -> bool {
     true
 }
 
+fn default_adaptive_tempo() -> bool {
+    false
+}
+
+fn default_adaptive_tempo_mastery() -> f32 {
+    0.9
+}
+
+fn default_adaptive_tempo_min() -> f32 {
+    0.5
+}
+
+fn default_adaptive_tempo_max() -> f32 {
+    1.0
+}
+
 fn default_animation_speed() -> f32 {
     400.0
 }
@@ -296,6 +328,10 @@ mod tests {
     fn practice_and_timeline_defaults_are_user_focused() {
         let PlaybackConfig::V1(playback) = PlaybackConfig::default();
         assert!(playback.wait_for_notes);
+        assert!(!playback.adaptive_tempo);
+        assert_eq!(playback.adaptive_tempo_mastery, 0.9);
+        assert_eq!(playback.adaptive_tempo_min, 0.5);
+        assert_eq!(playback.adaptive_tempo_max, 1.0);
 
         let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
         assert!(appearance.measure_numbers);

@@ -50,7 +50,7 @@ impl Toast {
     fn draw(&self, text_renderer: &mut TextRenderer) -> bool {
         let time = self.start_time.elapsed().as_secs();
 
-        if time < 1 {
+        if time < 3 {
             text_renderer.queue_text(&self.text);
             true
         } else {

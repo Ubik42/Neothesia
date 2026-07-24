@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use crate::{NeothesiaEvent, context::Context, icons};
-use neothesia_core::practice::{AttemptHistory, AttemptSummary};
+use neothesia_core::practice::{
+    AdaptiveTempoCoach, AdaptiveTempoDecision, AdaptiveTempoRules, AttemptHistory, AttemptSummary,
+};
 
 use super::{
     PlayingScene,
@@ -21,6 +23,7 @@ pub struct TopBar {
     loop_end: Duration,
     count_in: Option<CountIn>,
     attempts: AttemptHistory,
+    tempo_coach: AdaptiveTempoCoach,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +73,7 @@ impl TopBar {
             loop_end: Duration::ZERO,
             count_in: None,
             attempts: AttemptHistory::default(),
+            tempo_coach: AdaptiveTempoCoach::default(),
         }
     }
 
@@ -104,8 +108,24 @@ impl TopBar {
         self.count_in = Some(CountIn::new(duration));
     }
 
-    pub fn record_attempt(&mut self, summary: AttemptSummary) {
+    pub fn record_attempt(
+        &mut self,
+        summary: AttemptSummary,
+        current_speed: f32,
+        rules: AdaptiveTempoRules,
+        coach_enabled: bool,
+    ) -> Option<AdaptiveTempoDecision> {
+        let decision =
+            coach_enabled.then(|| self.tempo_coach.evaluate(&summary, current_speed, rules));
+        if !coach_enabled {
+            self.tempo_coach.reset();
+        }
         self.attempts.record(summary);
+        decision
+    }
+
+    pub fn reset_tempo_coach(&mut self) {
+        self.tempo_coach.reset();
     }
 
     pub fn count_in_duration(&self, player: &super::midi_player::MidiPlayer) -> Duration {
@@ -234,6 +254,35 @@ impl TopBar {
             ctx.config.set_wait_for_notes(enabled);
         }
 
+        let coach_enabled = ctx.config.adaptive_tempo();
+        if nuon::button()
+            .x(156.0)
+            .size(100.0, 30.0)
+            .label(if coach_enabled {
+                "Coach: ON"
+            } else {
+                "Coach: OFF"
+            })
+            .color(if coach_enabled {
+                [63, 156, 112]
+            } else {
+                [74, 68, 88]
+            })
+            .hover_color([78, 176, 132])
+            .preseed_color([88, 186, 142])
+            .border_radius([5.0; 4])
+            .build(ui)
+        {
+            let enabled = !coach_enabled;
+            ctx.config.set_adaptive_tempo(enabled);
+            this.top_bar.reset_tempo_coach();
+            this.toast_manager.toast(if enabled {
+                "Tempo Coach ON: use loop practice for guided speed changes"
+            } else {
+                "Tempo Coach OFF: speed stays under manual control"
+            });
+        }
+
         let snapshot = this.player.practice_snapshot();
         let status = if this.top_bar.looper_active {
             format!(
@@ -252,8 +301,8 @@ impl TopBar {
             )
         };
         nuon::label()
-            .x(158.0)
-            .size(300.0, 30.0)
+            .x(264.0)
+            .size(220.0, 30.0)
             .font_size(14.0)
             .text(status)
             .text_justify(nuon::TextJustify::Center)
@@ -280,6 +329,7 @@ impl TopBar {
                 {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() - 0.1);
+                    _this.top_bar.reset_tempo_coach();
                 }
 
                 nuon::label()
@@ -304,6 +354,7 @@ impl TopBar {
                 {
                     ctx.config
                         .set_speed_multiplier(ctx.config.speed_multiplier() + 0.1);
+                    _this.top_bar.reset_tempo_coach();
                 }
             });
     }
@@ -332,6 +383,7 @@ impl TopBar {
                         let was_counting_in = this.top_bar.count_in.take().is_some();
                         this.top_bar.looper_active = false;
                         this.top_bar.attempts.clear();
+                        this.top_bar.reset_tempo_coach();
                         this.player.reset_practice_attempt();
                         if was_counting_in {
                             this.player.resume();
@@ -552,6 +604,7 @@ impl TopBar {
 fn begin_loop_take(scene: &mut PlayingScene, clear_history: bool) {
     if clear_history {
         scene.top_bar.attempts.clear();
+        scene.top_bar.reset_tempo_coach();
     }
     let boundaries = measure_boundaries(&scene.player);
     let count_in = count_in_duration(&boundaries, scene.top_bar.loop_start);

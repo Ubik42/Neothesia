@@ -1,5 +1,7 @@
 use midi_file::midly::MidiMessage;
-use neothesia_core::practice::{AttemptSummary, PracticePart};
+use neothesia_core::practice::{
+    AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticePart,
+};
 use neothesia_core::render::{
     GlowRenderer, GuidelineRenderer, NoteLabels, QuadRenderer, TextRenderer,
 };
@@ -164,7 +166,7 @@ impl PlayingScene {
     }
 
     #[profiling::function]
-    fn update_midi_player(&mut self, ctx: &Context, delta: Duration) -> f32 {
+    fn update_midi_player(&mut self, ctx: &mut Context, delta: Duration) -> f32 {
         if self.top_bar.update_count_in(delta) {
             self.player.resume();
         }
@@ -179,7 +181,16 @@ impl PlayingScene {
             && self.player.time() >= self.top_bar.loop_end_timestamp()
         {
             let summary = self.player.finish_practice();
-            self.top_bar.record_attempt(summary);
+            let coach_decision = self.top_bar.record_attempt(
+                summary,
+                ctx.config.speed_multiplier(),
+                ctx.config.adaptive_tempo_rules(),
+                ctx.config.adaptive_tempo(),
+            );
+            if let Some(decision) = coach_decision {
+                ctx.config.set_speed_multiplier(decision.speed);
+                self.toast_manager.toast(tempo_coach_message(decision));
+            }
             self.player.reset_practice_attempt();
             self.player.set_time(self.top_bar.loop_start_timestamp());
             self.keyboard.reset_notes();
@@ -190,7 +201,7 @@ impl PlayingScene {
         }
 
         if self.player.should_advance() {
-            let delta = (delta / 10) * (ctx.config.speed_multiplier() * 10.0) as u32;
+            let delta = scale_playback_delta(delta, ctx.config.speed_multiplier());
             let midi_events = self.player.update(delta);
             self.keyboard.file_midi_events(&ctx.config, &midi_events);
         }
@@ -430,6 +441,54 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
+fn scale_playback_delta(delta: Duration, speed: f32) -> Duration {
+    let speed = if speed.is_finite() {
+        speed.max(0.0) as f64
+    } else {
+        1.0
+    };
+    let speed = (speed * 10_000.0).round() / 10_000.0;
+    Duration::from_secs_f64(delta.as_secs_f64() * speed)
+}
+
+fn tempo_coach_message(decision: AdaptiveTempoDecision) -> String {
+    let speed = |value: f32| (value * 100.0).round() as u32;
+    match decision.reason {
+        AdaptiveTempoReason::NoJudgedNotes => {
+            "Tempo Coach: no played notes yet, holding speed".to_owned()
+        }
+        AdaptiveTempoReason::BuildingMastery {
+            completed,
+            required,
+        } => format!(
+            "Tempo Coach: mastered take {completed}/{required}, hold {}%",
+            speed(decision.speed)
+        ),
+        AdaptiveTempoReason::Mastered => format!(
+            "Tempo Coach: two mastered takes, {}% -> {}%",
+            speed(decision.previous_speed),
+            speed(decision.speed)
+        ),
+        AdaptiveTempoReason::NeedsAccuracy => format!(
+            "Tempo Coach: accuracy below target, {}% -> {}%",
+            speed(decision.previous_speed),
+            speed(decision.speed)
+        ),
+        AdaptiveTempoReason::KeepPractising => format!(
+            "Tempo Coach: building consistency, hold {}%",
+            speed(decision.speed)
+        ),
+        AdaptiveTempoReason::AtMaximum => format!(
+            "Tempo Coach: mastery reached at the {}% maximum",
+            speed(decision.speed)
+        ),
+        AdaptiveTempoReason::AtMinimum => format!(
+            "Tempo Coach: accuracy needs work, hold at {}% minimum",
+            speed(decision.speed)
+        ),
+    }
+}
+
 impl Scene for PlayingScene {
     #[profiling::function]
     fn update(&mut self, ctx: &mut Context, delta: Duration) {
@@ -541,7 +600,11 @@ impl Scene for PlayingScene {
             self.player.pause_resume();
         }
 
+        let speed_before = ctx.config.speed_multiplier();
         handle_settings_input(ctx, &mut self.toast_manager, &mut self.waterfall, event);
+        if ctx.config.speed_multiplier() != speed_before {
+            self.top_bar.reset_tempo_coach();
+        }
         super::handle_pc_keyboard_to_midi_event(ctx, event);
         super::handle_mouse_to_midi_event(
             &mut self.keyboard,
@@ -630,5 +693,22 @@ fn handle_settings_input(
         }
 
         toast_manager.offset_toast(ctx.config.animation_offset());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_delta_preserves_five_percent_speed_steps() {
+        assert_eq!(
+            scale_playback_delta(Duration::from_secs(1), 0.75),
+            Duration::from_millis(750)
+        );
+        assert_eq!(
+            scale_playback_delta(Duration::from_secs(1), 1.05),
+            Duration::from_millis(1_050)
+        );
     }
 }

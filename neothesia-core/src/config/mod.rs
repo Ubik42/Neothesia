@@ -256,7 +256,11 @@ impl Config {
     }
 
     pub fn set_speed_multiplier(&mut self, speed_multiplier: f32) {
-        self.playback.speed_multiplier = speed_multiplier.max(0.0);
+        self.playback.speed_multiplier = if speed_multiplier.is_finite() {
+            speed_multiplier.max(0.0)
+        } else {
+            1.0
+        };
     }
 
     pub fn wait_for_notes(&self) -> bool {
@@ -265,6 +269,49 @@ impl Config {
 
     pub fn set_wait_for_notes(&mut self, wait_for_notes: bool) {
         self.playback.wait_for_notes = wait_for_notes;
+    }
+
+    pub fn adaptive_tempo(&self) -> bool {
+        self.playback.adaptive_tempo
+    }
+
+    pub fn set_adaptive_tempo(&mut self, enabled: bool) {
+        self.playback.adaptive_tempo = enabled;
+    }
+
+    pub fn adaptive_tempo_mastery(&self) -> f32 {
+        self.playback.adaptive_tempo_mastery
+    }
+
+    pub fn set_adaptive_tempo_mastery(&mut self, mastery: f32) {
+        self.playback.adaptive_tempo_mastery = (mastery.clamp(0.7, 1.0) * 100.0).round() / 100.0;
+    }
+
+    pub fn adaptive_tempo_min(&self) -> f32 {
+        self.playback.adaptive_tempo_min
+    }
+
+    pub fn set_adaptive_tempo_min(&mut self, min: f32) {
+        self.playback.adaptive_tempo_min =
+            (min.clamp(0.25, self.playback.adaptive_tempo_max) * 100.0).round() / 100.0;
+    }
+
+    pub fn adaptive_tempo_max(&self) -> f32 {
+        self.playback.adaptive_tempo_max
+    }
+
+    pub fn set_adaptive_tempo_max(&mut self, max: f32) {
+        self.playback.adaptive_tempo_max =
+            (max.clamp(self.playback.adaptive_tempo_min, 2.0) * 100.0).round() / 100.0;
+    }
+
+    pub fn adaptive_tempo_rules(&self) -> crate::practice::AdaptiveTempoRules {
+        crate::practice::AdaptiveTempoRules {
+            mastery_accuracy: self.adaptive_tempo_mastery(),
+            min_speed: self.adaptive_tempo_min(),
+            max_speed: self.adaptive_tempo_max(),
+            ..crate::practice::AdaptiveTempoRules::default()
+        }
     }
 
     pub fn save(&self) {

@@ -100,7 +100,7 @@ impl super::MenuScene {
 
                 nuon::settings_section("Practice")
                     .width(body_w)
-                    .build(ui, |ui, rows, _spacer| {
+                    .build(ui, |ui, rows, spacer| {
                         if nuon::settings_row_toggler()
                             .title("Wait for Me")
                             .subtitle("Pause until you play every required note")
@@ -109,6 +109,59 @@ impl super::MenuScene {
                         {
                             ctx.config.set_wait_for_notes(!ctx.config.wait_for_notes());
                         }
+
+                        spacer(ui);
+
+                        if nuon::settings_row_toggler()
+                            .title("Adaptive Tempo Coach")
+                            .subtitle("Two mastered loop takes raise speed by 5%")
+                            .value(ctx.config.adaptive_tempo())
+                            .build(ui, rows)
+                        {
+                            ctx.config.set_adaptive_tempo(!ctx.config.adaptive_tempo());
+                        }
+
+                        spacer(ui);
+
+                        update_adaptive_mastery(
+                            ctx,
+                            nuon::settings_row_spin()
+                                .title("Mastery Target")
+                                .subtitle(format!(
+                                    "{}% accuracy and 70% on-time notes",
+                                    (ctx.config.adaptive_tempo_mastery() * 100.0).round()
+                                ))
+                                .id("adaptive-mastery")
+                                .build(ui, rows),
+                        );
+
+                        spacer(ui);
+
+                        update_adaptive_min_speed(
+                            ctx,
+                            nuon::settings_row_spin()
+                                .title("Coach Minimum")
+                                .subtitle(format!(
+                                    "{}% speed",
+                                    (ctx.config.adaptive_tempo_min() * 100.0).round()
+                                ))
+                                .id("adaptive-min")
+                                .build(ui, rows),
+                        );
+
+                        spacer(ui);
+
+                        update_adaptive_max_speed(
+                            ctx,
+                            nuon::settings_row_spin()
+                                .title("Coach Maximum")
+                                .subtitle(format!(
+                                    "{}% speed",
+                                    (ctx.config.adaptive_tempo_max() * 100.0).round()
+                                ))
+                                .id("adaptive-max")
+                                .build(ui, rows),
+                        );
                     });
 
                 nuon::settings_section("Render")
@@ -483,6 +536,32 @@ pub fn update_range_end(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
             }
         }
         nuon::SettingsRowSpinResult::Idle => {}
+    }
+}
+
+pub fn update_adaptive_mastery(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
+    let delta = spin_delta(kind, 0.05);
+    ctx.config
+        .set_adaptive_tempo_mastery(ctx.config.adaptive_tempo_mastery() + delta);
+}
+
+pub fn update_adaptive_min_speed(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
+    let delta = spin_delta(kind, 0.05);
+    ctx.config
+        .set_adaptive_tempo_min(ctx.config.adaptive_tempo_min() + delta);
+}
+
+pub fn update_adaptive_max_speed(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
+    let delta = spin_delta(kind, 0.05);
+    ctx.config
+        .set_adaptive_tempo_max(ctx.config.adaptive_tempo_max() + delta);
+}
+
+fn spin_delta(kind: nuon::SettingsRowSpinResult, step: f32) -> f32 {
+    match kind {
+        nuon::SettingsRowSpinResult::Plus => step,
+        nuon::SettingsRowSpinResult::Minus => -step,
+        nuon::SettingsRowSpinResult::Idle => 0.0,
     }
 }
 
