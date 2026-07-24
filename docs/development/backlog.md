@@ -33,7 +33,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MIDI-012` Add a visible panic action and stable keyboard shortcut.
 - [x] `AUD-013` Show the active output and backend type persistently in the
   player.
-- [ ] `PRA-020` Add in-player both/right/left-hand practice controls.
+- [x] `PRA-020` Add in-player both/right/left-hand practice controls.
 - [ ] `AUD-010` Document and validate external Pianoteq routing.
 - [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
 - [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.

@@ -4,6 +4,54 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 014: In-player hand practice modes (DONE)
+
+### Outcome
+
+A learner can now move from both-hands practice to right-hand or left-hand work
+without leaving the player. The other hand remains musical accompaniment, and
+the visible goal, attempt state and saved progress all change together.
+
+### Implemented
+
+- Added a shared `PracticeHands` domain model.
+- Added conservative hand-mode detection and mutation to song configuration.
+- Added a purple `Hands` player control with responsive placement.
+- Kept the opposite hand on automatic playback and preserved unrelated tracks.
+- Restarted whole-song practice or the active loop with its count-in.
+- Reset keyboard, matcher, attempt comparison and tempo-coach state.
+- Disabled shortcuts for MIDI arrangements without reliable hand assignments.
+- Added hand scope to the backward-compatible version-one history record.
+- Scoped trends, persistent weak measures and recommendations to the latest
+  hand goal.
+- Exposed hand scope in recent-attempt and trend labels.
+
+### Verification
+
+- Added hand-mode, ambiguous-assignment, scope-isolation and legacy-history
+  migration tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings. The full-workspace Clippy command
+still requires local FFmpeg development packages for the optional video crate.
+
+Implementation commit: `f630ea4`
+(`feat: add in-player hand practice modes`).
+
+### Known limitations
+
+- Automatic hand assignment remains intentionally conservative: MIDI files
+  with more than two playable note tracks require explicit track setup.
+- The selected hand mode, loop and speed are not yet restored after closing
+  the song; this is the next cycle.
+- Physical visual and Pianoteq smoke testing still requires the user's active
+  desktop and connected instrument.
+
 ## 2026-07-25 — Cycle 013: Active output visibility (DONE)
 
 ### Outcome

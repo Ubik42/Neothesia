@@ -10,6 +10,36 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 014 — In-player hand practice modes
+
+State: **DONE**
+
+Delivered:
+
+- added a persistent player control for both-hands, right-hand and left-hand
+  practice;
+- kept the unpractised hand audible as automatic accompaniment instead of
+  muting it;
+- preserved non-hand accompaniment and custom track choices;
+- restarted the active whole-song or loop attempt safely after every switch,
+  including output panic, matcher reset and loop count-in;
+- refused to guess when a MIDI does not have reliable left/right assignments;
+- kept the control visible at the minimum window width with a responsive
+  toolbar layout;
+- stored hand scope in practice history so trends, weak measures and passage
+  recommendations never mix both-hand and single-hand attempts;
+- retained compatibility with history files written before hand scope existed.
+
+Verification:
+
+- two MIDI-file tests, twenty-five practice/core tests and thirty application
+  tests pass;
+- tests cover accompaniment semantics, ambiguous arrangements, scoped trends,
+  scoped weakness ranking and legacy-history migration;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `f630ea4`.
+
 ### Cycle 013 — Active output visibility
 
 State: **DONE**
@@ -366,11 +396,11 @@ Acceptance checklist:
 | Capability | State | Notes |
 | --- | --- | --- |
 | MIDI open/play | Working | File-picker transition fix committed |
-| Guided wait | Verifying | Current Cycle 001 |
+| Guided wait | Working | Default mode with visible player control |
 | Measure/beat grid | Verifying | Current Cycle 001 |
 | Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
-| Practice history | Working | Current-song history, trends and weak-passage action |
+| Practice history | Working | Hand-scoped trends and weak-passage action |
 | Built-in piano | Working | Fresh-install default; active route visible |
 | External Pianoteq | Usable workflow | Active route visible; device soak pending |
 | Native VST3 | Planned | Separate long-term roadmap |
@@ -379,10 +409,9 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 014 with practice-part controls in the player: clearly switch
-between both hands, right hand and left hand without returning to track setup.
-Preserve accompaniment/controller events, reset the current attempt safely and
-make the active hand goal visually unmistakable.
+Begin Cycle 015 by preserving each song's practice setup. Restore the selected
+hand/track roles, loop range and speed after reopening the same MIDI, while
+remaining robust when the file is moved, renamed or structurally changed.
 
 ## Known constraints
 
