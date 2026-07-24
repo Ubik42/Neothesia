@@ -4,6 +4,49 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 078: Stable score event identities (DONE)
+
+### Outcome
+
+Every imported note and direction now has a reproducible semantic identity.
+Fingering, slurs, tuplets and pedal marks can later attach to falling notes and
+practice evidence without relying on transient vector addresses or display
+measure numbers.
+
+### Identity contract
+
+An identity contains:
+
+- the required MusicXML part ID;
+- zero-based measure ordinal in document order;
+- note or direction kind;
+- zero-based ordinal within that kind and measure.
+
+Separating kind ordinals means inserting a tempo/dynamic direction does not
+renumber every note in the measure. Using the document ordinal avoids
+collisions when two measures display the same number.
+
+### Verification
+
+- Importing the same source twice yields equal IDs.
+- Duplicate displayed measure “1” values remain distinct.
+- Direction ordinal zero and note ordinal zero coexist without collision.
+- The annotated chord/voice fixture assigns note ordinals 0 through 3.
+- The full pinned compatibility corpus still imports.
+- 121 core, 64 application and two MIDI-file tests pass.
+- Clippy, release build, both native smoke suites, corpus audit, formatting and
+  diff checks pass with only pre-existing warnings.
+
+Implementation commit: `e418ed9` (`feat: assign stable score event identities`).
+
+### Known limitations
+
+- IDs are source-document identities, not content hashes; editing or reordering
+  measures may legitimately change them.
+- A paired MIDI note ID and confidence mapping does not exist yet.
+- Repeats and endings need expansion policy before score/MIDI alignment can
+  claim complete coverage.
+
 ## 2026-07-25 — Cycle 077: MusicXML pedal semantics (DONE)
 
 ### Outcome

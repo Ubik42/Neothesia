@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 078 — Stable score event identities
+
+State: **DONE**
+
+Delivered:
+
+- added one shared identity type for semantic notes and directions;
+- based identity on the MusicXML part ID, document-order measure ordinal,
+  event kind and kind-specific ordinal;
+- kept displayed measure numbers out of identity because pickups, repeats and
+  exporter conventions may duplicate them;
+- reset note and direction ordinals independently per measure;
+- completed `MUS-001C1`.
+
+Verification:
+
+- repeated imports of identical source produce an equal score including IDs;
+- two measures both displayed as “1” receive distinct measure ordinals;
+- note ordinals remain stable when a direction precedes the note;
+- a chord and later second voice receive deterministic note IDs;
+- the eight-score compatibility corpus remains green;
+- 121 core, 64 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, corpus audit, formatting and diff
+  checks pass with only pre-existing warnings;
+- implementation commit: `e418ed9`.
+
+Next:
+
+- `MUS-001C2`: exact score-time projection through a paired MIDI tempo map;
+- `MUS-001C3`: confidence-bearing score-note to MIDI-note alignment with
+  explicit gaps rather than forced matches.
+
 ### Cycle 077 — MusicXML pedal semantics
 
 State: **DONE**

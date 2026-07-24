@@ -66,6 +66,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
   with stable semantic assertions.
 - [ ] `MUS-001C` Align imported score events with the performance timeline and
   expose stable note/measure identities.
+- [x] `MUS-001C1` Assign deterministic part/measure/kind/ordinal identities to
+  score notes and directions.
+- [ ] `MUS-001C2` Project exact score time through the paired MIDI tempo map.
+- [ ] `MUS-001C3` Align pitched score notes to MIDI track/note identities with
+  confidence and explicit unmatched results.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
   coupling practice logic to the renderer.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans

@@ -26,6 +26,7 @@ grand staff synchronized with the existing player clock
 - direction words, dynamics, tempo and pedal marks;
 - fingering, ties, slurs, articulations and tuplet notation;
 - polyphonic `backup` and `forward` timing.
+- deterministic part/measure/kind/ordinal identities for notes and directions.
 
 The model deliberately has no SVG, DOM, webview or wgpu layout types. Learning
 features must remain usable if the renderer changes later.
