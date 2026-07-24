@@ -123,6 +123,7 @@ pub enum Page {
     Settings,
     TrackSelection,
     Library,
+    Metadata,
     Exercises,
 }
 

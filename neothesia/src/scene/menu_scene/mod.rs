@@ -16,7 +16,7 @@ mod tracks;
 use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
-use neothesia_core::library::SongMetadata;
+use neothesia_core::library::{SongMetadata, save_song_metadata};
 use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
 
@@ -62,6 +62,74 @@ impl Popup {
     }
 }
 
+const METADATA_FIELDS: [&str; 7] = [
+    "Title",
+    "Artist / performer",
+    "Composer",
+    "Collection",
+    "Difficulty",
+    "Tags (comma separated)",
+    "Study notes",
+];
+
+#[derive(Debug, Clone)]
+struct MetadataEditor {
+    content_id: String,
+    source_path: PathBuf,
+    fields: [String; 7],
+    active: usize,
+    message: Option<String>,
+}
+
+impl MetadataEditor {
+    fn new(content_id: String, source_path: PathBuf, metadata: SongMetadata) -> Self {
+        Self {
+            content_id,
+            source_path,
+            fields: [
+                metadata.title.unwrap_or_default(),
+                metadata.artist.unwrap_or_default(),
+                metadata.composer.unwrap_or_default(),
+                metadata.collection.unwrap_or_default(),
+                metadata.difficulty.unwrap_or_default(),
+                metadata.tags.join(", "),
+                metadata.notes.unwrap_or_default(),
+            ],
+            active: 0,
+            message: None,
+        }
+    }
+
+    fn metadata(&self) -> SongMetadata {
+        SongMetadata {
+            title: some_text(&self.fields[0]),
+            artist: some_text(&self.fields[1]),
+            composer: some_text(&self.fields[2]),
+            collection: some_text(&self.fields[3]),
+            difficulty: some_text(&self.fields[4]),
+            tags: self.fields[5]
+                .split(',')
+                .map(str::trim)
+                .filter(|tag| !tag.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            notes: some_text(&self.fields[6]),
+        }
+    }
+
+    fn select_relative(&mut self, offset: isize) {
+        self.active = self
+            .active
+            .saturating_add_signed(offset)
+            .min(self.fields.len() - 1);
+    }
+}
+
+fn some_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 pub struct MenuScene {
     bg_pipeline: BgPipeline,
     text_renderer: TextRenderer,
@@ -81,6 +149,7 @@ pub struct MenuScene {
     library_scroll: nuon::ScrollState,
     settings_scroll: nuon::ScrollState,
     popup: Popup,
+    metadata_editor: Option<MetadataEditor>,
 }
 
 impl MenuScene {
@@ -116,6 +185,7 @@ impl MenuScene {
             library_scroll: nuon::ScrollState::new(),
             settings_scroll: nuon::ScrollState::new(),
             popup: Popup::None,
+            metadata_editor: None,
         }
     }
 
@@ -147,6 +217,7 @@ impl MenuScene {
             Page::Settings => self.settings_page_ui(ctx, &mut nuon),
             Page::TrackSelection => self.tracks_page_ui(ctx, &mut nuon),
             Page::Library => self.library_page_ui(ctx, &mut nuon),
+            Page::Metadata => self.metadata_page_ui(ctx, &mut nuon),
             Page::Exercises => self.exercise_page_ui(ctx, &mut nuon),
         }
 
@@ -600,7 +671,7 @@ impl MenuScene {
                             } else {
                                 0.0
                             };
-                            let open_width = row_w - 142.0 - reorder_width;
+                            let open_width = row_w - 198.0 - reorder_width;
                             if nuon::button()
                                 .id(nuon::Id::hash_with(|hasher| {
                                     "library-song".hash(hasher);
@@ -643,10 +714,42 @@ impl MenuScene {
                             }
                             if nuon::button()
                                 .id(nuon::Id::hash_with(|hasher| {
-                                    "library-favorite".hash(hasher);
+                                    "library-metadata".hash(hasher);
                                     song.content_id.hash(hasher);
                                 }))
                                 .x(row_x + open_width + 6.0)
+                                .y(index as f32 * 62.0)
+                                .size(50.0, 52.0)
+                                .label(if path_available { "Info" } else { "—" })
+                                .color(if path_available {
+                                    [65, 62, 73]
+                                } else {
+                                    [45, 43, 50]
+                                })
+                                .hover_color(if path_available {
+                                    [109, 78, 164]
+                                } else {
+                                    [45, 43, 50]
+                                })
+                                .preseed_color([132, 96, 191])
+                                .border_radius([7.0; 4])
+                                .build(ui)
+                                && let Some(path) =
+                                    song.source_path.clone().filter(|path| path.is_file())
+                            {
+                                self.metadata_editor = Some(MetadataEditor::new(
+                                    song.content_id.clone(),
+                                    path,
+                                    song.metadata.clone(),
+                                ));
+                                self.state.go_to(Page::Metadata);
+                            }
+                            if nuon::button()
+                                .id(nuon::Id::hash_with(|hasher| {
+                                    "library-favorite".hash(hasher);
+                                    song.content_id.hash(hasher);
+                                }))
+                                .x(row_x + open_width + 62.0)
                                 .y(index as f32 * 62.0)
                                 .size(60.0, 52.0)
                                 .label(if song.favorite { "Fav ✓" } else { "Fav" })
@@ -678,7 +781,7 @@ impl MenuScene {
                                     "library-queue".hash(hasher);
                                     song.content_id.hash(hasher);
                                 }))
-                                .x(row_x + open_width + 72.0)
+                                .x(row_x + open_width + 128.0)
                                 .y(index as f32 * 62.0)
                                 .size(70.0, 52.0)
                                 .label(if song.queue_position.is_some() {
@@ -711,7 +814,7 @@ impl MenuScene {
                             }
                             if self.state.library_view == LibraryView::Queue {
                                 for (offset, direction, label) in
-                                    [(148.0, -1, "↑"), (192.0, 1, "↓")]
+                                    [(204.0, -1, "↑"), (248.0, 1, "↓")]
                                 {
                                     if nuon::button()
                                         .id(nuon::Id::hash_with(|hasher| {
@@ -753,6 +856,164 @@ impl MenuScene {
                 self.state.go_back();
             }
         });
+    }
+
+    fn metadata_page_ui(&mut self, ctx: &mut Context, ui: &mut nuon::Ui) {
+        let win_w = ctx.window_state.logical_size.width;
+        let win_h = ctx.window_state.logical_size.height;
+        let form_w = (win_w - 80.0).clamp(480.0, 760.0);
+        let form_x = nuon::center_x(win_w, form_w);
+        let mut save = false;
+        let mut cancel = false;
+
+        let Some(editor) = self.metadata_editor.as_mut() else {
+            self.state.go_back();
+            return;
+        };
+
+        nuon::label()
+            .x(form_x)
+            .y(18.0)
+            .size(form_w, 42.0)
+            .font_size(30.0)
+            .bold(true)
+            .text("Song information")
+            .build(ui);
+        nuon::label()
+            .x(form_x)
+            .y(58.0)
+            .size(form_w, 24.0)
+            .font_size(14.0)
+            .color([178, 175, 190])
+            .text(format!(
+                "{} · click a field, then type · Tab moves · Ctrl+S saves",
+                truncate_menu_label(
+                    &editor
+                        .source_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                    52
+                )
+            ))
+            .build(ui);
+
+        let row_h = 58.0;
+        for (index, label) in METADATA_FIELDS.iter().enumerate() {
+            let y = 92.0 + index as f32 * row_h;
+            nuon::label()
+                .x(form_x)
+                .y(y)
+                .size(174.0, 44.0)
+                .font_size(15.0)
+                .color(if editor.active == index {
+                    [255, 214, 128]
+                } else {
+                    [194, 191, 204]
+                })
+                .text(*label)
+                .build(ui);
+            let value = if editor.fields[index].is_empty() {
+                "(empty)".to_owned()
+            } else {
+                truncate_menu_label(&editor.fields[index], 68)
+            };
+            if nuon::button()
+                .id(nuon::Id::hash_with(|hasher| {
+                    "metadata-field".hash(hasher);
+                    index.hash(hasher);
+                }))
+                .x(form_x + 180.0)
+                .y(y)
+                .size(form_w - 180.0, 44.0)
+                .label(value)
+                .color(if editor.active == index {
+                    [83, 62, 112]
+                } else {
+                    [55, 52, 64]
+                })
+                .hover_color([98, 73, 132])
+                .preseed_color([118, 86, 157])
+                .border_radius([6.0; 4])
+                .build(ui)
+            {
+                editor.active = index;
+                editor.message = None;
+            }
+        }
+
+        if let Some(message) = editor.message.as_deref() {
+            nuon::label()
+                .x(form_x)
+                .y(win_h - 108.0)
+                .size(form_w, 26.0)
+                .font_size(14.0)
+                .color([255, 167, 142])
+                .text(message)
+                .build(ui);
+        }
+
+        if nuon::button()
+            .x(form_x)
+            .y(win_h - 68.0)
+            .size(150.0, 44.0)
+            .label("Cancel")
+            .color([65, 62, 73])
+            .hover_color([87, 81, 101])
+            .preseed_color([109, 78, 164])
+            .border_radius([7.0; 4])
+            .build(ui)
+        {
+            cancel = true;
+        }
+        if nuon::button()
+            .x(form_x + form_w - 190.0)
+            .y(win_h - 68.0)
+            .size(190.0, 44.0)
+            .label("Save information")
+            .color([48, 91, 82])
+            .hover_color([57, 112, 99])
+            .preseed_color([70, 132, 116])
+            .border_radius([7.0; 4])
+            .build(ui)
+        {
+            save = true;
+        }
+
+        if cancel {
+            self.metadata_editor = None;
+            self.state.go_back();
+        } else if save {
+            self.save_metadata_editor();
+        }
+    }
+
+    fn save_metadata_editor(&mut self) -> bool {
+        let Some(editor) = self.metadata_editor.as_ref() else {
+            return false;
+        };
+        match save_song_metadata(&editor.source_path, &editor.content_id, editor.metadata()) {
+            Ok(path) => {
+                let filename = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                self.metadata_editor = None;
+                self.state.library_index = None;
+                self.state.library_message = Some(format!(
+                    "Saved {filename}; refreshing title, credits and search."
+                ));
+                self.state.go_back();
+                true
+            }
+            Err(error) => {
+                if let Some(editor) = self.metadata_editor.as_mut() {
+                    editor.message = Some(format!("Could not save song information: {error}"));
+                }
+                false
+            }
+        }
     }
 
     fn start_library_scan(&mut self, roots: Vec<PathBuf>) {
@@ -989,6 +1250,9 @@ impl Scene for MenuScene {
         } else if event.left_mouse_released() {
             self.nuon.mouse_up();
         } else if event.back_mouse_pressed() {
+            if *self.state.current() == Page::Metadata {
+                self.metadata_editor = None;
+            }
             self.state.go_back();
         }
 
@@ -1064,6 +1328,60 @@ impl Scene for MenuScene {
                     self.state.library_query.push_str(text);
                 }
             }
+            Page::Metadata => {
+                if event.key_pressed(Key::Named(NamedKey::Escape)) {
+                    self.metadata_editor = None;
+                    self.state.go_back();
+                    return;
+                }
+
+                let save_shortcut = ctx.window_state.modifiers_state.control_key()
+                    && event.key_pressed(Key::Character("s"));
+                if save_shortcut {
+                    self.save_metadata_editor();
+                    return;
+                }
+
+                let Some(editor) = self.metadata_editor.as_mut() else {
+                    self.state.go_back();
+                    return;
+                };
+                if event.key_pressed(Key::Named(NamedKey::Tab)) {
+                    let offset = if ctx.window_state.modifiers_state.shift_key() {
+                        -1
+                    } else {
+                        1
+                    };
+                    editor.select_relative(offset);
+                    editor.message = None;
+                } else if event.key_pressed(Key::Named(NamedKey::ArrowUp)) {
+                    editor.select_relative(-1);
+                    editor.message = None;
+                } else if event.key_pressed(Key::Named(NamedKey::ArrowDown)) {
+                    editor.select_relative(1);
+                    editor.message = None;
+                } else if event.key_pressed(Key::Named(NamedKey::Backspace)) {
+                    editor.fields[editor.active].pop();
+                    editor.message = None;
+                } else if event.key_pressed(Key::Named(NamedKey::Delete)) {
+                    editor.fields[editor.active].clear();
+                    editor.message = None;
+                } else if event.key_pressed(Key::Named(NamedKey::Enter)) {
+                    if editor.active + 1 == editor.fields.len() {
+                        self.save_metadata_editor();
+                    } else {
+                        editor.select_relative(1);
+                    }
+                } else if !ctx.window_state.modifiers_state.control_key()
+                    && !ctx.window_state.modifiers_state.alt_key()
+                    && let WindowEvent::KeyboardInput { event, .. } = event
+                    && event.state.is_pressed()
+                    && let Key::Character(text) = &event.logical_key
+                {
+                    editor.fields[editor.active].push_str(text);
+                    editor.message = None;
+                }
+            }
             Page::Exercises => {
                 if event.key_pressed(Key::Named(NamedKey::Enter)) {
                     self.start_exercise(ctx);
@@ -1120,7 +1438,7 @@ impl Scene for MenuScene {
 #[cfg(test)]
 mod tests {
     use super::{
-        LibraryRow, ReviewReason, ReviewStatus, SongMetadata, format_review_status,
+        LibraryRow, MetadataEditor, ReviewReason, ReviewStatus, SongMetadata, format_review_status,
         library_row_matches, metadata_credit, truncate_menu_label,
     };
 
@@ -1159,6 +1477,46 @@ mod tests {
             metadata_credit(&song.metadata).as_deref(),
             Some("Walter Gieseking")
         );
+    }
+
+    #[test]
+    fn metadata_editor_round_trips_fields_and_normalizes_tags_on_save() {
+        let mut editor = MetadataEditor::new(
+            "content".into(),
+            "D:/Piano/Song.mid".into(),
+            SongMetadata {
+                title: Some("Song".into()),
+                tags: vec!["etude".into(), "romantic".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(editor.fields[0], "Song");
+        assert_eq!(editor.fields[5], "etude, romantic");
+
+        editor.fields[1] = " Performer ".into();
+        editor.fields[2] = "Composer".into();
+        editor.fields[5] = " etude, , technique ".into();
+        editor.fields[6] = " ".into();
+        let metadata = editor.metadata();
+        assert_eq!(metadata.artist.as_deref(), Some("Performer"));
+        assert_eq!(metadata.composer.as_deref(), Some("Composer"));
+        assert_eq!(metadata.tags, ["etude", "technique"]);
+        assert_eq!(metadata.notes, None);
+    }
+
+    #[test]
+    fn metadata_editor_navigation_stays_inside_the_form() {
+        let mut editor = MetadataEditor::new(
+            "content".into(),
+            "D:/Piano/Song.mid".into(),
+            SongMetadata::default(),
+        );
+        editor.select_relative(-1);
+        assert_eq!(editor.active, 0);
+        editor.select_relative(20);
+        assert_eq!(editor.active, 6);
+        editor.select_relative(-2);
+        assert_eq!(editor.active, 4);
     }
 
     #[test]
