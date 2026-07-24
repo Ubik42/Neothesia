@@ -41,7 +41,52 @@ pub struct Measure {
     pub start: ScoreTime,
     pub duration: ScoreTime,
     pub attributes: Vec<MeasureAttributes>,
+    pub barlines: Vec<Barline>,
     pub events: Vec<ScoreEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Barline {
+    pub location: BarlineLocation,
+    pub repeat: Option<RepeatMark>,
+    pub endings: Vec<EndingMark>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BarlineLocation {
+    Left,
+    Middle,
+    Right,
+    Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepeatMark {
+    pub direction: RepeatDirection,
+    pub times: Option<u16>,
+    pub winged: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepeatDirection {
+    Forward,
+    Backward,
+    Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndingMark {
+    pub kind: EndingType,
+    pub number: Option<String>,
+    pub passes: Vec<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndingType {
+    Start,
+    Stop,
+    Discontinue,
+    Other(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -493,6 +538,12 @@ struct ClefBuilder {
     line: Option<u8>,
 }
 
+struct BarlineBuilder {
+    location: BarlineLocation,
+    repeat: Option<RepeatMark>,
+    endings: Vec<EndingMark>,
+}
+
 /// Imports uncompressed, partwise MusicXML (`.musicxml` or `.xml`).
 ///
 /// Compressed `.mxl` containers and timewise scores are intentionally deferred
@@ -517,6 +568,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut note: Option<NoteBuilder> = None;
     let mut direction: Option<DirectionBuilder> = None;
     let mut attributes: Option<AttributesBuilder> = None;
+    let mut barline: Option<BarlineBuilder> = None;
     let mut divisions = 1_u32;
     let mut cursor = ScoreTime::default();
     let mut measure_max = ScoreTime::default();
@@ -573,6 +625,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             start: part_position,
                             duration: ScoreTime::default(),
                             attributes: Vec::new(),
+                            barlines: Vec::new(),
                             events: Vec::new(),
                         });
                         cursor = ScoreTime::default();
@@ -589,6 +642,13 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"direction" => direction = Some(DirectionBuilder::default()),
                     b"attributes" => attributes = Some(AttributesBuilder::default()),
+                    b"barline" => {
+                        barline = Some(BarlineBuilder {
+                            location: parse_barline_location(attribute(&start, b"location")?),
+                            repeat: None,
+                            endings: Vec::new(),
+                        });
+                    }
                     b"clef" if attributes.is_some() => {
                         attributes.as_mut().unwrap().clefs.push(ClefBuilder {
                             staff: attribute(&start, b"number")?
@@ -631,6 +691,16 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .unwrap()
                             .pedals
                             .push(parse_pedal(&start)?);
+                    }
+                    b"repeat" if barline.is_some() => {
+                        barline.as_mut().unwrap().repeat = Some(parse_repeat(&start)?);
+                    }
+                    b"ending" if barline.is_some() => {
+                        barline
+                            .as_mut()
+                            .unwrap()
+                            .endings
+                            .push(parse_ending(&start)?);
                     }
                     name if note.is_some()
                         && parent_is(&path, 2, b"articulations")
@@ -681,7 +751,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         str::from_utf8(name.as_ref())?,
                     );
                 }
-                handle_empty(&start, &path, &mut note, &mut direction)?;
+                handle_empty(&start, &path, &mut note, &mut direction, &mut barline)?;
             }
             Event::Text(text) => {
                 let decoded = str::from_utf8(text.as_ref())?;
@@ -944,6 +1014,14 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 pedals: built.pedals,
                             }));
                     }
+                    b"barline" => {
+                        let built = barline.take().unwrap();
+                        current_measure.as_mut().unwrap().barlines.push(Barline {
+                            location: built.location,
+                            repeat: built.repeat,
+                            endings: built.endings,
+                        });
+                    }
                     b"backup" => {
                         let duration = backup_duration.take().unwrap_or_default();
                         cursor = cursor.subtract(ScoreTime::new(duration, divisions));
@@ -989,6 +1067,7 @@ fn handle_empty(
     path: &[Vec<u8>],
     note: &mut Option<NoteBuilder>,
     direction: &mut Option<DirectionBuilder>,
+    barline: &mut Option<BarlineBuilder>,
 ) -> Result<(), ImportError> {
     match start.name().as_ref() {
         b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
@@ -1031,6 +1110,12 @@ fn handle_empty(
         }
         b"pedal" if direction.is_some() => {
             direction.as_mut().unwrap().pedals.push(parse_pedal(start)?);
+        }
+        b"repeat" if barline.is_some() => {
+            barline.as_mut().unwrap().repeat = Some(parse_repeat(start)?);
+        }
+        b"ending" if barline.is_some() => {
+            barline.as_mut().unwrap().endings.push(parse_ending(start)?);
         }
         _ => {}
     }
@@ -1098,6 +1183,75 @@ fn parse_pedal(start: &BytesStart<'_>) -> Result<PedalMark, ImportError> {
         sign: yes_no_attribute(start, b"sign")?,
         abbreviated: yes_no_attribute(start, b"abbreviated")?,
     })
+}
+
+fn parse_barline_location(value: Option<String>) -> BarlineLocation {
+    match value.as_deref() {
+        Some("left") => BarlineLocation::Left,
+        Some("middle") => BarlineLocation::Middle,
+        None | Some("right") => BarlineLocation::Right,
+        Some(value) => BarlineLocation::Other(value.to_owned()),
+    }
+}
+
+fn parse_repeat(start: &BytesStart<'_>) -> Result<RepeatMark, ImportError> {
+    let value = attribute(start, b"direction")?.unwrap_or_default();
+    let direction = match value.as_str() {
+        "forward" => RepeatDirection::Forward,
+        "backward" => RepeatDirection::Backward,
+        _ => RepeatDirection::Other(value),
+    };
+    Ok(RepeatMark {
+        direction,
+        times: attribute(start, b"times")?
+            .map(|value| parse_u16("repeat times", &value))
+            .transpose()?,
+        winged: attribute(start, b"winged")?,
+    })
+}
+
+fn parse_ending(start: &BytesStart<'_>) -> Result<EndingMark, ImportError> {
+    let value = attribute(start, b"type")?.unwrap_or_default();
+    let kind = match value.as_str() {
+        "start" => EndingType::Start,
+        "stop" => EndingType::Stop,
+        "discontinue" => EndingType::Discontinue,
+        _ => EndingType::Other(value),
+    };
+    let number = attribute(start, b"number")?;
+    Ok(EndingMark {
+        passes: number
+            .as_deref()
+            .map(parse_ending_passes)
+            .unwrap_or_default(),
+        number,
+        kind,
+    })
+}
+
+fn parse_ending_passes(value: &str) -> Vec<u16> {
+    const MAX_ENDING_PASS: u16 = 128;
+    let mut result = Vec::new();
+    for item in value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        if let Some((start, end)) = item.split_once('-') {
+            if let (Ok(start), Ok(end)) = (start.trim().parse::<u16>(), end.trim().parse::<u16>())
+                && start <= end
+            {
+                result.extend(start..=end.min(MAX_ENDING_PASS));
+            }
+        } else if let Ok(pass) = item.parse::<u16>()
+            && pass <= MAX_ENDING_PASS
+        {
+            result.push(pass);
+        }
+    }
+    result.sort_unstable();
+    result.dedup();
+    result
 }
 
 fn yes_no_attribute(start: &BytesStart<'_>, name: &[u8]) -> Result<Option<bool>, ImportError> {
@@ -1387,6 +1541,62 @@ mod tests {
         };
         assert_eq!(rest.pitch, None);
         assert_eq!(rest.duration, ScoreTime::new(1, 1));
+    }
+
+    #[test]
+    fn preserves_repeat_barlines_and_numbered_endings() {
+        let source = br#"<score-partwise version="4.0">
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1">
+  <measure number="1">
+    <barline location="left"><repeat direction="forward" winged="curved"/></barline>
+    <note><rest/><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <note><rest/><duration>1</duration></note>
+    <barline>
+      <ending number="1, 3-4" type="start"/>
+      <repeat direction="backward" times="4" winged="double-curved"/>
+    </barline>
+  </measure>
+  <measure number="3">
+    <barline location="right"><ending number="1" type="discontinue"/></barline>
+    <note><rest/><duration>1</duration></note>
+  </measure>
+</part></score-partwise>"#;
+        let score = import_musicxml(source).unwrap();
+        let measures = &score.parts[0].measures;
+
+        assert_eq!(measures[0].barlines[0].location, BarlineLocation::Left);
+        assert_eq!(
+            measures[0].barlines[0].repeat,
+            Some(RepeatMark {
+                direction: RepeatDirection::Forward,
+                times: None,
+                winged: Some("curved".into()),
+            })
+        );
+        assert_eq!(measures[1].barlines[0].location, BarlineLocation::Right);
+        assert_eq!(
+            measures[1].barlines[0].repeat,
+            Some(RepeatMark {
+                direction: RepeatDirection::Backward,
+                times: Some(4),
+                winged: Some("double-curved".into()),
+            })
+        );
+        assert_eq!(
+            measures[1].barlines[0].endings[0],
+            EndingMark {
+                kind: EndingType::Start,
+                number: Some("1, 3-4".into()),
+                passes: vec![1, 3, 4],
+            }
+        );
+        assert_eq!(
+            measures[2].barlines[0].endings[0].kind,
+            EndingType::Discontinue
+        );
     }
 
     #[test]
