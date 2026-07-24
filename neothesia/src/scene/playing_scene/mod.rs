@@ -706,7 +706,7 @@ impl PlayingScene {
             })
             .collect();
         let suggestions =
-            suggest_fingerings_with_profile(&notes, hand, ctx.config.hand_span_profile());
+            suggest_fingerings_with_profile(&notes, hand, ctx.config.hand_span_profile_for(hand));
         let Some(suggestion) = suggestions.get(target.note_index).copied().flatten() else {
             self.toast_manager
                 .toast("No suggestion: unsupported chord size, duplicate pitch or anchor conflict");

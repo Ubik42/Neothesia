@@ -79,6 +79,12 @@ pub struct PlaybackConfigV1 {
 
     #[serde(default)]
     pub hand_span_profile: HandSpanProfile,
+
+    #[serde(default)]
+    pub right_hand_span_profile: Option<HandSpanProfile>,
+
+    #[serde(default)]
+    pub left_hand_span_profile: Option<HandSpanProfile>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,6 +104,8 @@ impl Default for PlaybackConfig {
             expression_feedback: default_expression_feedback(),
             input_latency_ms: default_input_latency_ms(),
             hand_span_profile: HandSpanProfile::default(),
+            right_hand_span_profile: None,
+            left_hand_span_profile: None,
         })
     }
 }
@@ -378,6 +386,8 @@ mod tests {
         assert!(playback.expression_feedback);
         assert_eq!(playback.input_latency_ms, 0);
         assert_eq!(playback.hand_span_profile, HandSpanProfile::Standard);
+        assert_eq!(playback.right_hand_span_profile, None);
+        assert_eq!(playback.left_hand_span_profile, None);
 
         let DevicesConfig::V1(devices) = DevicesConfig::default();
         assert_eq!(devices.output.as_deref(), Some("Buildin Synth"));
@@ -423,5 +433,29 @@ mod tests {
 
         assert_eq!(playback.input_latency_ms, 0);
         assert_eq!(playback.hand_span_profile, HandSpanProfile::Standard);
+        assert_eq!(playback.right_hand_span_profile, None);
+        assert_eq!(playback.left_hand_span_profile, None);
+    }
+
+    #[test]
+    fn shared_hand_span_settings_remain_the_per_hand_fallback() {
+        let playback: PlaybackConfigV1 = ron::from_str(
+            r#"(
+                speed_multiplier: 1.0,
+                wait_for_notes: true,
+                adaptive_tempo: false,
+                adaptive_tempo_mastery: 0.9,
+                adaptive_tempo_min: 0.5,
+                adaptive_tempo_max: 1.0,
+                expression_feedback: true,
+                input_latency_ms: 0,
+                hand_span_profile: Compact,
+            )"#,
+        )
+        .unwrap();
+
+        assert_eq!(playback.hand_span_profile, HandSpanProfile::Compact);
+        assert_eq!(playback.right_hand_span_profile, None);
+        assert_eq!(playback.left_hand_span_profile, None);
     }
 }

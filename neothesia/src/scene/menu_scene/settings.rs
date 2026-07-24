@@ -151,10 +151,35 @@ impl super::MenuScene {
 
                         update_hand_span_profile(
                             ctx,
+                            neothesia_core::fingering::FingeringHand::Right,
                             nuon::settings_row_spin()
-                                .title("Hand Span")
-                                .subtitle(ctx.config.hand_span_profile().label())
-                                .id("hand-span-profile")
+                                .title("Right Hand Span")
+                                .subtitle(
+                                    ctx.config
+                                        .hand_span_profile_for(
+                                            neothesia_core::fingering::FingeringHand::Right,
+                                        )
+                                        .label(),
+                                )
+                                .id("right-hand-span-profile")
+                                .build(ui, rows),
+                        );
+
+                        spacer(ui);
+
+                        update_hand_span_profile(
+                            ctx,
+                            neothesia_core::fingering::FingeringHand::Left,
+                            nuon::settings_row_spin()
+                                .title("Left Hand Span")
+                                .subtitle(
+                                    ctx.config
+                                        .hand_span_profile_for(
+                                            neothesia_core::fingering::FingeringHand::Left,
+                                        )
+                                        .label(),
+                                )
+                                .id("left-hand-span-profile")
                                 .build(ui, rows),
                         );
 
@@ -664,14 +689,18 @@ pub fn update_input_latency(ctx: &mut Context, kind: nuon::SettingsRowSpinResult
         .set_input_latency_ms(ctx.config.input_latency_ms() + delta);
 }
 
-pub fn update_hand_span_profile(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
-    let current = ctx.config.hand_span_profile();
+pub fn update_hand_span_profile(
+    ctx: &mut Context,
+    hand: neothesia_core::fingering::FingeringHand,
+    kind: nuon::SettingsRowSpinResult,
+) {
+    let current = ctx.config.hand_span_profile_for(hand);
     let profile = match kind {
         nuon::SettingsRowSpinResult::Plus => current.next(),
         nuon::SettingsRowSpinResult::Minus => current.previous(),
         nuon::SettingsRowSpinResult::Idle => current,
     };
-    ctx.config.set_hand_span_profile(profile);
+    ctx.config.set_hand_span_profile_for(hand, profile);
 }
 
 pub fn update_adaptive_min_speed(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {

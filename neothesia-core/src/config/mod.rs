@@ -400,6 +400,34 @@ impl Config {
 
     pub fn set_hand_span_profile(&mut self, profile: crate::fingering::HandSpanProfile) {
         self.playback.hand_span_profile = profile;
+        self.playback.right_hand_span_profile = None;
+        self.playback.left_hand_span_profile = None;
+    }
+
+    pub fn hand_span_profile_for(
+        &self,
+        hand: crate::fingering::FingeringHand,
+    ) -> crate::fingering::HandSpanProfile {
+        match hand {
+            crate::fingering::FingeringHand::Right => self.playback.right_hand_span_profile,
+            crate::fingering::FingeringHand::Left => self.playback.left_hand_span_profile,
+        }
+        .unwrap_or(self.playback.hand_span_profile)
+    }
+
+    pub fn set_hand_span_profile_for(
+        &mut self,
+        hand: crate::fingering::FingeringHand,
+        profile: crate::fingering::HandSpanProfile,
+    ) {
+        match hand {
+            crate::fingering::FingeringHand::Right => {
+                self.playback.right_hand_span_profile = Some(profile);
+            }
+            crate::fingering::FingeringHand::Left => {
+                self.playback.left_hand_span_profile = Some(profile);
+            }
+        }
     }
 
     pub fn adaptive_tempo_mastery(&self) -> f32 {
@@ -628,11 +656,42 @@ mod tests {
     }
 
     #[test]
-    fn hand_span_profile_can_be_personalized() {
-        let mut config = Config::default();
+    fn hand_span_profiles_migrate_then_diverge_per_hand() {
+        let mut config = Model::default().build();
         config.set_hand_span_profile(crate::fingering::HandSpanProfile::Compact);
         assert_eq!(
-            config.hand_span_profile(),
+            config.hand_span_profile_for(crate::fingering::FingeringHand::Right),
+            crate::fingering::HandSpanProfile::Compact
+        );
+        assert_eq!(
+            config.hand_span_profile_for(crate::fingering::FingeringHand::Left),
+            crate::fingering::HandSpanProfile::Compact
+        );
+
+        config.set_hand_span_profile_for(
+            crate::fingering::FingeringHand::Right,
+            crate::fingering::HandSpanProfile::Large,
+        );
+        assert_eq!(
+            config.hand_span_profile_for(crate::fingering::FingeringHand::Right),
+            crate::fingering::HandSpanProfile::Large
+        );
+        assert_eq!(
+            config.hand_span_profile_for(crate::fingering::FingeringHand::Left),
+            crate::fingering::HandSpanProfile::Compact
+        );
+
+        let serialized = ron_options()
+            .to_string(&Model::from_config(config))
+            .unwrap();
+        let rebuilt: Model = ron_options().from_str(&serialized).unwrap();
+        let rebuilt = rebuilt.build();
+        assert_eq!(
+            rebuilt.hand_span_profile_for(crate::fingering::FingeringHand::Right),
+            crate::fingering::HandSpanProfile::Large
+        );
+        assert_eq!(
+            rebuilt.hand_span_profile_for(crate::fingering::FingeringHand::Left),
             crate::fingering::HandSpanProfile::Compact
         );
     }
