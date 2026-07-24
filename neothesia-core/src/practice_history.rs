@@ -795,6 +795,7 @@ mod tests {
                     },
                 }],
                 parts: Vec::new(),
+                expression: Default::default(),
             },
         }
     }
@@ -816,6 +817,26 @@ mod tests {
         assert_eq!(song.sessions.len(), 2);
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn summaries_saved_before_expression_feedback_remain_readable() {
+        let legacy = r#"(
+            overall: (
+                matched_notes: 1,
+                on_time_notes: 1,
+                early_notes: 0,
+                late_notes: 0,
+                wrong_notes: 0,
+                missed_notes: 0,
+                required_notes: 0,
+            ),
+            measures: [],
+            parts: [],
+        )"#;
+
+        let summary: AttemptSummary = ron::from_str(legacy).unwrap();
+        assert_eq!(summary.expression, Default::default());
     }
 
     #[test]

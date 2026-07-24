@@ -89,6 +89,10 @@ impl MidiPlayer {
                 }
                 PlayerConfig::Human => {
                     if let Some((note, active)) = note_state(&event.message) {
+                        let velocity = match event.message {
+                            MidiMessage::NoteOn { vel, .. } if active => vel.as_int(),
+                            _ => 0,
+                        };
                         let measure = self
                             .song
                             .file
@@ -98,6 +102,7 @@ impl MidiPlayer {
                             self.session_time,
                             PracticeTarget {
                                 note,
+                                velocity,
                                 score_time: event.timestamp,
                                 track_id: event.track_id,
                                 measure,
@@ -105,6 +110,11 @@ impl MidiPlayer {
                             },
                             active,
                         );
+                    }
+                    if let MidiMessage::Controller { controller, value } = event.message
+                        && controller.as_int() == 64
+                    {
+                        self.practice.score_pedal(value.as_int());
                     }
 
                     if self.wait_for_notes {
@@ -299,10 +309,20 @@ impl MidiPlayer {
 
     pub fn user_midi_event(&mut self, channel: u8, message: &MidiMessage) {
         self.output.midi_event(u4::new(channel), *message);
-        if !self.playback.is_paused()
-            && let Some((note, active)) = note_state(message)
-        {
-            self.practice.user_note(self.session_time, note, active);
+        if !self.playback.is_paused() {
+            if let Some((note, active)) = note_state(message) {
+                let velocity = match message {
+                    MidiMessage::NoteOn { vel, .. } if active => vel.as_int(),
+                    _ => 0,
+                };
+                self.practice
+                    .user_note_with_velocity(self.session_time, note, active, velocity);
+            }
+            if let MidiMessage::Controller { controller, value } = message
+                && controller.as_int() == 64
+            {
+                self.practice.user_pedal(value.as_int());
+            }
         }
     }
 }
@@ -499,6 +519,64 @@ mod tests {
             .map(|message| (u4::new(2), message))
             .collect();
         assert_eq!(forwarded, expected);
+    }
+
+    #[test]
+    fn player_captures_score_and_live_expression_without_altering_output() {
+        let score_messages = expressive_messages();
+        let song = expressive_song(&score_messages);
+        let (output, events) = OutputConnection::test();
+        let mut player = MidiPlayer::new_with_lead_in(
+            output,
+            song,
+            piano_layout::KeyboardRange::new(21..=108),
+            false,
+            true,
+            Duration::ZERO,
+        );
+        events.borrow_mut().clear();
+        player.update(Duration::from_secs(1));
+
+        let user_messages = [
+            MidiMessage::NoteOn {
+                key: u7::new(60),
+                vel: u7::new(70),
+            },
+            MidiMessage::Controller {
+                controller: u7::new(64),
+                value: u7::new(0),
+            },
+            MidiMessage::Controller {
+                controller: u7::new(64),
+                value: u7::new(64),
+            },
+            MidiMessage::Controller {
+                controller: u7::new(64),
+                value: u7::new(127),
+            },
+        ];
+        for message in user_messages {
+            player.user_midi_event(5, &message);
+        }
+
+        let summary = player.finish_practice();
+        assert_eq!(summary.expression.velocity.matched_samples, 1);
+        assert_eq!(summary.expression.velocity.mean_abs_difference, Some(30));
+        assert_eq!(summary.expression.pedal.target_changes, 1);
+        assert_eq!(summary.expression.pedal.user_changes, 2);
+        assert_eq!(summary.expression.pedal.user_continuous_samples, 1);
+
+        let forwarded_user: Vec<_> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                TestOutputEvent::Midi { channel, message } if *channel == u4::new(5) => {
+                    Some(*message)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(forwarded_user, user_messages);
     }
 
     fn expressive_messages() -> [MidiMessage; 4] {

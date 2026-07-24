@@ -51,6 +51,7 @@ pub enum PracticePart {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct PracticeTarget {
     pub note: NoteId,
+    pub velocity: u8,
     pub score_time: Duration,
     pub track_id: usize,
     /// One-based measure number. Zero means that measure context is unknown.
@@ -62,6 +63,7 @@ impl PracticeTarget {
     pub fn unknown(note: NoteId) -> Self {
         Self {
             note,
+            velocity: 0,
             score_time: Duration::ZERO,
             track_id: 0,
             measure: 0,
@@ -188,6 +190,44 @@ pub struct AttemptSummary {
     pub overall: PracticeSnapshot,
     pub measures: Vec<MeasureSummary>,
     pub parts: Vec<PartSummary>,
+    #[serde(default)]
+    pub expression: ExpressionSummary,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct VelocitySummary {
+    pub matched_samples: usize,
+    pub mean_abs_difference: Option<u8>,
+    pub played_min: Option<u8>,
+    pub played_max: Option<u8>,
+    pub target_min: Option<u8>,
+    pub target_max: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PedalSummary {
+    pub user_changes: usize,
+    pub target_changes: usize,
+    pub user_used: bool,
+    pub target_present: bool,
+    pub user_continuous_samples: usize,
+    pub target_continuous_samples: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExpressionSummary {
+    pub velocity: VelocitySummary,
+    pub pedal: PedalSummary,
+}
+
+impl ExpressionSummary {
+    pub fn has_velocity_evidence(self) -> bool {
+        self.velocity.matched_samples >= 4
+    }
+
+    pub fn has_pedal_evidence(self) -> bool {
+        self.pedal.user_used || self.pedal.target_present
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -392,12 +432,88 @@ fn round_speed(speed: f32) -> f32 {
 struct NotePress {
     timestamp: Duration,
     note: NoteId,
+    velocity: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct TargetPress {
     timestamp: Duration,
     target: PracticeTarget,
+}
+
+#[derive(Debug, Default)]
+struct PedalEvidence {
+    last_value: Option<u8>,
+    changes: usize,
+    used: bool,
+    continuous_samples: usize,
+}
+
+impl PedalEvidence {
+    fn record(&mut self, value: u8) {
+        if self.last_value == Some(value) {
+            return;
+        }
+        if self.last_value.is_some() {
+            self.changes += 1;
+        }
+        self.last_value = Some(value);
+        self.used |= value > 0;
+        self.continuous_samples += usize::from((1..127).contains(&value));
+    }
+}
+
+#[derive(Debug, Default)]
+struct ExpressionTracker {
+    velocity_samples: usize,
+    velocity_difference_sum: u64,
+    played_min: Option<u8>,
+    played_max: Option<u8>,
+    target_min: Option<u8>,
+    target_max: Option<u8>,
+    user_pedal: PedalEvidence,
+    target_pedal: PedalEvidence,
+}
+
+impl ExpressionTracker {
+    fn record_velocity(&mut self, played: u8, target: u8) {
+        if played == 0 || target == 0 {
+            return;
+        }
+        self.velocity_samples += 1;
+        self.velocity_difference_sum += u64::from(played.abs_diff(target));
+        update_min_max(&mut self.played_min, &mut self.played_max, played);
+        update_min_max(&mut self.target_min, &mut self.target_max, target);
+    }
+
+    fn summary(&self) -> ExpressionSummary {
+        ExpressionSummary {
+            velocity: VelocitySummary {
+                matched_samples: self.velocity_samples,
+                mean_abs_difference: (self.velocity_samples != 0).then(|| {
+                    (self.velocity_difference_sum / self.velocity_samples as u64)
+                        .min(u64::from(u8::MAX)) as u8
+                }),
+                played_min: self.played_min,
+                played_max: self.played_max,
+                target_min: self.target_min,
+                target_max: self.target_max,
+            },
+            pedal: PedalSummary {
+                user_changes: self.user_pedal.changes,
+                target_changes: self.target_pedal.changes,
+                user_used: self.user_pedal.used,
+                target_present: self.target_pedal.last_value.is_some(),
+                user_continuous_samples: self.user_pedal.continuous_samples,
+                target_continuous_samples: self.target_pedal.continuous_samples,
+            },
+        }
+    }
+}
+
+fn update_min_max(minimum: &mut Option<u8>, maximum: &mut Option<u8>, value: u8) {
+    *minimum = Some(minimum.map_or(value, |current| current.min(value)));
+    *maximum = Some(maximum.map_or(value, |current| current.max(value)));
 }
 
 /// Matches score note events with live keyboard input.
@@ -416,6 +532,7 @@ pub struct PracticeMatcher {
     snapshot: PracticeSnapshot,
     results: Vec<PracticeResult>,
     last_target: Option<PracticeTarget>,
+    expression: ExpressionTracker,
 }
 
 impl PracticeMatcher {
@@ -432,6 +549,7 @@ impl PracticeMatcher {
             snapshot: PracticeSnapshot::default(),
             results: Vec::new(),
             last_target: None,
+            expression: ExpressionTracker::default(),
         }
     }
 
@@ -468,6 +586,16 @@ impl PracticeMatcher {
     }
 
     pub fn user_note(&mut self, now: Duration, note: NoteId, active: bool) -> Option<MatchedNote> {
+        self.user_note_with_velocity(now, note, active, 100)
+    }
+
+    pub fn user_note_with_velocity(
+        &mut self,
+        now: Duration,
+        note: NoteId,
+        active: bool,
+        velocity: u8,
+    ) -> Option<MatchedNote> {
         if !active || !self.user_keyboard_range.contains(note) {
             return None;
         }
@@ -477,6 +605,7 @@ impl PracticeMatcher {
             return Some(self.record_match(
                 required.target,
                 TimingGrade::Late(now.saturating_sub(required.timestamp)),
+                velocity,
             ));
         }
 
@@ -486,6 +615,7 @@ impl PracticeMatcher {
             .push_back(NotePress {
                 timestamp: now,
                 note,
+                velocity,
             });
 
         None
@@ -516,6 +646,7 @@ impl PracticeMatcher {
             return Some(self.record_match(
                 target,
                 TimingGrade::Early(now.saturating_sub(press.timestamp)),
+                press.velocity,
             ));
         }
 
@@ -528,6 +659,14 @@ impl PracticeMatcher {
             });
         self.update_required_count();
         None
+    }
+
+    pub fn user_pedal(&mut self, value: u8) {
+        self.expression.user_pedal.record(value);
+    }
+
+    pub fn score_pedal(&mut self, value: u8) {
+        self.expression.target_pedal.record(value);
     }
 
     pub fn snapshot(&self) -> PracticeSnapshot {
@@ -595,6 +734,7 @@ impl PracticeMatcher {
                 .into_iter()
                 .map(|(part, breakdown)| PartSummary { part, breakdown })
                 .collect(),
+            expression: self.expression.summary(),
         }
     }
 
@@ -614,9 +754,15 @@ impl PracticeMatcher {
         self.clear_pending();
         self.snapshot = PracticeSnapshot::default();
         self.results.clear();
+        self.expression = ExpressionTracker::default();
     }
 
-    fn record_match(&mut self, target: PracticeTarget, timing: TimingGrade) -> MatchedNote {
+    fn record_match(
+        &mut self,
+        target: PracticeTarget,
+        timing: TimingGrade,
+        played_velocity: u8,
+    ) -> MatchedNote {
         let timing = match timing {
             TimingGrade::Early(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
             TimingGrade::Late(delta) if delta <= self.windows.on_time => TimingGrade::OnTime,
@@ -634,6 +780,8 @@ impl PracticeMatcher {
             target: Some(target),
             judgement: PracticeJudgement::Matched(timing),
         });
+        self.expression
+            .record_velocity(played_velocity, target.velocity);
 
         MatchedNote {
             note: target.note,
@@ -861,6 +1009,7 @@ mod tests {
         let mut matcher = matcher();
         let right = PracticeTarget {
             note: 72,
+            velocity: 90,
             score_time: Duration::from_secs(2),
             track_id: 1,
             measure: 3,
@@ -868,6 +1017,7 @@ mod tests {
         };
         let left = PracticeTarget {
             note: 48,
+            velocity: 70,
             score_time: Duration::from_secs(4),
             track_id: 2,
             measure: 5,
@@ -910,6 +1060,71 @@ mod tests {
             .unwrap();
         assert_eq!(left_hand.breakdown.missed_notes, 1);
         assert_eq!(left_hand.breakdown.wrong_notes, 1);
+    }
+
+    #[test]
+    fn expression_summary_pairs_velocity_and_tracks_pedal_evidence() {
+        let mut matcher = matcher();
+        let target = |note, velocity, millis| PracticeTarget {
+            note,
+            velocity,
+            score_time: Duration::from_millis(millis),
+            track_id: 1,
+            measure: 1,
+            part: PracticePart::RightHand,
+        };
+
+        matcher.score_target(Duration::from_millis(100), target(60, 40, 100), true);
+        matcher.user_note_with_velocity(Duration::from_millis(110), 60, true, 55);
+        matcher.user_note_with_velocity(Duration::from_millis(190), 62, true, 100);
+        matcher.score_target(Duration::from_millis(200), target(62, 80, 200), true);
+        matcher.score_target(Duration::from_millis(300), target(64, 70, 300), true);
+        matcher.user_note_with_velocity(Duration::from_millis(310), 64, true, 60);
+        matcher.score_target(Duration::from_millis(400), target(65, 90, 400), true);
+        matcher.user_note_with_velocity(Duration::from_millis(410), 65, true, 85);
+
+        matcher.user_pedal(0);
+        matcher.user_pedal(64);
+        matcher.user_pedal(127);
+        matcher.user_pedal(127);
+        matcher.score_pedal(0);
+        matcher.score_pedal(127);
+
+        let expression = matcher.summary().expression;
+        assert!(expression.has_velocity_evidence());
+        assert!(expression.has_pedal_evidence());
+        assert_eq!(
+            expression.velocity,
+            VelocitySummary {
+                matched_samples: 4,
+                mean_abs_difference: Some(12),
+                played_min: Some(55),
+                played_max: Some(100),
+                target_min: Some(40),
+                target_max: Some(90),
+            }
+        );
+        assert_eq!(
+            expression.pedal,
+            PedalSummary {
+                user_changes: 2,
+                target_changes: 1,
+                user_used: true,
+                target_present: true,
+                user_continuous_samples: 1,
+                target_continuous_samples: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn expression_evidence_resets_between_attempts() {
+        let mut matcher = matcher();
+        matcher.user_pedal(127);
+        matcher.score_pedal(0);
+        matcher.reset();
+
+        assert_eq!(matcher.summary().expression, ExpressionSummary::default());
     }
 
     #[test]

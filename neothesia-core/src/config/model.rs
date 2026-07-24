@@ -67,6 +67,9 @@ pub struct PlaybackConfigV1 {
 
     #[serde(default = "default_adaptive_tempo_max")]
     pub adaptive_tempo_max: f32,
+
+    #[serde(default = "default_expression_feedback")]
+    pub expression_feedback: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +86,7 @@ impl Default for PlaybackConfig {
             adaptive_tempo_mastery: default_adaptive_tempo_mastery(),
             adaptive_tempo_min: default_adaptive_tempo_min(),
             adaptive_tempo_max: default_adaptive_tempo_max(),
+            expression_feedback: default_expression_feedback(),
         })
     }
 }
@@ -250,6 +254,10 @@ fn default_adaptive_tempo_max() -> f32 {
     1.0
 }
 
+fn default_expression_feedback() -> bool {
+    true
+}
+
 fn default_animation_speed() -> f32 {
     400.0
 }
@@ -335,6 +343,7 @@ mod tests {
         assert_eq!(playback.adaptive_tempo_mastery, 0.9);
         assert_eq!(playback.adaptive_tempo_min, 0.5);
         assert_eq!(playback.adaptive_tempo_max, 1.0);
+        assert!(playback.expression_feedback);
 
         let DevicesConfig::V1(devices) = DevicesConfig::default();
         assert_eq!(devices.output.as_deref(), Some("Buildin Synth"));

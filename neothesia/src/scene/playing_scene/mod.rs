@@ -1,6 +1,7 @@
 use midi_file::midly::MidiMessage;
 use neothesia_core::practice::{
-    AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, PracticeHands, PracticePart,
+    AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, ExpressionSummary, PracticeHands,
+    PracticePart,
 };
 use neothesia_core::practice_history::{
     PracticeHistoryOverview, PracticeSession, PracticeSessionKind, SongPracticeSetup,
@@ -491,16 +492,36 @@ impl PlayingScene {
                         ))
                         .build(ui);
 
+                    if ctx.config.expression_feedback() {
+                        let (dynamics, pedal) = format_expression_summary(summary.expression);
+                        nuon::label()
+                            .x(28.0)
+                            .y(258.0)
+                            .size(panel_w - 56.0, 24.0)
+                            .font_size(14.0)
+                            .color([184, 178, 205])
+                            .text(dynamics)
+                            .build(ui);
+                        nuon::label()
+                            .x(28.0)
+                            .y(282.0)
+                            .size(panel_w - 56.0, 24.0)
+                            .font_size(14.0)
+                            .color([184, 178, 205])
+                            .text(pedal)
+                            .build(ui);
+                    }
+
                     nuon::quad()
                         .x(28.0)
-                        .y(278.0)
+                        .y(314.0)
                         .size(panel_w - 56.0, 1.0)
                         .color([83, 78, 98])
                         .build(ui);
 
                     nuon::label()
                         .x(28.0)
-                        .y(294.0)
+                        .y(328.0)
                         .size(panel_w - 56.0, 44.0)
                         .font_size(17.0)
                         .text(review)
@@ -509,7 +530,7 @@ impl PlayingScene {
                     if let Some(session_count) = self.saved_session_count {
                         nuon::label()
                             .x(28.0)
-                            .y(338.0)
+                            .y(368.0)
                             .size(panel_w - 56.0, 28.0)
                             .font_size(14.0)
                             .color([143, 205, 171])
@@ -531,7 +552,7 @@ impl PlayingScene {
                     if completion_view == CompletionView::Current {
                         nuon::label()
                             .x(28.0)
-                            .y(366.0)
+                            .y(398.0)
                             .size(panel_w - 56.0, 30.0)
                             .font_size(14.0)
                             .color([255, 205, 124])
@@ -861,6 +882,46 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
+fn format_expression_summary(expression: ExpressionSummary) -> (String, String) {
+    let velocity = expression.velocity;
+    let dynamics = if expression.has_velocity_evidence() {
+        format!(
+            "Dynamics (descriptive): played {}–{} · score {}–{} · avg gap {}",
+            velocity.played_min.unwrap_or(0),
+            velocity.played_max.unwrap_or(0),
+            velocity.target_min.unwrap_or(0),
+            velocity.target_max.unwrap_or(0),
+            velocity.mean_abs_difference.unwrap_or(0),
+        )
+    } else {
+        format!(
+            "Dynamics: need 4 matched notes · {} captured",
+            velocity.matched_samples
+        )
+    };
+
+    let pedal = expression.pedal;
+    let continuous = if pedal.user_continuous_samples != 0 || pedal.target_continuous_samples != 0 {
+        " · continuous values seen"
+    } else {
+        ""
+    };
+    let pedal = match (pedal.target_present, pedal.user_used) {
+        (true, true) => format!(
+            "Pedal (counts only): user {} changes · score {}{continuous}",
+            pedal.user_changes, pedal.target_changes
+        ),
+        (true, false) => "Pedal: score contains sustain data · no user use captured".to_owned(),
+        (false, true) => format!(
+            "Pedal: {} user changes captured · score has no pedal reference",
+            pedal.user_changes
+        ),
+        (false, false) => "Pedal: no sustain evidence in this take".to_owned(),
+    };
+
+    (dynamics, pedal)
+}
+
 fn persist_practice_session(
     ctx: &mut Context,
     player: &MidiPlayer,
@@ -1173,6 +1234,32 @@ mod tests {
         assert_eq!(
             scale_playback_delta(Duration::from_secs(1), 1.05),
             Duration::from_millis(1_050)
+        );
+    }
+
+    #[test]
+    fn expression_copy_stays_descriptive_when_reference_is_incomplete() {
+        let (dynamics, pedal) = format_expression_summary(ExpressionSummary {
+            velocity: neothesia_core::practice::VelocitySummary {
+                matched_samples: 4,
+                mean_abs_difference: Some(8),
+                played_min: Some(30),
+                played_max: Some(100),
+                target_min: Some(40),
+                target_max: Some(96),
+            },
+            pedal: neothesia_core::practice::PedalSummary {
+                user_changes: 2,
+                user_used: true,
+                ..Default::default()
+            },
+        });
+
+        assert!(dynamics.contains("descriptive"));
+        assert!(dynamics.contains("avg gap 8"));
+        assert_eq!(
+            pedal,
+            "Pedal: 2 user changes captured · score has no pedal reference"
         );
     }
 }

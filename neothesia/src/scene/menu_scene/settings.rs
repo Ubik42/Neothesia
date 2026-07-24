@@ -123,6 +123,18 @@ impl super::MenuScene {
 
                         spacer(ui);
 
+                        if nuon::settings_row_toggler()
+                            .title("Expression Summary")
+                            .subtitle("Describe matched velocity and sustain-pedal evidence")
+                            .value(ctx.config.expression_feedback())
+                            .build(ui, rows)
+                        {
+                            ctx.config
+                                .set_expression_feedback(!ctx.config.expression_feedback());
+                        }
+
+                        spacer(ui);
+
                         update_adaptive_mastery(
                             ctx,
                             nuon::settings_row_spin()

@@ -304,6 +304,14 @@ impl Config {
         self.playback.adaptive_tempo = enabled;
     }
 
+    pub fn expression_feedback(&self) -> bool {
+        self.playback.expression_feedback
+    }
+
+    pub fn set_expression_feedback(&mut self, enabled: bool) {
+        self.playback.expression_feedback = enabled;
+    }
+
     pub fn adaptive_tempo_mastery(&self) -> f32 {
         self.playback.adaptive_tempo_mastery
     }
