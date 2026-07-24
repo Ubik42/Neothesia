@@ -4,6 +4,67 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 035: Scored MIDI injection in native smoke (DONE)
+
+### Outcome
+
+The real-process smoke test now plays the notes Neothesia is actually waiting
+for and proves that they reach the normal player input path and practice
+matcher. It no longer verifies wait mode using state toggles alone.
+
+### Implemented
+
+- Added `PracticeMatcher::required_note_pitches()`.
+- Preserved duplicate occurrences and returned pitches in stable sorted order.
+- Added a matcher assertion for the required C-major chord pitches.
+- Added a Debug-only required-pitch delegate on `MidiPlayer`.
+- Added required-note count and pitch list to the practice snapshot.
+- Added an acknowledged `DebugMidiInput` application event.
+- Added a player-scene Debug MIDI handler that calls the normal scene
+  `midi_event` path.
+- Added safe in-process channel/note/velocity validation.
+- Added `MIDI <channel> <note> <velocity>` to the loopback protocol.
+- Restricted channels to 0–15 and notes/velocities to 0–127.
+- Defined velocity zero as a release, matching live MIDI normalization.
+- Added stable JSON array output for required pitches.
+- Extended the native smoke runner to:
+  - wait until the score blocks on required notes;
+  - assert count/list agreement;
+  - inject NoteOn and NoteOff for every required pitch;
+  - assert that `matched_notes` increases.
+- Updated the automation contract and next-step boundary.
+
+### Verification
+
+- Ran the checked-in smoke runner against “Look at the Sky - Porter Robinson,
+  original key, auto-aligned.”
+- The first blocked target exposed two required notes.
+- Both note-on and note-off events were accepted.
+- The matcher reported `MatchedAfterInput = 2`.
+- Existing wait, hands, loop, restart, back and clean-exit assertions remained
+  green.
+- Protocol tests reject channel 16 and note 128.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty core tests and forty-eight
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `6fd60aa`
+(`test: inject scored MIDI in native smoke`).
+
+### Known limitations
+
+- The smoke runner performs only the first blocked target, not a whole song.
+- It does not yet control inter-note timing or note-hold duration.
+- A purpose-built short MIDI fixture is still needed to reach and automate the
+  completion screen.
+- GPU screenshot comparison remains future work.
+
 ## 2026-07-25 — Cycle 034: Native loop and restart coverage (DONE)
 
 ### Outcome

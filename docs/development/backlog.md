@@ -78,6 +78,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `UI-R05` Expose the debug harness through a loopback-only local driver.
 - [x] `UI-R06` Check in an isolated real-process practice smoke runner.
 - [x] `UI-R07` Cover loop activation and scope restart in the native smoke run.
+- [x] `UI-R08` Inject scored MIDI input through the native Debug driver.
 - [ ] `UI-R02` Evaluate a React library/analytics panel only after its API exists.
 - [ ] `MUS-R01` Compare direct MusicXML rendering with an embedded notation engine.
 

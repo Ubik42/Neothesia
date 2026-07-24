@@ -10,6 +10,32 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 035 — Scored MIDI injection in native smoke
+
+State: **DONE**
+
+Delivered:
+
+- exposed sorted current required pitches without weakening matcher
+  encapsulation;
+- added an acknowledged, range-validated Debug MIDI note event;
+- routed injected notes through the active scene's normal MIDI handler;
+- added a bounded `MIDI channel note velocity` local-driver command;
+- exposed required-note count and pitches in practice snapshots;
+- extended the real-process smoke runner to wait for score targets, play them
+  and assert that the practice matcher count increases.
+
+Verification:
+
+- the prepared “Look at the Sky” MIDI exposed two required notes;
+- injected NoteOn/NoteOff pairs were accepted by the active player;
+- `matched_notes` increased to `2` without direct statistic mutation;
+- invalid MIDI channel/note ranges are rejected by protocol tests;
+- two MIDI-file tests, fifty practice/core tests and forty-eight application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `6fd60aa`.
+
 ### Cycle 034 — Native loop and restart coverage
 
 State: **DONE**
