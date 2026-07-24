@@ -177,7 +177,8 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                     r#""required_notes":{},"required_note_pitches":{},"input_latency_ms":{},"#,
                     r#""fingerings_available":{},"fingerings_enabled":{},"#,
                     r#""fingering_count":{},"manual_fingering_count":{},"#,
-                    r#""fingering_crossing_count":{},"fingering_editor_active":{}"#,
+                    r#""fingering_crossing_count":{},"fingering_editor_active":{},"#,
+                    r#""suggested_finger":{},"suggestion_confidence_percent":{}"#,
                     "}}}}\n"
                 ),
                 snapshot.wait_for_notes,
@@ -201,6 +202,8 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                 snapshot.manual_fingering_count,
                 snapshot.fingering_crossing_count,
                 snapshot.fingering_editor_active,
+                json_number(snapshot.suggested_finger),
+                json_number(snapshot.suggestion_confidence_percent),
             ),
             None => r#"{"ok":true,"snapshot":null}"#.to_owned() + "\n",
         },

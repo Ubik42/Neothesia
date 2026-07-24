@@ -65,6 +65,8 @@ pub struct DebugPracticeSnapshot {
     pub manual_fingering_count: usize,
     pub fingering_crossing_count: usize,
     pub fingering_editor_active: bool,
+    pub suggested_finger: Option<usize>,
+    pub suggestion_confidence_percent: Option<usize>,
 }
 
 #[cfg(debug_assertions)]

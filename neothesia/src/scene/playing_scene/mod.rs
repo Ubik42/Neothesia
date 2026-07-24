@@ -1,4 +1,7 @@
 use midi_file::midly::MidiMessage;
+use neothesia_core::fingering::{
+    FingerSuggestion, FingeringHand, FingeringNote, suggest_fingerings,
+};
 use neothesia_core::library::{FingerHint, save_song_fingerings};
 use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, ExpressionSummary, PracticeHands,
@@ -61,6 +64,10 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_FINGERING_ASSIGN_1: &str = "practice.player.fingering-assign-1";
     #[cfg(any(debug_assertions, test))]
     pub const PLAYER_FINGERING_CLEAR: &str = "practice.player.fingering-clear";
+    #[cfg(any(debug_assertions, test))]
+    pub const PLAYER_FINGERING_SUGGEST: &str = "practice.player.fingering-suggest";
+    #[cfg(any(debug_assertions, test))]
+    pub const PLAYER_FINGERING_ACCEPT: &str = "practice.player.fingering-accept";
     #[cfg(debug_assertions)]
     pub const PLAYER_RESTART: &str = "practice.player.restart";
     pub const COMPLETION_OVERVIEW: &str = "practice.completion.tab.overview";
@@ -110,6 +117,8 @@ pub(crate) mod practice_ui_ids {
         PLAYER_FINGERING_NEXT,
         PLAYER_FINGERING_ASSIGN_1,
         PLAYER_FINGERING_CLEAR,
+        PLAYER_FINGERING_SUGGEST,
+        PLAYER_FINGERING_ACCEPT,
         PLAYER_RESTART,
         COMPLETION_OVERVIEW,
         COMPLETION_TECHNIQUE,
@@ -135,6 +144,8 @@ enum DebugPracticeAction {
     NextFingeringTarget,
     AssignFingerOne,
     ClearFinger,
+    SuggestFinger,
+    AcceptFingerSuggestion,
     Restart,
     ShowOverview,
     ShowTechnique,
@@ -156,6 +167,8 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_FINGERING_NEXT => Some(Self::NextFingeringTarget),
             practice_ui_ids::PLAYER_FINGERING_ASSIGN_1 => Some(Self::AssignFingerOne),
             practice_ui_ids::PLAYER_FINGERING_CLEAR => Some(Self::ClearFinger),
+            practice_ui_ids::PLAYER_FINGERING_SUGGEST => Some(Self::SuggestFinger),
+            practice_ui_ids::PLAYER_FINGERING_ACCEPT => Some(Self::AcceptFingerSuggestion),
             practice_ui_ids::PLAYER_RESTART => Some(Self::Restart),
             practice_ui_ids::COMPLETION_OVERVIEW => Some(Self::ShowOverview),
             practice_ui_ids::COMPLETION_TECHNIQUE => Some(Self::ShowTechnique),
@@ -198,6 +211,7 @@ struct FingeringTarget {
 struct FingeringEditor {
     targets: Vec<FingeringTarget>,
     selected: usize,
+    suggestion: Option<(usize, FingerSuggestion)>,
 }
 
 impl FingeringEditor {
@@ -243,7 +257,11 @@ impl FingeringEditor {
         let selected = targets
             .partition_point(|target| target.start < score_time)
             .min(targets.len() - 1);
-        Some(Self { targets, selected })
+        Some(Self {
+            targets,
+            selected,
+            suggestion: None,
+        })
     }
 
     fn target(&self) -> FingeringTarget {
@@ -257,6 +275,9 @@ impl FingeringEditor {
             .min(self.targets.len() - 1);
         let changed = next != self.selected;
         self.selected = next;
+        if changed {
+            self.suggestion = None;
+        }
         changed
     }
 }
@@ -553,7 +574,7 @@ impl PlayingScene {
             .map(|finger| format!(" · current {finger}"))
             .unwrap_or_default();
         self.toast_manager.toast(format!(
-            "FINGER EDIT · {part} M{measure} {pitch}{current} · ←/→ select · 1–5 assign · Del clear"
+            "FINGER EDIT · {part} M{measure} {pitch}{current} · ←/→ select · 1–5 assign · G suggest"
         ));
     }
 
@@ -585,6 +606,9 @@ impl PlayingScene {
         if let Some(labels) = self.note_labels.as_mut() {
             labels.set_fingering(key, finger);
         }
+        if let Some(editor) = self.fingering_editor.as_mut() {
+            editor.suggestion = None;
+        }
 
         if finger.is_some() {
             if let Some(editor) = self.fingering_editor.as_mut() {
@@ -595,6 +619,94 @@ impl PlayingScene {
             self.toast_fingering_target(target);
         }
         true
+    }
+
+    fn request_fingering_suggestion(&mut self) -> bool {
+        let Some(target) = self.fingering_editor.as_ref().map(FingeringEditor::target) else {
+            return false;
+        };
+        let song = self.player.song();
+        let hand = song
+            .config
+            .tracks
+            .iter()
+            .find(|track| track.track_id == target.track_id)
+            .and_then(|track| match track.practice_part {
+                PracticePart::RightHand => Some(FingeringHand::Right),
+                PracticePart::LeftHand => Some(FingeringHand::Left),
+                PracticePart::Other => None,
+            });
+        let Some(hand) = hand else {
+            self.toast_manager
+                .toast("Suggestion unavailable: mark this track as left or right hand first");
+            return false;
+        };
+        let Some(track) = song
+            .file
+            .tracks
+            .iter()
+            .find(|track| track.track_id == target.track_id)
+        else {
+            return false;
+        };
+        let anchors: std::collections::HashMap<_, _> = song
+            .manual_fingering_hints
+            .iter()
+            .filter(|hint| hint.track_id == target.track_id)
+            .map(|hint| (hint.note_index, hint.finger))
+            .collect();
+        let notes: Vec<_> = track
+            .notes
+            .iter()
+            .enumerate()
+            .map(|(note_index, note)| FingeringNote {
+                pitch: note.note,
+                onset: note.start,
+                anchored_finger: (note_index != target.note_index)
+                    .then(|| anchors.get(&note_index).copied())
+                    .flatten(),
+            })
+            .collect();
+        let Some(suggestion) = suggest_fingerings(&notes, hand)
+            .get(target.note_index)
+            .copied()
+            .flatten()
+        else {
+            self.toast_manager
+                .toast("No suggestion: this note belongs to a chord not modeled yet");
+            return false;
+        };
+        let selected = self.fingering_editor.as_ref().unwrap().selected;
+        self.fingering_editor.as_mut().unwrap().suggestion = Some((selected, suggestion));
+        self.toast_manager.toast(format!(
+            "SUGGEST {} · {}% · {} · Enter accepts",
+            suggestion.finger,
+            suggestion.confidence_percent,
+            suggestion.reason.explanation(hand)
+        ));
+        true
+    }
+
+    fn accept_fingering_suggestion(&mut self) -> bool {
+        let Some(editor) = self.fingering_editor.as_ref() else {
+            return false;
+        };
+        let Some((selected, suggestion)) = editor.suggestion else {
+            self.toast_manager
+                .toast("Press G to preview a suggestion before accepting it");
+            return false;
+        };
+        if selected != editor.selected {
+            return false;
+        }
+        self.set_selected_finger(Some(suggestion.finger))
+    }
+
+    #[cfg(debug_assertions)]
+    fn pending_fingering_suggestion(&self) -> Option<FingerSuggestion> {
+        let editor = self.fingering_editor.as_ref()?;
+        let (selected, suggestion) = editor.suggestion?;
+        (selected == editor.selected).then_some(suggestion)
     }
 
     fn fingering_state(&self) -> (bool, bool) {
@@ -2031,6 +2143,14 @@ impl Scene for PlayingScene {
                 self.set_selected_finger(None);
                 return;
             }
+            if event.key_released(Key::Character("g")) {
+                self.request_fingering_suggestion();
+                return;
+            }
+            if event.key_released(Key::Named(NamedKey::Enter)) {
+                self.accept_fingering_suggestion();
+                return;
+            }
             for (key, finger) in [("1", 1), ("2", 2), ("3", 3), ("4", 4), ("5", 5)] {
                 if event.key_released(Key::Character(key)) {
                     self.set_selected_finger(Some(finger));
@@ -2131,6 +2251,16 @@ impl Scene for PlayingScene {
                     return false;
                 }
             }
+            DebugPracticeAction::SuggestFinger => {
+                if !self.request_fingering_suggestion() {
+                    return false;
+                }
+            }
+            DebugPracticeAction::AcceptFingerSuggestion => {
+                if !self.accept_fingering_suggestion() {
+                    return false;
+                }
+            }
             DebugPracticeAction::Restart => self.restart_practice_scope(),
             DebugPracticeAction::Back => {
                 ctx.proxy
@@ -2189,6 +2319,12 @@ impl Scene for PlayingScene {
                 .as_ref()
                 .map_or(0, NoteLabels::fingering_crossing_count),
             fingering_editor_active: self.fingering_editor_active(),
+            suggested_finger: self
+                .pending_fingering_suggestion()
+                .map(|suggestion| usize::from(suggestion.finger)),
+            suggestion_confidence_percent: self
+                .pending_fingering_suggestion()
+                .map(|suggestion| usize::from(suggestion.confidence_percent)),
         })
     }
 
@@ -2610,6 +2746,14 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_FINGERING_CLEAR,
                 DebugPracticeAction::ClearFinger,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_SUGGEST,
+                DebugPracticeAction::SuggestFinger,
+            ),
+            (
+                practice_ui_ids::PLAYER_FINGERING_ACCEPT,
+                DebugPracticeAction::AcceptFingerSuggestion,
             ),
             (
                 practice_ui_ids::PLAYER_RESTART,

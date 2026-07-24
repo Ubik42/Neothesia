@@ -6,6 +6,7 @@ pub use wgpu_jumpstart::{Color, Gpu, TransformUniform, Uniform};
 
 pub mod config;
 pub mod exercise;
+pub mod fingering;
 pub mod font_system;
 pub mod library;
 pub mod practice;

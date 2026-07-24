@@ -301,8 +301,19 @@ try {
             $editing.fingering_editor_active -and $editing.paused
         ) "Finger editor did not open on a paused imported MIDI"
 
+        $suggest = Invoke-DebugDriver (
+            "ACTION practice.player.fingering-suggest"
+        )
+        $suggested = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        Assert-True (
+            $suggest.ok -and $suggest.accepted -and
+            [int]$suggested.suggested_finger -ge 1 -and
+            [int]$suggested.suggested_finger -le 5 -and
+            [int]$suggested.suggestion_confidence_percent -gt 0
+        ) "Explainable fingering suggestion was not previewed"
+
         $assign = Invoke-DebugDriver (
-            "ACTION practice.player.fingering-assign-1"
+            "ACTION practice.player.fingering-accept"
         )
         $assigned = (Invoke-DebugDriver "SNAPSHOT").snapshot
         Assert-True (
@@ -312,7 +323,7 @@ try {
             $assigned.fingerings_enabled -and
             [int]$assigned.fingering_count -eq 1 -and
             [int]$assigned.manual_fingering_count -eq 1
-        ) "Assigning finger 1 did not update live guidance"
+        ) "Accepting the suggestion did not update live guidance"
 
         $closeFingeringEditor = Invoke-DebugDriver (
             "ACTION practice.player.fingering-editor"
@@ -338,12 +349,14 @@ try {
             $sidecarText -match "fingerings:\s*\[" -and
             $sidecarText -match "track_id:" -and
             $sidecarText -match "note_index:" -and
-            $sidecarText -match "finger:\s*1"
-        ) "Saved sidecar did not contain the assigned exact-note hint"
+            $sidecarText -match "finger:\s*[1-5]"
+        ) "Saved sidecar did not contain the accepted exact-note hint"
 
         return [pscustomobject]@{
             Midi = $midi
             EditorPaused = [bool]$editing.paused
+            SuggestedFinger = [int]$suggested.suggested_finger
+            SuggestionConfidence = [int]$suggested.suggestion_confidence_percent
             FingeringCount = [int]$assigned.fingering_count
             ManualFingeringCount = [int]$assigned.manual_fingering_count
             Sidecar = $sidecarPath
