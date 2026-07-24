@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 039 — Exercise plans as playable MIDI
+
+State: **DONE**
+
+Delivered:
+
+- converted every exercise plan to an in-memory Type-1 MIDI;
+- emitted a conductor track with requested tempo and 4/4 timing;
+- emitted named, separate right- and left-hand tracks on distinct channels;
+- preserved melodic and chord spacing with an 80% note gate;
+- generated concise exercise names and stable content identities;
+- passed both-hand exercises through the normal `Song` configuration;
+- verified that existing both/right/left-hand practice controls recognize the
+  generated tracks;
+- completed `EX-001B` while leaving the menu/player-facing `EX-001` open.
+
+Verification:
+
+- repeated conversion of the same plan produces the same content identity;
+- changing tempo changes both real note timing and content identity;
+- C-major 60 BPM notes last 800 ms and 120 BPM notes last 400 ms;
+- generated both-hand songs infer exactly one left and one right practice part;
+- two MIDI-file tests, fifty-eight practice/core tests and fifty application
+  tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `7fe91f4`.
+
 ### Cycle 038 — Deterministic exercise plans
 
 State: **DONE**

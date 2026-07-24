@@ -67,6 +67,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   ranking.
 - [x] `COACH-002` Schedule local spaced review.
 - [x] `EX-001A` Define deterministic scale, arpeggio and chord exercise plans.
+- [x] `EX-001B` Convert exercise plans to stable in-memory Type-1 MIDI.
 - [ ] `EX-001` Add scales, arpeggios and chord exercise mode.
 
 ## RESEARCH — architecture spikes

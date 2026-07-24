@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 039: Exercise plans as playable MIDI (DONE)
+
+### Outcome
+
+Generated exercises are now valid songs rather than isolated note lists. A
+scale, arpeggio or chord plan can enter Neothesia's existing timing, rendering,
+wait-mode and scoring pipeline with its hands recognized automatically.
+
+### Implemented
+
+- Converted `ExercisePlan` to memory-backed Type-1 MIDI.
+- Added a 480-PPQ conductor track with requested tempo and 4/4 meter.
+- Added separate named tracks and MIDI channels for right and left hands.
+- Used an 80% note gate so successive exercise notes retain audible separation.
+- Preserved one-beat melodic steps and two-beat chord steps.
+- Generated concise names containing key, tonality, pattern, hand scope and
+  tempo.
+- Kept source paths empty for generated material.
+- Produced deterministic content identities from the generated MIDI.
+- Verified both-hand track pitch centers through the normal `SongConfig`
+  inference path.
+- Reused the existing Both, Right and Left practice-hand controls.
+
+### Verification
+
+- Stable Type-1 format, track count, hand roots and note-count test.
+- Exact note-duration tests at 60 and 120 BPM.
+- Stable-identity and tempo-sensitive-identity tests.
+- Application integration test for generated-song hand recognition.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty-eight core tests and fifty
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `7fe91f4`
+(`feat: convert exercise plans to MIDI`).
+
+### Known limitations
+
+- Exercise creation is not exposed in the menu yet.
+- Generated exercises still need explicit source metadata before history and
+  repertoire can distinguish them without relying on content identity.
+- Single-hand plans intentionally cannot offer a two-hand toggle.
+- Fingering remains deferred pending reviewed per-key/per-hand tables.
+
 ## 2026-07-25 — Cycle 038: Deterministic exercise plans (DONE)
 
 ### Outcome

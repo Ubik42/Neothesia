@@ -34,12 +34,19 @@ apex once. Melodic moments last one beat; chord moments last two beats.
 `neothesia_core::exercise::ExercisePlan` is deterministic and independent of
 rendering. The next layers are:
 
-1. convert a plan to an in-memory Type-1 MIDI with named right/left tracks;
+1. ~~convert a plan to an in-memory Type-1 MIDI with named right/left tracks;~~
 2. identify generated exercises separately from file-backed repertoire;
 3. add a focused preset editor and preview to the home screen;
 4. pass the generated `Song` into the existing player;
 5. save exercise progress by normalized specification identity;
 6. add fingering only from reviewed per-key/per-hand tables.
+
+The MIDI conversion uses a Type-1 file with a conductor track plus distinct
+right- and left-hand tracks. It emits 480 ticks per beat, 4/4 meter, the
+requested tempo and an 80% note gate. The result is memory-backed, has a stable
+content identity for the same specification and is accepted by the regular
+`Song` configuration. Both-hand plans therefore inherit the existing hand
+practice shortcuts without a second player implementation.
 
 Fingering is deliberately absent from the generator today. Generic
 one-pattern-fits-all scale fingering would teach incorrect crossings in several
