@@ -200,7 +200,24 @@ pub struct AttemptSummary {
     #[serde(default)]
     pub timing: TimingSummary,
     #[serde(default)]
+    pub chords: ChordSummary,
+    #[serde(default)]
     pub expression: ExpressionSummary,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ChordSummary {
+    pub eligible_chords: usize,
+    pub complete_chords: usize,
+    pub incomplete_chords: usize,
+    pub median_attack_span_ms: Option<u32>,
+    pub maximum_attack_span_ms: Option<u32>,
+}
+
+impl ChordSummary {
+    pub fn has_profile(self) -> bool {
+        self.complete_chords >= 4
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -907,6 +924,7 @@ impl PracticeMatcher {
         let mut measure_timing = BTreeMap::<usize, Vec<i32>>::new();
         let mut parts = BTreeMap::<PracticePart, PracticeBreakdown>::new();
         let mut part_timing = BTreeMap::<PracticePart, Vec<i32>>::new();
+        let mut chords = BTreeMap::<(Duration, usize), (usize, Vec<i32>)>::new();
 
         for result in &self.results {
             let Some(target) = result.target else {
@@ -931,6 +949,19 @@ impl PracticeMatcher {
                 .record(result.judgement);
             if let Some(offset) = result.timing_offset_ms {
                 part_timing.entry(target.part).or_default().push(offset);
+            }
+            if matches!(
+                result.judgement,
+                PracticeJudgement::Matched(_) | PracticeJudgement::Missed
+            ) && target.measure != 0
+            {
+                let (target_notes, offsets) = chords
+                    .entry((target.score_time, target.measure))
+                    .or_default();
+                *target_notes += 1;
+                if let Some(offset) = result.timing_offset_ms {
+                    offsets.push(offset);
+                }
             }
         }
 
@@ -963,6 +994,7 @@ impl PracticeMatcher {
                 })
                 .collect(),
             timing: summarize_timing_offsets(&self.timing_offsets_ms),
+            chords: summarize_chords(chords),
             expression: self.expression.summary(),
         }
     }
@@ -1065,6 +1097,34 @@ fn summarize_timing_offsets(offsets: &[i32]) -> TimingSummary {
         matched_samples: ordered.len(),
         median_offset_ms,
         median_deviation_ms,
+    }
+}
+
+fn summarize_chords(chords: BTreeMap<(Duration, usize), (usize, Vec<i32>)>) -> ChordSummary {
+    let mut eligible_chords = 0;
+    let mut complete_chords = 0;
+    let mut incomplete_chords = 0;
+    let mut spans = Vec::new();
+    for (_, (target_notes, mut offsets)) in chords {
+        if target_notes < 2 {
+            continue;
+        }
+        eligible_chords += 1;
+        if offsets.len() != target_notes {
+            incomplete_chords += 1;
+            continue;
+        }
+        complete_chords += 1;
+        offsets.sort_unstable();
+        spans.push(offsets.last().unwrap().abs_diff(offsets[0]));
+    }
+    spans.sort_unstable();
+    ChordSummary {
+        eligible_chords,
+        complete_chords,
+        incomplete_chords,
+        median_attack_span_ms: median_u32(&spans),
+        maximum_attack_span_ms: spans.last().copied(),
     }
 }
 
@@ -1399,6 +1459,56 @@ mod tests {
         assert_eq!(timing(PracticePart::LeftHand).median_offset_ms, Some(60));
         assert_eq!(timing(PracticePart::RightHand).median_deviation_ms, Some(0));
         assert!(timing(PracticePart::LeftHand).has_profile());
+    }
+
+    #[test]
+    fn chord_profile_uses_only_complete_exact_onset_score_chords() {
+        let mut matcher = matcher();
+        let target = |note, score_time, measure| PracticeTarget {
+            note,
+            velocity: 80,
+            score_time,
+            duration: Duration::from_millis(400),
+            track_id: 1,
+            measure,
+            part: PracticePart::RightHand,
+        };
+
+        for (index, span) in [20, 30, 40, 50].into_iter().enumerate() {
+            let onset = Duration::from_millis(1_000 + index as u64 * 1_000);
+            for note in [60, 64, 67] {
+                matcher.score_target(onset, target(note, onset, index + 1), true);
+            }
+            for (note, offset) in [(60, 0), (64, span / 2), (67, span)] {
+                matcher.user_note(onset + Duration::from_millis(offset), note, true);
+            }
+        }
+
+        let incomplete_onset = Duration::from_secs(6);
+        for note in [60, 64, 67] {
+            matcher.score_target(incomplete_onset, target(note, incomplete_onset, 6), true);
+        }
+        matcher.user_note(incomplete_onset, 60, true);
+        matcher.user_note(incomplete_onset + Duration::from_millis(20), 64, true);
+
+        for (index, note) in [72, 76, 79].into_iter().enumerate() {
+            let score_time = Duration::from_millis(7_000 + index as u64 * 40);
+            matcher.score_target(score_time, target(note, score_time, 7), true);
+            matcher.user_note(score_time, note, true);
+        }
+        matcher.finish();
+
+        assert_eq!(
+            matcher.summary().chords,
+            ChordSummary {
+                eligible_chords: 5,
+                complete_chords: 4,
+                incomplete_chords: 1,
+                median_attack_span_ms: Some(35),
+                maximum_attack_span_ms: Some(50),
+            }
+        );
+        assert!(matcher.summary().chords.has_profile());
     }
 
     #[test]

@@ -584,16 +584,25 @@ impl PlayingScene {
                             .build(ui);
                     }
 
+                    nuon::label()
+                        .x(28.0)
+                        .y(342.0)
+                        .size(panel_w - 56.0, 24.0)
+                        .font_size(14.0)
+                        .color([184, 178, 205])
+                        .text(format_chord_profile(summary.chords))
+                        .build(ui);
+
                     nuon::quad()
                         .x(28.0)
-                        .y(350.0)
+                        .y(374.0)
                         .size(panel_w - 56.0, 1.0)
                         .color([83, 78, 98])
                         .build(ui);
 
                     nuon::label()
                         .x(28.0)
-                        .y(364.0)
+                        .y(388.0)
                         .size(panel_w - 56.0, 44.0)
                         .font_size(17.0)
                         .text(review)
@@ -602,7 +611,7 @@ impl PlayingScene {
                     if let Some(session_count) = self.saved_session_count {
                         nuon::label()
                             .x(28.0)
-                            .y(404.0)
+                            .y(432.0)
                             .size(panel_w - 56.0, 28.0)
                             .font_size(14.0)
                             .color([143, 205, 171])
@@ -1087,6 +1096,25 @@ fn format_hand_timing(parts: &[neothesia_core::practice::PartSummary]) -> String
     )
 }
 
+fn format_chord_profile(chords: neothesia_core::practice::ChordSummary) -> String {
+    if chords.eligible_chords == 0 {
+        return "Chord attacks: no exact-onset block chords in this take".to_owned();
+    }
+    if !chords.has_profile() {
+        return format!(
+            "Chord attacks: need 4 complete chords · {} complete / {} incomplete",
+            chords.complete_chords, chords.incomplete_chords
+        );
+    }
+    format!(
+        "Chord attacks (descriptive): median span {}ms · max {}ms · {}/{} complete",
+        chords.median_attack_span_ms.unwrap_or(0),
+        chords.maximum_attack_span_ms.unwrap_or(0),
+        chords.complete_chords,
+        chords.eligible_chords,
+    )
+}
+
 fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
     let velocity = expression.velocity;
     let dynamics = if expression.has_velocity_evidence() {
@@ -1520,5 +1548,29 @@ mod tests {
 
         assert!(copy.contains("right: 14ms late, spread 9ms"));
         assert!(copy.contains("left: need 2 more"));
+    }
+
+    #[test]
+    fn chord_copy_requires_complete_exact_onset_evidence() {
+        assert!(format_chord_profile(Default::default()).contains("no exact-onset"));
+        assert!(
+            format_chord_profile(neothesia_core::practice::ChordSummary {
+                eligible_chords: 4,
+                complete_chords: 3,
+                incomplete_chords: 1,
+                ..Default::default()
+            })
+            .contains("need 4 complete")
+        );
+        assert!(
+            format_chord_profile(neothesia_core::practice::ChordSummary {
+                eligible_chords: 5,
+                complete_chords: 4,
+                incomplete_chords: 1,
+                median_attack_span_ms: Some(28),
+                maximum_attack_span_ms: Some(61),
+            })
+            .contains("median span 28ms")
+        );
     }
 }
