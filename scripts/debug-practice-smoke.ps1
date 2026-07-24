@@ -1,6 +1,9 @@
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, ParameterSetName = "Midi")]
     [string]$MidiPath,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "CompletionFixture")]
+    [switch]$CompletionFixture,
 
     [string]$Executable = "target\debug\neothesia.exe",
 
@@ -10,7 +13,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repository = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$midi = (Resolve-Path -LiteralPath $MidiPath).Path
 $executablePath = if ([System.IO.Path]::IsPathRooted($Executable)) {
     $Executable
 }
@@ -39,6 +41,24 @@ $runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) (
 )
 [System.IO.Directory]::CreateDirectory($runDirectory) | Out-Null
 Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDirectory
+
+if ($CompletionFixture) {
+    $midi = Join-Path $runDirectory "completion-fixture.mid"
+    # Type-1, 480 PPQ, 4/4 at 120 BPM: one C5 right-hand note and one C3
+    # left-hand note at beat two, followed by enough time to finish the take.
+    $fixtureBase64 = @(
+        "TVRoZAAAAAYAAQADAeBNVHJrAAAAFAD/UQMHoSAA/1gEBAIYCI8A/y8ATVRyawAA"
+        "AB0A/wMKUmlnaHQgSGFuZINgkEhQgXCASACJMP8vAE1UcmsAAAAcAP8DCUxlZnQg"
+        "SGFuZINgkDBQgXCAMACJMP8vAA=="
+    ) -join ""
+    [System.IO.File]::WriteAllBytes(
+        $midi,
+        [System.Convert]::FromBase64String($fixtureBase64)
+    )
+}
+else {
+    $midi = (Resolve-Path -LiteralPath $MidiPath).Path
+}
 
 function Invoke-DebugDriver([string]$Command) {
     $client = [System.Net.Sockets.TcpClient]::new()
@@ -122,6 +142,91 @@ try {
     }
     Assert-True ($null -ne $player) "Player scene did not become active"
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
+
+    if ($CompletionFixture) {
+        $completion = $null
+        for ($attempt = 0; $attempt -lt 200; $attempt++) {
+            $candidate = (Invoke-DebugDriver "SNAPSHOT").snapshot
+            if ($null -ne $candidate.completion_tab) {
+                $completion = $candidate
+                break
+            }
+            foreach ($note in @($candidate.required_note_pitches)) {
+                $noteOn = Invoke-DebugDriver "MIDI 0 $note 100"
+                Assert-True (
+                    $noteOn.ok -and $noteOn.accepted
+                ) "Completion fixture note-on was rejected"
+                $noteOff = Invoke-DebugDriver "MIDI 0 $note 0"
+                Assert-True (
+                    $noteOff.ok -and $noteOff.accepted
+                ) "Completion fixture note-off was rejected"
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        Assert-True ($null -ne $completion) "Completion fixture did not finish"
+        Assert-True (
+            $completion.completion_tab -eq "overview"
+        ) "Completion did not open on Overview"
+        Assert-True ($completion.matched_notes -ge 2) "Fixture notes were not scored"
+
+        $technique = Invoke-DebugDriver "ACTION practice.completion.tab.technique"
+        Assert-True (
+            $technique.ok -and $technique.accepted
+        ) "Technique tab action was rejected"
+        Assert-True (
+            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "technique"
+        ) "Technique tab did not become active"
+
+        $history = Invoke-DebugDriver "ACTION practice.completion.tab.history"
+        Assert-True (
+            $history.ok -and $history.accepted
+        ) "History tab action was rejected"
+        Assert-True (
+            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "history"
+        ) "History tab did not become active"
+
+        $overview = Invoke-DebugDriver "ACTION practice.completion.tab.overview"
+        Assert-True (
+            $overview.ok -and $overview.accepted
+        ) "Overview tab action was rejected"
+        Assert-True (
+            (Invoke-DebugDriver "SNAPSHOT").snapshot.completion_tab -eq "overview"
+        ) "Overview tab did not become active"
+
+        $retry = Invoke-DebugDriver "ACTION practice.completion.retry"
+        Assert-True ($retry.ok -and $retry.accepted) "Completion Retry was rejected"
+        $afterRetry = (Invoke-DebugDriver "SNAPSHOT").snapshot
+        Assert-True (
+            $null -eq $afterRetry.completion_tab
+        ) "Retry did not leave the completion screen"
+        Assert-True (
+            $afterRetry.matched_notes -eq 0
+        ) "Retry did not reset the scored attempt"
+
+        $back = Invoke-DebugDriver "ACTION practice.player.back"
+        Assert-True ($back.ok -and $back.accepted) "Return-to-menu action was rejected"
+        Start-Sleep -Milliseconds 100
+        Assert-True (
+            $null -eq (Invoke-DebugDriver "SNAPSHOT").snapshot
+        ) "Player did not return to menu"
+
+        $exit = Invoke-DebugDriver "EXIT"
+        Assert-True $exit.ok "Clean debug exit was not acknowledged"
+        if (-not $process.WaitForExit(5000)) {
+            throw "Neothesia did not exit within five seconds"
+        }
+
+        return [pscustomobject]@{
+            Midi = $midi
+            CompletionTab = $completion.completion_tab
+            MatchedNotes = [int]$completion.matched_notes
+            TechniqueTab = "passed"
+            HistoryTab = "passed"
+            OverviewTab = "passed"
+            RetryReset = [int]$afterRetry.matched_notes
+            ExitCode = $process.ExitCode
+        }
+    }
 
     $waiting = $null
     for ($attempt = 0; $attempt -lt 150; $attempt++) {

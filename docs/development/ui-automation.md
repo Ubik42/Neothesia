@@ -89,12 +89,25 @@ toggles wait mode, cycles hands when available, exercises loop/restart, returns
 to the menu and requests a clean exit. It removes its temporary settings,
 history and SoundFont copy afterward.
 
+Run the deterministic completion path without supplying a song:
+
+```powershell
+.\scripts\debug-practice-smoke.ps1 -CompletionFixture
+```
+
+This mode creates a tiny Type-1 two-hand MIDI inside the isolated run
+directory, performs both required notes, verifies completion opens on Overview,
+switches through Technique and History, returns to Overview, selects Retry and
+asserts that the scored attempt resets. The fixture is deleted with the run
+directory.
+
 The next automation layer should:
 
 1. capture deterministic screenshots at supported window sizes;
 2. cover parameterized calibration and recommendation actions without
    duplicating their product logic;
-3. add a short deterministic MIDI fixture that reaches completion;
+3. extend the completion fixture through calibration and recommendations when
+   it can carry enough meaningful evidence;
 4. retain compile-time exclusion from release builds.
 
 Screen-coordinate automation remains a temporary smoke-test fallback and must
