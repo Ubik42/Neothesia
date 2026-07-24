@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{NeothesiaEvent, context::Context, output_manager::OutputDescriptor, song::Song};
+use neothesia_core::library::LibraryIndex;
 use neothesia_core::practice_history::SongPracticeSetup;
 
 type InputDescriptor = midi_io::MidiInputPort;
@@ -16,6 +17,9 @@ pub struct UiState {
 
     pub song: Option<Song>,
     pub library_message: Option<String>,
+    pub library_index: Option<LibraryIndex>,
+    pub library_scanning: bool,
+    pub library_query: String,
 
     page_stack: VecDeque<Page>,
 }
@@ -33,6 +37,9 @@ impl UiState {
             is_loading: false,
             song,
             library_message: None,
+            library_index: None,
+            library_scanning: false,
+            library_query: String::new(),
 
             page_stack,
         }

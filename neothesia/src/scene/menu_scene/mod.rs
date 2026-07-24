@@ -11,7 +11,7 @@ use neo_btn::{neo_btn, neo_btn_icon};
 mod settings;
 mod tracks;
 
-use std::{future::Future, hash::Hash, time::Duration};
+use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time::Duration};
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
 use neothesia_core::render::{BgPipeline, ImageIdentifier, QuadRenderer, TextRenderer};
@@ -296,26 +296,114 @@ impl MenuScene {
     }
 
     fn library_page_ui(&mut self, ctx: &mut Context, ui: &mut nuon::Ui) {
+        if self.state.library_index.is_none() && !self.state.library_scanning {
+            self.start_library_scan(ctx.config.watched_folders().to_vec());
+        }
+
         let win_w = ctx.window_state.logical_size.width;
         let win_h = ctx.window_state.logical_size.height;
         let row_w = (win_w - 80.0).clamp(420.0, 760.0);
-        let recent = ctx.practice_history.recent_songs(24);
+        let query = self.state.library_query.trim().to_owned();
+        let mut rows = BTreeMap::<String, LibraryRow>::new();
+        for song in ctx.practice_history.recent_songs(usize::MAX) {
+            if library_text_matches(&query, &song.display_name, song.source_path.as_deref()) {
+                rows.insert(
+                    song.content_id.clone(),
+                    LibraryRow {
+                        content_id: song.content_id,
+                        display_name: song.display_name,
+                        source_path: song.source_path,
+                        session_count: song.session_count,
+                        latest_accuracy: song.latest_accuracy,
+                        last_used_unix_ms: song.last_used_unix_ms,
+                    },
+                );
+            }
+        }
+        if let Some(index) = &self.state.library_index {
+            for song in index.search(&query) {
+                let available_path = song
+                    .source_paths
+                    .iter()
+                    .find(|path| path.is_file())
+                    .cloned();
+                rows.entry(song.content_id.clone())
+                    .and_modify(|row| {
+                        if available_path.is_some() {
+                            row.source_path = available_path.clone();
+                        }
+                    })
+                    .or_insert_with(|| LibraryRow {
+                        content_id: song.content_id.clone(),
+                        display_name: song.display_name.clone(),
+                        source_path: available_path,
+                        session_count: 0,
+                        latest_accuracy: None,
+                        last_used_unix_ms: 0,
+                    });
+            }
+        }
+        let mut rows: Vec<_> = rows.into_values().collect();
+        rows.sort_by(|left, right| {
+            right
+                .last_used_unix_ms
+                .cmp(&left.last_used_unix_ms)
+                .then_with(|| left.display_name.cmp(&right.display_name))
+        });
 
         nuon::label()
             .x(30.0)
             .y(18.0)
-            .size(win_w - 60.0, 46.0)
+            .size((win_w - 330.0).max(220.0), 46.0)
             .font_size(30.0)
             .bold(true)
             .text("Practice Library")
             .build(ui);
+        if nuon::button()
+            .x(win_w - 280.0)
+            .y(22.0)
+            .size(120.0, 34.0)
+            .label("Add Folder")
+            .color([74, 68, 88])
+            .hover_color([109, 78, 164])
+            .preseed_color([132, 96, 191])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            self.choose_library_folder(ctx.config.watched_folders().to_vec());
+        }
+        if nuon::button()
+            .x(win_w - 150.0)
+            .y(22.0)
+            .size(120.0, 34.0)
+            .label("Refresh")
+            .color([74, 68, 88])
+            .hover_color([87, 81, 101])
+            .preseed_color([109, 78, 164])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            self.start_library_scan(ctx.config.watched_folders().to_vec());
+        }
         nuon::label()
             .x(30.0)
             .y(60.0)
             .size(win_w - 60.0, 28.0)
             .font_size(15.0)
             .color([178, 175, 190])
-            .text("Recent pieces · saved by MIDI content, not filename")
+            .text(format!(
+                "Search: {}  ·  type anywhere{}",
+                if query.is_empty() {
+                    "all pieces"
+                } else {
+                    query.as_str()
+                },
+                if self.state.library_scanning {
+                    "  ·  indexing…"
+                } else {
+                    ""
+                }
+            ))
             .build(ui);
 
         if let Some(message) = self.state.library_message.as_deref() {
@@ -329,13 +417,17 @@ impl MenuScene {
                 .build(ui);
         }
 
-        if recent.is_empty() {
+        if rows.is_empty() {
             nuon::label()
                 .x(30.0)
                 .y(140.0)
                 .size(win_w - 60.0, 40.0)
                 .font_size(20.0)
-                .text("No saved pieces yet. Open a MIDI to start your library.")
+                .text(if query.is_empty() {
+                    "No pieces yet. Add a MIDI folder or open a file to begin."
+                } else {
+                    "No pieces match this search."
+                })
                 .build(ui);
         } else {
             nuon::translate().y(126.0).build(ui, |ui| {
@@ -343,7 +435,7 @@ impl MenuScene {
                     .scissor_size(win_w, (win_h - 206.0).max(0.0))
                     .scroll(self.library_scroll)
                     .build(ui, |ui| {
-                        for (index, song) in recent.iter().enumerate() {
+                        for (index, song) in rows.iter().enumerate() {
                             let path_available = song
                                 .source_path
                                 .as_deref()
@@ -409,6 +501,102 @@ impl MenuScene {
             }
         });
     }
+
+    fn start_library_scan(&mut self, roots: Vec<PathBuf>) {
+        if self.state.library_scanning {
+            return;
+        }
+        self.state.library_scanning = true;
+        self.state.library_message = None;
+        self.futures
+            .push(on_async(scan_library(roots), |index, state, _ctx| {
+                let unique = index.songs.len();
+                let seen = index.midi_files_seen;
+                let unreadable = index.unreadable_files;
+                state.library_index = Some(index);
+                state.library_scanning = false;
+                state.library_message = Some(format!(
+                    "Indexed {unique} unique piece{} from {seen} MIDI file{}{}.",
+                    if unique == 1 { "" } else { "s" },
+                    if seen == 1 { "" } else { "s" },
+                    if unreadable == 0 {
+                        String::new()
+                    } else {
+                        format!("; skipped {unreadable} unreadable")
+                    }
+                ));
+            }));
+    }
+
+    fn choose_library_folder(&mut self, roots: Vec<PathBuf>) {
+        if self.state.library_scanning {
+            return;
+        }
+        self.state.library_scanning = true;
+        self.futures.push(on_async(
+            choose_library_folder(),
+            move |folder, state, ctx| {
+                state.library_scanning = false;
+                let Some(folder) = folder else {
+                    return;
+                };
+                if roots.iter().any(|root| root == &folder)
+                    || !ctx.config.add_watched_folder(folder)
+                {
+                    state.library_message = Some("That folder is already watched.".into());
+                    return;
+                }
+                ctx.config.save();
+                state.library_index = None;
+                state.library_message = Some("Folder added; indexing will start now.".into());
+            },
+        ));
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LibraryRow {
+    content_id: String,
+    display_name: String,
+    source_path: Option<PathBuf>,
+    session_count: usize,
+    latest_accuracy: Option<f32>,
+    last_used_unix_ms: u64,
+}
+
+async fn scan_library(roots: Vec<PathBuf>) -> neothesia_core::library::LibraryIndex {
+    crate::utils::task::thread::spawn("midi-library-index".into(), move || {
+        neothesia_core::library::LibraryIndex::scan(&roots)
+    })
+    .join()
+    .await
+    .unwrap_or_default()
+}
+
+async fn choose_library_folder() -> Option<PathBuf> {
+    let folder = rfd::AsyncFileDialog::new()
+        .set_title("Add Piano MIDI Folder")
+        .pick_folder()
+        .await?;
+    Some(folder.path().to_path_buf())
+}
+
+fn library_text_matches(query: &str, name: &str, path: Option<&std::path::Path>) -> bool {
+    let terms: Vec<_> = query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .filter(|term| !term.is_empty())
+        .collect();
+    if terms.is_empty() {
+        return true;
+    }
+    let searchable = format!(
+        "{} {}",
+        name.to_lowercase(),
+        path.map(|path| path.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    );
+    terms.iter().all(|term| searchable.contains(term))
 }
 
 fn truncate_menu_label(label: &str, max_chars: usize) -> String {
@@ -521,6 +709,10 @@ impl Scene for MenuScene {
                 if event.key_pressed(Key::Character("f")) {
                     state::freeplay(&self.state, ctx);
                 }
+
+                if event.key_pressed(Key::Character("l")) {
+                    self.state.go_to(Page::Library);
+                }
             }
             Page::Settings => {
                 if event.key_pressed(Key::Named(NamedKey::Escape)) {
@@ -538,7 +730,21 @@ impl Scene for MenuScene {
             }
             Page::Library => {
                 if event.key_pressed(Key::Named(NamedKey::Escape)) {
-                    self.state.go_back();
+                    if self.state.library_query.is_empty() {
+                        self.state.go_back();
+                    } else {
+                        self.state.library_query.clear();
+                    }
+                } else if event.key_pressed(Key::Named(NamedKey::Backspace)) {
+                    self.state.library_query.pop();
+                } else if !ctx.window_state.modifiers_state.control_key()
+                    && !ctx.window_state.modifiers_state.alt_key()
+                    && let WindowEvent::KeyboardInput { event, .. } = event
+                    && event.state.is_pressed()
+                    && !event.repeat
+                    && let Key::Character(text) = &event.logical_key
+                {
+                    self.state.library_query.push_str(text);
                 }
             }
         }
@@ -547,11 +753,26 @@ impl Scene for MenuScene {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_menu_label;
+    use super::{library_text_matches, truncate_menu_label};
 
     #[test]
     fn library_titles_are_shortened_without_splitting_unicode() {
         assert_eq!(truncate_menu_label("夜に駆ける Piano", 8), "夜に駆ける P…");
         assert_eq!(truncate_menu_label("Clair de Lune", 30), "Clair de Lune");
+    }
+
+    #[test]
+    fn library_search_requires_every_term() {
+        let path = std::path::Path::new("D:/Piano/Debussy/Clair de Lune.mid");
+        assert!(library_text_matches(
+            "debussy lune",
+            "Clair de Lune.mid",
+            Some(path)
+        ));
+        assert!(!library_text_matches(
+            "debussy moonlight",
+            "Clair de Lune.mid",
+            Some(path)
+        ));
     }
 }

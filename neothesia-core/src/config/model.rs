@@ -90,6 +90,8 @@ impl Default for PlaybackConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HistoryV1 {
     pub last_opened_song: Option<PathBuf>,
+    #[serde(default)]
+    pub watched_folders: Vec<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -101,6 +103,7 @@ impl Default for History {
     fn default() -> Self {
         Self::V1(HistoryV1 {
             last_opened_song: None,
+            watched_folders: Vec::new(),
         })
     }
 }

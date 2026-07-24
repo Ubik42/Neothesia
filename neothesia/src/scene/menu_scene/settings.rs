@@ -164,6 +164,66 @@ impl super::MenuScene {
                         );
                     });
 
+                let watched_folders = ctx.config.watched_folders().to_vec();
+                nuon::settings_section("Practice Library")
+                    .width(body_w)
+                    .build(ui, |ui, rows, spacer| {
+                        nuon::settings_row()
+                            .title("Watched MIDI Folders")
+                            .subtitle(if watched_folders.is_empty() {
+                                "No folders added; the library still shows opened pieces".into()
+                            } else {
+                                format!(
+                                    "{} folder{} indexed in the background",
+                                    watched_folders.len(),
+                                    if watched_folders.len() == 1 { "" } else { "s" }
+                                )
+                            })
+                            .body(|ui, row_w, row_h| {
+                                let width = 110.0;
+                                if button()
+                                    .x(row_w - width)
+                                    .y(nuon::center_y(row_h, 31.0))
+                                    .size(width, 31.0)
+                                    .id("add-library-folder")
+                                    .label("Add Folder")
+                                    .build(ui)
+                                {
+                                    self.choose_library_folder(watched_folders.clone());
+                                }
+                            })
+                            .build(ui, rows);
+
+                        for folder in &watched_folders {
+                            spacer(ui);
+                            let title = folder
+                                .file_name()
+                                .map(|name| name.to_string_lossy().to_string())
+                                .unwrap_or_else(|| folder.display().to_string());
+                            nuon::settings_row()
+                                .title(title)
+                                .subtitle(folder.display().to_string())
+                                .body(|ui, row_w, row_h| {
+                                    let width = 90.0;
+                                    if button()
+                                        .x(row_w - width)
+                                        .y(nuon::center_y(row_h, 31.0))
+                                        .size(width, 31.0)
+                                        .id(format!("remove-library-{}", folder.display()))
+                                        .label("Remove")
+                                        .build(ui)
+                                    {
+                                        ctx.config.remove_watched_folder(folder);
+                                        ctx.config.save();
+                                        self.state.library_index = None;
+                                        self.state.library_message =
+                                            Some("Watched folder removed.".into());
+                                    }
+                                })
+                                .build(ui, rows);
+                        }
+                    });
+
                 nuon::settings_section("Render")
                     .width(body_w)
                     .build(ui, |ui, rows, spacer| {

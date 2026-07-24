@@ -174,6 +174,31 @@ impl Config {
         self.history.last_opened_song = last_opened_song;
     }
 
+    pub fn watched_folders(&self) -> &[PathBuf] {
+        &self.history.watched_folders
+    }
+
+    pub fn add_watched_folder(&mut self, folder: PathBuf) -> bool {
+        if self
+            .history
+            .watched_folders
+            .iter()
+            .any(|existing| paths_equal(existing, &folder))
+        {
+            return false;
+        }
+        self.history.watched_folders.push(folder);
+        true
+    }
+
+    pub fn remove_watched_folder(&mut self, folder: &std::path::Path) -> bool {
+        let old_len = self.history.watched_folders.len();
+        self.history
+            .watched_folders
+            .retain(|existing| !paths_equal(existing, folder));
+        self.history.watched_folders.len() != old_len
+    }
+
     pub fn soundfont_path(&self) -> Option<&PathBuf> {
         self.synth.soundfont_path.as_ref()
     }
@@ -326,5 +351,39 @@ impl Config {
             std::fs::create_dir_all(path.parent().unwrap()).ok();
             std::fs::write(path, s).ok();
         }
+    }
+}
+
+fn paths_equal(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    if cfg!(target_os = "windows") {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+    } else {
+        left == right
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watched_folders_are_unique_and_removable() {
+        let mut config = Model::default().build();
+        let folder = PathBuf::from("D:/Music/MIDI");
+
+        assert!(config.add_watched_folder(folder.clone()));
+        assert!(!config.add_watched_folder(folder.clone()));
+        assert_eq!(config.watched_folders(), std::slice::from_ref(&folder));
+        assert!(config.remove_watched_folder(&folder));
+        assert!(config.watched_folders().is_empty());
+    }
+
+    #[test]
+    fn legacy_history_config_defaults_to_no_watched_folders() {
+        let history: HistoryV1 = ron::from_str("(last_opened_song:None)").unwrap();
+        assert!(history.watched_folders.is_empty());
     }
 }
