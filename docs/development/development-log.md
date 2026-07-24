@@ -4,6 +4,52 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 068: Independent right/left-hand spans (DONE)
+
+### Outcome
+
+Fingering advice can now reflect asymmetric reach. A learner may select, for
+example, Large for the right hand and Compact for the left; suggestions use the
+profile belonging to the current hand track.
+
+### Implemented
+
+- Added optional right- and left-hand span overrides to versioned playback
+  settings.
+- Preserved the previous shared `hand_span_profile` as the migration fallback.
+- Split the Settings row into **Right Hand Span** and **Left Hand Span**.
+- Added hand-aware config getters/setters.
+- Routed suggestion requests through the classified track's hand-specific
+  value.
+- Made the shared compatibility setter clear both overrides, providing a
+  deterministic reset to one common value.
+- Completed `MUS-003D3`.
+
+### Verification
+
+- Shared Compact resolves to Compact for both hands before any override.
+- Right=Large can coexist with Left=Compact.
+- The asymmetric pair survives config serialization/deserialization.
+- A literal old playback RON containing only `hand_span_profile: Compact`
+  parses with both overrides absent, preserving fallback behavior.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+- Whole-chord FingeringFixture and Technique Studio native fixtures both pass.
+
+All desktop gates passed: two MIDI-file tests, 105 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `1cc9c37`
+(`feat: personalize hand spans independently`).
+
+### Known limitations
+
+- Compact/Standard/Large are coarse categories rather than measured
+  millimeters or a per-finger anatomy map.
+- The legacy shared field remains serialized for backward compatibility.
+- Suggestions still require an explicit right/left track classification.
+
 ## 2026-07-25 — Cycle 067: Whole-chord preview and acceptance (DONE)
 
 ### Outcome

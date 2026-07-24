@@ -69,6 +69,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-003D1` Add persistent Compact, Standard and Large hand-span profiles
   that alter melodic fingering costs.
 - [x] `MUS-003D2` Add safe polyphonic chord-state suggestions.
+- [x] `MUS-003D3` Allow independent right/left-hand profiles while migrating
+  the legacy shared profile.
 - [x] `MUS-003G` Preview and atomically accept a complete suggested chord shape.
 - [ ] `MUS-003F` Model chord-to-chord voice leading, held-note substitutions
   and phrase context.

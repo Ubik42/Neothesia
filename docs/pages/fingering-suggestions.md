@@ -96,19 +96,25 @@ input remains a single-note override.
 
 ## Hand-span personalization
 
-Open **Settings → Practice → Hand Span** to choose:
+Open **Settings → Practice** and set **Right Hand Span** and **Left Hand Span**
+independently. Each hand can use:
 
 - **Compact · up to a 7th** for smaller hands or learners who should reposition
   instead of being encouraged into broad stretches;
 - **Standard · up to an octave**, the backward-compatible default;
 - **Large · up to a 9th** for pianists who can comfortably cover wider shapes.
 
-The setting is persistent and changes the comfortable distance assigned to
-each finger pair. Notes beyond that distance cost progressively more, so the
-lowest-cost path can choose a position shift or different finger pattern. It
-does not prohibit a large interval: melodic leaps can still require a shift,
-and the preview remains advice rather than an anatomical safety assessment.
-Old settings files default to Standard.
+Each setting is persistent and changes the comfortable distance assigned to
+that hand's finger pairs. Notes beyond that distance cost progressively more,
+so the lowest-cost path can choose a position shift or different finger
+pattern. It does not prohibit a large interval: melodic leaps can still require
+a shift, and the preview remains advice rather than an anatomical safety
+assessment.
+
+Settings written before per-hand profiles keep their shared value as the
+fallback for both hands. A previous Compact choice therefore migrates as
+Compact/Compact, not Standard/Standard. Changing one new row creates only that
+hand's override. Settings from before hand-span support default to Standard.
 
 ## Reasons and confidence
 
@@ -136,7 +142,7 @@ hand ownership receive no suggestion.
 
 Future work can add:
 
-- separate left/right-hand profiles and finer anatomy calibration;
+- finer anatomy calibration beyond three span categories;
 - chord-to-chord voice leading and held-note substitutions;
 - phrase/slur and articulation context;
 - comparison against expert-annotated datasets;

@@ -10,6 +10,33 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 068 — Independent right/left-hand spans
+
+State: **DONE**
+
+Delivered:
+
+- split the Practice settings control into **Right Hand Span** and **Left Hand
+  Span**;
+- routed each suggestion through the profile matching its classified hand;
+- retained the old shared value as a migration fallback rather than silently
+  resetting existing Compact/Large users;
+- stored only explicit per-hand overrides above that fallback;
+- kept a shared setter as a compatibility/reset boundary;
+- completed `MUS-003D3`.
+
+Verification:
+
+- a legacy Compact value resolves to Compact for both hands;
+- overriding only the right hand to Large leaves the left hand Compact;
+- the asymmetric result survives RON serialization and rebuilding;
+- an explicit legacy-RON fixture preserves Compact with no fabricated
+  overrides;
+- 105 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `1cc9c37`.
+
 ### Cycle 067 — Whole-chord preview and atomic acceptance
 
 State: **DONE**
