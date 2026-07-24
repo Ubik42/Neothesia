@@ -10,6 +10,29 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 025 — Left/right-hand timing profiles
+
+State: **DONE**
+
+Delivered:
+
+- retained raw timing offset on each matched structured result;
+- aggregated robust timing profiles independently by practice part;
+- required eight matched notes from each hand rather than pooling evidence;
+- showed each hand's early/late median and typical spread;
+- reported the remaining sample count for an under-evidenced hand;
+- migrated older persisted part summaries safely.
+
+Verification:
+
+- two MIDI-file tests, forty-six practice/core tests and forty application
+  tests pass;
+- tests cover distinct hand biases, isolated sample thresholds, migration and
+  learner-facing copy;
+- Clippy reports only the repository's pre-existing warnings;
+- release build passes;
+- implementation commit: `c153721`.
+
 ### Cycle 024 — Conservative calibration suggestions
 
 State: **DONE**
@@ -675,10 +698,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 025 with per-hand timing balance. Retain raw match offsets on
-structured results, aggregate robust profiles by left/right hand, and show
-whether one hand is systematically earlier, later or less consistent without
-turning a small sample into a diagnosis.
+Begin Cycle 026 with measure-level rhythm evidence. Aggregate robust timing
+profiles by measure, require repeated/adequate samples before ranking a rhythm
+trouble spot, and keep the rhythm recommendation distinct from existing
+wrong/missed-note recommendations.
 
 ## Known constraints
 

@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 025: Left/right-hand timing profiles (DONE)
+
+### Outcome
+
+The completion screen can now show whether the two hands have different timing
+biases or consistency. Each hand must earn its own evidence; notes from the
+other hand never fill its sample requirement.
+
+### Implemented
+
+- Retained raw signed timing offset on every matched structured result.
+- Kept wrong and missed results explicitly free of timing offsets.
+- Aggregated timing offsets independently by practice part.
+- Added a backward-compatible timing profile to persisted part summaries.
+- Required eight matched notes per hand.
+- Displayed median early/late bias and typical spread for each qualified hand.
+- Displayed the exact number of additional notes needed for an under-sampled
+  hand.
+- Preserved the existing right/left accuracy line above the timing comparison.
+- Kept ambiguous/custom parts out of left/right claims.
+
+### Verification
+
+- Added a deterministic 16-note two-hand fixture with distinct 20 ms and 60 ms
+  hand biases.
+- Proved both profiles retain zero within-hand deviation independently.
+- Added migration coverage for old part summaries without timing data.
+- Added UI-copy coverage where one hand qualifies and the other does not.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, forty-six core tests and forty
+application tests. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `c153721`
+(`feat: compare left and right hand timing`).
+
+### Known limitations
+
+- The view describes each hand; it does not yet generate a hand-specific
+  practice assignment.
+- MIDI files without reliable left/right track inference remain unlabelled.
+- Timing is aggregated over the attempt, so measure-level rhythm trouble spots
+  are not yet visible.
+- Cross-hand chord synchronization is not measured separately.
+
 ## 2026-07-25 — Cycle 024: Conservative calibration suggestions (DONE)
 
 ### Outcome
