@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 071: Melody over a held chord (DONE)
+
+### Outcome
+
+A chord-plus-melody texture no longer loses hand occupancy at the first
+single-note onset. The melody uses only fingers physically free around the held
+chord and still progresses like a melody from one new note to the next.
+
+### Implemented
+
+- Detected a single-note tail immediately following a modeled chord run.
+- Reused the chord's selected fingers and MIDI note-off times for every tail
+  onset while at least one chord tone remains held.
+- Applied held-finger uniqueness and right/left ordering to each new note.
+- Added ordinary melodic transition cost after the tail's first note.
+- Checked overlapping tail notes against one another as an additional held
+  constraint.
+- Kept `HeldChordPosition` as the visible explanation.
+- Completed `MUS-003F2A2`; explicit on-key substitution remains F2B.
+- Added a retry wrapper only for read-only debug snapshots. It retries missing
+  properties/transport interruptions up to five times, while state-changing
+  action commands are never replayed.
+
+### Verification
+
+- In the focused test, low C remains held while A then B enter.
+- Both melody notes avoid/cross neither C's finger.
+- B uses a higher finger than A, proving tail-to-tail melodic progression is
+  active rather than independent free-finger selection.
+- The snapshot-retry harness passes both whole-chord and Technique Studio
+  real-process fixtures.
+- Full workspace tests, Clippy, release build, formatting and diff checks pass.
+
+All desktop gates passed: two MIDI-file tests, 109 core tests and 66
+application tests. Both real-process smokes pass. Clippy and release builds
+report only the repository's pre-existing platform-helper and `unused_mut`
+warnings.
+
+Implementation commit: `eb0abdd`
+(`feat: guide melody around held chords`).
+
+### Known limitations
+
+- The tail context comes from the immediately preceding chord run; it is not a
+  general polyphonic voice tracker across arbitrary interleaving.
+- Intentional finger substitution on one continuously depressed key remains
+  unrepresented.
+- Pedal-sustained sound after key release does not occupy a finger, correctly
+  for anatomy but without separate acoustic-voice modeling.
+
 ## 2026-07-25 — Cycle 070: Held-tone finger occupancy (DONE)
 
 ### Outcome

@@ -123,6 +123,12 @@ note-off occurs after the next onset keeps its assigned finger occupied:
 - if no candidate can respect those constraints, the affected onset receives
   no suggestion instead of asking for an impossible hand shape.
 
+The same occupancy continues into a single-note melody tail immediately after
+the chord. Every new note must remain clear of the held fingers; after the
+first note, ordinary melodic transition cost also resumes so an ascending A–B
+does not repeat one merely “available” finger. The tail stops using the chord
+constraint when the last held chord tone reaches note-off.
+
 This still does not invent finger substitution. Moving from one finger to
 another while one key remains depressed is a distinct action that ordinary
 note-on/note-off MIDI does not encode by itself.

@@ -79,6 +79,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-003F2` Model held-note finger substitutions explicitly.
 - [x] `MUS-003F2A` Keep fingers occupied by still-sounding chord tones out of
   later assignments and preserve hand order around them.
+- [x] `MUS-003F2A2` Carry held-chord occupancy into a following single-note
+  melody tail while retaining melodic finger progression.
 - [ ] `MUS-003F2B` Represent and edit an intentional finger substitution on one
   continuously held key.
 - [ ] `MUS-003F3` Use phrase, slur and articulation context.

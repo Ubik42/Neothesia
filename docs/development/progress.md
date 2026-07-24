@@ -10,6 +10,34 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 071 — Melody over a held chord
+
+State: **DONE**
+
+Delivered:
+
+- carried the previous chord's still-sounding finger occupancy into immediately
+  following single-note onsets;
+- continued that context across the complete melody tail until the chord's
+  final held note ends;
+- restored ordinary melodic transition cost between tail notes so “free
+  finger” selection does not repeat one finger unnaturally;
+- enforced overlap constraints if a tail note itself is still down at the next
+  onset;
+- added retry-safe read-only semantic snapshots without replaying actions;
+- completed `MUS-003F2A2`.
+
+Verification:
+
+- held low C prevents both following right-hand A and B from reusing/crossing
+  its finger;
+- the ascending A–B tail advances fingers instead of repeating one free finger;
+- both tail notes retain the held-position explanation;
+- 109 core, 66 application and two MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `eb0abdd`.
+
 ### Cycle 070 — Held-tone finger occupancy
 
 State: **DONE**
