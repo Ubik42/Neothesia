@@ -430,6 +430,7 @@ mod tests {
             direction: crate::exercise::ExerciseDirection::Descending,
             hands: crate::exercise::ExerciseHands::Left,
             octaves: 2,
+            repetitions: 4,
             tempo_bpm: 80,
         };
         config.set_last_exercise_spec(spec);

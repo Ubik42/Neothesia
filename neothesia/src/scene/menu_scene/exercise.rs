@@ -14,6 +14,7 @@ const CARD_GAP: f32 = 12.0;
 const TEMPOS: &[u16] = &[
     30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 140, 160, 180, 200,
 ];
+const REPETITIONS: &[u8] = &[1, 2, 4, 8];
 
 impl MenuScene {
     pub(super) fn exercise_page_ui(&mut self, ctx: &mut Context, ui: &mut nuon::Ui) {
@@ -141,13 +142,18 @@ impl MenuScene {
                     ),
                 );
                 nuon::translate().x(CARD_W + CARD_GAP).add_to_current(ui);
-                nuon::label()
-                    .text("Use the arrows to shape your session")
-                    .size(CARD_W, CARD_H)
-                    .font_size(15.0)
-                    .color(nuon::Color::new_u8(180, 180, 195, 1.0))
-                    .text_justify(nuon::TextJustify::Center)
-                    .build(ui);
+                let repetitions = format!("{}×", spec.repetitions);
+                apply_selection(
+                    spec,
+                    ExerciseField::Repetitions,
+                    selector_card(
+                        ui,
+                        "Repeat",
+                        &repetitions,
+                        practice_ui_ids::EXERCISE_REPETITIONS_PREVIOUS,
+                        practice_ui_ids::EXERCISE_REPETITIONS_NEXT,
+                    ),
+                );
             });
 
         let preview_y = 122.0 + (CARD_H + CARD_GAP) * 4.0 + 15.0;
@@ -259,6 +265,12 @@ impl MenuScene {
                 (ExerciseField::Tempo, SelectionDelta::Previous)
             }
             practice_ui_ids::EXERCISE_TEMPO_NEXT => (ExerciseField::Tempo, SelectionDelta::Next),
+            practice_ui_ids::EXERCISE_REPETITIONS_PREVIOUS => {
+                (ExerciseField::Repetitions, SelectionDelta::Previous)
+            }
+            practice_ui_ids::EXERCISE_REPETITIONS_NEXT => {
+                (ExerciseField::Repetitions, SelectionDelta::Next)
+            }
             _ => return false,
         };
         apply_selection(&mut self.state.exercise_spec, field, delta);
@@ -275,6 +287,7 @@ enum ExerciseField {
     Hands,
     Octaves,
     Tempo,
+    Repetitions,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -332,6 +345,12 @@ fn apply_selection(spec: &mut ExerciseSpec, field: ExerciseField, delta: Selecti
         }
         (ExerciseField::Tempo, SelectionDelta::Next) => {
             spec.tempo_bpm = next_tempo(spec.tempo_bpm);
+        }
+        (ExerciseField::Repetitions, SelectionDelta::Previous) => {
+            spec.repetitions = previous_repetitions(spec.repetitions);
+        }
+        (ExerciseField::Repetitions, SelectionDelta::Next) => {
+            spec.repetitions = next_repetitions(spec.repetitions);
         }
     }
 }
@@ -480,6 +499,23 @@ fn previous_tempo(tempo: u16) -> u16 {
         .unwrap_or(*TEMPOS.last().unwrap())
 }
 
+fn next_repetitions(repetitions: u8) -> u8 {
+    REPETITIONS
+        .iter()
+        .copied()
+        .find(|candidate| *candidate > repetitions)
+        .unwrap_or(REPETITIONS[0])
+}
+
+fn previous_repetitions(repetitions: u8) -> u8 {
+    REPETITIONS
+        .iter()
+        .copied()
+        .rev()
+        .find(|candidate| *candidate < repetitions)
+        .unwrap_or(*REPETITIONS.last().unwrap())
+}
+
 fn plural(value: u8) -> &'static str {
     if value == 1 { "" } else { "s" }
 }
@@ -534,5 +570,9 @@ mod tests {
         assert_eq!(previous_hands(ExerciseHands::Right), ExerciseHands::Both);
         assert_eq!(previous_tempo(60), 50);
         assert_eq!(previous_tempo(30), 200);
+        assert_eq!(next_repetitions(1), 2);
+        assert_eq!(next_repetitions(8), 1);
+        assert_eq!(previous_repetitions(1), 8);
+        assert_eq!(previous_repetitions(4), 2);
     }
 }

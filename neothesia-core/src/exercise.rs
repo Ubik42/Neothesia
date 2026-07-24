@@ -52,6 +52,8 @@ pub struct ExerciseSpec {
     pub direction: ExerciseDirection,
     pub hands: ExerciseHands,
     pub octaves: u8,
+    #[serde(default = "default_repetitions")]
+    pub repetitions: u8,
     pub tempo_bpm: u16,
 }
 
@@ -64,6 +66,7 @@ impl Default for ExerciseSpec {
             direction: ExerciseDirection::UpAndDown,
             hands: ExerciseHands::Both,
             octaves: 1,
+            repetitions: 1,
             tempo_bpm: 60,
         }
     }
@@ -99,6 +102,8 @@ pub enum ExerciseError {
     InvalidTonic,
     #[error("exercise span must be between one and three octaves")]
     InvalidOctaves,
+    #[error("exercise repetitions must be between one and eight")]
+    InvalidRepetitions,
     #[error("exercise tempo must be between 20 and 240 BPM")]
     InvalidTempo,
     #[error("exercise notes do not fit the configured keyboard range")]
@@ -112,7 +117,7 @@ impl ExercisePlan {
     ) -> Result<Self, ExerciseError> {
         spec.validate()?;
 
-        let relative_moments = match spec.pattern {
+        let phrase = match spec.pattern {
             ExercisePattern::Scale => {
                 melodic_moments(scale_intervals(spec.tonality), spec.octaves, spec.direction)
             }
@@ -125,6 +130,9 @@ impl ExercisePlan {
                 chord_moments(spec.tonality, spec.octaves, spec.direction)
             }
         };
+        let relative_moments: Vec<_> = (0..spec.repetitions)
+            .flat_map(|_| phrase.iter().cloned())
+            .collect();
         let right_root = 60 + spec.tonic;
         let left_root = 36 + spec.tonic;
         let mut moments = Vec::with_capacity(relative_moments.len());
@@ -181,9 +189,14 @@ impl ExercisePlan {
             ExerciseHands::Left => "Left Hand",
             ExerciseHands::Both => "Both Hands",
         };
+        let repetitions = if self.spec.repetitions == 1 {
+            String::new()
+        } else {
+            format!(" · x{}", self.spec.repetitions)
+        };
         format!(
-            "{tonic} {tonality} {pattern} · {hands} · {} BPM",
-            self.spec.tempo_bpm
+            "{tonic} {tonality} {pattern} · {hands}{repetitions} · {} BPM",
+            self.spec.tempo_bpm,
         )
     }
 
@@ -329,6 +342,9 @@ fn validate_spec(spec: ExerciseSpec) -> Result<(), ExerciseError> {
     if !(1..=3).contains(&spec.octaves) {
         return Err(ExerciseError::InvalidOctaves);
     }
+    if !(1..=8).contains(&spec.repetitions) {
+        return Err(ExerciseError::InvalidRepetitions);
+    }
     if !(20..=240).contains(&spec.tempo_bpm) {
         return Err(ExerciseError::InvalidTempo);
     }
@@ -341,6 +357,10 @@ fn selected_parts(hands: ExerciseHands) -> &'static [PracticePart] {
         ExerciseHands::Left => &[PracticePart::LeftHand],
         ExerciseHands::Both => &[PracticePart::LeftHand, PracticePart::RightHand],
     }
+}
+
+const fn default_repetitions() -> u8 {
+    1
 }
 
 fn scale_intervals(tonality: ExerciseTonality) -> &'static [u8] {
@@ -546,6 +566,26 @@ mod tests {
         assert_eq!(
             ExercisePlan::generate(
                 ExerciseSpec {
+                    repetitions: 0,
+                    ..Default::default()
+                },
+                &keyboard
+            ),
+            Err(ExerciseError::InvalidRepetitions)
+        );
+        assert_eq!(
+            ExercisePlan::generate(
+                ExerciseSpec {
+                    repetitions: 9,
+                    ..Default::default()
+                },
+                &keyboard
+            ),
+            Err(ExerciseError::InvalidRepetitions)
+        );
+        assert_eq!(
+            ExercisePlan::generate(
+                ExerciseSpec {
                     tempo_bpm: 241,
                     ..Default::default()
                 },
@@ -615,6 +655,7 @@ mod tests {
             ExerciseSpec {
                 tempo_bpm: 120,
                 hands: ExerciseHands::Left,
+                repetitions: 4,
                 ..Default::default()
             },
             &keyboard,
@@ -632,5 +673,51 @@ mod tests {
         assert_eq!(base.practice_id(), faster_left.practice_id());
         assert_ne!(base.practice_id(), different_key.practice_id());
         assert_eq!(base.practice_id().len(), 64);
+    }
+
+    #[test]
+    fn repetitions_duplicate_complete_phrases_without_splitting_practice_identity() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let once = ExercisePlan::generate(
+            ExerciseSpec {
+                pattern: ExercisePattern::Arpeggio,
+                direction: ExerciseDirection::Ascending,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+        let four = ExercisePlan::generate(
+            ExerciseSpec {
+                pattern: ExercisePattern::Arpeggio,
+                direction: ExerciseDirection::Ascending,
+                repetitions: 4,
+                ..Default::default()
+            },
+            &keyboard,
+        )
+        .unwrap();
+
+        assert_eq!(four.moments.len(), once.moments.len() * 4);
+        assert_eq!(&four.moments[..once.moments.len()], once.moments);
+        assert_eq!(four.practice_id(), once.practice_id());
+        assert!(four.display_name().contains("· x4 ·"));
+    }
+
+    #[test]
+    fn exercise_spec_saved_before_repetitions_defaults_to_one() {
+        let legacy = r#"(
+            tonic: 0,
+            tonality: Major,
+            pattern: Scale,
+            direction: UpAndDown,
+            hands: Both,
+            octaves: 1,
+            tempo_bpm: 60,
+        )"#;
+
+        let spec: ExerciseSpec = ron::from_str(legacy).unwrap();
+
+        assert_eq!(spec.repetitions, 1);
     }
 }

@@ -40,6 +40,8 @@ pub(crate) mod practice_ui_ids {
     pub const EXERCISE_OCTAVES_NEXT: &str = "practice.exercise.octaves.next";
     pub const EXERCISE_TEMPO_PREVIOUS: &str = "practice.exercise.tempo.previous";
     pub const EXERCISE_TEMPO_NEXT: &str = "practice.exercise.tempo.next";
+    pub const EXERCISE_REPETITIONS_PREVIOUS: &str = "practice.exercise.repetitions.previous";
+    pub const EXERCISE_REPETITIONS_NEXT: &str = "practice.exercise.repetitions.next";
     pub const PLAYER_BACK: &str = "practice.player.back";
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
@@ -77,6 +79,8 @@ pub(crate) mod practice_ui_ids {
         EXERCISE_OCTAVES_NEXT,
         EXERCISE_TEMPO_PREVIOUS,
         EXERCISE_TEMPO_NEXT,
+        EXERCISE_REPETITIONS_PREVIOUS,
+        EXERCISE_REPETITIONS_NEXT,
         PLAYER_BACK,
         PLAYER_WAIT,
         PLAYER_COACH,

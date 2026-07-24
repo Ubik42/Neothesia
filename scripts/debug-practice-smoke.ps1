@@ -147,6 +147,16 @@ try {
         Assert-True (
             $nextTempo.ok -and $nextTempo.accepted
         ) "Exercise tempo selector did not advance"
+        $previousRepetitions = Invoke-DebugDriver (
+            "ACTION practice.exercise.repetitions.previous"
+        )
+        $nextRepetitions = Invoke-DebugDriver (
+            "ACTION practice.exercise.repetitions.next"
+        )
+        Assert-True (
+            $previousRepetitions.ok -and $previousRepetitions.accepted -and
+            $nextRepetitions.ok -and $nextRepetitions.accepted
+        ) "Exercise repetition selector did not move in both directions"
         $start = Invoke-DebugDriver "ACTION practice.exercise.start"
         Assert-True (
             $start.ok -and $start.accepted
@@ -411,6 +421,7 @@ try {
         Assert-True (
             $settingsText -match "last_exercise_spec" -and
             $settingsText -match "tonic:\s*1" -and
+            $settingsText -match "repetitions:\s*1" -and
             $settingsText -match "tempo_bpm:\s*70"
         ) "Selected C-sharp 70 BPM exercise was not persisted"
         $historyPath = Join-Path $runDirectory "practice-history.ron"
