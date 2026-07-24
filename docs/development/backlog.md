@@ -18,8 +18,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `PRA-012` Match chords, repeated pitches and overlapping same-pitch notes.
 - [x] `PRA-013` Expose a stable live practice snapshot to the UI.
 - [x] `PRA-014` Show a compact live accuracy/timing panel.
-- [ ] `PRA-015` Show an end-of-attempt summary.
-- [ ] `PRA-016` Aggregate results by measure and hand.
+- [x] `PRA-015` Show an end-of-attempt summary.
+- [x] `PRA-016` Aggregate results by measure and hand.
 - [ ] `PRA-017` Add count-in and attempt reset for loop practice.
 - [ ] `PRA-018` Add threshold-based adaptive tempo with explicit opt-in.
 - [ ] `DATA-010` Persist versioned practice sessions atomically.

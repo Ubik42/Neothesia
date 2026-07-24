@@ -4,11 +4,38 @@ Updated: 2026-07-25
 
 ## Current milestone
 
-**M0 — Trustworthy practice baseline**
+**M1 — Practice intelligence**
 
 Overall state: **IN PROGRESS**
 
 ## Active cycle
+
+### Cycle 004 — Measure-aware attempt summary
+
+State: **DONE**
+
+Delivered:
+
+- attached score time, track ID, one-based measure and practice part to every
+  expected note;
+- inferred left/right hand for two-track piano files by pitch center, while
+  leaving ambiguous multi-part arrangements explicitly unassigned;
+- retained matched, missed and context-attributed wrong-note results;
+- aggregated results by measure and by hand;
+- replaced automatic return-to-menu at song end with a calm completion panel;
+- showed overall timing, errors, hand accuracy and up to four weak measures;
+- added `Practice again` and `Back to songs` completion actions.
+
+Verification:
+
+- nine practice-domain tests and twelve application tests pass;
+- aggregation tests cover correct right-hand notes plus wrong/missed left-hand
+  notes in separate measures;
+- application integration proves real MIDI events produce one-based measure
+  summaries;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `715ed9c`.
 
 ### Cycle 003 — Repeated notes and missed-note lifecycle
 
@@ -87,7 +114,7 @@ Acceptance checklist:
 | Guided wait | Verifying | Current Cycle 001 |
 | Measure/beat grid | Verifying | Current Cycle 001 |
 | Loop practice | Basic | Drag handles exist; no attempt/count-in model |
-| Performance feedback | Missing | Cycle 002 target |
+| Performance feedback | Foundation working | Live totals and completion summary |
 | Practice history | Missing | Planned for M1/M2 |
 | Built-in piano | Working | SoundFont fallback |
 | External Pianoteq | Possible | MIDI routing needs validation guide |
@@ -97,14 +124,15 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin `PRA-015` and `PRA-016`: attach score-note context (track/hand, MIDI time
-and measure) to match outcomes, aggregate a completed attempt, and present an
-end-of-attempt summary. This keeps the next UI grounded in passage-level data
-instead of a misleading whole-song percentage.
+Begin `PRA-017`: turn the existing loop handles into explicit practice
+attempts, with count-in, clean matcher reset and last/best comparison. This is
+the bridge from passive statistics to deliberate passage practice.
 
 ## Known constraints
 
 - The custom GPU UI has no DOM and limited accessibility/automation semantics.
 - The CLI/video package requires local FFmpeg development dependencies.
-- Live totals are not yet grouped by measure or hand and are not persisted.
+- Attempt summaries are not yet persisted.
+- Hand inference is intentionally conservative for arrangements with more than
+  two playable note tracks.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.

@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 004: Measure-aware attempt summary (DONE)
+
+### Outcome
+
+Finishing a song now produces actionable practice feedback instead of silently
+returning to the menu. The learner can see which hand and which measures need
+another attempt.
+
+### Implemented
+
+- Added structured target context: pitch, score time, track, measure and part.
+- Added retained matched, missed and context-attributed wrong-note results.
+- Added per-measure and per-hand aggregation.
+- Inferred left/right hand for two playable piano tracks from pitch center.
+- Kept arrangements with more than two playable tracks unassigned rather than
+  guessing incorrectly.
+- Replaced automatic song exit with a native completion overlay.
+- Displayed total accuracy, timing categories, wrong/missed notes, hand
+  accuracy and the four weakest measures.
+- Added immediate retry and return-to-song actions.
+
+### Verification
+
+- Added aggregation, hand inference and real-MIDI integration tests.
+- `cargo test -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing platform
+helper and `unused_mut` warnings.
+
+Implementation commit: `715ed9c`
+(`feat: add measure-aware practice summaries`).
+
+### Known limitations
+
+- Summaries exist only for the current process and are not persisted.
+- More-than-two-part arrangements require future explicit part assignment.
+- The completion overlay still needs a visual smoke test on several DPI scales.
+
 ## 2026-07-25 — Cycle 003: Repeated and missed notes (DONE)
 
 ### Outcome
