@@ -4,6 +4,49 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 009: Current-song practice history (DONE)
+
+### Outcome
+
+The completion experience now distinguishes immediate feedback from long-term
+progress. A pianist can inspect recent comparable attempts and persistent weak
+measures without leaving the song or reading the raw local history file.
+
+### Implemented
+
+- Added a `This take / History` segmented control to the completion card.
+- Added a reusable current-song history overview in the practice domain.
+- Listed four recent attempts with scope, accuracy and speed.
+- Added accuracy and speed change across comparable attempts.
+- Prevented whole-song and loop sessions from being compared as one trend.
+- Added a two-column ranking of persistent weak measures.
+- Reused the conservative evidence threshold for learner-facing rankings.
+- Preserved the recommended-loop action on both tabs.
+
+### Verification
+
+- Added overview ordering, delta, insufficient-sample and mixed-scope tests.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed. Clippy reports only the repository's pre-existing
+platform-helper and `unused_mut` warnings.
+
+Implementation commit: `ccf3b2f`
+(`feat: add current song practice history view`).
+
+### Known limitations
+
+- History is currently entered from whole-song completion, not the player or
+  song library.
+- Trends are intentionally simple first-to-last deltas rather than a chart or
+  statistical confidence estimate.
+- Export and reset controls remain deferred until their confirmation and backup
+  behaviour is designed.
+
 ## 2026-07-25 — Cycle 008: Evidence-based weak-passage practice (DONE)
 
 ### Outcome

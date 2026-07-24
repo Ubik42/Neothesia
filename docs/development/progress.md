@@ -10,6 +10,32 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 009 — Current-song practice history
+
+State: **DONE**
+
+Delivered:
+
+- added a polished `This take / History` switch to the completion panel;
+- summarized total saved sessions and the four most recent attempts;
+- displayed attempt scope, accuracy and playback speed for each recent entry;
+- calculated accuracy and speed deltas only between comparable practice scopes,
+  preventing whole-song and short-loop scores from producing false trends;
+- ranked up to four persistent weak measures in a compact two-column view;
+- applied the same repeated-evidence threshold to the history ranking;
+- kept the suggested-passage action available from either completion tab.
+
+Verification:
+
+- two MIDI-file tests, twenty-three practice/core tests and seventeen
+  application tests pass;
+- history tests cover ordering, trend deltas, insufficient evidence and
+  mixed-scope isolation;
+- the completion card respects the application's 670 × 620 minimum window;
+- Clippy reports no new warnings;
+- release build passes;
+- implementation commit: `ccf3b2f`.
+
 ### Cycle 008 — Evidence-based weak-passage practice
 
 State: **DONE**
@@ -231,7 +257,7 @@ Acceptance checklist:
 | Measure/beat grid | Verifying | Current Cycle 001 |
 | Loop practice | Working | Measure snapping, count-in, attempts and adaptive tempo |
 | Performance feedback | Working | Live totals, completion summary and measure/hand detail |
-| Practice history | Foundation working | Durable sessions and weak-passage action |
+| Practice history | Working | Current-song history, trends and weak-passage action |
 | Built-in piano | Working | SoundFont fallback |
 | External Pianoteq | Possible | MIDI routing needs validation guide |
 | Native VST3 | Planned | Separate long-term roadmap |
@@ -240,10 +266,10 @@ Acceptance checklist:
 
 ## Next decision
 
-Begin Cycle 009 with a compact practice-history view for the current song:
-recent attempts, accuracy/speed trend and persistent weak-measure ranking.
-Include local reset/export controls only after their destructive and privacy
-semantics are explicit.
+Begin Cycle 010 with MIDI-output lifecycle safety for external Pianoteq:
+centralize panic/all-notes-off handling and prove stop, pause, seek, loop and
+output replacement cannot leave notes sounding. Follow with a short,
+device-oriented Pianoteq acceptance checklist.
 
 ## Known constraints
 
@@ -253,8 +279,8 @@ semantics are explicit.
   two playable note tracks.
 - Loop count-in is visual only; an optional metronome click remains future work.
 - Adaptive coaching currently operates only on structured loop attempts.
-- Practice history is saved locally but does not yet have a history-management
-  or export screen.
+- Practice history is visible after completing a song but does not yet have a
+  library-level browser, export or reset screen.
 - Recommendations currently optimize note accuracy; timing consistency, hand
   balance, pedal and dynamics need later goal-specific recommendation rules.
 - Native VST3 hosting is a realtime and lifecycle project, not merely a picker.
