@@ -83,9 +83,17 @@ raised-sixth/raised-seventh melodic-minor table, while descending uses that
 key's reviewed natural-minor table. Up-and-down exercises join the two at one
 shared apex.
 
+Major and minor triad arpeggios also carry reviewed two-hand guidance in every
+key. Their keyboard-shape groups follow the two-octave
+[major](https://piano-ology.com/wp-content/uploads/2022/10/piano-ology-piano-technique-fingering-charts-major-triad-arpeggios.pdf)
+and
+[minor](https://piano-ology.com/wp-content/uploads/2022/10/piano-ology-piano-technique-fingering-charts-minor-triad-arpeggios.pdf)
+Piano-ology charts (checked 2026-07-25). The patterns extend to one through
+three octaves, reverse for descent and repeat with the generated phrase.
+
 Coverage is deliberately explicit and Technique Studio says whether the
-current selection has reviewed guidance before playback. Non-scale patterns
-show no fingering control or numbers until separate arpeggio and chord tables
+current selection has reviewed guidance before playback. Primary-chord patterns
+show no fingering control or numbers until separate chord and inversion tables
 are reviewed. This avoids silently teaching a generic crossing pattern where
 the accepted fingering differs.
 Note-name labels continue to work for imported MIDI and Free Play; on a
@@ -186,6 +194,6 @@ source, labels its primary action **Practice**, rebuilds it without a file
 picker and restores the saved tracks, hand mode, speed and loop. File-backed
 MIDI keeps its existing Open/Locate behavior.
 
-Arpeggio and primary-chord fingering remains intentionally unavailable. Those
-patterns need their own hand-, inversion- and span-specific tables rather than
-reusing scale crossings.
+Primary-chord fingering remains intentionally unavailable. That progression
+needs its own hand-, inversion- and voice-leading-specific plan rather than
+reusing scale or arpeggio crossings.

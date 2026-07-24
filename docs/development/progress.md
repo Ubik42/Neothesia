@@ -10,6 +10,28 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 055 — Reviewed arpeggio fingerings
+
+State: **DONE**
+
+Delivered:
+
+- added right/left guidance for all twelve major and minor triad arpeggios;
+- grouped tables by reviewed white/black-key keyboard shapes;
+- extended the patterns through octave span, direction and repetition;
+- kept primary-chord progressions unavailable pending separate voicing tables;
+- changed native smoke coverage to G♯ minor arpeggio;
+- completed `EX-003H`.
+
+Verification:
+
+- exact two-octave tables cover all twenty-four tonic/tonality combinations;
+- eighty-five core, fifty-seven application and two MIDI-file tests pass;
+- native automation completes and persists a G♯ minor-arpeggio attempt;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `d46a395`.
+
 ### Cycle 054 — Direction-aware melodic-minor fingering
 
 State: **DONE**

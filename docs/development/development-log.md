@@ -4,6 +4,56 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 055: Reviewed arpeggio fingerings (DONE)
+
+### Outcome
+
+Switching Technique Studio from a scale to a major or minor triad arpeggio no
+longer removes finger guidance. Every key now uses a reviewed two-hand shape
+instead of a generic white-key pattern.
+
+### Implemented
+
+- Enabled reviewed guidance for generated arpeggios.
+- Added all twelve major and all twelve minor right/left tables.
+- Encoded shared keyboard-shape groups plus the B♭ exceptions.
+- Extended each pattern through one to three octaves, all directions and every
+  repetition.
+- Kept primary-chord guidance unavailable pending chord/voicing review.
+- Upgraded native smoke to select G♯ minor arpeggio and verify that changing
+  from melodic-minor scale resets the scale-only minor form.
+- Completed `EX-003H`.
+
+Tables were reviewed against Piano-ology's
+[major](https://piano-ology.com/wp-content/uploads/2022/10/piano-ology-piano-technique-fingering-charts-major-triad-arpeggios.pdf)
+and
+[minor](https://piano-ology.com/wp-content/uploads/2022/10/piano-ology-piano-technique-fingering-charts-minor-triad-arpeggios.pdf)
+two-octave charts on 2026-07-25.
+
+### Verification
+
+- Exact two-octave right/left assertions for all twenty-four arpeggios.
+- Real-process G♯ minor-arpeggio smoke completes two passes at 70 BPM, toggles
+  guidance off/on and verifies preset/settings/history persistence.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All desktop gates passed: two MIDI-file tests, eighty-five core tests and
+fifty-seven application tests. Clippy and release builds report only the
+repository's pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `d46a395`
+(`feat: add reviewed arpeggio fingerings`).
+
+### Known limitations
+
+- Primary-chord progressions still lack reviewed finger/voicing guidance.
+- The renderer shows finger numbers but not movement explanations.
+- Tables are pedagogical defaults rather than anatomy-specific alternatives.
+
 ## 2026-07-25 — Cycle 054: Direction-aware melodic-minor fingering (DONE)
 
 ### Outcome
