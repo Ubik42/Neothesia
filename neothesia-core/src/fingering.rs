@@ -65,6 +65,8 @@ pub enum FingeringReason {
     InPosition,
     ThumbUnder,
     FingerOver,
+    ChordShape,
+    WideChordShape,
     PositionShift,
 }
 
@@ -86,6 +88,10 @@ impl FingeringReason {
             }
             (Self::FingerOver, FingeringHand::Left) => {
                 "uses a left-hand finger-over turn to continue upward"
+            }
+            (Self::ChordShape, _) => "spreads unique fingers across the chord shape",
+            (Self::WideChordShape, _) => {
+                "uses the outer fingers for a wide chord; do not force the reach"
             }
             (Self::PositionShift, _) => "resets the hand after a leap or awkward reach",
         }
@@ -120,9 +126,12 @@ pub fn suggest_fingerings_with_profile(
         let onset = notes[index].onset;
         let end = notes[index..].partition_point(|note| note.onset == onset) + index;
         if end - index > 1 {
-            for chord_note in &mut suggestions[index..end] {
-                *chord_note = None;
-            }
+            suggest_chord(
+                &notes[index..end],
+                hand,
+                profile,
+                &mut suggestions[index..end],
+            );
             index = end;
             continue;
         }
@@ -145,6 +154,124 @@ pub fn suggest_fingerings_with_profile(
         );
     }
     suggestions
+}
+
+fn suggest_chord(
+    notes: &[FingeringNote],
+    hand: FingeringHand,
+    profile: HandSpanProfile,
+    output: &mut [Option<FingerSuggestion>],
+) {
+    if !(2..=FINGER_COUNT).contains(&notes.len()) {
+        return;
+    }
+
+    let mut pitch_order: Vec<_> = (0..notes.len()).collect();
+    pitch_order.sort_by_key(|index| (notes[*index].pitch, *index));
+    if pitch_order
+        .windows(2)
+        .any(|pair| notes[pair[0]].pitch == notes[pair[1]].pitch)
+    {
+        return;
+    }
+
+    let mut best: Option<(i32, Vec<u8>)> = None;
+    for mask in 1_u8..(1_u8 << FINGER_COUNT) {
+        if mask.count_ones() as usize != notes.len() {
+            continue;
+        }
+        let mut ordered_fingers: Vec<_> = (1..=5)
+            .filter(|finger| mask & (1 << (finger - 1)) != 0)
+            .collect();
+        if hand == FingeringHand::Left {
+            ordered_fingers.reverse();
+        }
+
+        let mut assigned = vec![0_u8; notes.len()];
+        for (index, finger) in pitch_order.iter().zip(ordered_fingers) {
+            assigned[*index] = finger;
+        }
+        if notes.iter().zip(&assigned).any(|(note, finger)| {
+            note.anchored_finger
+                .filter(|anchor| (1..=5).contains(anchor))
+                .is_some_and(|anchor| anchor != *finger)
+        }) {
+            continue;
+        }
+
+        let cost = chord_shape_cost(notes, &assigned, &pitch_order, hand, profile);
+        if best.as_ref().is_none_or(|(best_cost, _)| cost < *best_cost) {
+            best = Some((cost, assigned));
+        }
+    }
+
+    let Some((_, fingers)) = best else {
+        return;
+    };
+    let chord_span = notes[pitch_order[notes.len() - 1]]
+        .pitch
+        .saturating_sub(notes[pitch_order[0]].pitch);
+    let wide = i32::from(chord_span) > profile.comfortable_spans()[4];
+    for (index, finger) in fingers.into_iter().enumerate() {
+        let reason = if notes[index]
+            .anchored_finger
+            .is_some_and(|anchor| (1..=5).contains(&anchor))
+        {
+            FingeringReason::ManualAnchor
+        } else if wide {
+            FingeringReason::WideChordShape
+        } else {
+            FingeringReason::ChordShape
+        };
+        output[index] = Some(FingerSuggestion {
+            finger,
+            confidence_percent: confidence(reason),
+            reason,
+        });
+    }
+}
+
+fn chord_shape_cost(
+    notes: &[FingeringNote],
+    fingers: &[u8],
+    pitch_order: &[usize],
+    hand: FingeringHand,
+    profile: HandSpanProfile,
+) -> i32 {
+    let low_pitch = notes[pitch_order[0]].pitch;
+    let span = i32::from(
+        notes[pitch_order[pitch_order.len() - 1]]
+            .pitch
+            .saturating_sub(low_pitch),
+    )
+    .max(1);
+    let mut cost = 0;
+
+    for index in pitch_order {
+        let pitch_offset = i32::from(notes[*index].pitch.saturating_sub(low_pitch));
+        let physical_position = match fingers[*index] {
+            finger @ 1..=5 => i32::from(finger - 1),
+            _ => return INFINITY,
+        };
+        let physical_position = match hand {
+            FingeringHand::Right => physical_position,
+            FingeringHand::Left => 4 - physical_position,
+        };
+        cost += (physical_position * span - pitch_offset * 4).abs();
+        cost += static_key_cost(notes[*index].pitch, fingers[*index]);
+    }
+
+    for first in 0..pitch_order.len() {
+        for second in (first + 1)..pitch_order.len() {
+            let low = pitch_order[first];
+            let high = pitch_order[second];
+            let distance = i32::from(notes[high].pitch - notes[low].pitch);
+            let finger_gap = usize::from(fingers[low].abs_diff(fingers[high]));
+            let comfortable = profile.comfortable_spans()[finger_gap];
+            cost += (distance - comfortable).max(0) * 8;
+        }
+    }
+    cost
 }
 
 fn suggest_run(
@@ -341,8 +468,10 @@ fn confidence(reason: FingeringReason) -> u8 {
         FingeringReason::ManualAnchor => 100,
         FingeringReason::RepeatedNote => 92,
         FingeringReason::InPosition => 85,
+        FingeringReason::ChordShape => 78,
         FingeringReason::ThumbUnder | FingeringReason::FingerOver => 72,
         FingeringReason::PhraseStart => 65,
+        FingeringReason::WideChordShape => 50,
         FingeringReason::PositionShift => 55,
     }
 }
@@ -416,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn unmodeled_chords_are_left_without_false_precision() {
+    fn root_position_triad_uses_an_ordered_five_finger_shape() {
         let source = vec![
             FingeringNote {
                 pitch: 60,
@@ -434,9 +563,120 @@ mod tests {
                 anchored_finger: None,
             },
         ];
+        let right = suggest_fingerings(&source, FingeringHand::Right);
+        let left = suggest_fingerings(&source, FingeringHand::Left);
+        assert_eq!(
+            right
+                .iter()
+                .map(|suggestion| suggestion.unwrap().finger)
+                .collect::<Vec<_>>(),
+            [1, 3, 5]
+        );
+        assert_eq!(
+            left.iter()
+                .map(|suggestion| suggestion.unwrap().finger)
+                .collect::<Vec<_>>(),
+            [5, 3, 1]
+        );
+        assert!(
+            right
+                .iter()
+                .all(|suggestion| suggestion.unwrap().reason == FingeringReason::ChordShape)
+        );
+    }
+
+    #[test]
+    fn chord_manual_anchors_are_hard_constraints() {
+        let mut source = vec![
+            FingeringNote {
+                pitch: 60,
+                onset: Duration::ZERO,
+                anchored_finger: Some(1),
+            },
+            FingeringNote {
+                pitch: 64,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            },
+            FingeringNote {
+                pitch: 67,
+                onset: Duration::ZERO,
+                anchored_finger: Some(4),
+            },
+        ];
+        let suggestions = suggest_fingerings(&source, FingeringHand::Right);
+        assert_eq!(suggestions[0].unwrap().finger, 1);
+        assert_eq!(suggestions[2].unwrap().finger, 4);
+        assert_eq!(
+            suggestions[2].unwrap().reason,
+            FingeringReason::ManualAnchor
+        );
+
+        source[0].anchored_finger = Some(5);
         assert_eq!(
             suggest_fingerings(&source, FingeringHand::Right),
             [None, None, None]
+        );
+    }
+
+    #[test]
+    fn oversized_or_duplicate_chords_are_left_without_false_precision() {
+        let six_notes: Vec<_> = [60, 62, 64, 65, 67, 69]
+            .into_iter()
+            .map(|pitch| FingeringNote {
+                pitch,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            })
+            .collect();
+        assert_eq!(
+            suggest_fingerings(&six_notes, FingeringHand::Right),
+            [None; 6]
+        );
+
+        let duplicate = vec![
+            FingeringNote {
+                pitch: 60,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            },
+            FingeringNote {
+                pitch: 60,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            },
+        ];
+        assert_eq!(
+            suggest_fingerings(&duplicate, FingeringHand::Right),
+            [None, None]
+        );
+    }
+
+    #[test]
+    fn compact_profile_warns_on_an_octave_chord() {
+        let octave = vec![
+            FingeringNote {
+                pitch: 60,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            },
+            FingeringNote {
+                pitch: 72,
+                onset: Duration::ZERO,
+                anchored_finger: None,
+            },
+        ];
+        let suggestions = suggest_fingerings_with_profile(
+            &octave,
+            FingeringHand::Right,
+            HandSpanProfile::Compact,
+        );
+        assert_eq!(suggestions[0].unwrap().finger, 1);
+        assert_eq!(suggestions[1].unwrap().finger, 5);
+        assert!(
+            suggestions
+                .iter()
+                .all(|suggestion| suggestion.unwrap().reason == FingeringReason::WideChordShape)
         );
     }
 

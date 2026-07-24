@@ -51,12 +51,12 @@ Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDi
 $midi = $null
 if ($CompletionFixture -or $FingeringFixture) {
     $midi = Join-Path $runDirectory "completion-fixture.mid"
-    # Type-1, 480 PPQ, 4/4 at 120 BPM: one C5 right-hand note and one C3
+    # Type-1, 480 PPQ, 4/4 at 120 BPM: one C-major right-hand chord and one C3
     # left-hand note at beat two, followed by enough time to finish the take.
     $fixtureBase64 = @(
         "TVRoZAAAAAYAAQADAeBNVHJrAAAAFAD/UQMHoSAA/1gEBAIYCI8A/y8ATVRyawAA"
-        "AB0A/wMKUmlnaHQgSGFuZINgkEhQgXCASACJMP8vAE1UcmsAAAAcAP8DCUxlZnQg"
-        "SGFuZINgkDBQgXCAMACJMP8vAA=="
+        "AC0A/wMKUmlnaHQgSGFuZINgkEhQAJBMUACQT1CBcIBIAACATAAAgE8AiTD/LwBN"
+        "VHJrAAAAHAD/AwlMZWZ0IEhhbmSDYJAwUIFwgDAAiTD/LwA="
     ) -join ""
     [System.IO.File]::WriteAllBytes(
         $midi,
@@ -301,16 +301,22 @@ try {
             $editing.fingering_editor_active -and $editing.paused
         ) "Finger editor did not open on a paused imported MIDI"
 
+        $selectChord = Invoke-DebugDriver (
+            "ACTION practice.player.fingering-next"
+        )
+        Assert-True (
+            $selectChord.ok -and $selectChord.accepted
+        ) "Finger editor did not select the right-hand chord"
+
         $suggest = Invoke-DebugDriver (
             "ACTION practice.player.fingering-suggest"
         )
         $suggested = (Invoke-DebugDriver "SNAPSHOT").snapshot
         Assert-True (
             $suggest.ok -and $suggest.accepted -and
-            [int]$suggested.suggested_finger -ge 1 -and
-            [int]$suggested.suggested_finger -le 5 -and
-            [int]$suggested.suggestion_confidence_percent -gt 0
-        ) "Explainable fingering suggestion was not previewed"
+            [int]$suggested.suggested_finger -eq 1 -and
+            [int]$suggested.suggestion_confidence_percent -eq 78
+        ) "Right-hand C-major chord did not preview finger 1 at 78% confidence"
 
         $assign = Invoke-DebugDriver (
             "ACTION practice.player.fingering-accept"

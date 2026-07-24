@@ -691,7 +691,7 @@ impl PlayingScene {
                 .flatten()
         else {
             self.toast_manager
-                .toast("No suggestion: this note belongs to a chord not modeled yet");
+                .toast("No suggestion: unsupported chord size, duplicate pitch or anchor conflict");
             return false;
         };
         let selected = self.fingering_editor.as_ref().unwrap().selected;
