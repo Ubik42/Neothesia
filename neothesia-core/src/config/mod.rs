@@ -394,6 +394,14 @@ impl Config {
         self.playback.input_latency_ms = milliseconds.clamp(-250, 250);
     }
 
+    pub fn hand_span_profile(&self) -> crate::fingering::HandSpanProfile {
+        self.playback.hand_span_profile
+    }
+
+    pub fn set_hand_span_profile(&mut self, profile: crate::fingering::HandSpanProfile) {
+        self.playback.hand_span_profile = profile;
+    }
+
     pub fn adaptive_tempo_mastery(&self) -> f32 {
         self.playback.adaptive_tempo_mastery
     }
@@ -617,5 +625,15 @@ mod tests {
         assert_eq!(config.input_latency_ms(), 250);
         config.set_input_latency_ms(-500);
         assert_eq!(config.input_latency_ms(), -250);
+    }
+
+    #[test]
+    fn hand_span_profile_can_be_personalized() {
+        let mut config = Config::default();
+        config.set_hand_span_profile(crate::fingering::HandSpanProfile::Compact);
+        assert_eq!(
+            config.hand_span_profile(),
+            crate::fingering::HandSpanProfile::Compact
+        );
     }
 }

@@ -1,9 +1,53 @@
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FingeringHand {
     Right,
     Left,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HandSpanProfile {
+    Compact,
+    #[default]
+    Standard,
+    Large,
+}
+
+impl HandSpanProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Compact => "Compact · up to a 7th",
+            Self::Standard => "Standard · up to an octave",
+            Self::Large => "Large · up to a 9th",
+        }
+    }
+
+    pub fn previous(self) -> Self {
+        match self {
+            Self::Compact => Self::Compact,
+            Self::Standard => Self::Compact,
+            Self::Large => Self::Standard,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Compact => Self::Standard,
+            Self::Standard => Self::Large,
+            Self::Large => Self::Large,
+        }
+    }
+
+    fn comfortable_spans(self) -> [i32; 5] {
+        match self {
+            Self::Compact => [0, 2, 4, 7, 10],
+            Self::Standard => [0, 3, 5, 8, 12],
+            Self::Large => [0, 4, 7, 10, 14],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -62,6 +106,14 @@ pub fn suggest_fingerings(
     notes: &[FingeringNote],
     hand: FingeringHand,
 ) -> Vec<Option<FingerSuggestion>> {
+    suggest_fingerings_with_profile(notes, hand, HandSpanProfile::Standard)
+}
+
+pub fn suggest_fingerings_with_profile(
+    notes: &[FingeringNote],
+    hand: FingeringHand,
+    profile: HandSpanProfile,
+) -> Vec<Option<FingerSuggestion>> {
     let mut suggestions = vec![None; notes.len()];
     let mut index = 0;
     while index < notes.len() {
@@ -88,6 +140,7 @@ pub fn suggest_fingerings(
         suggest_run(
             &notes[run_start..index],
             hand,
+            profile,
             &mut suggestions[run_start..index],
         );
     }
@@ -97,6 +150,7 @@ pub fn suggest_fingerings(
 fn suggest_run(
     notes: &[FingeringNote],
     hand: FingeringHand,
+    profile: HandSpanProfile,
     output: &mut [Option<FingerSuggestion>],
 ) {
     if notes.is_empty() {
@@ -128,6 +182,7 @@ fn suggest_run(
                         notes[note_index].pitch,
                         next_finger as u8,
                         hand,
+                        profile,
                     )
                     + static_key_cost(notes[note_index].pitch, next_finger as u8);
                 if candidate < costs[note_index][next_finger - 1] {
@@ -217,6 +272,7 @@ fn transition_cost(
     next_pitch: u8,
     next_finger: u8,
     hand: FingeringHand,
+    profile: HandSpanProfile,
 ) -> i32 {
     let pitch_delta = i16::from(next_pitch) - i16::from(prior_pitch);
     let distance = pitch_delta.unsigned_abs() as i32;
@@ -249,7 +305,7 @@ fn transition_cost(
     };
 
     let finger_gap = i32::from(prior_finger.abs_diff(next_finger));
-    let comfortable_span = [0, 3, 5, 8, 12][finger_gap as usize];
+    let comfortable_span = profile.comfortable_spans()[finger_gap as usize];
     movement + (distance - comfortable_span).max(0) * 4
 }
 
@@ -401,5 +457,41 @@ mod tests {
                 .contains("balanced")
         );
         assert!((1..=100).contains(&suggestion.confidence_percent));
+    }
+
+    #[test]
+    fn hand_span_profiles_change_stretch_planning() {
+        let candidates = [
+            [48, 52, 55, 60, 64],
+            [48, 53, 57, 60, 65],
+            [60, 64, 67, 72, 76],
+            [60, 65, 69, 72, 77],
+        ];
+
+        let changes_plan = candidates.into_iter().any(|pitches| {
+            let source = notes(&pitches);
+            let compact: Vec<_> = suggest_fingerings_with_profile(
+                &source,
+                FingeringHand::Right,
+                HandSpanProfile::Compact,
+            )
+            .into_iter()
+            .map(|suggestion| suggestion.unwrap().finger)
+            .collect();
+            let large: Vec<_> = suggest_fingerings_with_profile(
+                &source,
+                FingeringHand::Right,
+                HandSpanProfile::Large,
+            )
+            .into_iter()
+            .map(|suggestion| suggestion.unwrap().finger)
+            .collect();
+            compact != large
+        });
+
+        assert!(
+            changes_plan,
+            "compact and large profiles should not plan every wide phrase identically"
+        );
     }
 }

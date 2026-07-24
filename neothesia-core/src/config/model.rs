@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::exercise::ExerciseSpec;
+use crate::fingering::HandSpanProfile;
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -75,6 +76,9 @@ pub struct PlaybackConfigV1 {
 
     #[serde(default = "default_input_latency_ms")]
     pub input_latency_ms: i32,
+
+    #[serde(default)]
+    pub hand_span_profile: HandSpanProfile,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,6 +97,7 @@ impl Default for PlaybackConfig {
             adaptive_tempo_max: default_adaptive_tempo_max(),
             expression_feedback: default_expression_feedback(),
             input_latency_ms: default_input_latency_ms(),
+            hand_span_profile: HandSpanProfile::default(),
         })
     }
 }
@@ -372,6 +377,7 @@ mod tests {
         assert_eq!(playback.adaptive_tempo_max, 1.0);
         assert!(playback.expression_feedback);
         assert_eq!(playback.input_latency_ms, 0);
+        assert_eq!(playback.hand_span_profile, HandSpanProfile::Standard);
 
         let DevicesConfig::V1(devices) = DevicesConfig::default();
         assert_eq!(devices.output.as_deref(), Some("Buildin Synth"));
@@ -401,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn playback_saved_before_latency_compensation_defaults_to_zero() {
+    fn older_playback_settings_gain_safe_practice_defaults() {
         let playback: PlaybackConfigV1 = ron::from_str(
             r#"(
                 speed_multiplier: 1.0,
@@ -416,5 +422,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(playback.input_latency_ms, 0);
+        assert_eq!(playback.hand_span_profile, HandSpanProfile::Standard);
     }
 }

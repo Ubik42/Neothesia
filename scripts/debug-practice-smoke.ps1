@@ -459,18 +459,25 @@ try {
         Start-Sleep -Milliseconds 100
     }
     Assert-True ($null -ne $waiting) "Player did not expose a required note"
+    $requiredPitches = @(
+        $waiting.required_note_pitches | ForEach-Object { [int]$_ }
+    )
     Assert-True (
-        @($waiting.required_note_pitches).Count -eq $waiting.required_notes
+        $requiredPitches.Count -eq $waiting.required_notes
     ) "Required-note count and pitch list disagree"
     if ($ExerciseFixture) {
         Assert-True (
-            @($waiting.required_note_pitches).Contains(44) -and
-            @($waiting.required_note_pitches).Contains(68)
-        ) "G-sharp exercise did not expose the selected two-hand tonic"
+            $requiredPitches.Contains(44) -and
+            $requiredPitches.Contains(68)
+        ) (
+            "G-sharp exercise did not expose the selected two-hand tonic; " +
+            "required pitches were: " +
+            ($requiredPitches -join ", ")
+        )
     }
 
     $matchedBeforeInput = [int]$waiting.matched_notes
-    foreach ($note in @($waiting.required_note_pitches)) {
+    foreach ($note in $requiredPitches) {
         $noteOn = Invoke-DebugDriver "MIDI 0 $note 100"
         Assert-True ($noteOn.ok -and $noteOn.accepted) "Debug note-on was rejected"
         $noteOff = Invoke-DebugDriver "MIDI 0 $note 0"

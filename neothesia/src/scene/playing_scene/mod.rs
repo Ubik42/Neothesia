@@ -1,6 +1,6 @@
 use midi_file::midly::MidiMessage;
 use neothesia_core::fingering::{
-    FingerSuggestion, FingeringHand, FingeringNote, suggest_fingerings,
+    FingerSuggestion, FingeringHand, FingeringNote, suggest_fingerings_with_profile,
 };
 use neothesia_core::library::{FingerHint, save_song_fingerings};
 use neothesia_core::practice::{
@@ -638,7 +638,7 @@ impl PlayingScene {
         true
     }
 
-    fn request_fingering_suggestion(&mut self) -> bool {
+    fn request_fingering_suggestion(&mut self, ctx: &Context) -> bool {
         let Some(target) = self.fingering_editor.as_ref().map(FingeringEditor::target) else {
             return false;
         };
@@ -684,10 +684,11 @@ impl PlayingScene {
                     .flatten(),
             })
             .collect();
-        let Some(suggestion) = suggest_fingerings(&notes, hand)
-            .get(target.note_index)
-            .copied()
-            .flatten()
+        let Some(suggestion) =
+            suggest_fingerings_with_profile(&notes, hand, ctx.config.hand_span_profile())
+                .get(target.note_index)
+                .copied()
+                .flatten()
         else {
             self.toast_manager
                 .toast("No suggestion: this note belongs to a chord not modeled yet");
@@ -2161,7 +2162,7 @@ impl Scene for PlayingScene {
                 return;
             }
             if event.key_released(Key::Character("g")) {
-                self.request_fingering_suggestion();
+                self.request_fingering_suggestion(ctx);
                 return;
             }
             if event.key_released(Key::Named(NamedKey::Enter)) {
@@ -2269,7 +2270,7 @@ impl Scene for PlayingScene {
                 }
             }
             DebugPracticeAction::SuggestFinger => {
-                if !self.request_fingering_suggestion() {
+                if !self.request_fingering_suggestion(ctx) {
                     return false;
                 }
             }

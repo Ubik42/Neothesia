@@ -149,6 +149,17 @@ impl super::MenuScene {
 
                         spacer(ui);
 
+                        update_hand_span_profile(
+                            ctx,
+                            nuon::settings_row_spin()
+                                .title("Hand Span")
+                                .subtitle(ctx.config.hand_span_profile().label())
+                                .id("hand-span-profile")
+                                .build(ui, rows),
+                        );
+
+                        spacer(ui);
+
                         update_adaptive_mastery(
                             ctx,
                             nuon::settings_row_spin()
@@ -651,6 +662,16 @@ pub fn update_input_latency(ctx: &mut Context, kind: nuon::SettingsRowSpinResult
     };
     ctx.config
         .set_input_latency_ms(ctx.config.input_latency_ms() + delta);
+}
+
+pub fn update_hand_span_profile(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
+    let current = ctx.config.hand_span_profile();
+    let profile = match kind {
+        nuon::SettingsRowSpinResult::Plus => current.next(),
+        nuon::SettingsRowSpinResult::Minus => current.previous(),
+        nuon::SettingsRowSpinResult::Idle => current,
+    };
+    ctx.config.set_hand_span_profile(profile);
 }
 
 pub fn update_adaptive_min_speed(ctx: &mut Context, kind: nuon::SettingsRowSpinResult) {
