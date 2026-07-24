@@ -205,7 +205,7 @@ impl MenuScene {
             let reviewed = plan.fingerings().is_some();
             nuon::label()
                 .text(if reviewed {
-                    "Reviewed fingering available"
+                    "Reviewed fingering available · gold marks hand turns"
                 } else {
                     "Fingering not yet reviewed for this exercise"
                 })

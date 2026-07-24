@@ -2,7 +2,7 @@ use midi_file::MidiTrack;
 use neothesia_core::exercise::{ExercisePlan, ExerciseSpec};
 use neothesia_core::practice::{PracticeHands, PracticePart};
 use neothesia_core::practice_history::{PracticeTrackMode, PracticeTrackSetup, SongPracticeSetup};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use crate::context::Context;
@@ -190,6 +190,7 @@ pub struct Song {
     pub exercise_spec: Option<ExerciseSpec>,
     pub exercise_phrase_duration: Option<Duration>,
     pub exercise_fingerings: HashMap<(Duration, u8, u8), u8>,
+    pub exercise_fingering_crossings: HashSet<(Duration, u8, u8)>,
 }
 
 impl Song {
@@ -201,6 +202,7 @@ impl Song {
             exercise_spec: None,
             exercise_phrase_duration: None,
             exercise_fingerings: HashMap::new(),
+            exercise_fingering_crossings: HashSet::new(),
         }
     }
 
@@ -214,14 +216,17 @@ impl Song {
         ));
         if let Some(fingerings) = plan.fingerings() {
             for track in song.file.tracks.iter() {
-                let fingers = match track.notes.first().map(|note| note.channel) {
-                    Some(0) => &fingerings.right,
-                    Some(1) => &fingerings.left,
+                let (fingers, crossings) = match track.notes.first().map(|note| note.channel) {
+                    Some(0) => (&fingerings.right, &fingerings.right_crossings),
+                    Some(1) => (&fingerings.left, &fingerings.left_crossings),
                     _ => continue,
                 };
-                for (note, finger) in track.notes.iter().zip(fingers) {
-                    song.exercise_fingerings
-                        .insert((note.start, note.note, note.channel), *finger);
+                for ((note, finger), crossing) in track.notes.iter().zip(fingers).zip(crossings) {
+                    let key = (note.start, note.note, note.channel);
+                    song.exercise_fingerings.insert(key, *finger);
+                    if *crossing {
+                        song.exercise_fingering_crossings.insert(key);
+                    }
                 }
             }
         }
@@ -285,6 +290,15 @@ mod tests {
         assert_eq!(song.config.practice_hands(), Some(PracticeHands::Both));
         assert_eq!(song.config.tracks.len(), 3);
         assert_eq!(song.exercise_fingerings.len(), 30);
+        assert_eq!(song.exercise_fingering_crossings.len(), 4);
+        assert!(
+            song.exercise_fingering_crossings
+                .contains(&(Duration::from_secs(3), 65, 0))
+        );
+        assert!(
+            song.exercise_fingering_crossings
+                .contains(&(Duration::from_secs(5), 45, 1))
+        );
         assert_eq!(
             song.exercise_fingerings.get(&(Duration::ZERO, 60, 0)),
             Some(&1)

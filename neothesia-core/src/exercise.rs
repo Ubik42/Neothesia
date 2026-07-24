@@ -111,6 +111,8 @@ pub struct ExercisePlan {
 pub struct ExerciseFingerings {
     pub right: Vec<u8>,
     pub left: Vec<u8>,
+    pub right_crossings: Vec<bool>,
+    pub left_crossings: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Eq, Error, PartialEq)]
@@ -309,17 +311,39 @@ impl ExercisePlan {
             self.spec.direction,
             self.spec.repetitions,
         );
+        let right = if self.spec.hands == ExerciseHands::Left {
+            Vec::new()
+        } else {
+            right
+        };
+        let left = if self.spec.hands == ExerciseHands::Right {
+            Vec::new()
+        } else {
+            left
+        };
+        let part_pitches = |part| {
+            self.moments
+                .iter()
+                .flat_map(|moment| moment.notes.iter())
+                .filter(|note| note.part == part)
+                .map(|note| note.midi_note)
+                .collect::<Vec<_>>()
+        };
+        let right_crossings = fingering_crossings(
+            &right,
+            &part_pitches(PracticePart::RightHand),
+            PracticePart::RightHand,
+        );
+        let left_crossings = fingering_crossings(
+            &left,
+            &part_pitches(PracticePart::LeftHand),
+            PracticePart::LeftHand,
+        );
         Some(ExerciseFingerings {
-            right: if self.spec.hands == ExerciseHands::Left {
-                Vec::new()
-            } else {
-                right
-            },
-            left: if self.spec.hands == ExerciseHands::Right {
-                Vec::new()
-            } else {
-                left
-            },
+            right,
+            left,
+            right_crossings,
+            left_crossings,
         })
     }
 
@@ -756,6 +780,26 @@ fn directional_fingering(
     phrase.repeat(usize::from(repetitions))
 }
 
+fn fingering_crossings(fingers: &[u8], pitches: &[u8], part: PracticePart) -> Vec<bool> {
+    let mut crossings = vec![false; pitches.len()];
+    for index in 1..pitches.len().min(fingers.len()) {
+        let pitch_rises = pitches[index] > pitches[index - 1];
+        let pitch_falls = pitches[index] < pitches[index - 1];
+        let finger_rises = fingers[index] > fingers[index - 1];
+        let finger_falls = fingers[index] < fingers[index - 1];
+        crossings[index] = match part {
+            PracticePart::RightHand => {
+                (pitch_rises && finger_falls) || (pitch_falls && finger_rises)
+            }
+            PracticePart::LeftHand => {
+                (pitch_rises && finger_rises) || (pitch_falls && finger_falls)
+            }
+            PracticePart::Other => false,
+        };
+    }
+    crossings
+}
+
 fn validate_spec(spec: ExerciseSpec) -> Result<(), ExerciseError> {
     if spec.tonic > 11 {
         return Err(ExerciseError::InvalidTonic);
@@ -1020,6 +1064,30 @@ mod tests {
 
         assert_eq!(fingerings.right, right_phrase.repeat(2));
         assert_eq!(fingerings.left, left_phrase.repeat(2));
+    }
+
+    #[test]
+    fn fingering_crossings_follow_each_hands_direction() {
+        let fingerings = ExercisePlan::generate(
+            ExerciseSpec {
+                hands: ExerciseHands::Both,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap()
+        .fingerings()
+        .unwrap();
+        let marked = |flags: &[bool]| {
+            flags
+                .iter()
+                .enumerate()
+                .filter_map(|(index, marked)| marked.then_some(index))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(marked(&fingerings.right_crossings), [3, 12]);
+        assert_eq!(marked(&fingerings.left_crossings), [5, 10]);
     }
 
     #[test]

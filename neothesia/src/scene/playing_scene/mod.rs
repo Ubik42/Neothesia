@@ -234,12 +234,13 @@ impl PlayingScene {
 
         let has_exercise_fingerings = !song.exercise_fingerings.is_empty();
         let note_labels = (ctx.config.note_labels() || has_exercise_fingerings).then_some(
-            NoteLabels::with_fingerings(
+            NoteLabels::with_fingering_guidance(
                 *keyboard.pos(),
                 waterfall.notes(),
                 ctx.text_renderer_factory.new_renderer(),
                 ctx.config.note_labels(),
                 song.exercise_fingerings.clone(),
+                song.exercise_fingering_crossings.clone(),
                 ctx.config.exercise_fingerings(),
             ),
         );
@@ -1861,6 +1862,10 @@ impl Scene for PlayingScene {
             input_latency_ms: self.player.input_latency_ms(),
             fingerings_available: self.fingering_state().0,
             fingerings_enabled: self.fingering_state().1,
+            fingering_crossing_count: self
+                .note_labels
+                .as_ref()
+                .map_or(0, NoteLabels::fingering_crossing_count),
         })
     }
 

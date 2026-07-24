@@ -258,6 +258,9 @@ try {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
         ) "Reviewed G-sharp minor-arpeggio fingering was not enabled by default"
+        Assert-True (
+            [int]$player.fingering_crossing_count -gt 0
+        ) "Reviewed exercise did not expose any highlighted hand turns"
         $toggleFingeringsOff = Invoke-DebugDriver (
             "ACTION practice.player.fingerings"
         )

@@ -61,6 +61,7 @@ pub struct DebugPracticeSnapshot {
     pub input_latency_ms: i32,
     pub fingerings_available: bool,
     pub fingerings_enabled: bool,
+    pub fingering_crossing_count: usize,
 }
 
 #[cfg(debug_assertions)]

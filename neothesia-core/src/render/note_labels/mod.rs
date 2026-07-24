@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use crate::utils::Point;
 
@@ -109,6 +112,7 @@ pub struct NoteLabels {
     text_renderer: TextRenderer,
     note_names_enabled: bool,
     fingerings: HashMap<(Duration, u8, u8), u8>,
+    fingering_crossings: HashSet<(Duration, u8, u8)>,
     fingerings_enabled: bool,
 }
 
@@ -125,6 +129,26 @@ impl NoteLabels {
         fingerings: HashMap<(Duration, u8, u8), u8>,
         fingerings_enabled: bool,
     ) -> Self {
+        Self::with_fingering_guidance(
+            pos,
+            notes,
+            text_renderer,
+            note_names_enabled,
+            fingerings,
+            HashSet::new(),
+            fingerings_enabled,
+        )
+    }
+
+    pub fn with_fingering_guidance(
+        pos: Point<f32>,
+        notes: &NoteList,
+        text_renderer: TextRenderer,
+        note_names_enabled: bool,
+        fingerings: HashMap<(Duration, u8, u8), u8>,
+        fingering_crossings: HashSet<(Duration, u8, u8)>,
+        fingerings_enabled: bool,
+    ) -> Self {
         let fingerings_enabled = !fingerings.is_empty() && fingerings_enabled;
         Self {
             pos,
@@ -133,6 +157,7 @@ impl NoteLabels {
             text_renderer,
             note_names_enabled,
             fingerings,
+            fingering_crossings,
             fingerings_enabled,
         }
     }
@@ -143,6 +168,10 @@ impl NoteLabels {
 
     pub fn fingerings_enabled(&self) -> bool {
         self.has_fingerings() && self.fingerings_enabled
+    }
+
+    pub fn fingering_crossing_count(&self) -> usize {
+        self.fingering_crossings.len()
     }
 
     pub fn toggle_fingerings(&mut self) -> bool {
@@ -184,6 +213,9 @@ impl NoteLabels {
                         .fingerings
                         .get(&(note.start, note.note, note.channel))
                         .copied()?;
+                    let crossing =
+                        self.fingering_crossings
+                            .contains(&(note.start, note.note, note.channel));
                     let key = &layout.keys[note.note as usize - range_start];
                     let finger_index = usize::from(finger.saturating_sub(1).min(4));
                     let kind_index = usize::from(key.kind().is_sharp());
@@ -192,11 +224,22 @@ impl NoteLabels {
                     let y = self.pos.y
                         - (note.start.as_secs_f32() - time) * animation_speed
                         - label_width;
-                    Some((buffer, x, y))
+                    Some((buffer, x, y, crossing))
                 })
-                .take_while(|(_buffer, _x, y)| *y > 0.0)
-                .skip_while(|(_buffer, _x, y)| *y > keyboard.pos().y)
-                .map(text_area);
+                .take_while(|(_buffer, _x, y, _crossing)| *y > 0.0)
+                .skip_while(|(_buffer, _x, y, _crossing)| *y > keyboard.pos().y)
+                .map(|(buffer, x, y, crossing)| {
+                    text_area((
+                        buffer,
+                        x,
+                        y,
+                        if crossing {
+                            glyphon::Color::rgb(255, 196, 64)
+                        } else {
+                            glyphon::Color::rgb(255, 255, 255)
+                        },
+                    ))
+                });
             self.text_renderer
                 .update_from_iter(physical_size, scale, iter);
         } else if self.note_names_enabled {
@@ -212,10 +255,10 @@ impl NoteLabels {
                     let y = self.pos.y
                         - (note.start.as_secs_f32() - time) * animation_speed
                         - label_width;
-                    (buffer, x, y)
+                    (buffer, x, y, glyphon::Color::rgb(255, 255, 255))
                 })
-                .take_while(|(_buffer, _x, y)| *y > 0.0)
-                .skip_while(|(_buffer, _x, y)| *y > keyboard.pos().y)
+                .take_while(|(_buffer, _x, y, _color)| *y > 0.0)
+                .skip_while(|(_buffer, _x, y, _color)| *y > keyboard.pos().y)
                 .map(text_area);
             self.text_renderer
                 .update_from_iter(physical_size, scale, iter);
@@ -233,7 +276,9 @@ impl NoteLabels {
     }
 }
 
-fn text_area((buffer, left, top): (&glyphon::Buffer, f32, f32)) -> glyphon::TextArea<'_> {
+fn text_area(
+    (buffer, left, top, color): (&glyphon::Buffer, f32, f32, glyphon::Color),
+) -> glyphon::TextArea<'_> {
     glyphon::TextArea {
         buffer,
         left,
@@ -245,7 +290,7 @@ fn text_area((buffer, left, top): (&glyphon::Buffer, f32, f32)) -> glyphon::Text
             right: i32::MAX,
             bottom: i32::MAX,
         },
-        default_color: glyphon::Color::rgb(255, 255, 255),
+        default_color: color,
         custom_glyphs: &[],
     }
 }
