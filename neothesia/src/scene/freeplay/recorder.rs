@@ -172,6 +172,10 @@ impl Preview {
         }
     }
 
+    pub fn emergency_stop(&mut self) {
+        self.player.emergency_stop();
+    }
+
     pub fn update(&mut self, keyboard: &mut Keyboard, ctx: &mut Context, delta: Duration) {
         let midi_events = self.player.update(delta);
         keyboard.file_midi_events(&ctx.config, &midi_events);

@@ -954,9 +954,6 @@ impl Scene for PlayingScene {
 
     fn window_event(&mut self, ctx: &mut Context, event: &WindowEvent) {
         if self.completion.is_some() {
-            if event.key_released(Key::Named(NamedKey::F12)) {
-                self.emergency_panic();
-            }
             if event.back_mouse_pressed() || event.key_released(Key::Named(NamedKey::Escape)) {
                 ctx.proxy
                     .send_event(NeothesiaEvent::MainMenu(Some(self.player.song().clone())))
@@ -986,10 +983,6 @@ impl Scene for PlayingScene {
             self.player.pause_resume();
         }
 
-        if event.key_released(Key::Named(NamedKey::F12)) {
-            self.emergency_panic();
-        }
-
         let speed_before = ctx.config.speed_multiplier();
         handle_settings_input(ctx, &mut self.toast_manager, &mut self.waterfall, event);
         if ctx.config.speed_multiplier() != speed_before {
@@ -1013,6 +1006,10 @@ impl Scene for PlayingScene {
     fn midi_event(&mut self, _ctx: &mut Context, channel: u8, message: &MidiMessage) {
         self.player.user_midi_event(channel, message);
         self.keyboard.user_midi_event(message);
+    }
+
+    fn emergency_stop(&mut self, _ctx: &mut Context) {
+        self.emergency_panic();
     }
 }
 

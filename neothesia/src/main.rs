@@ -96,6 +96,11 @@ impl Neothesia {
 
                 let modifiers = self.context.window_state.modifiers_state;
 
+                if event.key_released(Key::Named(NamedKey::F12)) {
+                    self.game_scene.emergency_stop(&mut self.context);
+                    return;
+                }
+
                 if event.key_released(Key::Named(NamedKey::F11))
                     || (event.key_pressed(Key::Character("f")) && modifiers.control_key())
                 {

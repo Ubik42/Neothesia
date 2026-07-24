@@ -19,6 +19,9 @@ pub trait Scene {
     fn render<'pass>(&'pass mut self, rpass: &mut wgpu_jumpstart::RenderPass<'pass>);
     fn window_event(&mut self, _ctx: &mut Context, _event: &WindowEvent) {}
     fn midi_event(&mut self, _ctx: &mut Context, _channel: u8, _message: &MidiMessage) {}
+    fn emergency_stop(&mut self, ctx: &mut Context) {
+        ctx.output_manager.connection().stop_all();
+    }
 }
 
 pub fn handle_pc_keyboard_to_midi_event(ctx: &mut Context, event: &WindowEvent) {

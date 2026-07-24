@@ -280,6 +280,16 @@ impl Scene for FreeplayScene {
             self.deduced_chord_name = chords::deduce_name(&notes);
         }
     }
+
+    fn emergency_stop(&mut self, ctx: &mut Context) {
+        ctx.output_manager.connection().stop_all();
+        if let Some(preview) = self.preview.as_mut() {
+            preview.emergency_stop();
+        }
+        self.keyboard.reset_notes();
+        self.mouse_to_midi_state.reset();
+        self.deduced_chord_name.clear();
+    }
 }
 
 mod chords {
