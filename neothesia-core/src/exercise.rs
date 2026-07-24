@@ -256,13 +256,12 @@ impl ExercisePlan {
 
     /// Returns reviewed fingering for the exact generated note sequence.
     ///
-    /// Supported tables cover every major, natural-minor and harmonic-minor key
-    /// plus C melodic minor. Unsupported forms and patterns deliberately
-    /// return `None` rather than guessing.
+    /// Supported tables cover every major and all three minor forms in every
+    /// key. Unsupported patterns deliberately return `None` rather than
+    /// guessing.
     pub fn fingerings(&self) -> Option<ExerciseFingerings> {
         let is_reviewed_major = self.spec.tonality == ExerciseTonality::Major;
-        let is_reviewed_minor = self.spec.tonality == ExerciseTonality::Minor
-            && (self.spec.minor_form != ExerciseMinorForm::Melodic || self.spec.tonic == 0);
+        let is_reviewed_minor = self.spec.tonality == ExerciseTonality::Minor;
         if self.spec.pattern != ExercisePattern::Scale || (!is_reviewed_major && !is_reviewed_minor)
         {
             return None;
@@ -275,11 +274,25 @@ impl ExercisePlan {
                 PracticePart::RightHand,
                 self.spec.octaves,
             ),
+            descending_scale_fingering(
+                self.spec.tonic,
+                self.spec.tonality,
+                self.spec.minor_form,
+                PracticePart::RightHand,
+                self.spec.octaves,
+            ),
             self.spec.direction,
             self.spec.repetitions,
         );
         let left = directional_fingering(
             ascending_scale_fingering(
+                self.spec.tonic,
+                self.spec.tonality,
+                self.spec.minor_form,
+                PracticePart::LeftHand,
+                self.spec.octaves,
+            ),
+            descending_scale_fingering(
                 self.spec.tonic,
                 self.spec.tonality,
                 self.spec.minor_form,
@@ -428,8 +441,25 @@ fn ascending_scale_fingering(
         if minor_form == ExerciseMinorForm::Harmonic {
             return ascending_harmonic_minor_fingering(tonic, part, note_count);
         }
+        if minor_form == ExerciseMinorForm::Melodic {
+            return ascending_melodic_minor_fingering(tonic, part, note_count);
+        }
     }
     ascending_major_fingering(tonic, part, note_count)
+}
+
+fn descending_scale_fingering(
+    tonic: u8,
+    tonality: ExerciseTonality,
+    minor_form: ExerciseMinorForm,
+    part: PracticePart,
+    octaves: u8,
+) -> Vec<u8> {
+    if tonality == ExerciseTonality::Minor && minor_form == ExerciseMinorForm::Melodic {
+        ascending_natural_minor_fingering(tonic, part, usize::from(octaves) * 7 + 1)
+    } else {
+        ascending_scale_fingering(tonic, tonality, minor_form, part, octaves)
+    }
 }
 
 fn ascending_major_fingering(tonic: u8, part: PracticePart, note_count: usize) -> Vec<u8> {
@@ -561,6 +591,29 @@ fn ascending_harmonic_minor_fingering(tonic: u8, part: PracticePart, note_count:
     }
 }
 
+fn ascending_melodic_minor_fingering(tonic: u8, part: PracticePart, note_count: usize) -> Vec<u8> {
+    match part {
+        PracticePart::RightHand => match tonic {
+            0 | 2 | 4 | 9 | 11 => scale_fingering(note_count, 1, &[2, 3, 1, 2, 3, 4, 1], Some(5)),
+            1 | 6 => scale_fingering(note_count, 2, &[3, 1, 2, 3, 4, 1, 2], None),
+            3 => scale_fingering(note_count, 3, &[1, 2, 3, 4, 1, 2, 3], None),
+            5 | 7 => scale_fingering(note_count, 1, &[2, 3, 4, 1, 2, 3, 1], Some(4)),
+            8 => scale_fingering(note_count, 3, &[4, 1, 2, 3, 1, 2, 3], None),
+            10 => scale_fingering(note_count, 4, &[1, 2, 3, 1, 2, 3, 4], None),
+            _ => unreachable!("validated tonic must be a pitch class"),
+        },
+        PracticePart::LeftHand => match tonic {
+            0 | 2 | 4 | 5 | 7 | 9 => scale_fingering(note_count, 5, &[4, 3, 2, 1, 3, 2, 1], None),
+            1 | 8 => scale_fingering(note_count, 3, &[2, 1, 4, 3, 2, 1, 3], None),
+            3 | 10 => scale_fingering(note_count, 2, &[1, 4, 3, 2, 1, 3, 2], None),
+            6 => scale_fingering(note_count, 4, &[3, 2, 1, 3, 2, 1, 4], None),
+            11 => scale_fingering(note_count, 4, &[3, 2, 1, 4, 3, 2, 1], None),
+            _ => unreachable!("validated tonic must be a pitch class"),
+        },
+        PracticePart::Other => Vec::new(),
+    }
+}
+
 fn scale_fingering(
     note_count: usize,
     start: u8,
@@ -627,15 +680,16 @@ fn tonic_display_name(tonic: u8, tonality: ExerciseTonality) -> &'static str {
 
 fn directional_fingering(
     ascending: Vec<u8>,
+    descending_source: Vec<u8>,
     direction: ExerciseDirection,
     repetitions: u8,
 ) -> Vec<u8> {
     let phrase = match direction {
         ExerciseDirection::Ascending => ascending,
-        ExerciseDirection::Descending => ascending.into_iter().rev().collect(),
+        ExerciseDirection::Descending => descending_source.into_iter().rev().collect(),
         ExerciseDirection::UpAndDown => {
             let mut phrase = ascending.clone();
-            phrase.extend(ascending.into_iter().rev().skip(1));
+            phrase.extend(descending_source.into_iter().rev().skip(1));
             phrase
         }
     };
@@ -909,18 +963,8 @@ mod tests {
     }
 
     #[test]
-    fn fingering_is_explicitly_unavailable_for_unreviewed_forms_and_patterns() {
+    fn fingering_is_explicitly_unavailable_for_unreviewed_patterns() {
         let keyboard = KeyboardRange::standard_88_keys();
-        let other_minor = ExercisePlan::generate(
-            ExerciseSpec {
-                tonic: 1,
-                tonality: ExerciseTonality::Minor,
-                minor_form: ExerciseMinorForm::Melodic,
-                ..Default::default()
-            },
-            &keyboard,
-        )
-        .unwrap();
         let arpeggio = ExercisePlan::generate(
             ExerciseSpec {
                 pattern: ExercisePattern::Arpeggio,
@@ -930,7 +974,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(other_minor.fingerings().is_none());
         assert!(arpeggio.fingerings().is_none());
     }
 
@@ -1107,6 +1150,105 @@ mod tests {
             assert_eq!(fingerings.right, right, "right hand tonic {tonic}");
             assert_eq!(fingerings.left, left, "left hand tonic {tonic}");
         }
+    }
+
+    #[test]
+    fn all_melodic_minor_keys_use_reviewed_two_octave_tables() {
+        let keyboard = KeyboardRange::standard_88_keys();
+        let common_right = vec![1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5];
+        let common_left = vec![5, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1];
+        let cases = [
+            (0, common_right.clone(), common_left.clone()),
+            (
+                1,
+                vec![2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (2, common_right.clone(), common_left.clone()),
+            (
+                3,
+                vec![3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3],
+                vec![2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2],
+            ),
+            (4, common_right.clone(), common_left.clone()),
+            (
+                5,
+                vec![1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 4],
+                common_left.clone(),
+            ),
+            (
+                6,
+                vec![2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2],
+                vec![4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4],
+            ),
+            (
+                7,
+                vec![1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 4],
+                common_left.clone(),
+            ),
+            (
+                8,
+                vec![3, 4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3],
+                vec![3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3],
+            ),
+            (9, common_right, common_left),
+            (
+                10,
+                vec![4, 1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4],
+                vec![2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1, 3, 2],
+            ),
+            (
+                11,
+                vec![1, 2, 3, 1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 4, 5],
+                vec![4, 3, 2, 1, 4, 3, 2, 1, 3, 2, 1, 4, 3, 2, 1],
+            ),
+        ];
+
+        for (tonic, right, left) in cases {
+            let fingerings = ExercisePlan::generate(
+                ExerciseSpec {
+                    tonic,
+                    tonality: ExerciseTonality::Minor,
+                    minor_form: ExerciseMinorForm::Melodic,
+                    direction: ExerciseDirection::Ascending,
+                    hands: ExerciseHands::Both,
+                    octaves: 2,
+                    ..Default::default()
+                },
+                &keyboard,
+            )
+            .unwrap()
+            .fingerings()
+            .unwrap();
+            assert_eq!(fingerings.right, right, "right hand tonic {tonic}");
+            assert_eq!(fingerings.left, left, "left hand tonic {tonic}");
+        }
+    }
+
+    #[test]
+    fn melodic_minor_descends_with_natural_minor_fingering() {
+        let fingerings = ExercisePlan::generate(
+            ExerciseSpec {
+                tonic: 10,
+                tonality: ExerciseTonality::Minor,
+                minor_form: ExerciseMinorForm::Melodic,
+                hands: ExerciseHands::Both,
+                ..Default::default()
+            },
+            &KeyboardRange::standard_88_keys(),
+        )
+        .unwrap()
+        .fingerings()
+        .unwrap();
+
+        assert_eq!(
+            fingerings.right,
+            [4, 1, 2, 3, 1, 2, 3, 4, 3, 2, 1, 3, 2, 1, 2]
+        );
+        assert_eq!(
+            fingerings.left,
+            [2, 1, 4, 3, 2, 1, 3, 2, 3, 4, 1, 2, 3, 1, 2]
+        );
     }
 
     #[test]
