@@ -20,6 +20,7 @@ pub struct UiState {
     pub library_index: Option<LibraryIndex>,
     pub library_scanning: bool,
     pub library_query: String,
+    pub library_queue_only: bool,
 
     page_stack: VecDeque<Page>,
 }
@@ -40,6 +41,7 @@ impl UiState {
             library_index: None,
             library_scanning: false,
             library_query: String::new(),
+            library_queue_only: false,
 
             page_stack,
         }

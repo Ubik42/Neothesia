@@ -305,7 +305,12 @@ impl MenuScene {
         let row_w = (win_w - 80.0).clamp(420.0, 760.0);
         let query = self.state.library_query.trim().to_owned();
         let mut rows = BTreeMap::<String, LibraryRow>::new();
-        for song in ctx.practice_history.recent_songs(usize::MAX) {
+        let history_songs = ctx.practice_history.recent_songs(usize::MAX);
+        let queued_count = history_songs
+            .iter()
+            .filter(|song| song.queue_position.is_some())
+            .count();
+        for song in history_songs {
             if library_text_matches(&query, &song.display_name, song.source_path.as_deref()) {
                 rows.insert(
                     song.content_id.clone(),
@@ -316,6 +321,9 @@ impl MenuScene {
                         session_count: song.session_count,
                         latest_accuracy: song.latest_accuracy,
                         last_used_unix_ms: song.last_used_unix_ms,
+                        favorite: song.favorite,
+                        queue_position: song.queue_position,
+                        recommended_measures: song.recommended_measures,
                     },
                 );
             }
@@ -340,16 +348,25 @@ impl MenuScene {
                         session_count: 0,
                         latest_accuracy: None,
                         last_used_unix_ms: 0,
+                        favorite: false,
+                        queue_position: None,
+                        recommended_measures: None,
                     });
             }
         }
         let mut rows: Vec<_> = rows.into_values().collect();
-        rows.sort_by(|left, right| {
-            right
-                .last_used_unix_ms
-                .cmp(&left.last_used_unix_ms)
-                .then_with(|| left.display_name.cmp(&right.display_name))
-        });
+        if self.state.library_queue_only {
+            rows.retain(|song| song.queue_position.is_some());
+            rows.sort_by(|left, right| left.queue_position.cmp(&right.queue_position));
+        } else {
+            rows.sort_by(|left, right| {
+                right
+                    .favorite
+                    .cmp(&left.favorite)
+                    .then_with(|| right.last_used_unix_ms.cmp(&left.last_used_unix_ms))
+                    .then_with(|| left.display_name.cmp(&right.display_name))
+            });
+        }
 
         nuon::label()
             .x(30.0)
@@ -388,7 +405,7 @@ impl MenuScene {
         nuon::label()
             .x(30.0)
             .y(60.0)
-            .size(win_w - 60.0, 28.0)
+            .size(win_w - 200.0, 28.0)
             .font_size(15.0)
             .color([178, 175, 190])
             .text(format!(
@@ -405,6 +422,28 @@ impl MenuScene {
                 }
             ))
             .build(ui);
+        if nuon::button()
+            .x(win_w - 150.0)
+            .y(62.0)
+            .size(120.0, 28.0)
+            .label(if self.state.library_queue_only {
+                format!("All Pieces ({queued_count})")
+            } else {
+                format!("Queue ({queued_count})")
+            })
+            .color(if self.state.library_queue_only {
+                [109, 78, 164]
+            } else {
+                [74, 68, 88]
+            })
+            .hover_color([132, 96, 191])
+            .preseed_color([144, 108, 203])
+            .border_radius([6.0; 4])
+            .build(ui)
+        {
+            self.state.library_queue_only = !self.state.library_queue_only;
+            self.library_scroll = nuon::ScrollState::new();
+        }
 
         if let Some(message) = self.state.library_message.as_deref() {
             nuon::label()
@@ -445,22 +484,40 @@ impl MenuScene {
                                 .map(|value| format!(" · latest {}%", (value * 100.0).round()))
                                 .unwrap_or_default();
                             let action = if path_available { "Open" } else { "Locate" };
+                            let recommendation = song
+                                .recommended_measures
+                                .map(|(start, end)| {
+                                    if start == end {
+                                        format!(" · weak M{start}")
+                                    } else {
+                                        format!(" · weak M{start}-{end}")
+                                    }
+                                })
+                                .unwrap_or_default();
                             let label = format!(
-                                "{}  ·  {} session{}{}  ·  {}",
+                                "{}  ·  {} session{}{}{}  ·  {}",
                                 truncate_menu_label(&song.display_name, 54),
                                 song.session_count,
                                 if song.session_count == 1 { "" } else { "s" },
                                 accuracy,
+                                recommendation,
                                 action
                             );
+                            let row_x = nuon::center_x(win_w, row_w);
+                            let reorder_width = if self.state.library_queue_only {
+                                90.0
+                            } else {
+                                0.0
+                            };
+                            let open_width = row_w - 142.0 - reorder_width;
                             if nuon::button()
                                 .id(nuon::Id::hash_with(|hasher| {
                                     "library-song".hash(hasher);
                                     song.content_id.hash(hasher);
                                 }))
-                                .x(nuon::center_x(win_w, row_w))
+                                .x(row_x)
                                 .y(index as f32 * 62.0)
-                                .size(row_w, 52.0)
+                                .size(open_width, 52.0)
                                 .label(label)
                                 .color(if path_available {
                                     [48, 91, 82]
@@ -488,6 +545,108 @@ impl MenuScene {
                                         &mut self.state,
                                         song.content_id.clone(),
                                     ));
+                                }
+                            }
+                            if nuon::button()
+                                .id(nuon::Id::hash_with(|hasher| {
+                                    "library-favorite".hash(hasher);
+                                    song.content_id.hash(hasher);
+                                }))
+                                .x(row_x + open_width + 6.0)
+                                .y(index as f32 * 62.0)
+                                .size(60.0, 52.0)
+                                .label(if song.favorite { "Fav ✓" } else { "Fav" })
+                                .color(if song.favorite {
+                                    [130, 91, 42]
+                                } else {
+                                    [65, 62, 73]
+                                })
+                                .hover_color([160, 111, 52])
+                                .preseed_color([180, 125, 60])
+                                .border_radius([7.0; 4])
+                                .build(ui)
+                            {
+                                match ctx.practice_history.set_favorite(
+                                    &song.content_id,
+                                    &song.display_name,
+                                    song.source_path.clone(),
+                                    !song.favorite,
+                                ) {
+                                    Ok(()) => {}
+                                    Err(error) => {
+                                        self.state.library_message =
+                                            Some(format!("Could not save favorite: {error}"));
+                                    }
+                                }
+                            }
+                            if nuon::button()
+                                .id(nuon::Id::hash_with(|hasher| {
+                                    "library-queue".hash(hasher);
+                                    song.content_id.hash(hasher);
+                                }))
+                                .x(row_x + open_width + 72.0)
+                                .y(index as f32 * 62.0)
+                                .size(70.0, 52.0)
+                                .label(if song.queue_position.is_some() {
+                                    "Remove"
+                                } else {
+                                    "Queue"
+                                })
+                                .color(if song.queue_position.is_some() {
+                                    [69, 105, 128]
+                                } else {
+                                    [65, 62, 73]
+                                })
+                                .hover_color([82, 128, 156])
+                                .preseed_color([94, 145, 176])
+                                .border_radius([7.0; 4])
+                                .build(ui)
+                            {
+                                match ctx.practice_history.set_queued(
+                                    &song.content_id,
+                                    &song.display_name,
+                                    song.source_path.clone(),
+                                    song.queue_position.is_none(),
+                                ) {
+                                    Ok(()) => {}
+                                    Err(error) => {
+                                        self.state.library_message =
+                                            Some(format!("Could not update queue: {error}"));
+                                    }
+                                }
+                            }
+                            if self.state.library_queue_only {
+                                for (offset, direction, label) in
+                                    [(148.0, -1, "↑"), (192.0, 1, "↓")]
+                                {
+                                    if nuon::button()
+                                        .id(nuon::Id::hash_with(|hasher| {
+                                            "library-queue-move".hash(hasher);
+                                            song.content_id.hash(hasher);
+                                            direction.hash(hasher);
+                                        }))
+                                        .x(row_x + open_width + offset)
+                                        .y(index as f32 * 62.0)
+                                        .size(40.0, 52.0)
+                                        .label(label)
+                                        .color([65, 62, 73])
+                                        .hover_color([109, 78, 164])
+                                        .preseed_color([132, 96, 191])
+                                        .border_radius([7.0; 4])
+                                        .build(ui)
+                                    {
+                                        match ctx
+                                            .practice_history
+                                            .move_in_queue(&song.content_id, direction)
+                                        {
+                                            Ok(_) => {}
+                                            Err(error) => {
+                                                self.state.library_message = Some(format!(
+                                                    "Could not reorder queue: {error}"
+                                                ));
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -562,6 +721,9 @@ struct LibraryRow {
     session_count: usize,
     latest_accuracy: Option<f32>,
     last_used_unix_ms: u64,
+    favorite: bool,
+    queue_position: Option<usize>,
+    recommended_measures: Option<(usize, usize)>,
 }
 
 async fn scan_library(roots: Vec<PathBuf>) -> neothesia_core::library::LibraryIndex {

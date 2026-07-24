@@ -64,6 +64,13 @@ pub struct SongPracticeSetup {
     pub last_used_unix_ms: u64,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SongLibraryState {
+    pub source_path: Option<PathBuf>,
+    pub favorite: bool,
+    pub queue_position: Option<usize>,
+}
+
 impl PracticeSession {
     pub fn new(
         kind: PracticeSessionKind,
@@ -86,6 +93,8 @@ pub struct SongPracticeHistory {
     pub display_name: String,
     #[serde(default)]
     pub setup: Option<SongPracticeSetup>,
+    #[serde(default)]
+    pub library: SongLibraryState,
     pub sessions: Vec<PracticeSession>,
 }
 
@@ -136,6 +145,9 @@ pub struct RecentSongSummary {
     pub last_used_unix_ms: u64,
     pub session_count: usize,
     pub latest_accuracy: Option<f32>,
+    pub favorite: bool,
+    pub queue_position: Option<usize>,
+    pub recommended_measures: Option<(usize, usize)>,
 }
 
 impl SongPracticeHistory {
@@ -342,6 +354,7 @@ impl PracticeHistoryStore {
             .or_insert_with(|| SongPracticeHistory {
                 display_name: display_name.to_owned(),
                 setup: None,
+                library: SongLibraryState::default(),
                 sessions: Vec::new(),
             });
         song.display_name = display_name.to_owned();
@@ -366,9 +379,13 @@ impl PracticeHistoryStore {
             .or_insert_with(|| SongPracticeHistory {
                 display_name: display_name.to_owned(),
                 setup: None,
+                library: SongLibraryState::default(),
                 sessions: Vec::new(),
             });
         song.display_name = display_name.to_owned();
+        if setup.source_path.is_some() {
+            song.library.source_path = setup.source_path.clone();
+        }
         song.setup = Some(setup);
         self.save()
     }
@@ -382,9 +399,16 @@ impl PracticeHistoryStore {
             .songs()
             .iter()
             .filter_map(|(content_id, song)| {
-                let setup = song.setup.as_ref()?;
+                let setup = song.setup.as_ref();
+                if setup.is_none()
+                    && song.sessions.is_empty()
+                    && !song.library.favorite
+                    && song.library.queue_position.is_none()
+                {
+                    return None;
+                }
                 let latest_session = song.sessions.last();
-                let last_used_unix_ms = setup.last_used_unix_ms.max(
+                let last_used_unix_ms = setup.map_or(0, |setup| setup.last_used_unix_ms).max(
                     latest_session
                         .map(|session| session.recorded_at_unix_ms)
                         .unwrap_or_default(),
@@ -392,11 +416,20 @@ impl PracticeHistoryStore {
                 Some(RecentSongSummary {
                     content_id: content_id.clone(),
                     display_name: song.display_name.clone(),
-                    source_path: setup.source_path.clone(),
+                    source_path: song
+                        .library
+                        .source_path
+                        .clone()
+                        .or_else(|| setup.and_then(|setup| setup.source_path.clone())),
                     last_used_unix_ms,
                     session_count: song.sessions.len(),
                     latest_accuracy: latest_session
                         .and_then(|session| session.summary.overall.accuracy()),
+                    favorite: song.library.favorite,
+                    queue_position: song.library.queue_position,
+                    recommended_measures: song
+                        .recommended_passage()
+                        .map(|passage| (passage.start_measure, passage.end_measure)),
                 })
             })
             .collect();
@@ -409,6 +442,77 @@ impl PracticeHistoryStore {
         });
         songs.truncate(limit);
         songs
+    }
+
+    pub fn set_favorite(
+        &mut self,
+        song_id: &str,
+        display_name: &str,
+        source_path: Option<PathBuf>,
+        favorite: bool,
+    ) -> Result<(), PracticeHistoryError> {
+        let song = self.ensure_song(song_id, display_name);
+        song.library.favorite = favorite;
+        if source_path.is_some() {
+            song.library.source_path = source_path;
+        }
+        self.save()
+    }
+
+    pub fn set_queued(
+        &mut self,
+        song_id: &str,
+        display_name: &str,
+        source_path: Option<PathBuf>,
+        queued: bool,
+    ) -> Result<(), PracticeHistoryError> {
+        if queued {
+            let next = self
+                .songs()
+                .values()
+                .filter_map(|song| song.library.queue_position)
+                .max()
+                .map_or(0, |position| position + 1);
+            let song = self.ensure_song(song_id, display_name);
+            if song.library.queue_position.is_none() {
+                song.library.queue_position = Some(next);
+            }
+            if source_path.is_some() {
+                song.library.source_path = source_path;
+            }
+        } else if let Some(song) = self.songs_mut().get_mut(song_id) {
+            song.library.queue_position = None;
+        }
+        self.normalize_queue();
+        self.save()
+    }
+
+    pub fn move_in_queue(
+        &mut self,
+        song_id: &str,
+        direction: isize,
+    ) -> Result<bool, PracticeHistoryError> {
+        let mut queue: Vec<_> = self
+            .songs()
+            .iter()
+            .filter_map(|(id, song)| Some((song.library.queue_position?, id.clone())))
+            .collect();
+        queue.sort();
+        let Some(index) = queue.iter().position(|(_, id)| id == song_id) else {
+            return Ok(false);
+        };
+        let target = index.saturating_add_signed(direction).min(queue.len() - 1);
+        if target == index {
+            return Ok(false);
+        }
+        queue.swap(index, target);
+        for (position, (_, id)) in queue.into_iter().enumerate() {
+            if let Some(song) = self.songs_mut().get_mut(&id) {
+                song.library.queue_position = Some(position);
+            }
+        }
+        self.save()?;
+        Ok(true)
     }
 
     pub fn song(&self, song_id: &str) -> Option<&SongPracticeHistory> {
@@ -441,6 +545,34 @@ impl PracticeHistoryStore {
     fn songs_mut(&mut self) -> &mut BTreeMap<String, SongPracticeHistory> {
         match &mut self.file {
             PracticeHistoryFile::V1(file) => &mut file.songs,
+        }
+    }
+
+    fn ensure_song(&mut self, song_id: &str, display_name: &str) -> &mut SongPracticeHistory {
+        let song = self
+            .songs_mut()
+            .entry(song_id.to_owned())
+            .or_insert_with(|| SongPracticeHistory {
+                display_name: display_name.to_owned(),
+                setup: None,
+                library: SongLibraryState::default(),
+                sessions: Vec::new(),
+            });
+        song.display_name = display_name.to_owned();
+        song
+    }
+
+    fn normalize_queue(&mut self) {
+        let mut queue: Vec<_> = self
+            .songs()
+            .iter()
+            .filter_map(|(id, song)| Some((song.library.queue_position?, id.clone())))
+            .collect();
+        queue.sort();
+        for (position, (_, id)) in queue.into_iter().enumerate() {
+            if let Some(song) = self.songs_mut().get_mut(&id) {
+                song.library.queue_position = Some(position);
+            }
         }
     }
 }
@@ -637,6 +769,14 @@ mod tests {
     }
 
     #[test]
+    fn legacy_song_history_defaults_to_unorganized_library_state() {
+        let history: SongPracticeHistory = ron_options()
+            .from_str("(display_name:\"Legacy.mid\",sessions:[])")
+            .unwrap();
+        assert_eq!(history.library, SongLibraryState::default());
+    }
+
+    #[test]
     fn song_setup_is_saved_by_content_identity() {
         let path = temp_history_path("song-setup");
         let mut store = PracticeHistoryStore::load(&path);
@@ -720,6 +860,46 @@ mod tests {
     }
 
     #[test]
+    fn favorites_and_queue_order_persist_and_move_deterministically() {
+        let path = temp_history_path("library-organization");
+        let mut store = PracticeHistoryStore::load(&path);
+        store
+            .set_favorite(
+                "alpha",
+                "Alpha.mid",
+                Some(PathBuf::from("C:/Alpha.mid")),
+                true,
+            )
+            .unwrap();
+        store.set_queued("alpha", "Alpha.mid", None, true).unwrap();
+        store.set_queued("beta", "Beta.mid", None, true).unwrap();
+        store.set_queued("gamma", "Gamma.mid", None, true).unwrap();
+
+        assert!(store.move_in_queue("gamma", -1).unwrap());
+        assert!(store.move_in_queue("gamma", -1).unwrap());
+        assert!(!store.move_in_queue("gamma", -1).unwrap());
+        store.set_queued("alpha", "Alpha.mid", None, false).unwrap();
+
+        let loaded = PracticeHistoryStore::load(&path);
+        let summaries = loaded.recent_songs(10);
+        assert!(
+            summaries
+                .iter()
+                .find(|song| song.content_id == "alpha")
+                .unwrap()
+                .favorite
+        );
+        let mut queued: Vec<_> = summaries
+            .iter()
+            .filter_map(|song| Some((song.queue_position?, song.content_id.as_str())))
+            .collect();
+        queued.sort();
+        assert_eq!(queued, vec![(0, "gamma"), (1, "beta")]);
+
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn damaged_history_is_quarantined_and_does_not_block_startup() {
         let path = temp_history_path("corrupt");
         fs::write(&path, "this is not valid RON").unwrap();
@@ -743,6 +923,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![session(4, 5, 5), session(4, 8, 2), session(7, 9, 1)],
         };
 
@@ -760,6 +941,7 @@ mod tests {
         let mut history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![session(4, 4, 6), session(8, 9, 1)],
         };
 
@@ -779,6 +961,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![
                 session(2, 2, 0),
                 session(2, 1, 1),
@@ -804,6 +987,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![first, second, third],
         };
 
@@ -833,6 +1017,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![empty],
         };
 
@@ -857,6 +1042,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![whole_old, unrelated_loop, whole_new],
         };
 
@@ -879,6 +1065,7 @@ mod tests {
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
+            library: SongLibraryState::default(),
             sessions: vec![both_old, right_only, both_new],
         };
 
