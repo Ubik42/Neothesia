@@ -104,6 +104,10 @@ pub struct HistoryV1 {
     pub watched_folders: Vec<PathBuf>,
     #[serde(default)]
     pub last_exercise_spec: ExerciseSpec,
+    #[serde(default)]
+    pub recent_exercise_specs: Vec<ExerciseSpec>,
+    #[serde(default)]
+    pub favourite_exercise_specs: Vec<ExerciseSpec>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -117,6 +121,8 @@ impl Default for History {
             last_opened_song: None,
             watched_folders: Vec::new(),
             last_exercise_spec: ExerciseSpec::default(),
+            recent_exercise_specs: Vec::new(),
+            favourite_exercise_specs: Vec::new(),
         })
     }
 }

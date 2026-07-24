@@ -189,6 +189,16 @@ try {
             $nextRepetitions.ok -and $nextRepetitions.accepted -and
             $setTwoRepetitions.ok -and $setTwoRepetitions.accepted
         ) "Exercise repetition selector did not move in both directions"
+        $saveFavourite = Invoke-DebugDriver (
+            "ACTION practice.exercise.favourite.toggle"
+        )
+        $cycleFavourite = Invoke-DebugDriver (
+            "ACTION practice.exercise.favourite.next"
+        )
+        Assert-True (
+            $saveFavourite.ok -and $saveFavourite.accepted -and
+            $cycleFavourite.ok -and $cycleFavourite.accepted
+        ) "Exercise favourite was not saved and restorable"
         $start = Invoke-DebugDriver "ACTION practice.exercise.start"
         Assert-True (
             $start.ok -and $start.accepted
@@ -406,6 +416,30 @@ try {
 
     $libraryReopen = $null
     if ($ExerciseFixture) {
+        $openExercisesAgain = Invoke-AcceptedAction "practice.menu.exercises"
+        $restoreRecent = Invoke-DebugDriver "ACTION practice.exercise.recent.next"
+        $restoreFavourite = Invoke-DebugDriver (
+            "ACTION practice.exercise.favourite.next"
+        )
+        $startRestored = Invoke-DebugDriver "ACTION practice.exercise.start"
+        Assert-True (
+            $openExercisesAgain.ok -and $openExercisesAgain.accepted -and
+            $restoreRecent.ok -and $restoreRecent.accepted -and
+            $restoreFavourite.ok -and $restoreFavourite.accepted -and
+            $startRestored.ok -and $startRestored.accepted
+        ) "Saved exercise variants were not restorable"
+        for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            Start-Sleep -Milliseconds 100
+            if ($null -ne (Invoke-DebugDriver "SNAPSHOT").snapshot) {
+                break
+            }
+        }
+        $backFromRestored = Invoke-DebugDriver "ACTION practice.player.back"
+        Assert-True (
+            $backFromRestored.ok -and $backFromRestored.accepted
+        ) "Restored exercise did not return to the menu"
+        Start-Sleep -Milliseconds 100
+
         $openLibrary = Invoke-DebugDriver "ACTION practice.menu.library"
         Assert-True (
             $openLibrary.ok -and $openLibrary.accepted
@@ -455,8 +489,10 @@ try {
             $settingsText -match "tonic:\s*1" -and
             $settingsText -match "minor_form:\s*Natural" -and
             $settingsText -match "repetitions:\s*2" -and
-            $settingsText -match "tempo_bpm:\s*70"
-        ) "Selected C-sharp 70 BPM exercise was not persisted"
+            $settingsText -match "tempo_bpm:\s*70" -and
+            $settingsText -match "recent_exercise_specs:\s*\[" -and
+            $settingsText -match "favourite_exercise_specs:\s*\["
+        ) "Selected, recent and favourite C-sharp exercise were not persisted"
         $historyPath = Join-Path $runDirectory "practice-history.ron"
         Assert-True (
             [System.IO.File]::Exists($historyPath)
@@ -467,7 +503,9 @@ try {
             $historyText -match "exercise_passes" -and
             $historyText -match "pass:\s*2"
         ) "Completed exercise did not persist its BPM and two-pass evidence"
-        $exercisePersistence = "C-sharp 70 BPM two-pass preset and attempt saved"
+        $exercisePersistence = (
+            "C-sharp 70 BPM two-pass recent/favourite preset and attempt saved"
+        )
     }
 
     [pscustomobject]@{

@@ -23,6 +23,8 @@ impl MenuScene {
         let win_h = ctx.window_state.logical_size.height;
         let grid_w = CARD_W * 2.0 + CARD_GAP;
         let grid_x = nuon::center_x(win_w, grid_w);
+        let recent_specs = ctx.config.recent_exercise_specs();
+        let favourite_specs = ctx.config.favourite_exercise_specs();
         let spec = &mut self.state.exercise_spec;
 
         nuon::label()
@@ -157,7 +159,38 @@ impl MenuScene {
                 );
             });
 
-        let preview_y = 122.0 + (CARD_H + CARD_GAP) * 4.0 + 15.0;
+        nuon::translate()
+            .x(grid_x)
+            .y(122.0 + (CARD_H + CARD_GAP) * 4.0)
+            .build(ui, |ui| {
+                let recent_name = preset_name(&recent_specs, *spec, "No recent exercises");
+                apply_preset_selection(
+                    spec,
+                    &recent_specs,
+                    selector_card(
+                        ui,
+                        "Recent",
+                        &recent_name,
+                        practice_ui_ids::EXERCISE_RECENT_PREVIOUS,
+                        practice_ui_ids::EXERCISE_RECENT_NEXT,
+                    ),
+                );
+                nuon::translate().x(CARD_W + CARD_GAP).add_to_current(ui);
+                let favourite_name = preset_name(&favourite_specs, *spec, "No favourite presets");
+                apply_preset_selection(
+                    spec,
+                    &favourite_specs,
+                    selector_card(
+                        ui,
+                        "Favourites",
+                        &favourite_name,
+                        practice_ui_ids::EXERCISE_FAVOURITE_PREVIOUS,
+                        practice_ui_ids::EXERCISE_FAVOURITE_NEXT,
+                    ),
+                );
+            });
+
+        let preview_y = 122.0 + (CARD_H + CARD_GAP) * 5.0 + 9.0;
         if let Ok(plan) = ExercisePlan::generate(
             self.state.exercise_spec,
             &KeyboardRange::new(ctx.config.piano_range()),
@@ -182,14 +215,33 @@ impl MenuScene {
                 .build(ui);
         }
 
-        let start_w = 360.0;
+        let start_w = 340.0;
+        let favourite_w = 210.0;
+        let action_gap = 12.0;
+        let action_x = nuon::center_x(win_w, start_w + favourite_w + action_gap);
         if neo_btn()
             .id(super::super::playing_scene::practice_ui_ids::EXERCISE_START)
             .size(start_w, 62.0)
             .label("Start Exercise")
-            .build_at(ui, nuon::center_x(win_w, start_w), preview_y + 67.0)
+            .build_at(ui, action_x, preview_y + 67.0)
         {
             self.start_exercise(ctx);
+        }
+        let is_favourite = ctx.config.is_favourite_exercise(self.state.exercise_spec);
+        let favourite_label = if is_favourite {
+            "★ Remove favourite"
+        } else {
+            "☆ Save favourite"
+        };
+        if neo_btn()
+            .id(practice_ui_ids::EXERCISE_FAVOURITE_TOGGLE)
+            .size(favourite_w, 62.0)
+            .label(favourite_label)
+            .build_at(ui, action_x + start_w + action_gap, preview_y + 67.0)
+        {
+            ctx.config
+                .toggle_favourite_exercise(self.state.exercise_spec);
+            ctx.config.save();
         }
 
         if neo_btn()
@@ -217,6 +269,7 @@ impl MenuScene {
                 self.state.song = Some(song);
                 self.state.exercise_spec = spec;
                 ctx.config.set_last_exercise_spec(spec);
+                ctx.config.remember_exercise_spec(spec);
                 state::play(&self.state, ctx);
                 true
             }
@@ -276,6 +329,40 @@ impl MenuScene {
         };
         apply_selection(&mut self.state.exercise_spec, field, delta);
         true
+    }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn debug_exercise_preset_action(&mut self, ctx: &mut Context, id: &str) -> bool {
+        let delta = if id.ends_with(".previous") {
+            SelectionDelta::Previous
+        } else if id.ends_with(".next") {
+            SelectionDelta::Next
+        } else {
+            SelectionDelta::None
+        };
+        match id {
+            practice_ui_ids::EXERCISE_RECENT_PREVIOUS | practice_ui_ids::EXERCISE_RECENT_NEXT => {
+                let specs = ctx.config.recent_exercise_specs();
+                apply_preset_selection(&mut self.state.exercise_spec, &specs, delta);
+                !specs.is_empty()
+            }
+            practice_ui_ids::EXERCISE_FAVOURITE_PREVIOUS
+            | practice_ui_ids::EXERCISE_FAVOURITE_NEXT => {
+                let specs = ctx.config.favourite_exercise_specs();
+                apply_preset_selection(&mut self.state.exercise_spec, &specs, delta);
+                !specs.is_empty()
+            }
+            practice_ui_ids::EXERCISE_FAVOURITE_TOGGLE => {
+                let changed = ctx
+                    .config
+                    .toggle_favourite_exercise(self.state.exercise_spec);
+                if changed {
+                    ctx.config.save();
+                }
+                changed
+            }
+            _ => false,
+        }
     }
 }
 
@@ -360,6 +447,43 @@ fn apply_selection(spec: &mut ExerciseSpec, field: ExerciseField, delta: Selecti
             spec.repetitions = next_repetitions(spec.repetitions);
         }
     }
+}
+
+fn apply_preset_selection(
+    spec: &mut ExerciseSpec,
+    presets: &[ExerciseSpec],
+    delta: SelectionDelta,
+) {
+    if presets.is_empty() || delta == SelectionDelta::None {
+        return;
+    }
+    let current = presets.iter().position(|preset| preset == spec);
+    let index = match (current, delta) {
+        (Some(0), SelectionDelta::Previous) => presets.len() - 1,
+        (Some(index), SelectionDelta::Previous) => index - 1,
+        (Some(index), SelectionDelta::Next) => (index + 1) % presets.len(),
+        (None, _) => 0,
+        (_, SelectionDelta::None) => unreachable!(),
+    };
+    *spec = presets[index];
+}
+
+fn preset_name(presets: &[ExerciseSpec], current: ExerciseSpec, empty: &str) -> String {
+    if presets.is_empty() {
+        return empty.to_owned();
+    }
+    let selected = presets
+        .iter()
+        .position(|preset| *preset == current)
+        .unwrap_or(0);
+    let spec = presets[selected];
+    format!(
+        "{}/{} · {} {}",
+        selected + 1,
+        presets.len(),
+        tonic_name(spec.tonic),
+        pattern_name(spec.pattern)
+    )
 }
 
 fn selector_card(
@@ -634,5 +758,35 @@ mod tests {
         apply_selection(&mut spec, ExerciseField::Pattern, SelectionDelta::Next);
         assert_eq!(spec.pattern, ExercisePattern::Arpeggio);
         assert_eq!(spec.minor_form, ExerciseMinorForm::Natural);
+    }
+
+    #[test]
+    fn preset_choices_restore_complete_specs_and_wrap() {
+        let first = ExerciseSpec {
+            tonic: 2,
+            tempo_bpm: 70,
+            ..Default::default()
+        };
+        let second = ExerciseSpec {
+            tonic: 9,
+            hands: ExerciseHands::Left,
+            repetitions: 4,
+            tempo_bpm: 90,
+            ..Default::default()
+        };
+        let presets = [first, second];
+        let mut selected = ExerciseSpec::default();
+
+        apply_preset_selection(&mut selected, &presets, SelectionDelta::Next);
+        assert_eq!(selected, first);
+        apply_preset_selection(&mut selected, &presets, SelectionDelta::Previous);
+        assert_eq!(selected, second);
+        apply_preset_selection(&mut selected, &presets, SelectionDelta::Next);
+        assert_eq!(selected, first);
+        assert_eq!(preset_name(&presets, selected, "empty"), "1/2 · D Scale");
+
+        apply_preset_selection(&mut selected, &[], SelectionDelta::Next);
+        assert_eq!(selected, first);
+        assert_eq!(preset_name(&[], selected, "empty"), "empty");
     }
 }

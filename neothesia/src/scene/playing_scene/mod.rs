@@ -42,6 +42,11 @@ pub(crate) mod practice_ui_ids {
     pub const EXERCISE_TEMPO_NEXT: &str = "practice.exercise.tempo.next";
     pub const EXERCISE_REPETITIONS_PREVIOUS: &str = "practice.exercise.repetitions.previous";
     pub const EXERCISE_REPETITIONS_NEXT: &str = "practice.exercise.repetitions.next";
+    pub const EXERCISE_RECENT_PREVIOUS: &str = "practice.exercise.recent.previous";
+    pub const EXERCISE_RECENT_NEXT: &str = "practice.exercise.recent.next";
+    pub const EXERCISE_FAVOURITE_PREVIOUS: &str = "practice.exercise.favourite.previous";
+    pub const EXERCISE_FAVOURITE_NEXT: &str = "practice.exercise.favourite.next";
+    pub const EXERCISE_FAVOURITE_TOGGLE: &str = "practice.exercise.favourite.toggle";
     pub const PLAYER_BACK: &str = "practice.player.back";
     pub const PLAYER_WAIT: &str = "practice.player.wait";
     pub const PLAYER_COACH: &str = "practice.player.coach";
@@ -81,6 +86,11 @@ pub(crate) mod practice_ui_ids {
         EXERCISE_TEMPO_NEXT,
         EXERCISE_REPETITIONS_PREVIOUS,
         EXERCISE_REPETITIONS_NEXT,
+        EXERCISE_RECENT_PREVIOUS,
+        EXERCISE_RECENT_NEXT,
+        EXERCISE_FAVOURITE_PREVIOUS,
+        EXERCISE_FAVOURITE_NEXT,
+        EXERCISE_FAVOURITE_TOGGLE,
         PLAYER_BACK,
         PLAYER_WAIT,
         PLAYER_COACH,

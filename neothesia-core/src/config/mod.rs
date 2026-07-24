@@ -9,6 +9,9 @@ use model::{
     SynthConfigV1, WaterfallConfig, WaterfallConfigV1,
 };
 
+const RECENT_EXERCISE_LIMIT: usize = 8;
+const FAVOURITE_EXERCISE_LIMIT: usize = 12;
+
 fn ron_options() -> ron::Options {
     ron::Options::default()
         .with_default_extension(ron::extensions::Extensions::UNWRAP_VARIANT_NEWTYPES)
@@ -185,6 +188,56 @@ impl Config {
 
     pub fn set_last_exercise_spec(&mut self, spec: crate::exercise::ExerciseSpec) {
         self.history.last_exercise_spec = spec;
+    }
+
+    pub fn recent_exercise_specs(&self) -> Vec<crate::exercise::ExerciseSpec> {
+        valid_unique_exercise_specs(&self.history.recent_exercise_specs, RECENT_EXERCISE_LIMIT)
+    }
+
+    pub fn remember_exercise_spec(&mut self, spec: crate::exercise::ExerciseSpec) -> bool {
+        if spec.validate().is_err() {
+            return false;
+        }
+        let before = self.history.recent_exercise_specs.clone();
+        self.history
+            .recent_exercise_specs
+            .retain(|existing| *existing != spec);
+        self.history.recent_exercise_specs.insert(0, spec);
+        self.history
+            .recent_exercise_specs
+            .truncate(RECENT_EXERCISE_LIMIT);
+        self.history.recent_exercise_specs != before
+    }
+
+    pub fn favourite_exercise_specs(&self) -> Vec<crate::exercise::ExerciseSpec> {
+        valid_unique_exercise_specs(
+            &self.history.favourite_exercise_specs,
+            FAVOURITE_EXERCISE_LIMIT,
+        )
+    }
+
+    pub fn is_favourite_exercise(&self, spec: crate::exercise::ExerciseSpec) -> bool {
+        self.favourite_exercise_specs().contains(&spec)
+    }
+
+    pub fn toggle_favourite_exercise(&mut self, spec: crate::exercise::ExerciseSpec) -> bool {
+        if spec.validate().is_err() {
+            return false;
+        }
+        if let Some(index) = self
+            .history
+            .favourite_exercise_specs
+            .iter()
+            .position(|existing| *existing == spec)
+        {
+            self.history.favourite_exercise_specs.remove(index);
+        } else {
+            self.history.favourite_exercise_specs.insert(0, spec);
+            self.history
+                .favourite_exercise_specs
+                .truncate(FAVOURITE_EXERCISE_LIMIT);
+        }
+        true
     }
 
     pub fn watched_folders(&self) -> &[PathBuf] {
@@ -394,6 +447,22 @@ fn paths_equal(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
+fn valid_unique_exercise_specs(
+    specs: &[crate::exercise::ExerciseSpec],
+    limit: usize,
+) -> Vec<crate::exercise::ExerciseSpec> {
+    let mut valid = Vec::new();
+    for spec in specs {
+        if spec.validate().is_ok() && !valid.contains(spec) {
+            valid.push(*spec);
+            if valid.len() == limit {
+                break;
+            }
+        }
+    }
+    valid
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,6 +483,8 @@ mod tests {
     fn legacy_history_config_defaults_to_no_watched_folders() {
         let history: HistoryV1 = ron::from_str("(last_opened_song:None)").unwrap();
         assert!(history.watched_folders.is_empty());
+        assert!(history.recent_exercise_specs.is_empty());
+        assert!(history.favourite_exercise_specs.is_empty());
         assert_eq!(
             history.last_exercise_spec,
             crate::exercise::ExerciseSpec::default()
@@ -453,6 +524,70 @@ mod tests {
             config.last_exercise_spec(),
             crate::exercise::ExerciseSpec::default()
         );
+    }
+
+    #[test]
+    fn recent_exercises_are_valid_unique_newest_first_and_bounded() {
+        let mut config = Model::default().build();
+        for tonic in 0..12 {
+            assert!(
+                config.remember_exercise_spec(crate::exercise::ExerciseSpec {
+                    tonic,
+                    ..Default::default()
+                })
+            );
+        }
+        assert_eq!(
+            config
+                .recent_exercise_specs()
+                .iter()
+                .map(|spec| spec.tonic)
+                .collect::<Vec<_>>(),
+            vec![11, 10, 9, 8, 7, 6, 5, 4]
+        );
+        assert!(
+            config.remember_exercise_spec(crate::exercise::ExerciseSpec {
+                tonic: 8,
+                ..Default::default()
+            })
+        );
+        assert_eq!(config.recent_exercise_specs()[0].tonic, 8);
+
+        config.history.recent_exercise_specs.insert(
+            0,
+            crate::exercise::ExerciseSpec {
+                tonic: 99,
+                ..Default::default()
+            },
+        );
+        assert!(
+            config
+                .recent_exercise_specs()
+                .iter()
+                .all(|spec| spec.validate().is_ok())
+        );
+    }
+
+    #[test]
+    fn favourite_exercises_toggle_and_survive_config_round_trip() {
+        let mut config = Model::default().build();
+        let favourite = crate::exercise::ExerciseSpec {
+            tonic: 6,
+            tempo_bpm: 80,
+            ..Default::default()
+        };
+
+        assert!(config.toggle_favourite_exercise(favourite));
+        assert!(config.is_favourite_exercise(favourite));
+        assert!(config.toggle_favourite_exercise(favourite));
+        assert!(!config.is_favourite_exercise(favourite));
+        assert!(config.toggle_favourite_exercise(favourite));
+
+        let serialized = ron_options()
+            .to_string(&Model::from_config(config))
+            .unwrap();
+        let rebuilt: Model = ron_options().from_str(&serialized).unwrap();
+        assert_eq!(rebuilt.build().favourite_exercise_specs(), vec![favourite]);
     }
 
     #[test]
