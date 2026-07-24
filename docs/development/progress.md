@@ -10,6 +10,31 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 036 — Deterministic native completion flow
+
+State: **DONE**
+
+Delivered:
+
+- added a runtime-generated 115-byte Type-1, two-hand MIDI fixture;
+- kept the fixture, settings, history and SoundFont inside the isolated smoke
+  directory;
+- automatically performed every blocked fixture target until completion;
+- asserted the completion screen opens on Overview;
+- asserted semantic switching through Technique, History and Overview;
+- asserted completion Retry returns to the player and resets matched notes;
+- retained the existing full-song smoke path as a separate parameter set.
+
+Verification:
+
+- completion fixture reports two matched notes;
+- Overview, Technique and History checks pass;
+- Retry resets matched notes to zero;
+- fixture process exits cleanly with code `0`;
+- the prepared full “Look at the Sky” smoke path still passes independently;
+- the full Rust test, Clippy and release gates from Cycle 035 remain green;
+- implementation commit: `1fc952c`.
+
 ### Cycle 035 — Scored MIDI injection in native smoke
 
 State: **DONE**

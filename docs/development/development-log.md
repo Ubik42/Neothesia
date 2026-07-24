@@ -4,6 +4,65 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 036: Deterministic native completion flow (DONE)
+
+### Outcome
+
+Native automation can now finish a complete practice take, inspect all three
+completion sections and prove that Retry returns to a clean attempt. The
+completion UI is covered in the real GPU application rather than only by
+helper-unit tests.
+
+### Implemented
+
+- Added a `-CompletionFixture` parameter set to the native smoke runner.
+- Embedded a compact, deterministic MIDI fixture as Base64 test data.
+- Generated the fixture only inside the per-run temporary directory.
+- Defined a Type-1 file with:
+  - 480 PPQ;
+  - 4/4 at 120 BPM;
+  - a C5 right-hand track;
+  - a C3 left-hand track;
+  - a finite four-beat take.
+- Repeatedly read required pitches and performed them through Debug MIDI input.
+- Waited for a non-null completion tab rather than relying on elapsed time
+  alone.
+- Asserted completion starts on Overview.
+- Activated and asserted Technique, History and Overview by semantic ID.
+- Activated completion Retry.
+- Asserted Retry removes the completion screen and resets matched notes to
+  zero.
+- Returned to menu and exited cleanly.
+- Documented both real-song and deterministic-completion commands.
+
+### Verification
+
+- `.\scripts\debug-practice-smoke.ps1 -CompletionFixture`
+  - `CompletionTab = overview`;
+  - `MatchedNotes = 2`;
+  - Technique, History and Overview passed;
+  - `RetryReset = 0`;
+  - `ExitCode = 0`.
+- Re-ran the prepared “Look at the Sky” path with `-SkipBuild`:
+  - wait `True → False`;
+  - matched input `2`;
+  - hands `Both → Right`;
+  - loop `1–2`, restart preserved, disable passed;
+  - exit code `0`.
+- Cycle 035's immediately preceding full Rust test, Clippy, release build,
+  formatting and diff checks remain authoritative because Cycle 036 changes
+  only the tested PowerShell runner and its documentation.
+
+Implementation commit: `1fc952c`
+(`test: cover completion flow in native smoke`).
+
+### Known limitations
+
+- The completion fixture is intentionally too small to produce meaningful
+  timing calibration, history trends or weak-passage recommendations.
+- GPU pixels are not captured or compared.
+- The fixture validates exact semantic state, not visual styling.
+
 ## 2026-07-25 — Cycle 035: Scored MIDI injection in native smoke (DONE)
 
 ### Outcome
