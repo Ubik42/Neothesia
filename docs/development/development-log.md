@@ -4,6 +4,77 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-07-25 — Cycle 040: Technique Studio (DONE)
+
+### Outcome
+
+The exercise mode is now usable from the home screen. A learner can choose a
+musical target, generate it instantly and practise it with the same
+wait-for-notes, scoring, looping and feedback system used for repertoire.
+
+### Implemented
+
+- Added a Technique Studio home-screen action.
+- Added a dedicated native exercise page with a compact two-column layout.
+- Added clickable choices for:
+  - all twelve tonic pitch classes;
+  - major or minor;
+  - scale, arpeggio or primary chords;
+  - ascending, descending or up and down;
+  - right, left or both hands;
+  - one, two or three octaves;
+  - a graduated 30–200 BPM practice range.
+- Added a live descriptive preset name.
+- Added Start Exercise and Enter-key launch paths.
+- Added Back and Escape return paths.
+- Generated against the user's configured keyboard range and displayed
+  generation errors without leaving the page.
+- Added `Song::from_exercise` so generated tracks receive explicit hand
+  identity, including single-hand exercises.
+- Reused the existing MIDI output connection, Pianoteq routing, wait mode,
+  practice matcher, loops, hand controls and completion flow.
+- Added stable semantic actions for opening Technique Studio and starting the
+  exercise.
+- Added an `-ExerciseFixture` native smoke path.
+- Tightened the home layout so the extra action remains inside the supported
+  minimum window height.
+
+### Verification
+
+- Unit test for cyclic pattern, direction, hands and tempo choices.
+- Integration tests for generated both-hand and single-hand song setup.
+- Real-process automation:
+  - opened Technique Studio from a clean menu;
+  - generated and started the default C-major exercise;
+  - confirmed wait-for-notes defaults on;
+  - confirmed Both-hand mode;
+  - injected required C notes and scored two matches;
+  - switched to Right hand;
+  - enabled a valid 1–2 measure loop;
+  - restarted without losing the loop;
+  - disabled the loop, returned to the menu and exited with code 0.
+- `cargo test -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo clippy -p midi-file -p neothesia-core -p neothesia --all-targets`
+- `cargo build --release -p neothesia`
+- `cargo fmt --all`
+- `git diff --check`
+
+All checks passed: two MIDI-file tests, fifty-eight core tests and fifty-two
+application tests. Clippy and release builds report only the repository's
+pre-existing platform-helper and `unused_mut` warnings.
+
+Implementation commit: `017697d`
+(`feat: add technique studio exercise flow`).
+
+### Known limitations
+
+- Exercise choices are kept only for the current menu session.
+- Generated variants are not yet presented as a distinct source type in
+  Practice Library.
+- Clicking cycles choices forward; richer keyboard and decrement controls are
+  still to come.
+- Fingering remains deferred pending reviewed per-key/per-hand tables.
+
 ## 2026-07-25 — Cycle 039: Exercise plans as playable MIDI (DONE)
 
 ### Outcome

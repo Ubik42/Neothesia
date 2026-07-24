@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 040 — Technique Studio
+
+State: **DONE**
+
+Delivered:
+
+- added a prominent Technique Studio entry to the native home screen;
+- added a focused two-column exercise editor for key, tonality, pattern,
+  direction, hands, range and tempo;
+- previewed the complete generated exercise name before starting;
+- launched generated material through the normal practice player;
+- retained wait-for-notes, scoring, hand switching, loop practice, tempo,
+  output routing and completion feedback;
+- assigned explicit hand identity to generated single-hand tracks;
+- added semantic automation actions for opening and starting an exercise;
+- extended the real-process smoke runner with a generated-exercise fixture;
+- completed the full `EX-001` exercise-mode backlog item.
+
+Verification:
+
+- option cycling remains inside valid enum and tempo states;
+- both single-hand variants retain their requested practice part;
+- the real process opens Technique Studio and starts a generated exercise;
+- the generated exercise defaults to wait mode and Both hands;
+- injected C notes score, the hand control reaches Right, loop/restart works
+  and the process exits cleanly;
+- two MIDI-file tests, fifty-eight practice/core tests and fifty-two
+  application tests pass;
+- Clippy and release build report only pre-existing warnings;
+- implementation commit: `017697d`.
+
 ### Cycle 039 — Exercise plans as playable MIDI
 
 State: **DONE**

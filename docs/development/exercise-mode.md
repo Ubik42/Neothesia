@@ -5,6 +5,17 @@ Generated exercises must enter the same `Song` → `PlayingScene` →
 `PracticeMatcher` path as imported MIDI so wait mode, hands, loops, Tempo
 Coach, history and completion feedback remain consistent.
 
+## Using Technique Studio
+
+Open **Technique Studio** from the home screen. Click a parameter card to cycle
+through its choices, then choose **Start Exercise** or press Enter. The initial
+preset is C major scale, up and down, both hands, one octave at 60 BPM. Escape
+returns to the home screen.
+
+The generated exercise opens in the normal practice player with wait-for-notes
+enabled. Hand switching, loops, tempo changes, scoring, completion feedback and
+external MIDI output therefore work exactly as they do for an imported song.
+
 ## Core specification
 
 An exercise is defined by:
@@ -36,8 +47,8 @@ rendering. The next layers are:
 
 1. ~~convert a plan to an in-memory Type-1 MIDI with named right/left tracks;~~
 2. identify generated exercises separately from file-backed repertoire;
-3. add a focused preset editor and preview to the home screen;
-4. pass the generated `Song` into the existing player;
+3. ~~add a focused preset editor and preview to the home screen;~~
+4. ~~pass the generated `Song` into the existing player;~~
 5. save exercise progress by normalized specification identity;
 6. add fingering only from reviewed per-key/per-hand tables.
 
@@ -47,6 +58,10 @@ requested tempo and an 80% note gate. The result is memory-backed, has a stable
 content identity for the same specification and is accepted by the regular
 `Song` configuration. Both-hand plans therefore inherit the existing hand
 practice shortcuts without a second player implementation.
+
+The player entry path also assigns hand identity explicitly from the generated
+track contract. This keeps right-only and left-only exercise feedback correctly
+scoped even though generic one-track MIDI cannot safely infer a hand.
 
 Fingering is deliberately absent from the generator today. Generic
 one-pattern-fits-all scale fingering would teach incorrect crossings in several
