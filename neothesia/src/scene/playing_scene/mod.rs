@@ -1,7 +1,7 @@
 use midi_file::midly::MidiMessage;
 use neothesia_core::practice::{
     AdaptiveTempoDecision, AdaptiveTempoReason, AttemptSummary, ExpressionSummary, PracticeHands,
-    PracticePart,
+    PracticePart, TimingCalibrationStatus, timing_calibration_status,
 };
 use neothesia_core::practice_history::{
     PracticeHistoryOverview, PracticeSession, PracticeSessionKind, SongPracticeSetup,
@@ -374,6 +374,11 @@ impl PlayingScene {
             .practice_history
             .song(&self.player.song().file.content_id)
             .map(|history| history.overview(4, 4));
+        let calibration =
+            match timing_calibration_status(summary.timing, self.player.input_latency_ms()) {
+                TimingCalibrationStatus::Suggested(suggestion) => Some(suggestion),
+                _ => None,
+            };
 
         let mut action = None;
         let mut requested_view = None;
@@ -473,11 +478,38 @@ impl PlayingScene {
                     nuon::label()
                         .x(28.0)
                         .y(164.0)
-                        .size(panel_w - 56.0, 22.0)
+                        .size(
+                            if calibration.is_some() {
+                                panel_w - 244.0
+                            } else {
+                                panel_w - 56.0
+                            },
+                            22.0,
+                        )
                         .font_size(13.0)
                         .color([184, 178, 205])
-                        .text(format_timing_profile(summary.timing))
+                        .text(format_timing_profile(
+                            summary.timing,
+                            self.player.input_latency_ms(),
+                        ))
                         .build(ui);
+
+                    if let Some(suggestion) = calibration
+                        && nuon::button()
+                            .x(panel_w - 204.0)
+                            .y(160.0)
+                            .size(176.0, 28.0)
+                            .label(format!("Apply {:+} ms & retry", suggestion.suggested_ms))
+                            .color([132, 96, 191])
+                            .hover_color([151, 112, 215])
+                            .preseed_color([163, 124, 227])
+                            .border_radius([7.0; 4])
+                            .build(ui)
+                    {
+                        action = Some(CompletionAction::ApplyCalibration {
+                            suggested_ms: suggestion.suggested_ms,
+                        });
+                    }
 
                     nuon::label()
                         .x(28.0)
@@ -652,6 +684,18 @@ impl PlayingScene {
                     self.completion_view = CompletionView::Current;
                 }
             }
+            Some(CompletionAction::ApplyCalibration { suggested_ms }) => {
+                ctx.config.set_input_latency_ms(suggested_ms);
+                self.player.set_input_latency_ms(suggested_ms);
+                self.player.restart_practice();
+                self.keyboard.reset_notes();
+                self.completion = None;
+                self.saved_session_count = None;
+                self.completion_view = CompletionView::Current;
+                self.toast_manager.toast(format!(
+                    "Timing offset saved at {suggested_ms:+} ms · verify with this take"
+                ));
+            }
             Some(CompletionAction::Retry) => {
                 self.player.restart_practice();
                 self.keyboard.reset_notes();
@@ -694,6 +738,9 @@ enum CompletionAction {
     PracticeWeak {
         start_measure: usize,
         end_measure: usize,
+    },
+    ApplyCalibration {
+        suggested_ms: i32,
     },
     Retry,
     Back,
@@ -901,7 +948,10 @@ fn format_accuracy(accuracy: Option<f32>) -> String {
         .unwrap_or_else(|| "--".to_owned())
 }
 
-fn format_timing_profile(timing: neothesia_core::practice::TimingSummary) -> String {
+fn format_timing_profile(
+    timing: neothesia_core::practice::TimingSummary,
+    current_calibration_ms: i32,
+) -> String {
     if !timing.has_profile() {
         return format!(
             "Timing profile: need 8 matched notes · {} captured",
@@ -917,10 +967,26 @@ fn format_timing_profile(timing: neothesia_core::practice::TimingSummary) -> Str
     } else {
         "centered".to_owned()
     };
-    format!(
+    let mut profile = format!(
         "Timing profile: median {bias} · typical spread {} ms",
         timing.median_deviation_ms.unwrap_or(0)
-    )
+    );
+    match timing_calibration_status(timing, current_calibration_ms) {
+        TimingCalibrationStatus::InsufficientSamples { required, .. } => {
+            profile.push_str(&format!(" · calibration needs {required}"));
+        }
+        TimingCalibrationStatus::Unstable { .. } => {
+            profile.push_str(" · too variable to calibrate");
+        }
+        TimingCalibrationStatus::Centered => {
+            profile.push_str(" · calibration looks centered");
+        }
+        TimingCalibrationStatus::AtLimit => {
+            profile.push_str(" · calibration is at its limit");
+        }
+        TimingCalibrationStatus::Suggested(_) => {}
+    }
+    profile
 }
 
 fn format_expression_summary(expression: ExpressionSummary) -> (String, String, String) {
@@ -1325,13 +1391,16 @@ mod tests {
     #[test]
     fn timing_profile_copy_explains_signed_bias_and_evidence_threshold() {
         assert_eq!(
-            format_timing_profile(neothesia_core::practice::TimingSummary {
-                matched_samples: 12,
-                median_offset_ms: Some(-18),
-                median_deviation_ms: Some(9),
-            }),
-            "Timing profile: median 18 ms early · typical spread 9 ms"
+            format_timing_profile(
+                neothesia_core::practice::TimingSummary {
+                    matched_samples: 12,
+                    median_offset_ms: Some(-18),
+                    median_deviation_ms: Some(9),
+                },
+                0,
+            ),
+            "Timing profile: median 18 ms early · typical spread 9 ms · calibration needs 24"
         );
-        assert!(format_timing_profile(Default::default()).contains("need 8 matched notes"));
+        assert!(format_timing_profile(Default::default(), 0).contains("need 8 matched notes"));
     }
 }

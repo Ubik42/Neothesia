@@ -213,6 +213,64 @@ impl TimingSummary {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum TimingCalibrationStatus {
+    InsufficientSamples { captured: usize, required: usize },
+    Unstable { deviation_ms: u32, maximum_ms: u32 },
+    Centered,
+    AtLimit,
+    Suggested(TimingCalibrationSuggestion),
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct TimingCalibrationSuggestion {
+    pub current_ms: i32,
+    pub adjustment_ms: i32,
+    pub suggested_ms: i32,
+}
+
+pub fn timing_calibration_status(
+    timing: TimingSummary,
+    current_ms: i32,
+) -> TimingCalibrationStatus {
+    const REQUIRED_SAMPLES: usize = 24;
+    const MAX_DEVIATION_MS: u32 = 35;
+    const BIAS_DEADBAND_MS: u32 = 10;
+    const MAX_STEP_MS: i32 = 50;
+    const LIMIT_MS: i32 = 250;
+
+    if timing.matched_samples < REQUIRED_SAMPLES {
+        return TimingCalibrationStatus::InsufficientSamples {
+            captured: timing.matched_samples,
+            required: REQUIRED_SAMPLES,
+        };
+    }
+    let deviation_ms = timing.median_deviation_ms.unwrap_or(u32::MAX);
+    if deviation_ms > MAX_DEVIATION_MS {
+        return TimingCalibrationStatus::Unstable {
+            deviation_ms,
+            maximum_ms: MAX_DEVIATION_MS,
+        };
+    }
+    let bias_ms = timing.median_offset_ms.unwrap_or(0);
+    if bias_ms.unsigned_abs() < BIAS_DEADBAND_MS {
+        return TimingCalibrationStatus::Centered;
+    }
+
+    let current_ms = current_ms.clamp(-LIMIT_MS, LIMIT_MS);
+    let adjustment_ms = bias_ms.clamp(-MAX_STEP_MS, MAX_STEP_MS);
+    let suggested_ms = (current_ms + adjustment_ms).clamp(-LIMIT_MS, LIMIT_MS);
+    if suggested_ms == current_ms {
+        TimingCalibrationStatus::AtLimit
+    } else {
+        TimingCalibrationStatus::Suggested(TimingCalibrationSuggestion {
+            current_ms,
+            adjustment_ms: suggested_ms - current_ms,
+            suggested_ms,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct VelocitySummary {
     pub matched_samples: usize,
@@ -1375,6 +1433,64 @@ mod tests {
         assert_eq!(summary.median_offset_ms, Some(5));
         assert_eq!(summary.median_deviation_ms, Some(20));
         assert_eq!(summarize_timing_offsets(&[]), TimingSummary::default());
+    }
+
+    #[test]
+    fn calibration_requires_enough_stable_and_meaningfully_biased_evidence() {
+        let timing = |samples, offset, deviation| TimingSummary {
+            matched_samples: samples,
+            median_offset_ms: Some(offset),
+            median_deviation_ms: Some(deviation),
+        };
+
+        assert_eq!(
+            timing_calibration_status(timing(23, 40, 10), 0),
+            TimingCalibrationStatus::InsufficientSamples {
+                captured: 23,
+                required: 24,
+            }
+        );
+        assert_eq!(
+            timing_calibration_status(timing(24, 40, 36), 0),
+            TimingCalibrationStatus::Unstable {
+                deviation_ms: 36,
+                maximum_ms: 35,
+            }
+        );
+        assert_eq!(
+            timing_calibration_status(timing(24, 9, 5), 0),
+            TimingCalibrationStatus::Centered
+        );
+    }
+
+    #[test]
+    fn calibration_caps_each_confirmed_step_and_respects_global_limits() {
+        let timing = |offset| TimingSummary {
+            matched_samples: 24,
+            median_offset_ms: Some(offset),
+            median_deviation_ms: Some(10),
+        };
+
+        assert_eq!(
+            timing_calibration_status(timing(90), 20),
+            TimingCalibrationStatus::Suggested(TimingCalibrationSuggestion {
+                current_ms: 20,
+                adjustment_ms: 50,
+                suggested_ms: 70,
+            })
+        );
+        assert_eq!(
+            timing_calibration_status(timing(-30), 10),
+            TimingCalibrationStatus::Suggested(TimingCalibrationSuggestion {
+                current_ms: 10,
+                adjustment_ms: -30,
+                suggested_ms: -20,
+            })
+        );
+        assert_eq!(
+            timing_calibration_status(timing(20), 250),
+            TimingCalibrationStatus::AtLimit
+        );
     }
 
     #[test]
