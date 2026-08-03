@@ -26,7 +26,18 @@ pub trait Scene {
     fn score_artifact_ready(
         &mut self,
         _ctx: &mut Context,
+        _generation: crate::score_renderer_worker::ScoreRenderGeneration,
         _artifact: crate::score_renderer_worker::RenderedScoreArtifact,
+    ) -> bool {
+        false
+    }
+    #[cfg(feature = "score-verovio")]
+    fn score_page_ready(
+        &mut self,
+        _ctx: &mut Context,
+        _generation: crate::score_renderer_worker::ScoreRenderGeneration,
+        _request: neothesia_core::score_view::ScorePageRequest,
+        _result: Result<Vec<u8>, String>,
     ) -> bool {
         false
     }
@@ -78,6 +89,10 @@ pub struct DebugPracticeSnapshot {
     pub suggestion_confidence_percent: Option<usize>,
     #[cfg(feature = "score-verovio")]
     pub score_artifact_ready: bool,
+    #[cfg(feature = "score-verovio")]
+    pub score_cached_pages: usize,
+    #[cfg(feature = "score-verovio")]
+    pub score_focused_page: Option<usize>,
 }
 
 #[cfg(debug_assertions)]

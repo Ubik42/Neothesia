@@ -74,6 +74,12 @@ pub enum NeothesiaEvent {
         generation: score_renderer_worker::ScoreRenderGeneration,
         result: Result<score_renderer_worker::RenderedScoreArtifact, String>,
     },
+    #[cfg(feature = "score-verovio")]
+    ScorePageReady {
+        generation: score_renderer_worker::ScoreRenderGeneration,
+        request: neothesia_core::score_view::ScorePageRequest,
+        result: Result<Vec<u8>, String>,
+    },
     Exit,
 }
 
@@ -251,10 +257,11 @@ impl Neothesia {
                 if self.score_render.accept(generation) {
                     match result {
                         Ok(artifact) => {
-                            if self
-                                .game_scene
-                                .score_artifact_ready(&mut self.context, artifact)
-                            {
+                            if self.game_scene.score_artifact_ready(
+                                &mut self.context,
+                                generation,
+                                artifact,
+                            ) {
                                 self.context.window.request_redraw();
                             }
                         }
@@ -262,6 +269,23 @@ impl Neothesia {
                     }
                 } else {
                     log::debug!("Discarded stale score-render worker result");
+                }
+            }
+            #[cfg(feature = "score-verovio")]
+            NeothesiaEvent::ScorePageReady {
+                generation,
+                request,
+                result,
+            } => {
+                if self.score_render.is_current(generation)
+                    && self.game_scene.score_page_ready(
+                        &mut self.context,
+                        generation,
+                        request,
+                        result,
+                    )
+                {
+                    self.context.window.request_redraw();
                 }
             }
             NeothesiaEvent::Exit => {

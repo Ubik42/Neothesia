@@ -107,6 +107,8 @@ pub enum VerovioManifestError {
     PageSizeMismatch(String),
     #[error("manifest page `{0}` fingerprint does not match")]
     PageHashMismatch(String),
+    #[error("manifest has no page {0}")]
+    PageNotFound(usize),
 }
 
 impl VerovioManifest {
@@ -191,19 +193,36 @@ impl VerovioManifest {
                     path: page.svg_file.clone(),
                     message: error.to_string(),
                 })?;
-            if bytes.len() as u64 != page.svg_bytes {
-                return Err(VerovioManifestError::PageSizeMismatch(
-                    page.svg_file.clone(),
-                ));
-            }
-            let actual = format!("{:x}", Sha256::digest(&bytes));
-            if actual != expected_hash {
-                return Err(VerovioManifestError::PageHashMismatch(
-                    page.svg_file.clone(),
-                ));
-            }
+            verify_page_bytes(page, expected_hash, &bytes)?;
         }
         Ok(())
+    }
+
+    pub fn read_verified_page(
+        &self,
+        root: impl AsRef<std::path::Path>,
+        page_index: usize,
+    ) -> Result<Vec<u8>, VerovioManifestError> {
+        let page = self
+            .pages
+            .iter()
+            .find(|page| page.page_index == page_index)
+            .ok_or(VerovioManifestError::PageNotFound(page_index))?;
+        let Some(expected_hash) = page
+            .svg_sha256
+            .as_deref()
+            .filter(|hash| valid_sha256(Some(hash)))
+        else {
+            return Err(VerovioManifestError::MissingPageHash(page.svg_file.clone()));
+        };
+        let bytes = std::fs::read(root.as_ref().join(&page.svg_file)).map_err(|error| {
+            VerovioManifestError::PageIo {
+                path: page.svg_file.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        verify_page_bytes(page, expected_hash, &bytes)?;
+        Ok(bytes)
     }
 
     pub fn renderer_evidence(&self) -> Vec<RendererScoreNoteEvidence> {
@@ -228,6 +247,25 @@ fn valid_sha256(value: Option<&str>) -> bool {
             && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
             && hash == hash.to_ascii_lowercase()
     })
+}
+
+fn verify_page_bytes(
+    page: &VerovioManifestPage,
+    expected_hash: &str,
+    bytes: &[u8],
+) -> Result<(), VerovioManifestError> {
+    if bytes.len() as u64 != page.svg_bytes {
+        return Err(VerovioManifestError::PageSizeMismatch(
+            page.svg_file.clone(),
+        ));
+    }
+    let actual = format!("{:x}", Sha256::digest(bytes));
+    if actual != expected_hash {
+        return Err(VerovioManifestError::PageHashMismatch(
+            page.svg_file.clone(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -360,6 +398,20 @@ impl<T> ScorePageCache<T> {
             return PageLoadDisposition::Unexpected;
         }
         self.pages.insert(request.page_index, page);
+        PageLoadDisposition::Accepted
+    }
+
+    pub fn fail(&mut self, request: ScorePageRequest) -> PageLoadDisposition {
+        if request.generation != self.generation {
+            return PageLoadDisposition::StaleGeneration;
+        }
+        if !self.desired.contains(&request.page_index) {
+            self.pending.remove(&request.page_index);
+            return PageLoadDisposition::OutsideWindow;
+        }
+        if !self.pending.remove(&request.page_index) {
+            return PageLoadDisposition::Unexpected;
+        }
         PageLoadDisposition::Accepted
     }
 
@@ -758,6 +810,11 @@ mod tests {
         let manifest =
             VerovioManifest::parse_and_validate(&manifest_v2_json("score.svg", svg), HASH).unwrap();
         manifest.validate_page_files(&root).unwrap();
+        assert_eq!(manifest.read_verified_page(&root, 0).unwrap(), svg);
+        assert_eq!(
+            manifest.read_verified_page(&root, 1),
+            Err(VerovioManifestError::PageNotFound(1))
+        );
 
         std::fs::write(root.join("score.svg"), b"<bad/>").unwrap();
         assert_eq!(
@@ -846,7 +903,9 @@ mod tests {
                 page_count: 2,
             })
         );
-        let request = cache.focus_page(0).unwrap()[0];
+        let requests = cache.focus_page(0).unwrap();
+        let request = requests[0];
+        let neighbour = requests[1];
         assert_eq!(
             cache.complete(request, "page"),
             PageLoadDisposition::Accepted
@@ -856,6 +915,14 @@ mod tests {
             PageLoadDisposition::Unexpected
         );
         assert_eq!(cache.page(0), Some(&"page"));
+
+        assert_eq!(neighbour.page_index, 1);
+        assert_eq!(cache.fail(neighbour), PageLoadDisposition::Accepted);
+        assert_eq!(
+            cache.focus_page(0).unwrap(),
+            vec![neighbour],
+            "a failed current-window page must be retryable"
+        );
     }
 
     #[test]

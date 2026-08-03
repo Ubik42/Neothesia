@@ -314,6 +314,10 @@ pub struct PlayingScene {
     fingering_editor: Option<FingeringEditor>,
     #[cfg(feature = "score-verovio")]
     score_artifact: Option<crate::score_renderer_worker::RenderedScoreArtifact>,
+    #[cfg(feature = "score-verovio")]
+    score_render_generation: Option<crate::score_renderer_worker::ScoreRenderGeneration>,
+    #[cfg(feature = "score-verovio")]
+    score_pages: neothesia_core::score_view::ScorePageCache<Vec<u8>>,
 }
 
 impl PlayingScene {
@@ -415,6 +419,10 @@ impl PlayingScene {
             fingering_editor: None,
             #[cfg(feature = "score-verovio")]
             score_artifact: None,
+            #[cfg(feature = "score-verovio")]
+            score_render_generation: None,
+            #[cfg(feature = "score-verovio")]
+            score_pages: Default::default(),
         };
         if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
             top_bar::restore_loop_setup(&mut scene, loop_setup);
@@ -2169,11 +2177,50 @@ impl Scene for PlayingScene {
     #[cfg(feature = "score-verovio")]
     fn score_artifact_ready(
         &mut self,
-        _ctx: &mut Context,
+        ctx: &mut Context,
+        generation: crate::score_renderer_worker::ScoreRenderGeneration,
         artifact: crate::score_renderer_worker::RenderedScoreArtifact,
     ) -> bool {
+        if self
+            .score_pages
+            .begin_document(artifact.manifest.page_count)
+            .is_err()
+        {
+            return false;
+        }
+        let Ok(requests) = self.score_pages.focus_page(0) else {
+            return false;
+        };
+        self.score_render_generation = Some(generation);
         self.score_artifact = Some(artifact);
+        crate::score_renderer_worker::start_page_loads(
+            self.score_artifact.as_ref().unwrap(),
+            generation,
+            requests,
+            ctx.proxy.clone(),
+        );
         true
+    }
+
+    #[cfg(feature = "score-verovio")]
+    fn score_page_ready(
+        &mut self,
+        _ctx: &mut Context,
+        generation: crate::score_renderer_worker::ScoreRenderGeneration,
+        request: neothesia_core::score_view::ScorePageRequest,
+        result: Result<Vec<u8>, String>,
+    ) -> bool {
+        if self.score_render_generation != Some(generation) {
+            return false;
+        }
+        let disposition = match result {
+            Ok(page) => self.score_pages.complete(request, page),
+            Err(error) => {
+                log::warn!("Score page {} failed to load: {error}", request.page_index);
+                self.score_pages.fail(request)
+            }
+        };
+        disposition == neothesia_core::score_view::PageLoadDisposition::Accepted
     }
 
     #[profiling::function]
@@ -2499,6 +2546,10 @@ impl Scene for PlayingScene {
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
             #[cfg(feature = "score-verovio")]
             score_artifact_ready: self.score_artifact.is_some(),
+            #[cfg(feature = "score-verovio")]
+            score_cached_pages: self.score_pages.cached_pages().count(),
+            #[cfg(feature = "score-verovio")]
+            score_focused_page: self.score_pages.focus(),
         })
     }
 

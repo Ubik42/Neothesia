@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use neothesia_core::score_view::{VerovioManifest, VerovioManifestError};
+use neothesia_core::score_view::{ScorePageRequest, VerovioManifest, VerovioManifestError};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -36,6 +36,10 @@ impl ScoreRenderCoordinator {
         self.completed = true;
         true
     }
+
+    pub fn is_current(&self, generation: ScoreRenderGeneration) -> bool {
+        generation.0 == self.current && self.completed
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,12 @@ pub struct VerovioWorkerConfig {
 pub struct RenderedScoreArtifact {
     pub root: PathBuf,
     pub manifest: VerovioManifest,
+}
+
+impl RenderedScoreArtifact {
+    pub fn read_page(&self, page_index: usize) -> Result<Vec<u8>, VerovioManifestError> {
+        self.manifest.read_verified_page(&self.root, page_index)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -227,6 +237,30 @@ pub fn start_for_song(
         .is_ok()
 }
 
+pub fn start_page_loads(
+    artifact: &RenderedScoreArtifact,
+    generation: ScoreRenderGeneration,
+    requests: impl IntoIterator<Item = ScorePageRequest>,
+    proxy: winit::event_loop::EventLoopProxy<NeothesiaEvent>,
+) {
+    for request in requests {
+        let artifact = artifact.clone();
+        let proxy = proxy.clone();
+        let _ = std::thread::Builder::new()
+            .name(format!("score-page-{}", request.page_index))
+            .spawn(move || {
+                let result = artifact
+                    .read_page(request.page_index)
+                    .map_err(|error| error.to_string());
+                let _ = proxy.send_event(NeothesiaEvent::ScorePageReady {
+                    generation,
+                    request,
+                    result,
+                });
+            });
+    }
+}
+
 fn load_artifact(
     root: &Path,
     expected_source_sha256: &str,
@@ -384,8 +418,11 @@ mod tests {
             scene_artifact = "current-song-artifact";
         }
         assert_eq!(scene_artifact, "current-song-artifact");
+        assert!(coordinator.is_current(second));
         assert!(!coordinator.accept(second));
         let third = coordinator.begin_scene();
+        assert!(!coordinator.is_current(second));
+        assert!(!coordinator.is_current(third));
         assert!(coordinator.accept(third));
     }
 }
