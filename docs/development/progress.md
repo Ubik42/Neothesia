@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 090 — Renderer-neutral synchronized score protocol
+
+State: **DONE**
+
+Delivered:
+
+- added a strict page/element index between stable native score events and a
+  renderer's private element IDs;
+- rejected empty, duplicate and out-of-range renderer mappings;
+- derived highlight cues from aligned MIDI note timing;
+- exposed active notes and a rest-stable page focus at any player timestamp;
+- preserved distinct repeat-visit identities while reusing one written score
+  element;
+- reported missing MIDI and renderer mappings without guessing or panicking;
+- completed `MUS-001D1` without adding a Verovio dependency.
+
+Verification:
+
+- four focused protocol tests cover validation, chords, rests, repeats and
+  missing mappings;
+- 142 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, compatibility corpus, both native smokes, formatting
+  and diff checks pass with only pre-existing warnings;
+- implementation commit: `536dc99`.
+
+Next:
+
+- implement `MUS-001D2`: a feature-flagged Verovio adapter and bounded native
+  display boundary;
+- preserve the protocol's diagnostic behavior during adapter correlation.
+
 ### Cycle 089 — Isolated Verovio renderer benchmark
 
 State: **DONE**

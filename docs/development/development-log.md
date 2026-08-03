@@ -4,6 +4,41 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 090: Renderer-neutral score synchronization (DONE)
+
+### Outcome
+
+Neothesia can now translate aligned player time into engraved-note highlights
+without letting Verovio, SVG or any future renderer define musical identity.
+The next visual prototype has a small, testable boundary instead of direct
+renderer calls spread through the player.
+
+### Implemented
+
+- Added a validated native-score to renderer-element/page index.
+- Built a highlight timeline from alignment matches and real MIDI note spans.
+- Returned simultaneous active highlights for chords.
+- Kept page focus on the latest started note through rests.
+- Reused written elements for repeat visits while preserving occurrence IDs.
+- Kept missing performance and rendering mappings explicit and non-fatal.
+
+### Verification
+
+- Four new focused tests pass.
+- 142 core, 64 application and four MIDI-file tests pass.
+- Clippy, release build, pinned corpus, exercise smoke, fingering smoke,
+  formatting and diff checks pass with only pre-existing warnings.
+
+Implementation commit: `536dc99` (`feat: define synchronized score render protocol`).
+
+### Known limitations
+
+- No Verovio adapter or native SVG/display surface exists yet.
+- Adapter correlation between generated Verovio IDs and native event order must
+  fail closed when ambiguous.
+- Page preloading, cold startup, memory and real highlight paint latency remain
+  for `MUS-001D2`/`MUS-001D3`.
+
 ## 2026-08-04 — Cycle 089: Isolated Verovio renderer benchmark (DONE)
 
 ### Outcome

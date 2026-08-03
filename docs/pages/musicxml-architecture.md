@@ -113,6 +113,24 @@ Analyze runs the complete alignment pipeline off the UI thread and caches the
 structured readiness evidence against the score fingerprint. Pair, Replace and
 Remove invalidate stale analysis automatically.
 
+## Renderer synchronization contract
+
+The renderer does not receive practice authority. An adapter returns a bounded
+page count plus a one-to-one index from native `ScoreEventId` values to its own
+private element IDs. The index rejects empty IDs, duplicate score mappings,
+duplicate renderer IDs and out-of-range pages before playback can consume it.
+
+The native alignment produces an occurrence-aware highlight timeline from the
+matched MIDI note timestamps. A frame contains active notes plus a stable focus
+for page following. During rests, focus remains on the latest started note
+instead of jumping ahead. Repeated passages reuse the same written renderer
+element while retaining their distinct performed occurrence identities.
+
+Missing MIDI or renderer elements remain explicit diagnostics and never cause
+the player to guess or panic. This protocol is implemented without Verovio,
+JavaScript, SVG or web-view types; the next adapter must satisfy it behind a
+feature flag.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

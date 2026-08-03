@@ -73,6 +73,12 @@ Items are ordered within each horizon. IDs remain stable after completion.
   confidence and explicit unmatched results.
 - [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
   coupling practice logic to the renderer.
+- [x] `MUS-001D1` Define a renderer-neutral page/element index and derive
+  occurrence-aware highlight frames from the aligned MIDI timeline.
+- [ ] `MUS-001D2` Build the feature-flagged Verovio adapter and native display
+  boundary with current-page virtualization.
+- [ ] `MUS-001D3` Integrate score visibility, page following and highlight
+  paint into the player with semantic debug coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans
   while retaining exact rational event timing.
 - [x] `MUS-001F` Preserve damper/sostenuto pedal directions and engraving
