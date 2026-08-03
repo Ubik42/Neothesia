@@ -41,6 +41,8 @@ matched/wrong/missed totals, currently required note pitches and input-latency
 compensation. It also exposes additive engraved-score state: artifact readiness,
 cached-page count, focused page, uploaded texture page and texture dimensions.
 It also reports persisted score visibility independently of texture presence.
+Synchronization readiness is separate again, so a rendered page cannot conceal
+a failed native-to-MIDI-to-renderer correlation boundary.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active

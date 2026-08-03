@@ -4,6 +4,57 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 100: Playback-driven score page following (DONE)
+
+### Outcome
+
+The engraved score now follows the performance instead of remaining fixed on
+page zero. Page choice comes from the same native semantic alignment used by
+learning analysis, including repeated occurrences, and rests hold the most
+recent page.
+
+### Implemented
+
+- Extracted stable non-drum performance-note identities as a shared alignment
+  primitive.
+- Projected native score notes to renderer correlation keys using paired MIDI
+  tempo, pitch and duration.
+- Correlated only unique native/Verovio semantic note groups.
+- Built a validated render index plus occurrence-aware timeline off the UI
+  thread for both fresh renders and content-addressed cache hits.
+- Evaluated playback focus after every player update.
+- Shifted the existing bounded page cache only when the semantic page changes.
+- Released the previous texture, uploaded an already-cached target immediately
+  or asynchronously loaded the new focused/neighbour window.
+- Added synchronization readiness to semantic debug snapshots and real-process
+  assertions.
+
+### Verification
+
+- Native evidence tests cover exact 0/500 ms timing, duration and chromatic
+  pitch conversion.
+- Page-follow tests cover no pre-note focus, first page, rest retention and the
+  next page transition.
+- 152 core, 64 default application, 73 feature application and four MIDI-file
+  tests pass.
+- Default/feature Clippy and Release builds pass with only the existing Windows
+  warnings.
+- The score process smoke constructs real Verovio synchronization, uploads an
+  840×1188 verified page, exercises visibility and the practice controls, and
+  exits with code zero.
+- Exercise/fingering native smokes and the eight-file MusicXML corpus pass.
+
+Implementation commit: `9fa8449` (`feat: follow engraved score playback focus`).
+
+### Known limitations
+
+- The current process fixture has one rendered page; page-two transition is
+  covered deterministically but not yet by a native screenshot.
+- Active engraved notes are not painted yet; the validated frame already
+  contains their renderer identities for the next cycle.
+- Semantic correlation intentionally leaves ambiguous unisons unhighlighted
+  instead of choosing a visually plausible but potentially wrong voice.
+
 ## 2026-08-04 — Cycle 099: Persistent score visibility (DONE)
 
 ### Outcome

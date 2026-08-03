@@ -226,6 +226,22 @@ CPU-only. The debug boundary exposes visibility separately from artifact,
 cache, focus and texture state so those lifetime guarantees are independently
 testable.
 
+The background boundary also reconstructs the native synchronization package
+for both fresh renders and cache hits. Native score notes are projected through
+the paired MIDI tempo map into onset/pitch/duration evidence, correlated only
+against unique Verovio semantic groups, then combined with the occurrence-aware
+score-to-MIDI alignment. The resulting render index and highlight timeline are
+owned by Rust; ambiguous unisons remain absent rather than receiving a source-
+order guess.
+
+After each player update, PlayingScene asks that timeline for the latest
+started note. Before the first note no focus is claimed; during a rest the last
+started note remains the focus. A page change advances the existing bounded
+cache window, evicts requests outside current/previous/next, releases the old
+GPU image and either uploads the cached target or starts verified background
+loads. Thus renderer layout selects a page, but native playback time remains
+the sole navigation authority.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

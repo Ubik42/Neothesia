@@ -10,6 +10,45 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 100 — Playback-driven score page following
+
+State: **DONE**
+
+Delivered:
+
+- generated native renderer-correlation evidence from exact score time, pitch
+  and duration projected through the paired MIDI tempo map;
+- reused the stable non-drum MIDI note identities from score alignment;
+- built the occurrence-aware highlight timeline and validated renderer index
+  on the existing background score worker;
+- followed the latest started semantic score note during playback, retaining
+  the previous page through rests instead of jumping ahead;
+- moved the bounded cache window on page transitions, requested only the new
+  current/previous/next window and rejected its old asynchronous results;
+- released the old focused GPU image before the next focused page appears;
+- exposed synchronization readiness separately from artifact readiness;
+- completed `MUS-001D3B`.
+
+Verification:
+
+- 152 core, 64 default application, 73 feature application and four MIDI-file
+  tests pass;
+- deterministic tests cover native millisecond/pitch evidence and the sequence
+  before-first-note → page one → rest hold → page two;
+- default/feature Clippy and Release builds pass with only the three existing
+  Windows warnings;
+- the real Verovio process proves synchronization construction, verified page
+  texture, visibility lifetime and clean exit;
+- exercise/fingering process smokes and all eight MusicXML corpus fixtures pass;
+- implementation commit: `9fa8449`.
+
+Next:
+
+- implement `MUS-001D3C`: draw active engraved-note highlights from the same
+  validated semantic frame;
+- add a deliberate two-page native screenshot fixture while developing the
+  highlight overlay so page transition and paint are evidenced together.
+
 ### Cycle 099 — Persistent score visibility
 
 State: **DONE**

@@ -99,7 +99,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   paint into the player with semantic debug coverage.
 - [x] `MUS-001D3A` Add an explicit persisted player score toggle that releases
   only the focused GPU texture while retaining the verified CPU page cache.
-- [ ] `MUS-001D3B` Drive bounded page focus and neighbour prefetch from the
+- [x] `MUS-001D3B` Drive bounded page focus and neighbour prefetch from the
   occurrence-aware playback focus timeline.
 - [ ] `MUS-001D3C` Paint active score-note highlights from validated renderer
   element identities without moving practice authority into the renderer.
