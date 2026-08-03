@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 
 const packageRoot = process.env.VEROVIO_PACKAGE_ROOT;
 if (!packageRoot) {
@@ -62,6 +63,8 @@ for (const file of files) {
   const pages = [];
   let svgBytes = 0;
   let noteIds = [];
+  const pageByNoteId = new Map();
+  const manifestPages = [];
   for (let page = 1; page <= pageCount; page += 1) {
     const started = performance.now();
     const svg = toolkit.renderToSVG(page);
@@ -71,10 +74,13 @@ for (const file of files) {
       .filter(Boolean)
       .map((match) => match[1]);
     noteIds = noteIds.concat(ids);
+    for (const id of ids) pageByNoteId.set(id, page - 1);
     const bytes = Buffer.byteLength(svg);
+    const svgFile = `${safeStem(file)}-page-${page}.svg`;
     if (outputRoot) {
-      fs.writeFileSync(path.join(outputRoot, `${safeStem(file)}-page-${page}.svg`), svg);
+      fs.writeFileSync(path.join(outputRoot, svgFile), svg);
     }
+    manifestPages.push({ pageIndex: page - 1, svgFile, svgBytes: bytes });
     svgBytes += bytes;
     pages.push({ page, renderMs, svgBytes: bytes, noteIds: ids.length });
   }
@@ -92,15 +98,40 @@ for (const file of files) {
   }
   const lookupMs = performance.now() - lookupStarted;
   const semanticKeys = new Map();
+  const manifestNotes = [];
   let midiValueNotes = 0;
   for (const id of noteIds) {
     const values = toolkit.getMIDIValuesForElement(id);
     if (![values.time, values.pitch, values.duration].every(Number.isFinite)) continue;
     midiValueNotes += 1;
+    manifestNotes.push({
+      rendererId: id,
+      pageIndex: pageByNoteId.get(id),
+      onsetMillis: values.time,
+      pitch: values.pitch,
+      durationMillis: values.duration,
+    });
     const key = `${values.time}:${values.pitch}:${values.duration}`;
     semanticKeys.set(key, (semanticKeys.get(key) ?? 0) + 1);
   }
   const ambiguousSemanticGroups = [...semanticKeys.values()].filter((count) => count > 1);
+  let manifestFile = null;
+  if (outputRoot) {
+    manifestFile = `${safeStem(file)}.manifest.json`;
+    fs.writeFileSync(
+      path.join(outputRoot, manifestFile),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        rendererName: "verovio",
+        rendererVersion: "6.1.0",
+        sourceSha256: createHash("sha256").update(bytes).digest("hex"),
+        sourceBytes: bytes.length,
+        pageCount,
+        pages: manifestPages,
+        notes: manifestNotes,
+      }, null, 2)}\n`,
+    );
+  }
   results.push({
     file: path.basename(file),
     loaded: true,
@@ -119,6 +150,7 @@ for (const file of files) {
     uniqueSemanticKeys: semanticKeys.size,
     ambiguousSemanticGroups: ambiguousSemanticGroups.length,
     maximumSemanticMultiplicity: Math.max(0, ...ambiguousSemanticGroups),
+    manifestFile,
     pages,
   });
   toolkit.destroy();

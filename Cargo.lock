@@ -1750,6 +1750,7 @@ dependencies = [
  "quick-xml 0.41.0",
  "ron",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "wgpu",
  "wgpu-jumpstart",

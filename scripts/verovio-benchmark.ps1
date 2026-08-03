@@ -10,6 +10,7 @@ $packageRoot = Join-Path $TestRoot "node_modules\verovio"
 $dataRoot = Join-Path $TestRoot "data"
 $svgRoot = Join-Path $dataRoot "svg"
 $reportPath = Join-Path $dataRoot "verovio-benchmark.json"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 $fixtures = @(
     @{ Name = "JohannSebastianBach_PraeludiumInCDur_BWV846_1.xml"; Sha256 = "8681e72dc9712a8ea4555135d5752d10ebfb44e84d2f7046434626be10ba43a4" },
@@ -54,6 +55,19 @@ finally {
     Remove-Item Env:VEROVIO_PACKAGE_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:VEROVIO_SVG_OUTPUT_ROOT -ErrorAction SilentlyContinue
     Remove-Item Env:VEROVIO_REPORT_PATH -ErrorAction SilentlyContinue
+}
+
+$validationArguments = foreach ($fixture in $fixtures) {
+    Join-Path $svgRoot "$([IO.Path]::GetFileNameWithoutExtension($fixture.Name)).manifest.json"
+    $fixture.Sha256
+}
+Push-Location $repoRoot
+try {
+    & cargo run -q -p neothesia-core --example verovio-manifest-inspect -- $validationArguments
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+finally {
+    Pop-Location
 }
 
 Write-Host "Report: $reportPath"

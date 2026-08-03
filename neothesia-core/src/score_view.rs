@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
@@ -46,6 +47,132 @@ pub struct RendererScoreNoteEvidence {
     pub renderer_id: String,
     pub page_index: usize,
     pub key: ScoreNoteSemanticKey,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerovioManifest {
+    pub schema_version: u32,
+    pub renderer_name: String,
+    pub renderer_version: String,
+    pub source_sha256: String,
+    pub source_bytes: u64,
+    pub page_count: usize,
+    pub pages: Vec<VerovioManifestPage>,
+    pub notes: Vec<VerovioManifestNote>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerovioManifestPage {
+    pub page_index: usize,
+    pub svg_file: String,
+    pub svg_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerovioManifestNote {
+    pub renderer_id: String,
+    pub page_index: usize,
+    pub onset_millis: i64,
+    pub pitch: u16,
+    pub duration_millis: i64,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum VerovioManifestError {
+    #[error("invalid Verovio manifest JSON: {0}")]
+    InvalidJson(String),
+    #[error("unsupported Verovio manifest schema {0}")]
+    UnsupportedSchema(u32),
+    #[error("manifest renderer must be verovio with a non-empty version")]
+    InvalidRenderer,
+    #[error("manifest source fingerprint does not match the requested score")]
+    SourceMismatch,
+    #[error("manifest page table must contain every page exactly once")]
+    InvalidPages,
+    #[error("manifest SVG path is unsafe: {0}")]
+    UnsafeSvgPath(String),
+    #[error("manifest note `{0}` is invalid or duplicated")]
+    InvalidNote(String),
+}
+
+impl VerovioManifest {
+    pub fn parse_and_validate(
+        json: &str,
+        expected_source_sha256: &str,
+    ) -> Result<Self, VerovioManifestError> {
+        let manifest: Self = serde_json::from_str(json)
+            .map_err(|error| VerovioManifestError::InvalidJson(error.to_string()))?;
+        manifest.validate(expected_source_sha256)?;
+        Ok(manifest)
+    }
+
+    pub fn validate(&self, expected_source_sha256: &str) -> Result<(), VerovioManifestError> {
+        if self.schema_version != 1 {
+            return Err(VerovioManifestError::UnsupportedSchema(self.schema_version));
+        }
+        if self.renderer_name != "verovio" || self.renderer_version.trim().is_empty() {
+            return Err(VerovioManifestError::InvalidRenderer);
+        }
+        let valid_hash = self.source_sha256.len() == 64
+            && self
+                .source_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            && self.source_sha256 == self.source_sha256.to_ascii_lowercase();
+        if !valid_hash || self.source_sha256 != expected_source_sha256 {
+            return Err(VerovioManifestError::SourceMismatch);
+        }
+        if self.page_count == 0 || self.pages.len() != self.page_count {
+            return Err(VerovioManifestError::InvalidPages);
+        }
+        let mut page_indices: Vec<_> = self.pages.iter().map(|page| page.page_index).collect();
+        page_indices.sort_unstable();
+        if page_indices != (0..self.page_count).collect::<Vec<_>>() {
+            return Err(VerovioManifestError::InvalidPages);
+        }
+        for page in &self.pages {
+            let path = std::path::Path::new(&page.svg_file);
+            let safe = !page.svg_file.is_empty()
+                && path.is_relative()
+                && path
+                    .components()
+                    .all(|component| matches!(component, std::path::Component::Normal(_)));
+            if !safe {
+                return Err(VerovioManifestError::UnsafeSvgPath(page.svg_file.clone()));
+            }
+        }
+        let mut renderer_ids = std::collections::HashSet::new();
+        for note in &self.notes {
+            let valid = !note.renderer_id.trim().is_empty()
+                && renderer_ids.insert(note.renderer_id.clone())
+                && note.page_index < self.page_count
+                && note.onset_millis >= 0
+                && note.duration_millis >= 0
+                && note.pitch <= 127;
+            if !valid {
+                return Err(VerovioManifestError::InvalidNote(note.renderer_id.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn renderer_evidence(&self) -> Vec<RendererScoreNoteEvidence> {
+        self.notes
+            .iter()
+            .map(|note| RendererScoreNoteEvidence {
+                renderer_id: note.renderer_id.clone(),
+                page_index: note.page_index,
+                key: ScoreNoteSemanticKey {
+                    onset_millis: note.onset_millis,
+                    pitch: note.pitch as u8,
+                    duration_millis: note.duration_millis,
+                },
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,6 +455,68 @@ mod tests {
             pitch,
             duration_millis: 250,
         }
+    }
+
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn manifest_json(svg_file: &str, schema_version: u32) -> String {
+        format!(
+            r#"{{
+  "schemaVersion": {schema_version},
+  "rendererName": "verovio",
+  "rendererVersion": "6.1.0",
+  "sourceSha256": "{HASH}",
+  "sourceBytes": 42,
+  "pageCount": 1,
+  "pages": [{{"pageIndex": 0, "svgFile": "{svg_file}", "svgBytes": 100}}],
+  "notes": [{{
+    "rendererId": "note-a",
+    "pageIndex": 0,
+    "onsetMillis": 250,
+    "pitch": 64,
+    "durationMillis": 500
+  }}]
+}}"#
+        )
+    }
+
+    #[test]
+    fn validates_and_converts_a_versioned_verovio_manifest() {
+        let manifest =
+            VerovioManifest::parse_and_validate(&manifest_json("score-page-1.svg", 1), HASH)
+                .unwrap();
+        assert_eq!(manifest.page_count, 1);
+        assert_eq!(
+            manifest.renderer_evidence(),
+            vec![RendererScoreNoteEvidence {
+                renderer_id: "note-a".into(),
+                page_index: 0,
+                key: ScoreNoteSemanticKey {
+                    onset_millis: 250,
+                    pitch: 64,
+                    duration_millis: 500,
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn rejects_stale_unsupported_and_unsafe_manifests() {
+        assert_eq!(
+            VerovioManifest::parse_and_validate(&manifest_json("score.svg", 2), HASH),
+            Err(VerovioManifestError::UnsupportedSchema(2))
+        );
+        assert_eq!(
+            VerovioManifest::parse_and_validate(
+                &manifest_json("score.svg", 1),
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            ),
+            Err(VerovioManifestError::SourceMismatch)
+        );
+        assert_eq!(
+            VerovioManifest::parse_and_validate(&manifest_json("../score.svg", 1), HASH),
+            Err(VerovioManifestError::UnsafeSvgPath("../score.svg".into()))
+        );
     }
 
     #[test]
