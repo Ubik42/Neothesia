@@ -242,6 +242,25 @@ GPU image and either uploads the cached target or starts verified background
 loads. Thus renderer layout selects a page, but native playback time remains
 the sole navigation authority.
 
+Active-note paint reuses that frame but does not mutate the verified page
+texture. On the same background raster thread, the HTML-style Verovio
+`data-id` attributes are rewritten only in memory so `usvg` can resolve the
+already validated renderer IDs. The first notehead child contributes bounded
+integer geometry stored beside the cached RGBA page. Missing IDs or empty
+geometry are omitted without invalidating the page.
+
+PlayingScene scales those bounds into the fitted page and draws a translucent
+blue fill plus an opaque outline after the page image. This gives a shape cue in
+addition to colour and avoids per-frame rerasterization, cache mutation or
+per-note GPU textures. Debug state distinguishes total synchronized notes,
+currently active semantic notes and active notes with visible geometry.
+
+The worker accepts `auto` layout by default and the explicit `encoded` mode for
+scores whose authored page breaks must be preserved. Layout mode is part of the
+cache namespace, so identical source bytes rendered under different break
+policies cannot reuse the wrong pages. An artifact with zero uniquely
+correlated notes is still renderable, but is no longer reported as synchronized.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

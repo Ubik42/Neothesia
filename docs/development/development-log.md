@@ -4,6 +4,59 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 101: Active engraved-note highlights (DONE)
+
+### Outcome
+
+The score now identifies the notes being played, follows them across pages and
+keeps the piano controls usable. Highlighting is a native overlay driven by
+semantic playback state, not a renderer-controlled playback effect.
+
+### Implemented
+
+- Rewrote Verovio HTML `data-id` attributes only in the verified in-memory SVG
+  copy used by `usvg`, allowing safe renderer-ID geometry lookup.
+- Extracted the first notehead group's absolute stroked bounds on page threads.
+- Scaled and clipped integer note geometry into the displayed page rectangle.
+- Added a low-opacity blue fill and opaque two-pixel outline so state is not
+  communicated by colour alone.
+- Kept cached RGBA immutable and avoided texture replacement on every frame.
+- Added synchronized-note, active-highlight and visible-highlight debug counts.
+- Treated zero unique renderer correlations as a failed synchronization rather
+  than a misleading ready state.
+- Added `auto` and `encoded` Verovio break modes and included the selected mode
+  in the content cache namespace.
+- Replaced the one-page smoke source with a valid two-staff, two-page piano
+  fixture whose eight renderer, score and MIDI notes align exactly.
+
+### Verification
+
+- 152 core, 64 default application, 78 feature application and four MIDI-file
+  tests pass.
+- Geometry tests cover exact notehead bounds, absent renderer IDs, invalid UTF-8
+  and bounded page scaling.
+- Layout-mode tests prove encoded and automatic output cannot share a cache.
+- The real score process reports eight synchronized notes, two cached pages and
+  four visible highlights on each focused page.
+- It captures page 1, performs the first four-note event, follows to page 2,
+  captures page 2 and completes the existing practice-control sequence.
+- Hiding the score keeps all four active semantic notes while visible geometry
+  drops to zero; showing it restores the same cached overlays.
+- Default/feature Clippy and Release builds, exercise/fingering smokes and the
+  eight-score MusicXML corpus pass with only the three existing Windows
+  warnings.
+
+Implementation commit: `39de55d` (`feat: highlight active engraved score notes`).
+
+### Known limitations
+
+- Highlight colour and thickness are fixed; high-contrast and colour-blind
+  palette settings remain future accessibility work.
+- Very sparse pages make notation physically small because the viewer fits the
+  complete page; zoom and crop-to-system modes are the next readability need.
+- Renderer IDs without usable geometry remain semantic diagnostics and are not
+  guessed from neighbouring glyphs.
+
 ## 2026-08-04 — Cycle 100: Playback-driven score page following (DONE)
 
 ### Outcome

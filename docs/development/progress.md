@@ -10,6 +10,50 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 101 — Active engraved-note highlights
+
+State: **DONE**
+
+Delivered:
+
+- extracted notehead geometry from each content-verified SVG on its existing
+  background raster thread;
+- retained bounded integer geometry beside each cached RGBA page without
+  creating per-note GPU textures;
+- painted active notes as a restrained blue translucent fill plus a solid
+  outline, preserving a non-colour shape cue;
+- drove highlight identity and lifetime from the native occurrence-aware
+  semantic frame already used for page following;
+- rejected empty renderer correlation as unsynchronized and exposed matched,
+  active and visibly bounded note counts independently;
+- added explicit automatic/encoded Verovio break modes with isolated cache
+  namespaces;
+- upgraded the native fixture to two forced pages and two four-note piano
+  events, with screenshots on both pages;
+- completed `MUS-001D3C` and therefore the parent `MUS-001D3`.
+
+Verification:
+
+- 152 core, 64 default application, 78 feature application and four MIDI-file
+  tests pass;
+- geometry tests cover notehead extraction, missing IDs, invalid UTF-8, raster
+  bounds and page-layout clipping;
+- layout cache tests prove automatic and encoded engraving cannot alias;
+- the real process synchronizes all eight notes, displays four highlights on
+  page 1, follows playback to page 2 and displays its four highlights;
+- both 1620×1138 native screenshots preserve the keyboard and top controls;
+- visibility off retains four semantic highlights but reports zero visible
+  overlays, then restores them from the cached page;
+- default/feature Clippy and Release, exercise/fingering native smokes and all
+  eight MusicXML corpus fixtures pass;
+- implementation commit: `39de55d`.
+
+Next:
+
+- start the next roadmap slice with score viewport usability: zoom/readability
+  and denser real-score visual QA before expanding notation feedback;
+- retain the same native authority and bounded cache invariants.
+
 ### Cycle 100 — Playback-driven score page following
 
 State: **DONE**

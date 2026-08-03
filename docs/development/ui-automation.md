@@ -43,6 +43,8 @@ cached-page count, focused page, uploaded texture page and texture dimensions.
 It also reports persisted score visibility independently of texture presence.
 Synchronization readiness is separate again, so a rendered page cannot conceal
 a failed native-to-MIDI-to-renderer correlation boundary.
+Snapshots also expose the number of uniquely synchronized notes, active
+semantic highlights and active highlights with page geometry.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active
@@ -122,11 +124,18 @@ restored preference in `settings.ron`. The default package root is
 `D:\cs\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
 `-VerovioPackageRoot`.
 
+The fixture contains two encoded score pages and two four-note piano events.
+It verifies all eight notes synchronize, captures four visible highlights on
+page one, performs that event, waits for semantic focus to move to page two and
+verifies four visible highlights there. Use `-SecondPageScreenshotPath` beside
+`-ScreenshotPath` to retain both native views.
+
 For a DPI-aware native-window artifact, add:
 
 ```powershell
 .\scripts\debug-practice-smoke.ps1 -ScoreFixture `
-  -ScreenshotPath ".\target\score-smoke.png"
+  -ScreenshotPath ".\target\score-highlight-page-1.png" `
+  -SecondPageScreenshotPath ".\target\score-highlight-page-2.png"
 ```
 
 The optional capture uses the real HWND and accounts for per-window DPI. It is
