@@ -10,6 +10,47 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 102 — Persistent engraved-score sizing
+
+State: **DONE**
+
+Delivered:
+
+- replaced the fixed 52% score height with a backwards-compatible persisted
+  preference that defaults to 62%;
+- added familiar minus and plus controls inside the score header and displayed
+  the current percentage beside page position;
+- bounded every stored and interactive value to 40–72% in the configuration
+  and layout boundaries;
+- preserved a 160-pixel keyboard reserve at the 670×620 minimum window;
+- exposed stable semantic zoom actions and `score_zoom_percent` debug state;
+- extended the real process through repeated upper-bound input, highlight
+  retention and settings persistence;
+- completed the renderer-display proof-of-concept parents `MUS-001`,
+  `MUS-001D` and `MUS-001D2`.
+
+Verification:
+
+- 153 core, 64 default application, 79 feature application and four MIDI-file
+  tests pass;
+- layout tests cover both percentage boundaries, invalid persisted inputs,
+  monotonic scaling and the supported minimum window;
+- the real process starts at 62%, reaches and holds the 72% upper bound, returns
+  to 62%, keeps four visible highlights and saves the restored preference;
+- both 1620×1138 native screenshots preserve the score controls, keyboard,
+  top controls and two-page playback following;
+- default/feature Clippy and Release, exercise/fingering native smokes and all
+  eight MusicXML corpus fixtures pass;
+- the VitePress build passes;
+- implementation commit: `3686de5`.
+
+Next:
+
+- audit dense representative scores at minimum/default/maximum sizes and add
+  explicit real-window size variants to screenshot automation;
+- use that evidence to choose between fit-page, fit-width and crop-to-system
+  reading modes without weakening native playback authority or cache bounds.
+
 ### Cycle 101 — Active engraved-note highlights
 
 State: **DONE**

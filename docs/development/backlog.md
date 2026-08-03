@@ -53,7 +53,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `LIB-003` Save per-song hand/track, loop and speed settings.
 - [x] `LIB-004` Add recent, favourite and practice-queue views.
 - [x] `LIB-005` Add a recent-practice library with verified missing-file repair.
-- [ ] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
+- [x] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
 - [x] `MUS-001A` Add a notation-neutral score model and a tested uncompressed
   partwise MusicXML importer.
 - [x] `MUS-001B1` Add bounded compressed MXL input with container validation.
@@ -71,11 +71,11 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `MUS-001C2` Project exact score time through the paired MIDI tempo map.
 - [x] `MUS-001C3` Align pitched score notes to MIDI track/note identities with
   confidence and explicit unmatched results.
-- [ ] `MUS-001D` Render a synchronized grand-staff proof of concept without
+- [x] `MUS-001D` Render a synchronized grand-staff proof of concept without
   coupling practice logic to the renderer.
 - [x] `MUS-001D1` Define a renderer-neutral page/element index and derive
   occurrence-aware highlight frames from the aligned MIDI timeline.
-- [ ] `MUS-001D2` Build the feature-flagged Verovio adapter and native display
+- [x] `MUS-001D2` Build the feature-flagged Verovio adapter and native display
   boundary with current-page virtualization.
 - [x] `MUS-001D2A` Measure Verovio semantic note evidence and add fail-closed
   native-to-renderer correlation with explicit unison ambiguity.
@@ -103,6 +103,8 @@ Items are ordered within each horizon. IDs remain stable after completion.
   occurrence-aware playback focus timeline.
 - [x] `MUS-001D3C` Paint active score-note highlights from validated renderer
   element identities without moving practice authority into the renderer.
+- [x] `MUS-001D4` Add persisted bounded score sizing with in-context controls,
+  minimum-window keyboard reserve and semantic process coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans
   while retaining exact rational event timing.
 - [x] `MUS-001F` Preserve damper/sostenuto pedal directions and engraving

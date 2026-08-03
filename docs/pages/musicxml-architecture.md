@@ -208,9 +208,13 @@ page is uploaded through the existing native image pipeline. Replacing focus or
 the complete score document releases the previous GPU image; neighbour pages
 never allocate textures.
 
-The first visible surface fits one engraved page within 52 percent of the
-logical viewport height, stays inside the supported 670×620 minimum window and
-is composed before the top controls so practice actions remain unobstructed.
+The first visible surface fits one engraved page within a persisted 40–72%
+share of the logical viewport height and defaults to 62%. Its own header shows
+the current size and exposes compact minus/plus controls, avoiding more density
+in the practice toolbar. The layout reserves 160 pixels for the keyboard at the
+supported 670×620 minimum window and clamps legacy or damaged values before
+layout. It is composed before the top controls so practice actions remain
+unobstructed.
 This is intentionally a renderer shell: it does not own playback position,
 practice matching or highlight authority. Debug snapshots distinguish artifact,
 CPU cache, focus and GPU texture state so the boundary can be tested without

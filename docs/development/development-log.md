@@ -4,6 +4,53 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 102: Persistent engraved-score sizing (DONE)
+
+### Outcome
+
+The engraved score now opens at a more readable 62% size and has clear minus
+and plus controls in its own header. The chosen size survives restart while the
+keyboard, automatic page following and active-note overlays remain intact.
+
+### Implemented
+
+- Added a backwards-compatible `score_zoom_percent` appearance preference.
+- Bounded the preference to 40–72% and changed the default from the previous
+  fixed 52% layout to 62%.
+- Added compact minus and plus buttons beside the page label instead of adding
+  more controls to the practice toolbar.
+- Kept a fixed 160-pixel keyboard reserve at the supported 670×620 minimum
+  window, even when persisted input is outside the valid range.
+- Added semantic zoom-in and zoom-out actions plus the current percentage to
+  the debug snapshot.
+- Extended the real score smoke through repeated zoom, upper-bound idempotence,
+  restored highlights and settings persistence.
+
+### Verification
+
+- 153 core, 64 default application, 79 feature application and four MIDI-file
+  tests pass.
+- Layout tests cover minimum-window containment, monotonic growth and invalid
+  persisted values clamped at both boundaries.
+- The native score process starts at 62%, reaches and holds at 72%, returns to
+  62%, preserves four visible highlights and persists the restored value.
+- Page-one and page-two 1620×1138 screenshots show the larger score, visible
+  controls, keyboard, player toolbar and automatic page transition together.
+- Default/feature Clippy and Release builds, exercise/fingering native smokes,
+  the eight-score MusicXML corpus and VitePress build pass with only the three
+  existing Windows warnings.
+
+Implementation commit: `3686de5` (`feat: add persistent score zoom controls`).
+
+### Known limitations
+
+- Zoom changes fitted page size; it does not crop to one system or rerasterize
+  above the worker's existing bounded source texture.
+- The synthetic two-page fixture is intentionally sparse. Dense real scores at
+  minimum/default/maximum sizes remain the next visual-readability audit.
+- The score viewer remains behind the default-off `score-verovio` feature and
+  still requires the pinned developer-provided Verovio runtime.
+
 ## 2026-08-04 — Cycle 101: Active engraved-note highlights (DONE)
 
 ### Outcome

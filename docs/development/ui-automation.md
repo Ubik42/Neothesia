@@ -41,6 +41,8 @@ matched/wrong/missed totals, currently required note pitches and input-latency
 compensation. It also exposes additive engraved-score state: artifact readiness,
 cached-page count, focused page, uploaded texture page and texture dimensions.
 It also reports persisted score visibility independently of texture presence.
+The persisted fitted-page percentage is exposed independently as
+`score_zoom_percent`.
 Synchronization readiness is separate again, so a rendered page cannot conceal
 a failed native-to-MIDI-to-renderer correlation boundary.
 Snapshots also expose the number of uniquely synchronized notes, active
@@ -68,6 +70,8 @@ Open one TCP connection per command and send one newline-terminated command:
 | Command | Result |
 | --- | --- |
 | `ACTION practice.player.wait` | JSON with `ok` and `accepted` |
+| `ACTION practice.player.score.zoom-out` | Decrease fitted score size by five percentage points |
+| `ACTION practice.player.score.zoom-in` | Increase fitted score size by five percentage points |
 | `MIDI 0 60 100` | Inject channel, note and velocity through player MIDI input |
 | `SNAPSHOT` | JSON with `ok` and a snapshot object or `null` |
 | `EXIT` | JSON acknowledgement followed by a clean application exit |
@@ -120,7 +124,10 @@ is the sole focused GPU texture. It then completes the ordinary wait, MIDI,
 hands, loop, restart, menu and clean-exit sequence. Before that sequence it
 invokes `practice.player.score`, proves that hiding releases only the GPU image,
 invokes it again, proves the same cached texture is restored, and checks the
-restored preference in `settings.ron`. The default package root is
+restored preference in `settings.ron`. It then starts at the 62% default,
+repeatedly increases to the 72% ceiling, proves another increase is harmless,
+returns to 62% and verifies active highlights and persistence throughout. The
+default package root is
 `D:\cs\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
 `-VerovioPackageRoot`.
 
@@ -134,8 +141,8 @@ For a DPI-aware native-window artifact, add:
 
 ```powershell
 .\scripts\debug-practice-smoke.ps1 -ScoreFixture `
-  -ScreenshotPath ".\target\score-highlight-page-1.png" `
-  -SecondPageScreenshotPath ".\target\score-highlight-page-2.png"
+  -ScreenshotPath ".\target\score-zoom-page-1.png" `
+  -SecondPageScreenshotPath ".\target\score-zoom-page-2.png"
 ```
 
 The optional capture uses the real HWND and accounts for per-window DPI. It is
