@@ -4,6 +4,41 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 096: Generation-safe score worker events (DONE)
+
+### Outcome
+
+An obsolete Verovio job can no longer mutate whichever screen happens to be
+open when it finishes. Verified artifacts now cross the same application event
+loop as other state changes and are gated by explicit scene generation.
+
+### Implemented
+
+- Added render generations to the application coordinator.
+- Advanced generations for Play, menu, settings and free-play transitions.
+- Resolved and verified paired score associations before rendering.
+- Sent worker results through a feature-gated application user event.
+- Accepted the current generation only once.
+- Stored accepted artifacts in PlayingScene and exposed readiness to debug
+  snapshots.
+
+### Verification
+
+- A deterministic test simulates an old result after a new scene begins and
+  proves it cannot change the new scene's artifact state.
+- Duplicate current-generation completion is rejected.
+- Default and feature test/build/Clippy matrices pass.
+- 150 core, 64 default application, 68 feature application and four MIDI-file
+  tests pass.
+
+Implementation commit: `e77c776` (`feat: reject stale score worker events`).
+
+### Known limitations
+
+- PlayingScene stores the accepted artifact but does not load page bytes yet.
+- Environment configuration is a prototype boundary, not a packaged runtime.
+- There is no visible notation surface or user-facing worker status yet.
+
 ## 2026-08-04 — Cycle 095: Feature-gated Verovio worker lifecycle (DONE)
 
 ### Outcome

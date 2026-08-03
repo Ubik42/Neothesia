@@ -10,6 +10,40 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 096 — Generation-safe score worker events
+
+State: **DONE**
+
+Delivered:
+
+- started a new score-render generation on every playing-scene transition;
+- invalidated that generation on menu, settings and free-play transitions;
+- discovered and verified a paired score before background rendering;
+- returned worker success/failure through the normal application user-event
+  channel;
+- accepted only the current generation once before mutating PlayingScene;
+- discarded stale and duplicate results before scene mutation;
+- exposed accepted-artifact state in the debug practice snapshot;
+- completed `MUS-001D2E2` and `MUS-001D2E`.
+
+Verification:
+
+- the coordinator test simulates switching scenes before an old result arrives
+  and proves the new scene state remains unchanged;
+- feature tests cover four worker/coordinator cases;
+- default builds run 64 application tests and feature builds run 68;
+- 150 core and four MIDI-file tests pass;
+- default/feature Clippy and Release builds, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `e77c776`.
+
+Next:
+
+- implement `MUS-001D2F`: create the verified three-page cache inside
+  PlayingScene;
+- asynchronously load only accepted artifact pages before adding a visible
+  notation surface.
+
 ### Cycle 095 — Feature-gated Verovio worker lifecycle
 
 State: **DONE**

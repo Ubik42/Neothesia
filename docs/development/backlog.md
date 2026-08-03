@@ -85,12 +85,14 @@ Items are ordered within each horizon. IDs remain stable after completion.
   verify page bytes before native loading.
 - [x] `MUS-001D2D` Add a bounded current/previous/next page cache with explicit
   eviction and cancellation of stale worker results.
-- [ ] `MUS-001D2E` Add the feature-flagged worker process lifecycle, verified
+- [x] `MUS-001D2E` Add the feature-flagged worker process lifecycle, verified
   artifact cache directory and request-generation handoff.
 - [x] `MUS-001D2E1` Add the default-off Node/Verovio worker, staged atomic
   publication and content-verified cache reuse.
-- [ ] `MUS-001D2E2` Hand document/page generations through the application
+- [x] `MUS-001D2E2` Hand document/page generations through the application
   event loop and discard obsolete worker responses before scene mutation.
+- [ ] `MUS-001D2F` Instantiate the verified three-page cache in PlayingScene and
+  load page bytes asynchronously from the accepted artifact.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans

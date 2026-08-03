@@ -174,9 +174,21 @@ staging directory into the content-addressed cache.
 A valid cache hit bypasses Node entirely. A corrupt existing cache fails closed
 instead of being silently overwritten, and failed staging output is removed.
 Cache paths accept only lowercase SHA-256 identities, preventing path traversal.
-The default build neither compiles this module nor requires Node/Verovio. The
-next slice must carry the page-cache document generation through the application
-event loop before any worker result can mutate the playing scene.
+The default build neither compiles this module nor requires Node/Verovio.
+
+That generation now crosses the real application event boundary. Every `Play`
+transition starts a new render generation; transitions to menu, settings or
+free play advance it as well. The worker verifies the portable score association
+on its background thread, renders or reuses the cache, and sends a normal user
+event containing its generation. The event loop accepts only the current result
+once before handing the artifact to `PlayingScene`. Late results and duplicates
+are discarded before scene mutation. A debug snapshot exposes whether the
+current playing scene has accepted an artifact for future semantic smoke tests.
+
+The opt-in prototype is configured by `NEOTHESIA_VEROVIO_PACKAGE_ROOT`, with
+optional `NEOTHESIA_NODE`, `NEOTHESIA_VEROVIO_WORKER` and
+`NEOTHESIA_SCORE_CACHE` overrides. Without the required package root, no worker
+is started.
 
 ## Renderer decision
 
