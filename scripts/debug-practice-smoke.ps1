@@ -20,6 +20,8 @@ param(
 
     [string]$ScreenshotPath,
 
+    [string]$SecondPageScreenshotPath,
+
     [switch]$SkipBuild
 )
 
@@ -66,12 +68,13 @@ Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDi
 $midi = $null
 if ($CompletionFixture -or $FingeringFixture -or $ScoreFixture) {
     $midi = Join-Path $runDirectory "completion-fixture.mid"
-    # Type-1, 480 PPQ, 4/4 at 120 BPM: one C-major right-hand chord and one C3
-    # left-hand note at beat two, followed by enough time to finish the take.
+    # Type-1, 480 PPQ, 4/4 at 120 BPM: two right-hand chords with matching
+    # left-hand notes, one on each forced score page.
     $fixtureBase64 = @(
-        "TVRoZAAAAAYAAQADAeBNVHJrAAAAFAD/UQMHoSAA/1gEBAIYCI8A/y8ATVRyawAA"
-        "AC0A/wMKUmlnaHQgSGFuZINgkEhQAJBMUACQT1CBcIBIAACATAAAgE8AiTD/LwBN"
-        "VHJrAAAAHAD/AwlMZWZ0IEhhbmSDYJAwUIFwgDAAiTD/LwA="
+        "TVRoZAAAAAYAAQADAeBNVHJrAAAAGAD/UQMHoSAA/1gEBAIYCJ4A/wEAAP8vAE1UcmsA"
+        "AABLAP8DClJpZ2h0IEhhbmSDYJBIUACQTFAAkE9QgXCASAAAgEwAAIBPAI0QkEpQAJBN"
+        "UACQUVCBcIBKAACATQAAgFEAiTD/AQAA/y8ATVRyawAAACoA/wMJTGVmdCBIYW5kg2CR"
+        "MFCBcIEwAI0QkTJQgXCBMgCJMP8BAAD/LwA="
     ) -join ""
     [System.IO.File]::WriteAllBytes(
         $midi,
@@ -94,11 +97,32 @@ if ($ScoreFixture) {
   <part id="P1">
     <measure number="1">
       <attributes>
-        <divisions>1</divisions><key><fifths>0</fifths></key>
-        <time><beats>4</beats><beat-type>4</beat-type></time>
-        <clef><sign>G</sign><line>2</line></clef>
+        <divisions>2</divisions><key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
       </attributes>
-      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+      <note><rest/><duration>2</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <note><chord/><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <note><chord/><pitch><step>G</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <forward><duration>5</duration><voice>1</voice><staff>1</staff></forward>
+      <backup><duration>8</duration></backup>
+      <note><rest/><duration>2</duration><voice>2</voice><type>quarter</type><staff>2</staff></note>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+      <forward><duration>5</duration><voice>2</voice><staff>2</staff></forward>
+    </measure>
+    <measure number="2">
+      <print new-page="yes"/>
+      <note><rest/><duration>2</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <note><chord/><pitch><step>F</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <note><chord/><pitch><step>A</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>eighth</type><staff>1</staff></note>
+      <forward><duration>5</duration><voice>1</voice><staff>1</staff></forward>
+      <backup><duration>8</duration></backup>
+      <note><rest/><duration>2</duration><voice>2</voice><type>quarter</type><staff>2</staff></note>
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>1</duration><voice>2</voice><type>eighth</type><staff>2</staff></note>
+      <forward><duration>5</duration><voice>2</voice><staff>2</staff></forward>
     </measure>
   </part>
 </score-partwise>
@@ -272,6 +296,7 @@ try {
         $startInfo.Environment["NEOTHESIA_SCORE_CACHE"] = (
             Join-Path $runDirectory "score-cache"
         )
+        $startInfo.Environment["NEOTHESIA_VEROVIO_BREAKS"] = "encoded"
     }
     if (-not $ExerciseFixture) {
         # Windows PowerShell can run on a .NET version without
@@ -427,22 +452,43 @@ try {
             $null -ne $scoreSnapshot -and
             $scoreSnapshot.score_artifact_ready -and
             $scoreSnapshot.score_synchronization_ready -and
-            [int]$scoreSnapshot.score_cached_pages -eq 1 -and
+            [int]$scoreSnapshot.score_synchronized_notes -eq 8 -and
+            [int]$scoreSnapshot.score_cached_pages -eq 2 -and
             [int]$scoreSnapshot.score_focused_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_width -gt 0 -and
             [int]$scoreSnapshot.score_texture_height -gt 0 -and
             $scoreSnapshot.score_visible
-        ) "Verified score page did not reach the focused GPU texture"
+        ) (
+            "Verified score page did not reach the focused GPU texture: " +
+            ($candidate | ConvertTo-Json -Compress)
+        )
+        for ($attempt = 0; $attempt -lt 100; $attempt++) {
+            $candidate = Get-PracticeSnapshot
+            if (
+                [int]$candidate.score_active_highlights -eq 4 -and
+                [int]$candidate.score_visible_highlights -eq 4
+            ) {
+                $scoreSnapshot = $candidate
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        Assert-True (
+            [int]$scoreSnapshot.score_active_highlights -eq 4 -and
+            [int]$scoreSnapshot.score_visible_highlights -eq 4
+        ) "First-page chord did not expose four visible engraved-note highlights"
         $toggleScoreOff = Invoke-DebugDriver "ACTION practice.player.score"
         $scoreOff = Get-PracticeSnapshot
         Assert-True (
             $toggleScoreOff.ok -and $toggleScoreOff.accepted -and
             -not $scoreOff.score_visible -and
             $scoreOff.score_artifact_ready -and
-            [int]$scoreOff.score_cached_pages -eq 1 -and
+            [int]$scoreOff.score_cached_pages -eq 2 -and
             [int]$scoreOff.score_focused_page -eq 0 -and
-            $null -eq $scoreOff.score_texture_page
+            $null -eq $scoreOff.score_texture_page -and
+            [int]$scoreOff.score_active_highlights -eq 4 -and
+            [int]$scoreOff.score_visible_highlights -eq 0
         ) "Score toggle did not hide and release only the GPU texture"
         $toggleScoreOn = Invoke-DebugDriver "ACTION practice.player.score"
         $scoreOn = Get-PracticeSnapshot
@@ -450,6 +496,7 @@ try {
             $toggleScoreOn.ok -and $toggleScoreOn.accepted -and
             $scoreOn.score_visible -and
             [int]$scoreOn.score_texture_page -eq 0 -and
+            [int]$scoreOn.score_visible_highlights -eq 4 -and
             [int]$scoreOn.score_texture_width -eq [int]$scoreSnapshot.score_texture_width -and
             [int]$scoreOn.score_texture_height -eq [int]$scoreSnapshot.score_texture_height
         ) "Score toggle did not restore the cached focused texture"
@@ -689,6 +736,32 @@ try {
         $afterInput.matched_notes -gt $matchedBeforeInput
     ) "Injected performance notes did not reach the practice matcher"
 
+    $scorePageFollowing = $null
+    if ($ScoreFixture) {
+        $secondPage = $null
+        for ($attempt = 0; $attempt -lt 100; $attempt++) {
+            $candidate = Get-PracticeSnapshot
+            if (
+                [int]$candidate.score_focused_page -eq 1 -and
+                [int]$candidate.score_texture_page -eq 1 -and
+                [int]$candidate.score_active_highlights -eq 4 -and
+                [int]$candidate.score_visible_highlights -eq 4
+            ) {
+                $secondPage = $candidate
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        Assert-True (
+            $null -ne $secondPage
+        ) "Playback did not follow the second-page chord with visible highlights"
+        if ($SecondPageScreenshotPath) {
+            Start-Sleep -Milliseconds 100
+            Save-ProcessWindowScreenshot $process $SecondPageScreenshotPath
+        }
+        $scorePageFollowing = "page 1 -> page 2 with four visible highlights"
+    }
+
     if ($ExerciseFixture) {
         $exerciseCompletion = $null
         for ($attempt = 0; $attempt -lt 1200; $attempt++) {
@@ -885,8 +958,12 @@ try {
             "$($scoreSnapshot.score_texture_width)x$($scoreSnapshot.score_texture_height)"
         } else { $null }
         ScoreToggle = $scoreToggleRestored
+        ScorePageFollowing = $scorePageFollowing
         Screenshot = if ($ScreenshotPath) {
             [System.IO.Path]::GetFullPath($ScreenshotPath)
+        } else { $null }
+        SecondPageScreenshot = if ($SecondPageScreenshotPath) {
+            [System.IO.Path]::GetFullPath($SecondPageScreenshotPath)
         } else { $null }
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes

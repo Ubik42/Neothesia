@@ -9,7 +9,7 @@ function argumentsByName(values) {
     const name = values[index];
     const value = values[index + 1];
     if (!name?.startsWith("--") || value == null || parsed.has(name)) {
-      throw new Error("Expected unique --package-root, --source and --output arguments.");
+      throw new Error("Expected unique named arguments.");
     }
     parsed.set(name, value);
   }
@@ -24,8 +24,12 @@ const args = argumentsByName(process.argv.slice(2));
 const packageRoot = args.get("--package-root");
 const sourcePath = args.get("--source");
 const outputRoot = args.get("--output");
-if (!packageRoot || !sourcePath || !outputRoot || args.size !== 3) {
-  throw new Error("Expected --package-root, --source and --output exactly once.");
+const breaks = args.get("--breaks") ?? "auto";
+if (!packageRoot || !sourcePath || !outputRoot || !["auto", "encoded"].includes(breaks)) {
+  throw new Error("Expected --package-root, --source, --output and optional --breaks auto|encoded.");
+}
+if (args.size !== (args.has("--breaks") ? 4 : 3)) {
+  throw new Error("Unexpected worker argument.");
 }
 if (fs.existsSync(outputRoot)) {
   throw new Error(`Output directory already exists: ${outputRoot}`);
@@ -41,7 +45,7 @@ const toolkit = new VerovioToolkit(module);
 
 try {
   toolkit.setOptions({
-    breaks: "auto",
+    breaks,
     pageHeight: 2970,
     pageWidth: 2100,
     scale: 40,

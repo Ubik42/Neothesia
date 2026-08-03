@@ -614,6 +614,14 @@ impl ScoreRenderIndex {
         self.page_count
     }
 
+    pub fn len(&self) -> usize {
+        self.by_source.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_source.is_empty()
+    }
+
     pub fn element(&self, source_id: &ScoreEventId) -> Option<&RenderedScoreElement> {
         self.by_source.get(source_id)
     }

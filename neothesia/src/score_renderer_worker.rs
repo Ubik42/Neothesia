@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -12,7 +13,7 @@ use thiserror::Error;
 
 use crate::{NeothesiaEvent, song::Song};
 
-const CACHE_VERSION: &str = "verovio-6.1.0-schema2";
+const CACHE_VERSION: &str = "verovio-6.1.0-schema2-layout1";
 const MAX_RASTER_WIDTH: u32 = 1_600;
 const MAX_RASTER_HEIGHT: u32 = 2_400;
 const MAX_RASTER_PIXELS: f32 = 4_000_000.0;
@@ -52,6 +53,29 @@ pub struct VerovioWorkerConfig {
     pub worker_script: PathBuf,
     pub package_root: PathBuf,
     pub cache_root: PathBuf,
+    pub break_mode: VerovioBreakMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerovioBreakMode {
+    Auto,
+    Encoded,
+}
+
+impl VerovioBreakMode {
+    fn from_environment() -> Self {
+        match std::env::var("NEOTHESIA_VEROVIO_BREAKS").as_deref() {
+            Ok("encoded") => Self::Encoded,
+            _ => Self::Auto,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Encoded => "encoded",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +96,15 @@ pub struct RasterizedScorePage {
     pub width: u32,
     pub height: u32,
     pub rgba: bytes::Bytes,
+    pub element_bounds: BTreeMap<String, ScoreElementBounds>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScoreElementBounds {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl RenderedScoreArtifact {
@@ -117,6 +150,7 @@ impl VerovioWorkerConfig {
             worker_script,
             package_root: package_root.into(),
             cache_root,
+            break_mode: VerovioBreakMode::from_environment(),
         })
     }
 
@@ -143,6 +177,8 @@ impl VerovioWorkerConfig {
             .arg(source_path)
             .arg("--output")
             .arg(&staging)
+            .arg("--breaks")
+            .arg(self.break_mode.as_str())
             .output()
             .map_err(VerovioWorkerError::WorkerIo)?;
         if !output.status.success() {
@@ -193,7 +229,9 @@ impl VerovioWorkerConfig {
     }
 
     fn cache_path(&self, source_sha256: &str) -> PathBuf {
-        self.cache_root.join(source_sha256).join(CACHE_VERSION)
+        self.cache_root
+            .join(source_sha256)
+            .join(format!("{CACHE_VERSION}-{}", self.break_mode.as_str()))
     }
 
     fn staging_path(&self, source_sha256: &str) -> PathBuf {
@@ -278,6 +316,22 @@ fn build_synchronization(
         native,
         artifact.manifest.renderer_evidence(),
     );
+    if correlation.elements.is_empty() {
+        log::warn!("Could not synchronize engraved score: no unique native/renderer notes matched");
+        return None;
+    }
+    if !correlation.ambiguities.is_empty()
+        || !correlation.unmatched_native.is_empty()
+        || !correlation.unmatched_renderer.is_empty()
+    {
+        log::info!(
+            "Score synchronization retained {} unique notes ({} native gaps, {} renderer gaps, {} ambiguities)",
+            correlation.elements.len(),
+            correlation.unmatched_native.len(),
+            correlation.unmatched_renderer.len(),
+            correlation.ambiguities.len()
+        );
+    }
     let index = match neothesia_core::score_view::ScoreRenderIndex::new(
         artifact.manifest.page_count,
         correlation.elements,
@@ -304,13 +358,20 @@ pub fn start_page_loads(
     for request in requests {
         let artifact = artifact.clone();
         let proxy = proxy.clone();
+        let renderer_ids = artifact
+            .manifest
+            .notes
+            .iter()
+            .filter(|note| note.page_index == request.page_index)
+            .map(|note| note.renderer_id.clone())
+            .collect::<Vec<_>>();
         let _ = std::thread::Builder::new()
             .name(format!("score-page-{}", request.page_index))
             .spawn(move || {
                 let result = artifact
                     .read_page(request.page_index)
                     .map_err(|error| error.to_string())
-                    .and_then(|svg| rasterize_svg(&svg));
+                    .and_then(|svg| rasterize_svg(&svg, &renderer_ids));
                 let _ = proxy.send_event(NeothesiaEvent::ScorePageReady {
                     generation,
                     request,
@@ -320,12 +381,15 @@ pub fn start_page_loads(
     }
 }
 
-fn rasterize_svg(svg: &[u8]) -> Result<RasterizedScorePage, String> {
+fn rasterize_svg(svg: &[u8], renderer_ids: &[String]) -> Result<RasterizedScorePage, String> {
+    let svg = std::str::from_utf8(svg)
+        .map_err(|_| "SVG is not valid UTF-8".to_owned())?
+        .replace("data-id=", "id=");
     let options = resvg::usvg::Options {
         fontdb: score_font_database(),
         ..Default::default()
     };
-    let tree = resvg::usvg::Tree::from_data(svg, &options)
+    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options)
         .map_err(|error| format!("SVG could not be parsed: {error}"))?;
     let source = tree.size();
     let source_width = source.width();
@@ -352,11 +416,53 @@ fn rasterize_svg(svg: &[u8]) -> Result<RasterizedScorePage, String> {
         resvg::tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
+    let element_bounds = score_element_bounds(&tree, renderer_ids, scale, width, height);
     Ok(RasterizedScorePage {
         width,
         height,
         rgba: pixmap.take().into(),
+        element_bounds,
     })
+}
+
+fn score_element_bounds(
+    tree: &resvg::usvg::Tree,
+    renderer_ids: &[String],
+    scale: f32,
+    page_width: u32,
+    page_height: u32,
+) -> BTreeMap<String, ScoreElementBounds> {
+    let mut result = BTreeMap::new();
+    for renderer_id in renderer_ids {
+        let Some(node) = tree.node_by_id(renderer_id) else {
+            continue;
+        };
+        let node = match node {
+            resvg::usvg::Node::Group(group) => group.children().first().unwrap_or(node),
+            _ => node,
+        };
+        let bounds = node.abs_stroke_bounding_box();
+        let x0 = (bounds.x() * scale).floor().clamp(0.0, page_width as f32) as u32;
+        let y0 = (bounds.y() * scale).floor().clamp(0.0, page_height as f32) as u32;
+        let x1 = ((bounds.x() + bounds.width()) * scale)
+            .ceil()
+            .clamp(0.0, page_width as f32) as u32;
+        let y1 = ((bounds.y() + bounds.height()) * scale)
+            .ceil()
+            .clamp(0.0, page_height as f32) as u32;
+        if x1 > x0 && y1 > y0 {
+            result.insert(
+                renderer_id.clone(),
+                ScoreElementBounds {
+                    x: x0,
+                    y: y0,
+                    width: x1 - x0,
+                    height: y1 - y0,
+                },
+            );
+        }
+    }
+    result
 }
 
 fn score_font_database() -> Arc<resvg::usvg::fontdb::Database> {
@@ -440,6 +546,7 @@ mod tests {
             worker_script: root.join("worker.mjs"),
             package_root: root.join("package"),
             cache_root: root.join("cache"),
+            break_mode: VerovioBreakMode::Auto,
         }
     }
 
@@ -515,6 +622,21 @@ mod tests {
     }
 
     #[test]
+    fn encoded_and_automatic_layouts_use_separate_cache_namespaces() {
+        let root = temp_root();
+        let automatic = config(&root);
+        let mut encoded = automatic.clone();
+        encoded.break_mode = VerovioBreakMode::Encoded;
+        let source_hash = sha256(b"score");
+
+        assert_ne!(
+            automatic.cache_path(&source_hash),
+            encoded.cache_path(&source_hash)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn coordinator_accepts_only_current_generation_once() {
         let mut coordinator = ScoreRenderCoordinator::default();
         let first = coordinator.begin_scene();
@@ -541,7 +663,7 @@ mod tests {
         let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
             <rect width="200" height="100" fill="#c83264"/>
         </svg>"##;
-        let page = rasterize_svg(svg).unwrap();
+        let page = rasterize_svg(svg, &[]).unwrap();
         assert_eq!((page.width, page.height), (200, 100));
         assert_eq!(page.rgba.len(), 200 * 100 * 4);
         assert_eq!(&page.rgba[..4], &[200, 50, 100, 255]);
@@ -550,10 +672,46 @@ mod tests {
     #[test]
     fn rasterization_caps_large_pages_without_changing_aspect_ratio() {
         let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="8000" height="12000"/>"#;
-        let page = rasterize_svg(svg).unwrap();
+        let page = rasterize_svg(svg, &[]).unwrap();
         assert!(page.width <= MAX_RASTER_WIDTH);
         assert!(page.height <= MAX_RASTER_HEIGHT);
         assert!((page.width as usize * page.height as usize) <= MAX_RASTER_PIXELS as usize);
         assert_eq!(page.width * 3, page.height * 2);
+    }
+
+    #[test]
+    fn rasterization_extracts_bounded_notehead_geometry_from_html_svg_ids() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+          <g data-id="note-a"><g><rect x="20" y="30" width="12" height="8"/></g>
+          <path d="M32 30V10"/></g>
+        </svg>"#;
+        let page = rasterize_svg(svg, &["note-a".into()]).unwrap();
+
+        assert_eq!(
+            page.element_bounds.get("note-a"),
+            Some(&ScoreElementBounds {
+                x: 20,
+                y: 30,
+                width: 12,
+                height: 8,
+            })
+        );
+    }
+
+    #[test]
+    fn rasterization_omits_unknown_element_geometry_without_failing_the_page() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"/>"#;
+        let page = rasterize_svg(svg, &["missing-note".into()]).unwrap();
+
+        assert!(page.element_bounds.is_empty());
+        assert_eq!((page.width, page.height), (20, 10));
+    }
+
+    #[test]
+    fn rasterization_rejects_non_utf8_svg_before_id_rewriting() {
+        assert_eq!(
+            rasterize_svg(&[0xff, 0xfe], &[]).unwrap_err(),
+            "SVG is not valid UTF-8"
+        );
     }
 }

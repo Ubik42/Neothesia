@@ -2259,6 +2259,46 @@ impl PlayingScene {
         true
     }
 
+    fn active_score_bounds(
+        &self,
+        page_index: usize,
+    ) -> Vec<crate::score_renderer_worker::ScoreElementBounds> {
+        let score_time = self.player.time().saturating_sub(*self.player.leed_in());
+        let Some(synchronization) = self
+            .score_artifact
+            .as_ref()
+            .and_then(|artifact| artifact.synchronization.as_ref())
+        else {
+            return Vec::new();
+        };
+        let Some(page) = self.score_pages.page(page_index) else {
+            return Vec::new();
+        };
+        synchronization
+            .timeline
+            .frame_at(score_time, &synchronization.index)
+            .active
+            .into_iter()
+            .filter(|highlight| highlight.page_index == page_index)
+            .filter_map(|highlight| page.element_bounds.get(&highlight.renderer_id).copied())
+            .collect()
+    }
+
+    #[cfg(debug_assertions)]
+    fn active_score_highlight_count(&self) -> usize {
+        let score_time = self.player.time().saturating_sub(*self.player.leed_in());
+        self.score_artifact
+            .as_ref()
+            .and_then(|artifact| artifact.synchronization.as_ref())
+            .map_or(0, |synchronization| {
+                synchronization
+                    .timeline
+                    .frame_at(score_time, &synchronization.index)
+                    .active
+                    .len()
+            })
+    }
+
     fn upload_focused_score_page(&mut self, ctx: &mut Context) -> bool {
         let Some(page_index) = self.score_pages.focus() else {
             return false;
@@ -2299,6 +2339,7 @@ impl PlayingScene {
         let Some(texture) = self.score_texture else {
             return;
         };
+        let active_bounds = self.active_score_bounds(texture.page_index);
         let viewport = ctx
             .window_state
             .physical_size
@@ -2334,8 +2375,66 @@ impl PlayingScene {
             .size(width, height)
             .border_radius([4.0; 4])
             .build(&mut ui);
+        for bounds in active_bounds {
+            let (highlight_x, highlight_y, highlight_width, highlight_height) =
+                score_highlight_layout(x, y, width, height, texture.width, texture.height, bounds);
+            score_highlight_ui(
+                &mut ui,
+                highlight_x,
+                highlight_y,
+                highlight_width,
+                highlight_height,
+            );
+        }
         self.nuon = ui;
     }
+}
+
+#[cfg(feature = "score-verovio")]
+fn score_highlight_ui(ui: &mut nuon::Ui, x: f32, y: f32, width: f32, height: f32) {
+    const EDGE: f32 = 2.0;
+    nuon::quad()
+        .pos(x, y)
+        .size(width, height)
+        .color([45, 126, 210, 48])
+        .border_radius([3.0; 4])
+        .build(ui);
+    for (edge_x, edge_y, edge_width, edge_height) in [
+        (x, y, width, EDGE),
+        (x, y + height - EDGE, width, EDGE),
+        (x, y, EDGE, height),
+        (x + width - EDGE, y, EDGE, height),
+    ] {
+        nuon::quad()
+            .pos(edge_x, edge_y)
+            .size(edge_width, edge_height)
+            .color([34, 105, 184, 230])
+            .border_radius([1.0; 4])
+            .build(ui);
+    }
+}
+
+#[cfg(feature = "score-verovio")]
+#[allow(clippy::too_many_arguments)]
+fn score_highlight_layout(
+    page_x: f32,
+    page_y: f32,
+    page_width: f32,
+    page_height: f32,
+    source_width: u32,
+    source_height: u32,
+    bounds: crate::score_renderer_worker::ScoreElementBounds,
+) -> (f32, f32, f32, f32) {
+    let scale_x = page_width / source_width.max(1) as f32;
+    let scale_y = page_height / source_height.max(1) as f32;
+    let padding = 3.0;
+    let left = (page_x + bounds.x as f32 * scale_x - padding).max(page_x);
+    let top = (page_y + bounds.y as f32 * scale_y - padding).max(page_y);
+    let right =
+        (page_x + (bounds.x + bounds.width) as f32 * scale_x + padding).min(page_x + page_width);
+    let bottom =
+        (page_y + (bounds.y + bounds.height) as f32 * scale_y + padding).min(page_y + page_height);
+    (left, top, (right - left).max(4.0), (bottom - top).max(4.0))
 }
 
 #[cfg(feature = "score-verovio")]
@@ -2730,6 +2829,14 @@ impl Scene for PlayingScene {
             self.score_artifact
                 .as_ref()
                 .is_some_and(|artifact| artifact.synchronization.is_some()),
+            self.score_artifact
+                .as_ref()
+                .and_then(|artifact| artifact.synchronization.as_ref())
+                .map_or(0, |synchronization| synchronization.index.len()),
+            self.active_score_highlight_count(),
+            self.score_texture.map_or(0, |texture| {
+                self.active_score_bounds(texture.page_index).len()
+            }),
             self.score_pages.cached_pages().count(),
             self.score_pages.focus(),
             self.score_texture.map(|texture| texture.page_index),
@@ -2738,7 +2845,7 @@ impl Scene for PlayingScene {
             self.score_visible(ctx),
         );
         #[cfg(not(feature = "score-verovio"))]
-        let score_state = (false, false, 0, None, None, None, None, false);
+        let score_state = (false, false, 0, 0, 0, 0, None, None, None, None, false);
         let loop_range = self
             .top_bar
             .is_looper_active()
@@ -2780,12 +2887,15 @@ impl Scene for PlayingScene {
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
             score_artifact_ready: score_state.0,
             score_synchronization_ready: score_state.1,
-            score_cached_pages: score_state.2,
-            score_focused_page: score_state.3,
-            score_texture_page: score_state.4,
-            score_texture_width: score_state.5,
-            score_texture_height: score_state.6,
-            score_visible: score_state.7,
+            score_synchronized_notes: score_state.2,
+            score_active_highlights: score_state.3,
+            score_visible_highlights: score_state.4,
+            score_cached_pages: score_state.5,
+            score_focused_page: score_state.6,
+            score_texture_page: score_state.7,
+            score_texture_width: score_state.8,
+            score_texture_height: score_state.9,
+            score_visible: score_state.10,
         })
     }
 
@@ -3094,6 +3204,26 @@ mod tests {
         assert!(y >= 32.0);
         assert!(x + width <= 670.0 - 24.0);
         assert!(y + height <= 620.0 - 160.0);
+    }
+
+    #[cfg(feature = "score-verovio")]
+    #[test]
+    fn score_highlight_layout_scales_and_clips_to_the_visible_page() {
+        let bounds = crate::score_renderer_worker::ScoreElementBounds {
+            x: 0,
+            y: 40,
+            width: 12,
+            height: 8,
+        };
+        let (x, y, width, height) =
+            score_highlight_layout(100.0, 50.0, 420.0, 594.0, 840, 1188, bounds);
+
+        assert_eq!(x, 100.0, "left padding clips to the page edge");
+        assert_eq!(y, 67.0);
+        assert_eq!(width, 9.0);
+        assert_eq!(height, 10.0);
+        assert!(x + width <= 520.0);
+        assert!(y + height <= 644.0);
     }
 
     #[cfg(feature = "score-verovio")]
