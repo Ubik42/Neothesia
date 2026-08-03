@@ -22,6 +22,14 @@ pub trait Scene {
     fn emergency_stop(&mut self, ctx: &mut Context) {
         ctx.output_manager.connection().stop_all();
     }
+    #[cfg(feature = "score-verovio")]
+    fn score_artifact_ready(
+        &mut self,
+        _ctx: &mut Context,
+        _artifact: crate::score_renderer_worker::RenderedScoreArtifact,
+    ) -> bool {
+        false
+    }
     #[cfg(debug_assertions)]
     fn debug_semantic_action(&mut self, _ctx: &mut Context, _id: &str) -> bool {
         false
@@ -68,6 +76,8 @@ pub struct DebugPracticeSnapshot {
     pub suggested_finger: Option<usize>,
     pub suggested_fingering_count: usize,
     pub suggestion_confidence_percent: Option<usize>,
+    #[cfg(feature = "score-verovio")]
+    pub score_artifact_ready: bool,
 }
 
 #[cfg(debug_assertions)]

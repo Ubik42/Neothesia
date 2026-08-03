@@ -69,6 +69,11 @@ pub enum NeothesiaEvent {
     DebugExit {
         reply: std::sync::mpsc::Sender<()>,
     },
+    #[cfg(feature = "score-verovio")]
+    ScoreArtifactReady {
+        generation: score_renderer_worker::ScoreRenderGeneration,
+        result: Result<score_renderer_worker::RenderedScoreArtifact, String>,
+    },
     Exit,
 }
 
@@ -77,6 +82,8 @@ struct Neothesia {
     game_scene: Box<dyn Scene>,
     // We are dropping surface last, because of some wgpu internal ref-counting errors that cause libwayland crasch
     surface: Surface,
+    #[cfg(feature = "score-verovio")]
+    score_render: score_renderer_worker::ScoreRenderCoordinator,
 }
 
 impl Neothesia {
@@ -91,6 +98,8 @@ impl Neothesia {
             context,
             surface,
             game_scene: Box::new(game_scene),
+            #[cfg(feature = "score-verovio")]
+            score_render: Default::default(),
         }
     }
 
@@ -170,18 +179,33 @@ impl Neothesia {
     ) {
         match event {
             NeothesiaEvent::Play(song) => {
+                #[cfg(feature = "score-verovio")]
+                {
+                    let generation = self.score_render.begin_scene();
+                    score_renderer_worker::start_for_song(
+                        &song,
+                        generation,
+                        self.context.proxy.clone(),
+                    );
+                }
                 let to = playing_scene::PlayingScene::new(&mut self.context, song);
                 self.game_scene = Box::new(to);
             }
             NeothesiaEvent::FreePlay(song) => {
+                #[cfg(feature = "score-verovio")]
+                self.score_render.begin_scene();
                 let to = scene::freeplay::FreeplayScene::new(&mut self.context, song);
                 self.game_scene = Box::new(to);
             }
             NeothesiaEvent::MainMenu(song) => {
+                #[cfg(feature = "score-verovio")]
+                self.score_render.begin_scene();
                 let to = menu_scene::MenuScene::new(&mut self.context, song);
                 self.game_scene = Box::new(to);
             }
             NeothesiaEvent::MainMenuSettings(song) => {
+                #[cfg(feature = "score-verovio")]
+                self.score_render.begin_scene();
                 let to = menu_scene::MenuScene::new_settings(&mut self.context, song);
                 self.game_scene = Box::new(to);
             }
@@ -221,6 +245,24 @@ impl Neothesia {
             NeothesiaEvent::DebugExit { reply } => {
                 let _ = reply.send(());
                 event_loop.exit();
+            }
+            #[cfg(feature = "score-verovio")]
+            NeothesiaEvent::ScoreArtifactReady { generation, result } => {
+                if self.score_render.accept(generation) {
+                    match result {
+                        Ok(artifact) => {
+                            if self
+                                .game_scene
+                                .score_artifact_ready(&mut self.context, artifact)
+                            {
+                                self.context.window.request_redraw();
+                            }
+                        }
+                        Err(error) => log::warn!("Score rendering failed: {error}"),
+                    }
+                } else {
+                    log::debug!("Discarded stale score-render worker result");
+                }
             }
             NeothesiaEvent::Exit => {
                 event_loop.exit();

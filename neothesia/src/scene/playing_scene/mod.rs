@@ -312,6 +312,8 @@ pub struct PlayingScene {
     saved_session_count: Option<usize>,
     completion_view: CompletionView,
     fingering_editor: Option<FingeringEditor>,
+    #[cfg(feature = "score-verovio")]
+    score_artifact: Option<crate::score_renderer_worker::RenderedScoreArtifact>,
 }
 
 impl PlayingScene {
@@ -411,6 +413,8 @@ impl PlayingScene {
             saved_session_count: None,
             completion_view: CompletionView::Overview,
             fingering_editor: None,
+            #[cfg(feature = "score-verovio")]
+            score_artifact: None,
         };
         if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
             top_bar::restore_loop_setup(&mut scene, loop_setup);
@@ -2162,6 +2166,16 @@ fn tempo_coach_message(decision: AdaptiveTempoDecision) -> String {
 }
 
 impl Scene for PlayingScene {
+    #[cfg(feature = "score-verovio")]
+    fn score_artifact_ready(
+        &mut self,
+        _ctx: &mut Context,
+        artifact: crate::score_renderer_worker::RenderedScoreArtifact,
+    ) -> bool {
+        self.score_artifact = Some(artifact);
+        true
+    }
+
     #[profiling::function]
     fn update(&mut self, ctx: &mut Context, delta: Duration) {
         self.quad_renderer_bg.clear();
@@ -2483,6 +2497,8 @@ impl Scene for PlayingScene {
             suggestion_confidence_percent: self
                 .pending_fingering_suggestion()
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
+            #[cfg(feature = "score-verovio")]
+            score_artifact_ready: self.score_artifact.is_some(),
         })
     }
 
