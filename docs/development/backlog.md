@@ -91,8 +91,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   publication and content-verified cache reuse.
 - [x] `MUS-001D2E2` Hand document/page generations through the application
   event loop and discard obsolete worker responses before scene mutation.
-- [ ] `MUS-001D2F` Instantiate the verified three-page cache in PlayingScene and
+- [x] `MUS-001D2F` Instantiate the verified three-page cache in PlayingScene and
   load page bytes asynchronously from the accepted artifact.
+- [ ] `MUS-001D2G` Rasterize verified SVG pages behind the feature flag and
+  upload only the focused page texture to the native GPU renderer.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans

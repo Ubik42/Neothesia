@@ -10,6 +10,39 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 097 — Asynchronous verified page loading
+
+State: **DONE**
+
+Delivered:
+
+- instantiated the bounded three-page cache inside PlayingScene;
+- focused the first score page when a verified artifact arrives;
+- loaded only current/adjacent pages on named background threads;
+- re-verified SVG length and SHA-256 immediately before cache insertion;
+- carried outer song generation and inner page request through a dedicated
+  application event;
+- released failed pending requests for later retry;
+- exposed focused page and cached-page count to debug snapshots;
+- completed `MUS-001D2F`.
+
+Verification:
+
+- tests cover verified single-page reads, missing pages and same-size tampering;
+- page-cache tests prove failed in-window loads become retryable;
+- outer-generation and inner-window rejection remain covered independently;
+- 150 core, 64 default application, 68 feature application and four MIDI-file
+  tests pass;
+- default/feature Release builds, both native smokes, Clippy, formatting and
+  diff checks pass with only pre-existing warnings;
+- implementation commit: `410a246`.
+
+Next:
+
+- implement `MUS-001D2G`: feature-gated SVG rasterization and focused-page GPU
+  texture upload;
+- keep decoding and GPU allocation outside the player/practice semantic model.
+
 ### Cycle 096 — Generation-safe score worker events
 
 State: **DONE**

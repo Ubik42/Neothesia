@@ -190,6 +190,15 @@ optional `NEOTHESIA_NODE`, `NEOTHESIA_VEROVIO_WORKER` and
 `NEOTHESIA_SCORE_CACHE` overrides. Without the required package root, no worker
 is started.
 
+After an artifact is accepted, PlayingScene creates its own bounded page cache,
+focuses page zero and requests only page zero and page one. Each request is read
+on a named background thread and re-verifies the page byte length and SHA-256 at
+read time. Results cross a separate application event containing both the outer
+song generation and inner page-cache request. The outer coordinator rejects
+cross-song results; the page cache rejects old windows and duplicates. Failed
+current-window reads release their pending slot so a later focus action can
+retry them. Debug snapshots expose focused and cached page counts.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

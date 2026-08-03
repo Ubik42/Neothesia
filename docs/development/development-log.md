@@ -4,6 +4,40 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 097: Asynchronous verified page loading (DONE)
+
+### Outcome
+
+PlayingScene now receives actual verified page bytes without blocking the GPU
+event loop or loading the full score into memory. The artifact, song and page
+generations all remain intact up to the future display boundary.
+
+### Implemented
+
+- Created the three-page cache when an artifact enters PlayingScene.
+- Requested only the focused first page and available next page.
+- Loaded pages on named background threads.
+- Revalidated content immediately before returning bytes.
+- Added a page-ready user event with song and page identities.
+- Accepted/rejected results through both generation layers.
+- Made failed requests retryable and exposed cache state to debug snapshots.
+
+### Verification
+
+- Core tests cover read-time page verification and retry semantics.
+- Existing tests continue to cover eviction and stale result rejection.
+- 150 core, 64 default application, 68 feature application and four MIDI-file
+  tests pass.
+- Default/feature Release builds, exercise/fingering smokes and Clippy pass.
+
+Implementation commit: `410a246` (`feat: load verified score pages asynchronously`).
+
+### Known limitations
+
+- Cached values are verified SVG bytes, not decoded/renderable textures.
+- Focus remains on page zero until playback highlight/page following is wired.
+- Page-load failure is logged but has no visible retry/status control yet.
+
 ## 2026-08-04 — Cycle 096: Generation-safe score worker events (DONE)
 
 ### Outcome
