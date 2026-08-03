@@ -153,6 +153,15 @@ to a texture or web display. Schema 1 remains structurally readable for
 diagnostics, but page loading requires per-page hashes and therefore fails
 closed for older artifacts.
 
+The native page cache holds at most the focused page and its immediate
+neighbours. A focus change evicts pages and pending requests outside that
+window, and new requests are prioritized current/previous/next. Every request
+carries a monotonically changing document generation. Results from an older
+song are rejected as stale; late results from an older window in the same song
+are rejected as outside the window. Duplicate or unsolicited completions are
+also refused. The cache therefore bounds memory and prevents asynchronous work
+from visually crossing song boundaries.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

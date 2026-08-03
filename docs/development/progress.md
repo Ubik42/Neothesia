@@ -10,6 +10,39 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 094 — Bounded synchronized score page cache
+
+State: **DONE**
+
+Delivered:
+
+- added a strict three-page window around the focused score page;
+- prioritized new loads as current, previous and next page;
+- retained overlapping neighbours and evicted pages outside the new window;
+- attached a document generation to every asynchronous page request;
+- rejected results from an older song, an older focus window, duplicate
+  completion or an invalid page;
+- exposed only accepted pages to future display code;
+- completed `MUS-001D2D`.
+
+Verification:
+
+- tests cover initial priority, window shift, retention and eviction;
+- tests distinguish stale-document from outside-window results;
+- empty documents, invalid focus and duplicate completion are rejected;
+- twelve score-view tests pass;
+- 150 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `2a280a6`.
+
+Next:
+
+- implement `MUS-001D2E`: a feature-flagged worker lifecycle and verified cache
+  directory;
+- connect worker request generation to the bounded page cache without exposing
+  JavaScript types to player logic.
+
 ### Cycle 093 — Content-verified score pages
 
 State: **DONE**

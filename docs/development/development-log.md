@@ -4,6 +4,41 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 094: Bounded synchronized score page cache (DONE)
+
+### Outcome
+
+The future notation view now has a deterministic memory and concurrency model.
+Only the focused page and its neighbours can survive, and late asynchronous
+output cannot replace pages for another song or an obsolete focus window.
+
+### Implemented
+
+- Added a generic three-page cache independent of SVG/display technology.
+- Prioritized current, previous and next page requests.
+- Evicted loaded and pending pages when focus moved away.
+- Added per-document generations to every worker request.
+- Classified stale generation, outside window and unexpected completion
+  separately.
+
+### Verification
+
+- Three new cache tests cover priority/eviction, old document/window results,
+  duplicate completion and invalid ranges.
+- Twelve focused score-view tests pass.
+- 150 core, 64 application and four MIDI-file tests pass.
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings.
+
+Implementation commit: `2a280a6` (`feat: bound synchronized score page cache`).
+
+### Known limitations
+
+- The cache currently receives generic page values; no worker process feeds it.
+- Cancellation is logical rejection, not yet operating-system process
+  termination.
+- Native SVG decoding/display remains behind the future adapter feature.
+
 ## 2026-08-04 — Cycle 093: Content-verified score pages (DONE)
 
 ### Outcome
