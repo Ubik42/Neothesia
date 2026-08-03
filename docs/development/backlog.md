@@ -77,6 +77,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   occurrence-aware highlight frames from the aligned MIDI timeline.
 - [ ] `MUS-001D2` Build the feature-flagged Verovio adapter and native display
   boundary with current-page virtualization.
+- [x] `MUS-001D2A` Measure Verovio semantic note evidence and add fail-closed
+  native-to-renderer correlation with explicit unison ambiguity.
+- [ ] `MUS-001D2B` Export a versioned page/element manifest from the pinned
+  Verovio worker and validate it through the native render index.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans

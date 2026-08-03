@@ -10,6 +10,40 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 091 — Fail-closed engraved-note correlation
+
+State: **DONE**
+
+Delivered:
+
+- extended the pinned Verovio benchmark to collect nominal note time, pitch and
+  duration for every rendered ID;
+- proved that semantic tuples are mostly unique but not safe as an unconditional
+  identity key;
+- added renderer-neutral correlation that accepts only one-to-one groups;
+- retained duplicate/unison groups, native gaps and renderer gaps as structured
+  evidence instead of resolving them by source order;
+- completed `MUS-001D2A`.
+
+Verification:
+
+- all 1,945 rendered note IDs across eight fixtures expose semantic values;
+- the voice-alignment fixture reports two ambiguous pairs and the MXL fixture
+  reports thirteen; the other six fixtures are unique;
+- six score-view tests cover unique mapping, ambiguity, one-sided gaps, index
+  validation, chords/rests, repeats and missing elements;
+- 144 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `18b6cf4`.
+
+Next:
+
+- implement `MUS-001D2B`: export a versioned Verovio page/element manifest and
+  validate it through the native index;
+- keep ambiguous notes visibly unsupported until a stronger voice/staff key is
+  available.
+
 ### Cycle 090 — Renderer-neutral synchronized score protocol
 
 State: **DONE**

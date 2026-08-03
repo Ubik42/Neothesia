@@ -4,6 +4,41 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 091: Fail-closed engraved-note correlation (DONE)
+
+### Outcome
+
+The future notation view will not highlight the wrong voice merely because two
+notes share a pitch and timestamp. Renderer correlation now succeeds only when
+its semantic evidence is unique and exposes every unresolved note explicitly.
+
+### Implemented
+
+- Collected Verovio MIDI time, pitch and duration for every rendered note ID.
+- Counted semantic-key collisions in the reproducible benchmark report.
+- Added one-to-one native/rendered note correlation.
+- Preserved ambiguous groups and one-sided gaps as structured results.
+- Refused to use document order as an invisible ambiguity tie-breaker.
+
+### Verification
+
+- 1,945 of 1,945 rendered note IDs returned semantic evidence.
+- Six fixtures had no collisions; voice alignment had two ambiguous pairs and
+  the MXL fixture had thirteen.
+- Six focused score-view tests pass.
+- 144 core, 64 application and four MIDI-file tests pass.
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings.
+
+Implementation commit: `18b6cf4` (`feat: correlate engraved notes fail closed`).
+
+### Known limitations
+
+- Millisecond semantic evidence still needs a versioned worker manifest.
+- Same-time, same-pitch, same-duration unisons remain unresolved until the
+  adapter exposes a trustworthy voice/staff discriminator.
+- The adapter and native display boundary remain feature-flagged future work.
+
 ## 2026-08-04 — Cycle 090: Renderer-neutral score synchronization (DONE)
 
 ### Outcome

@@ -131,6 +131,14 @@ the player to guess or panic. This protocol is implemented without Verovio,
 JavaScript, SVG or web-view types; the next adapter must satisfy it behind a
 feature flag.
 
+Verovio's nominal time, pitch and duration tuple is sufficient for most notes,
+but it is not globally unique: the pinned corpus contains same-time/same-pitch
+unisons in independent voices. Correlation therefore groups both native and
+renderer evidence by semantic key and accepts only one-to-one groups. Duplicate
+groups, one-sided notes and extra renderer elements remain explicit. Source
+order is deliberately not a tie-breaker because it could highlight the wrong
+voice while appearing visually plausible.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

@@ -46,6 +46,9 @@ compressed MXL fixture loaded and rendered normally.
 - all sampled note identities resolved through `getTimeForElement` and
   `getElementAttr`, so a native player can address notation without deriving
   timing from SVG geometry;
+- all 1,945 rendered note IDs returned nominal MIDI time, pitch and duration;
+  six fixtures were unique by that semantic key, while the voice-alignment
+  fixture had two two-way ambiguities and the MXL fixture had thirteen;
 - the pedal fixture rendered seven pedal elements but emitted warnings for two
   time-spanning pedal pairs whose starts did not precede their ends. Pedal
   fidelity must remain diagnostic, not silently claimed as complete.
@@ -61,9 +64,11 @@ The proof of concept should therefore:
 1. keep the existing Rust score model and alignment identities authoritative;
 2. render only the current page plus a small neighbour window;
 3. use Verovio XML identities/time queries for highlights;
-4. isolate the engine behind a renderer adapter and feature flag;
-5. surface import/render warnings, especially pedal and navigation issues;
-6. measure cold startup, memory and highlight paint latency inside the actual
+4. correlate only unique semantic note groups; never resolve unison voices by
+   hidden source order;
+5. isolate the engine behind a renderer adapter and feature flag;
+6. surface import/render warnings, especially pedal and navigation issues;
+7. measure cold startup, memory and highlight paint latency inside the actual
    native display boundary before adopting the dependency for production.
 
 The 6.66 MiB module and up to 740 KiB of SVG per tested score are acceptable for
