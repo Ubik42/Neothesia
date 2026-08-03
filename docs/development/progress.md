@@ -10,6 +10,39 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 095 — Feature-gated Verovio worker lifecycle
+
+State: **DONE**
+
+Delivered:
+
+- added a default-off `score-verovio` application feature;
+- added a single-score Node/Verovio worker with exact argument parsing;
+- rendered into unique staging directories and published the manifest last;
+- validated the complete artifact before atomically publishing a
+  content-addressed cache entry;
+- reused valid cache entries without starting Node;
+- rejected corrupt caches and unsafe source hashes without overwriting them;
+- completed `MUS-001D2E1` while leaving event-loop generation handoff explicit.
+
+Verification:
+
+- three feature-only tests cover cache reuse, corruption and traversal;
+- a real worker process rendered and natively verified the 39-note grace-note
+  fixture;
+- 150 core, 64 application and four MIDI-file tests pass;
+- default and `score-verovio` release builds pass;
+- feature Clippy, JavaScript syntax, formatting and diff checks pass with only
+  pre-existing warnings;
+- implementation commit: `de3f54b`.
+
+Next:
+
+- implement `MUS-001D2E2`: carry document/page generations through normal
+  application events;
+- add a debug-only semantic probe that proves an old result cannot mutate a
+  newly opened scene.
+
 ### Cycle 094 — Bounded synchronized score page cache
 
 State: **DONE**

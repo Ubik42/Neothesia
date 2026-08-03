@@ -162,6 +162,22 @@ are rejected as outside the window. Duplicate or unsolicited completions are
 also refused. The cache therefore bounds memory and prevents asynchronous work
 from visually crossing song boundaries.
 
+## Feature-gated worker boundary
+
+The application now has a default-off `score-verovio` feature. When enabled, a
+native worker wrapper launches the pinned Node script with direct argument
+passing—never a shell—and renders into a unique staging directory. The script
+writes SVG pages first and publishes `manifest.json` last. Rust then validates
+the source fingerprint, schema and every page before atomically renaming the
+staging directory into the content-addressed cache.
+
+A valid cache hit bypasses Node entirely. A corrupt existing cache fails closed
+instead of being silently overwritten, and failed staging output is removed.
+Cache paths accept only lowercase SHA-256 identities, preventing path traversal.
+The default build neither compiles this module nor requires Node/Verovio. The
+next slice must carry the page-cache document generation through the application
+event loop before any worker result can mutate the playing scene.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

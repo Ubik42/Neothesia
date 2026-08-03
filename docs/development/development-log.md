@@ -4,6 +4,41 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 095: Feature-gated Verovio worker lifecycle (DONE)
+
+### Outcome
+
+Neothesia can now invoke Verovio as an isolated, opt-in worker and obtain a
+fully verified, reusable artifact directory. Default users acquire no Node or
+Verovio runtime dependency, and half-written renderer output is never published.
+
+### Implemented
+
+- Added the default-off `score-verovio` Cargo feature.
+- Added a strict single-score worker script.
+- Used direct process arguments and unique staging directories.
+- Published a manifest only after every SVG page was written.
+- Validated source, manifest and page bytes before atomic cache publication.
+- Reused valid cache content and failed closed on corrupt existing entries.
+- Bounded captured worker errors and rejected non-SHA cache identities.
+
+### Verification
+
+- Feature tests prove cache hits bypass a deliberately nonexistent Node binary.
+- Corrupt cached SVG fails before worker launch.
+- Traversal-like source identities are rejected.
+- A real process rendered one page/39 notes and passed native verification.
+- Default/feature Release builds and feature Clippy pass.
+- 150 core, 64 application and four MIDI-file tests pass.
+
+Implementation commit: `de3f54b` (`feat: add feature-gated Verovio worker`).
+
+### Known limitations
+
+- Worker calls are synchronous and must be placed on the existing task thread.
+- Application events do not yet carry the document/page generation.
+- Cache cleanup/retention policy and native SVG display remain future slices.
+
 ## 2026-08-04 — Cycle 094: Bounded synchronized score page cache (DONE)
 
 ### Outcome
