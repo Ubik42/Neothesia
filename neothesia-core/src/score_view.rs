@@ -11,6 +11,7 @@ use std::{
 };
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -68,6 +69,8 @@ pub struct VerovioManifestPage {
     pub page_index: usize,
     pub svg_file: String,
     pub svg_bytes: u64,
+    #[serde(default)]
+    pub svg_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -96,6 +99,14 @@ pub enum VerovioManifestError {
     UnsafeSvgPath(String),
     #[error("manifest note `{0}` is invalid or duplicated")]
     InvalidNote(String),
+    #[error("manifest page `{0}` has no valid content hash")]
+    MissingPageHash(String),
+    #[error("could not read manifest page `{path}`: {message}")]
+    PageIo { path: String, message: String },
+    #[error("manifest page `{0}` size does not match")]
+    PageSizeMismatch(String),
+    #[error("manifest page `{0}` fingerprint does not match")]
+    PageHashMismatch(String),
 }
 
 impl VerovioManifest {
@@ -110,7 +121,7 @@ impl VerovioManifest {
     }
 
     pub fn validate(&self, expected_source_sha256: &str) -> Result<(), VerovioManifestError> {
-        if self.schema_version != 1 {
+        if !matches!(self.schema_version, 1 | 2) {
             return Err(VerovioManifestError::UnsupportedSchema(self.schema_version));
         }
         if self.renderer_name != "verovio" || self.renderer_version.trim().is_empty() {
@@ -143,6 +154,9 @@ impl VerovioManifest {
             if !safe {
                 return Err(VerovioManifestError::UnsafeSvgPath(page.svg_file.clone()));
             }
+            if self.schema_version >= 2 && !valid_sha256(page.svg_sha256.as_deref()) {
+                return Err(VerovioManifestError::MissingPageHash(page.svg_file.clone()));
+            }
         }
         let mut renderer_ids = std::collections::HashSet::new();
         for note in &self.notes {
@@ -154,6 +168,39 @@ impl VerovioManifest {
                 && note.pitch <= 127;
             if !valid {
                 return Err(VerovioManifestError::InvalidNote(note.renderer_id.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn validate_page_files(
+        &self,
+        root: impl AsRef<std::path::Path>,
+    ) -> Result<(), VerovioManifestError> {
+        for page in &self.pages {
+            let Some(expected_hash) = page
+                .svg_sha256
+                .as_deref()
+                .filter(|hash| valid_sha256(Some(hash)))
+            else {
+                return Err(VerovioManifestError::MissingPageHash(page.svg_file.clone()));
+            };
+            let page_path = root.as_ref().join(&page.svg_file);
+            let bytes =
+                std::fs::read(&page_path).map_err(|error| VerovioManifestError::PageIo {
+                    path: page.svg_file.clone(),
+                    message: error.to_string(),
+                })?;
+            if bytes.len() as u64 != page.svg_bytes {
+                return Err(VerovioManifestError::PageSizeMismatch(
+                    page.svg_file.clone(),
+                ));
+            }
+            let actual = format!("{:x}", Sha256::digest(&bytes));
+            if actual != expected_hash {
+                return Err(VerovioManifestError::PageHashMismatch(
+                    page.svg_file.clone(),
+                ));
             }
         }
         Ok(())
@@ -173,6 +220,14 @@ impl VerovioManifest {
             })
             .collect()
     }
+}
+
+fn valid_sha256(value: Option<&str>) -> bool {
+    value.is_some_and(|hash| {
+        hash.len() == 64
+            && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            && hash == hash.to_ascii_lowercase()
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -480,6 +535,28 @@ mod tests {
         )
     }
 
+    fn manifest_v2_json(svg_file: &str, svg: &[u8]) -> String {
+        let hash = format!("{:x}", Sha256::digest(svg));
+        format!(
+            r#"{{
+  "schemaVersion": 2,
+  "rendererName": "verovio",
+  "rendererVersion": "6.1.0",
+  "sourceSha256": "{HASH}",
+  "sourceBytes": 42,
+  "pageCount": 1,
+  "pages": [{{
+    "pageIndex": 0,
+    "svgFile": "{svg_file}",
+    "svgBytes": {},
+    "svgSha256": "{hash}"
+  }}],
+  "notes": []
+}}"#,
+            svg.len()
+        )
+    }
+
     #[test]
     fn validates_and_converts_a_versioned_verovio_manifest() {
         let manifest =
@@ -503,8 +580,8 @@ mod tests {
     #[test]
     fn rejects_stale_unsupported_and_unsafe_manifests() {
         assert_eq!(
-            VerovioManifest::parse_and_validate(&manifest_json("score.svg", 2), HASH),
-            Err(VerovioManifestError::UnsupportedSchema(2))
+            VerovioManifest::parse_and_validate(&manifest_json("score.svg", 3), HASH),
+            Err(VerovioManifestError::UnsupportedSchema(3))
         );
         assert_eq!(
             VerovioManifest::parse_and_validate(
@@ -517,6 +594,31 @@ mod tests {
             VerovioManifest::parse_and_validate(&manifest_json("../score.svg", 1), HASH),
             Err(VerovioManifestError::UnsafeSvgPath("../score.svg".into()))
         );
+    }
+
+    #[test]
+    fn verifies_page_size_and_fingerprint_before_loading() {
+        let root = std::env::temp_dir().join(format!(
+            "neothesia-verovio-page-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let svg = b"<svg/>";
+        std::fs::write(root.join("score.svg"), svg).unwrap();
+        let manifest =
+            VerovioManifest::parse_and_validate(&manifest_v2_json("score.svg", svg), HASH).unwrap();
+        manifest.validate_page_files(&root).unwrap();
+
+        std::fs::write(root.join("score.svg"), b"<bad/>").unwrap();
+        assert_eq!(
+            manifest.validate_page_files(&root),
+            Err(VerovioManifestError::PageHashMismatch("score.svg".into()))
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

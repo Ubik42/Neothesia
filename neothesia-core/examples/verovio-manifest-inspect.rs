@@ -17,13 +17,22 @@ fn main() -> ExitCode {
             }
         };
         match VerovioManifest::parse_and_validate(&json, &pair[1]) {
-            Ok(manifest) => println!(
-                "{}\t{}\t{}\t{}",
-                pair[0],
-                manifest.renderer_version,
-                manifest.page_count,
-                manifest.notes.len()
-            ),
+            Ok(manifest) => {
+                let root = std::path::Path::new(&pair[0])
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                if let Err(error) = manifest.validate_page_files(root) {
+                    eprintln!("{}: {error}", pair[0]);
+                    return ExitCode::FAILURE;
+                }
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    pair[0],
+                    manifest.renderer_version,
+                    manifest.page_count,
+                    manifest.notes.len()
+                );
+            }
             Err(error) => {
                 eprintln!("{}: {error}", pair[0]);
                 return ExitCode::FAILURE;

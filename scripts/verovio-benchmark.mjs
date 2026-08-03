@@ -80,7 +80,12 @@ for (const file of files) {
     if (outputRoot) {
       fs.writeFileSync(path.join(outputRoot, svgFile), svg);
     }
-    manifestPages.push({ pageIndex: page - 1, svgFile, svgBytes: bytes });
+    manifestPages.push({
+      pageIndex: page - 1,
+      svgFile,
+      svgBytes: bytes,
+      svgSha256: createHash("sha256").update(svg).digest("hex"),
+    });
     svgBytes += bytes;
     pages.push({ page, renderMs, svgBytes: bytes, noteIds: ids.length });
   }
@@ -121,7 +126,7 @@ for (const file of files) {
     fs.writeFileSync(
       path.join(outputRoot, manifestFile),
       `${JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         rendererName: "verovio",
         rendererVersion: "6.1.0",
         sourceSha256: createHash("sha256").update(bytes).digest("hex"),
