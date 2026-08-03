@@ -37,7 +37,7 @@ pub trait Scene {
         _ctx: &mut Context,
         _generation: crate::score_renderer_worker::ScoreRenderGeneration,
         _request: neothesia_core::score_view::ScorePageRequest,
-        _result: Result<Vec<u8>, String>,
+        _result: Result<crate::score_renderer_worker::RasterizedScorePage, String>,
     ) -> bool {
         false
     }
@@ -87,12 +87,12 @@ pub struct DebugPracticeSnapshot {
     pub suggested_finger: Option<usize>,
     pub suggested_fingering_count: usize,
     pub suggestion_confidence_percent: Option<usize>,
-    #[cfg(feature = "score-verovio")]
     pub score_artifact_ready: bool,
-    #[cfg(feature = "score-verovio")]
     pub score_cached_pages: usize,
-    #[cfg(feature = "score-verovio")]
     pub score_focused_page: Option<usize>,
+    pub score_texture_page: Option<usize>,
+    pub score_texture_width: Option<usize>,
+    pub score_texture_height: Option<usize>,
 }
 
 #[cfg(debug_assertions)]
@@ -363,6 +363,11 @@ impl NuonRenderer {
         let ident = image.identifier();
         self.image_map.insert(ident, image);
         ident
+    }
+
+    #[cfg(feature = "score-verovio")]
+    pub fn remove_image(&mut self, ident: ImageIdentifier) {
+        self.image_map.remove(&ident);
     }
 
     pub fn render<'rpass>(&'rpass self, rpass: &mut wgpu_jumpstart::RenderPass<'rpass>) {

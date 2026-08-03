@@ -2,6 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::{Arc, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -12,6 +13,9 @@ use thiserror::Error;
 use crate::{NeothesiaEvent, song::Song};
 
 const CACHE_VERSION: &str = "verovio-6.1.0-schema2";
+const MAX_RASTER_WIDTH: u32 = 1_600;
+const MAX_RASTER_HEIGHT: u32 = 2_400;
+const MAX_RASTER_PIXELS: f32 = 4_000_000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScoreRenderGeneration(u64);
@@ -54,6 +58,13 @@ pub struct VerovioWorkerConfig {
 pub struct RenderedScoreArtifact {
     pub root: PathBuf,
     pub manifest: VerovioManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RasterizedScorePage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: bytes::Bytes,
 }
 
 impl RenderedScoreArtifact {
@@ -251,7 +262,8 @@ pub fn start_page_loads(
             .spawn(move || {
                 let result = artifact
                     .read_page(request.page_index)
-                    .map_err(|error| error.to_string());
+                    .map_err(|error| error.to_string())
+                    .and_then(|svg| rasterize_svg(&svg));
                 let _ = proxy.send_event(NeothesiaEvent::ScorePageReady {
                     generation,
                     request,
@@ -259,6 +271,56 @@ pub fn start_page_loads(
                 });
             });
     }
+}
+
+fn rasterize_svg(svg: &[u8]) -> Result<RasterizedScorePage, String> {
+    let options = resvg::usvg::Options {
+        fontdb: score_font_database(),
+        ..Default::default()
+    };
+    let tree = resvg::usvg::Tree::from_data(svg, &options)
+        .map_err(|error| format!("SVG could not be parsed: {error}"))?;
+    let source = tree.size();
+    let source_width = source.width();
+    let source_height = source.height();
+    if !source_width.is_finite()
+        || !source_height.is_finite()
+        || source_width <= 0.0
+        || source_height <= 0.0
+    {
+        return Err("SVG has invalid page dimensions".to_owned());
+    }
+
+    let scale = 1.0_f32
+        .min(MAX_RASTER_WIDTH as f32 / source_width)
+        .min(MAX_RASTER_HEIGHT as f32 / source_height)
+        .min((MAX_RASTER_PIXELS / (source_width * source_height)).sqrt());
+    let width = (source_width * scale).round().max(1.0) as u32;
+    let height = (source_height * scale).round().max(1.0) as u32;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| "SVG raster surface is too large".to_owned())?;
+    pixmap.fill(resvg::tiny_skia::Color::WHITE);
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    Ok(RasterizedScorePage {
+        width,
+        height,
+        rgba: pixmap.take().into(),
+    })
+}
+
+fn score_font_database() -> Arc<resvg::usvg::fontdb::Database> {
+    static FONT_DATABASE: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    FONT_DATABASE
+        .get_or_init(|| {
+            let mut database = resvg::usvg::fontdb::Database::new();
+            database.load_system_fonts();
+            Arc::new(database)
+        })
+        .clone()
 }
 
 fn load_artifact(
@@ -424,5 +486,26 @@ mod tests {
         assert!(!coordinator.is_current(second));
         assert!(!coordinator.is_current(third));
         assert!(coordinator.accept(third));
+    }
+
+    #[test]
+    fn rasterizes_svg_to_bounded_opaque_rgba() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+            <rect width="200" height="100" fill="#c83264"/>
+        </svg>"##;
+        let page = rasterize_svg(svg).unwrap();
+        assert_eq!((page.width, page.height), (200, 100));
+        assert_eq!(page.rgba.len(), 200 * 100 * 4);
+        assert_eq!(&page.rgba[..4], &[200, 50, 100, 255]);
+    }
+
+    #[test]
+    fn rasterization_caps_large_pages_without_changing_aspect_ratio() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="8000" height="12000"/>"#;
+        let page = rasterize_svg(svg).unwrap();
+        assert!(page.width <= MAX_RASTER_WIDTH);
+        assert!(page.height <= MAX_RASTER_HEIGHT);
+        assert!((page.width as usize * page.height as usize) <= MAX_RASTER_PIXELS as usize);
+        assert_eq!(page.width * 3, page.height * 2);
     }
 }

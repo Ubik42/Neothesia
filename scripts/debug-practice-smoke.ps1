@@ -11,7 +11,14 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "FingeringFixture")]
     [switch]$FingeringFixture,
 
+    [Parameter(Mandatory = $true, ParameterSetName = "ScoreFixture")]
+    [switch]$ScoreFixture,
+
     [string]$Executable = "target\debug\neothesia.exe",
+
+    [string]$VerovioPackageRoot = "D:\cs\_test\neothesia-verovio\node_modules\verovio",
+
+    [string]$ScreenshotPath,
 
     [switch]$SkipBuild
 )
@@ -27,7 +34,15 @@ else {
 }
 
 if (-not $SkipBuild) {
-    & cargo build -p neothesia --manifest-path (Join-Path $repository "Cargo.toml")
+    $buildArguments = @(
+        "build",
+        "-p", "neothesia",
+        "--manifest-path", (Join-Path $repository "Cargo.toml")
+    )
+    if ($ScoreFixture) {
+        $buildArguments += @("--features", "score-verovio")
+    }
+    & cargo @buildArguments
     if ($LASTEXITCODE -ne 0) {
         throw "Debug build failed with exit code $LASTEXITCODE"
     }
@@ -49,7 +64,7 @@ $runDirectory = Join-Path ([System.IO.Path]::GetTempPath()) (
 Copy-Item -LiteralPath (Join-Path $repository "default.sf2") -Destination $runDirectory
 
 $midi = $null
-if ($CompletionFixture -or $FingeringFixture) {
+if ($CompletionFixture -or $FingeringFixture -or $ScoreFixture) {
     $midi = Join-Path $runDirectory "completion-fixture.mid"
     # Type-1, 480 PPQ, 4/4 at 120 BPM: one C-major right-hand chord and one C3
     # left-hand note at beat two, followed by enough time to finish the take.
@@ -65,6 +80,42 @@ if ($CompletionFixture -or $FingeringFixture) {
 }
 elseif (-not $ExerciseFixture) {
     $midi = (Resolve-Path -LiteralPath $MidiPath).Path
+}
+
+$score = $null
+if ($ScoreFixture) {
+    $score = Join-Path $runDirectory "score-fixture.musicxml"
+    $scoreXml = @'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <work><work-title>Score render fixture</work-title></work>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions><key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>
+'@
+    [System.IO.File]::WriteAllText(
+        $score,
+        $scoreXml,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    & cargo run -q `
+        --manifest-path (Join-Path $repository "Cargo.toml") `
+        -p neothesia-core `
+        --example score-associate `
+        -- $midi $score
+    if ($LASTEXITCODE -ne 0) {
+        throw "Score fixture association failed with exit code $LASTEXITCODE"
+    }
 }
 
 function Invoke-DebugDriver([string]$Command) {
@@ -127,6 +178,68 @@ function Assert-True([bool]$Condition, [string]$Message) {
     }
 }
 
+function Save-ProcessWindowScreenshot(
+    [System.Diagnostics.Process]$TargetProcess,
+    [string]$Path
+) {
+    Add-Type -AssemblyName System.Drawing
+    if (-not ("NeothesiaSmoke.NativeWindow" -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+namespace NeothesiaSmoke {
+    public static class NativeWindow {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT { public int Left, Top, Right, Bottom; }
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr handle, int command);
+        [DllImport("user32.dll")]
+        public static extern bool PrintWindow(IntPtr handle, IntPtr deviceContext, uint flags);
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr handle);
+    }
+}
+'@
+    }
+    $TargetProcess.Refresh()
+    $handle = $TargetProcess.MainWindowHandle
+    Assert-True ($handle -ne [IntPtr]::Zero) "Neothesia has no capturable window"
+    [NeothesiaSmoke.NativeWindow]::ShowWindow($handle, 9) | Out-Null
+    $rect = [NeothesiaSmoke.NativeWindow+RECT]::new()
+    Assert-True (
+        [NeothesiaSmoke.NativeWindow]::GetWindowRect($handle, [ref]$rect)
+    ) "Could not read the Neothesia window bounds"
+    $dpiScale = [NeothesiaSmoke.NativeWindow]::GetDpiForWindow($handle) / 96.0
+    $width = [int][Math]::Round(($rect.Right - $rect.Left) * $dpiScale)
+    $height = [int][Math]::Round(($rect.Bottom - $rect.Top) * $dpiScale)
+    Assert-True ($width -gt 0 -and $height -gt 0) "Neothesia window bounds are empty"
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $parent = [System.IO.Path]::GetDirectoryName($fullPath)
+    if ($parent) {
+        [System.IO.Directory]::CreateDirectory($parent) | Out-Null
+    }
+    $bitmap = [System.Drawing.Bitmap]::new($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $deviceContext = $graphics.GetHdc()
+        try {
+            Assert-True (
+                [NeothesiaSmoke.NativeWindow]::PrintWindow($handle, $deviceContext, 2)
+            ) "Windows could not render the Neothesia window for capture"
+        }
+        finally {
+            $graphics.ReleaseHdc($deviceContext)
+        }
+        $bitmap.Save($fullPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
 function Invoke-AcceptedAction(
     [string]$Action,
     [int]$Attempts = 30
@@ -150,6 +263,16 @@ try {
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.Environment["NEOTHESIA_DEBUG_DRIVER_ADDR"] = "127.0.0.1:$port"
+    if ($ScoreFixture) {
+        $packageRoot = (Resolve-Path -LiteralPath $VerovioPackageRoot).Path
+        $startInfo.Environment["NEOTHESIA_VEROVIO_PACKAGE_ROOT"] = $packageRoot
+        $startInfo.Environment["NEOTHESIA_VEROVIO_WORKER"] = (
+            Join-Path $repository "scripts\verovio-render-worker.mjs"
+        )
+        $startInfo.Environment["NEOTHESIA_SCORE_CACHE"] = (
+            Join-Path $runDirectory "score-cache"
+        )
+    }
     if (-not $ExerciseFixture) {
         # Windows PowerShell can run on a .NET version without
         # ProcessStartInfo.ArgumentList. Quote the one positional MIDI path for
@@ -289,6 +412,30 @@ try {
     }
     Assert-True ($null -ne $player) "Player scene did not become active"
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
+    $scoreSnapshot = $null
+    if ($ScoreFixture) {
+        for ($attempt = 0; $attempt -lt 150; $attempt++) {
+            Start-Sleep -Milliseconds 100
+            $candidate = Get-PracticeSnapshot
+            if ($candidate.score_texture_page -eq 0) {
+                $scoreSnapshot = $candidate
+                break
+            }
+        }
+        Assert-True (
+            $null -ne $scoreSnapshot -and
+            $scoreSnapshot.score_artifact_ready -and
+            [int]$scoreSnapshot.score_cached_pages -eq 1 -and
+            [int]$scoreSnapshot.score_focused_page -eq 0 -and
+            [int]$scoreSnapshot.score_texture_page -eq 0 -and
+            [int]$scoreSnapshot.score_texture_width -gt 0 -and
+            [int]$scoreSnapshot.score_texture_height -gt 0
+        ) "Verified score page did not reach the focused GPU texture"
+        if ($ScreenshotPath) {
+            Start-Sleep -Milliseconds 250
+            Save-ProcessWindowScreenshot $process $ScreenshotPath
+        }
+    }
     if ($ExerciseFixture) {
         Assert-True (
             $player.fingerings_available -and $player.fingerings_enabled
@@ -701,6 +848,12 @@ try {
         Source = if ($ExerciseFixture) { "generated exercise" } else { $midi }
         ExercisePersistence = $exercisePersistence
         LibraryReopen = if ($libraryReopen) { $libraryReopen.hands } else { $null }
+        ScoreTexture = if ($scoreSnapshot) {
+            "$($scoreSnapshot.score_texture_width)x$($scoreSnapshot.score_texture_height)"
+        } else { $null }
+        Screenshot = if ($ScreenshotPath) {
+            [System.IO.Path]::GetFullPath($ScreenshotPath)
+        } else { $null }
         WaitDefault = $waitBefore
         WaitAfterToggle = [bool]$afterToggle.wait_for_notes
         MatchedAfterInput = [int]$afterInput.matched_notes

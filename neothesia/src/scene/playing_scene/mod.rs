@@ -220,6 +220,15 @@ struct FingeringEditor {
     suggestion: Option<FingeringPreview>,
 }
 
+#[cfg(feature = "score-verovio")]
+#[derive(Debug, Clone, Copy)]
+struct ScorePageTexture {
+    page_index: usize,
+    image: neothesia_core::render::ImageIdentifier,
+    width: u32,
+    height: u32,
+}
+
 impl FingeringEditor {
     fn new(song: &Song, score_time: Duration) -> Option<Self> {
         let visible_tracks: std::collections::HashSet<_> = song
@@ -317,7 +326,11 @@ pub struct PlayingScene {
     #[cfg(feature = "score-verovio")]
     score_render_generation: Option<crate::score_renderer_worker::ScoreRenderGeneration>,
     #[cfg(feature = "score-verovio")]
-    score_pages: neothesia_core::score_view::ScorePageCache<Vec<u8>>,
+    score_pages: neothesia_core::score_view::ScorePageCache<
+        crate::score_renderer_worker::RasterizedScorePage,
+    >,
+    #[cfg(feature = "score-verovio")]
+    score_texture: Option<ScorePageTexture>,
 }
 
 impl PlayingScene {
@@ -423,6 +436,8 @@ impl PlayingScene {
             score_render_generation: None,
             #[cfg(feature = "score-verovio")]
             score_pages: Default::default(),
+            #[cfg(feature = "score-verovio")]
+            score_texture: None,
         };
         if let Some(loop_setup) = saved_setup.and_then(|setup| setup.loop_setup) {
             top_bar::restore_loop_setup(&mut scene, loop_setup);
@@ -2173,6 +2188,110 @@ fn tempo_coach_message(decision: AdaptiveTempoDecision) -> String {
     }
 }
 
+#[cfg(feature = "score-verovio")]
+impl PlayingScene {
+    fn upload_focused_score_page(&mut self, ctx: &mut Context) -> bool {
+        let Some(page_index) = self.score_pages.focus() else {
+            return false;
+        };
+        if !score_page_needs_upload(
+            Some(page_index),
+            self.score_texture.map(|texture| texture.page_index),
+        ) {
+            return false;
+        }
+        let Some(page) = self.score_pages.page(page_index) else {
+            return false;
+        };
+        let Some(image) = neothesia_core::render::Image::from_rgba(
+            &ctx.gpu.device,
+            &ctx.gpu.queue,
+            page.rgba.clone(),
+            page.width,
+            page.height,
+        ) else {
+            log::warn!("Focused score page has invalid RGBA dimensions");
+            return false;
+        };
+        if let Some(previous) = self.score_texture.take() {
+            self.nuon_renderer.remove_image(previous.image);
+        }
+        let texture = ScorePageTexture {
+            page_index,
+            image: self.nuon_renderer.add_image(image),
+            width: page.width,
+            height: page.height,
+        };
+        self.score_texture = Some(texture);
+        true
+    }
+
+    fn score_page_ui(&mut self, ctx: &Context) {
+        let Some(texture) = self.score_texture else {
+            return;
+        };
+        let viewport = ctx
+            .window_state
+            .physical_size
+            .to_logical::<f32>(ctx.window_state.scale_factor);
+        let (x, y, width, height) = score_page_layout(
+            viewport.width,
+            viewport.height,
+            texture.width,
+            texture.height,
+        );
+        let mut ui = std::mem::replace(&mut self.nuon, nuon::Ui::new());
+        nuon::quad()
+            .pos(x - 8.0, y - 32.0)
+            .size(width + 16.0, height + 40.0)
+            .color([24, 22, 31, 238])
+            .border_radius([8.0; 4])
+            .build(&mut ui);
+        nuon::label()
+            .pos(x, y - 27.0)
+            .size(width, 20.0)
+            .font_size(13.0)
+            .color([205, 202, 216])
+            .text(format!(
+                "Score  ·  page {} of {}",
+                texture.page_index + 1,
+                self.score_artifact
+                    .as_ref()
+                    .map_or(1, |artifact| artifact.manifest.page_count)
+            ))
+            .build(&mut ui);
+        nuon::image(texture.image)
+            .pos(x, y)
+            .size(width, height)
+            .border_radius([4.0; 4])
+            .build(&mut ui);
+        self.nuon = ui;
+    }
+}
+
+#[cfg(feature = "score-verovio")]
+fn score_page_layout(
+    window_width: f32,
+    window_height: f32,
+    page_width: u32,
+    page_height: u32,
+) -> (f32, f32, f32, f32) {
+    let available_width = (window_width - 48.0).max(1.0);
+    let available_height = (window_height * 0.52)
+        .min((window_height - 160.0).max(1.0))
+        .max(1.0);
+    let scale = (available_width / page_width.max(1) as f32)
+        .min(available_height / page_height.max(1) as f32);
+    let width = page_width.max(1) as f32 * scale;
+    let height = page_height.max(1) as f32 * scale;
+    (nuon::center_x(window_width, width), 54.0, width, height)
+}
+
+#[cfg(feature = "score-verovio")]
+fn score_page_needs_upload(focused_page: Option<usize>, texture_page: Option<usize>) -> bool {
+    focused_page.is_some() && focused_page != texture_page
+}
+
 impl Scene for PlayingScene {
     #[cfg(feature = "score-verovio")]
     fn score_artifact_ready(
@@ -2181,6 +2300,9 @@ impl Scene for PlayingScene {
         generation: crate::score_renderer_worker::ScoreRenderGeneration,
         artifact: crate::score_renderer_worker::RenderedScoreArtifact,
     ) -> bool {
+        if let Some(previous) = self.score_texture.take() {
+            self.nuon_renderer.remove_image(previous.image);
+        }
         if self
             .score_pages
             .begin_document(artifact.manifest.page_count)
@@ -2205,10 +2327,10 @@ impl Scene for PlayingScene {
     #[cfg(feature = "score-verovio")]
     fn score_page_ready(
         &mut self,
-        _ctx: &mut Context,
+        ctx: &mut Context,
         generation: crate::score_renderer_worker::ScoreRenderGeneration,
         request: neothesia_core::score_view::ScorePageRequest,
-        result: Result<Vec<u8>, String>,
+        result: Result<crate::score_renderer_worker::RasterizedScorePage, String>,
     ) -> bool {
         if self.score_render_generation != Some(generation) {
             return false;
@@ -2220,7 +2342,13 @@ impl Scene for PlayingScene {
                 self.score_pages.fail(request)
             }
         };
-        disposition == neothesia_core::score_view::PageLoadDisposition::Accepted
+        if disposition != neothesia_core::score_view::PageLoadDisposition::Accepted {
+            return false;
+        }
+        if self.score_pages.focus() == Some(request.page_index) {
+            self.upload_focused_score_page(ctx);
+        }
+        true
     }
 
     #[profiling::function]
@@ -2276,6 +2404,8 @@ impl Scene for PlayingScene {
             self.completion = Some(summary);
         }
 
+        #[cfg(feature = "score-verovio")]
+        self.score_page_ui(ctx);
         TopBar::update(self, ctx);
         self.completion_ui(ctx);
 
@@ -2505,6 +2635,17 @@ impl Scene for PlayingScene {
     #[cfg(debug_assertions)]
     fn debug_practice_snapshot(&self, ctx: &Context) -> Option<super::DebugPracticeSnapshot> {
         let snapshot = self.player.practice_snapshot();
+        #[cfg(feature = "score-verovio")]
+        let score_state = (
+            self.score_artifact.is_some(),
+            self.score_pages.cached_pages().count(),
+            self.score_pages.focus(),
+            self.score_texture.map(|texture| texture.page_index),
+            self.score_texture.map(|texture| texture.width as usize),
+            self.score_texture.map(|texture| texture.height as usize),
+        );
+        #[cfg(not(feature = "score-verovio"))]
+        let score_state = (false, 0, None, None, None, None);
         let loop_range = self
             .top_bar
             .is_looper_active()
@@ -2544,12 +2685,12 @@ impl Scene for PlayingScene {
             suggestion_confidence_percent: self
                 .pending_fingering_suggestion()
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
-            #[cfg(feature = "score-verovio")]
-            score_artifact_ready: self.score_artifact.is_some(),
-            #[cfg(feature = "score-verovio")]
-            score_cached_pages: self.score_pages.cached_pages().count(),
-            #[cfg(feature = "score-verovio")]
-            score_focused_page: self.score_pages.focus(),
+            score_artifact_ready: score_state.0,
+            score_cached_pages: score_state.1,
+            score_focused_page: score_state.2,
+            score_texture_page: score_state.3,
+            score_texture_width: score_state.4,
+            score_texture_height: score_state.5,
         })
     }
 
@@ -2848,6 +2989,26 @@ mod tests {
         assert_eq!(CompletionView::Technique.next(), CompletionView::History);
         assert_eq!(CompletionView::History.next(), CompletionView::Overview);
         assert_eq!(CompletionView::Overview.previous(), CompletionView::History);
+    }
+
+    #[cfg(feature = "score-verovio")]
+    #[test]
+    fn score_page_layout_stays_inside_the_minimum_window() {
+        let (x, y, width, height) = score_page_layout(670.0, 620.0, 1_600, 2_263);
+        assert!(x >= 24.0);
+        assert!(y >= 32.0);
+        assert!(x + width <= 670.0 - 24.0);
+        assert!(y + height <= 620.0 - 160.0);
+    }
+
+    #[cfg(feature = "score-verovio")]
+    #[test]
+    fn only_a_missing_focused_page_needs_gpu_upload() {
+        assert!(score_page_needs_upload(Some(0), None));
+        assert!(!score_page_needs_upload(Some(0), Some(0)));
+        assert!(!score_page_needs_upload(None, Some(0)));
+        assert!(!score_page_needs_upload(Some(1), Some(1)));
+        assert!(score_page_needs_upload(Some(2), Some(1)));
     }
 
     #[test]

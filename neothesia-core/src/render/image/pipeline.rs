@@ -117,6 +117,35 @@ impl Image {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, bytes: Bytes) -> Self {
         let diffuse_texture = texture::Texture::from_bytes(device, queue, &bytes).unwrap();
 
+        Self::from_texture(device, queue, bytes, diffuse_texture)
+    }
+
+    /// Uploads an in-memory sRGB RGBA image without an intermediate PNG.
+    pub fn from_rgba(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bytes: Bytes,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        let expected_len = usize::try_from(width)
+            .ok()?
+            .checked_mul(usize::try_from(height).ok()?)?
+            .checked_mul(4)?;
+        if width == 0 || height == 0 || bytes.len() != expected_len {
+            return None;
+        }
+        let diffuse_texture =
+            texture::Texture::from_image(device, queue, (&bytes, width, height), None);
+        Some(Self::from_texture(device, queue, bytes, diffuse_texture))
+    }
+
+    fn from_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bytes: Bytes,
+        diffuse_texture: texture::Texture,
+    ) -> Self {
         let texture_bind_group_layout = texture_bind_group_layout(device);
 
         let quad_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -69,6 +69,7 @@ puffin_http = "0.17"
 cosmic-text = "0.19"
 png = "0.18"
 midly = "0.5"
+resvg = "0.48.1"
 
 # neothesia-cli deps
 ffmpeg = { package = "ffmpeg-sys-next", version = "8", default-features = false }

@@ -78,7 +78,7 @@ pub enum NeothesiaEvent {
     ScorePageReady {
         generation: score_renderer_worker::ScoreRenderGeneration,
         request: neothesia_core::score_view::ScorePageRequest,
-        result: Result<Vec<u8>, String>,
+        result: Result<score_renderer_worker::RasterizedScorePage, String>,
     },
     Exit,
 }
