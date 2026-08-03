@@ -17,6 +17,8 @@ second.
   content-bound repertoire metadata
 - [Explainable fingering suggestions](../pages/fingering-suggestions.md) —
   preview/accept cost model and honest scope
+- [Verovio renderer benchmark](verovio-benchmark.md) — pinned fidelity,
+  performance, size and interaction evidence
 
 ## Working agreement
 

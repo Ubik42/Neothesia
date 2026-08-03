@@ -4,6 +4,45 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 089: Isolated Verovio renderer benchmark (DONE)
+
+### Outcome
+
+Verovio 6.1.0 passes the evidence gate for a synchronized grand-staff proof of
+concept. Neothesia now has reproducible size, speed, identity-query and visual
+evidence without taking a runtime dependency or mixing upstream/test artifacts
+into the product repository.
+
+### Implemented
+
+- Pinned the Verovio upstream source in the local reference tree.
+- Created an isolated test shell connected to that source by a junction.
+- Added a hash-verified wrapper over the existing eight-fixture corpus.
+- Measured module initialization, import, page rendering, SVG size, MIDI index
+  creation and stable note time/attribute queries.
+- Retained every rendered SVG page for visual inspection.
+- Recorded an adapter/feature-flag/page-virtualization adoption boundary.
+
+### Verification
+
+- All eight MusicXML/MXL inputs loaded and rendered.
+- All sampled note identities returned valid score times.
+- Median/maximum whole-score rendering was 16.21/46.32 ms.
+- Visual inspection covered grand staff, tuplets, slurs, dynamics, ornaments,
+  pedal marks and compressed MXL.
+- `git diff --check` passes.
+
+Tooling commit: `7328549` (`tooling: benchmark Verovio score rendering`).
+
+### Known limitations
+
+- The 6.66 MiB module is measured uncompressed and outside application
+  packaging.
+- SVG totals require page virtualization rather than a whole-score live tree.
+- Two invalid/reversed pedal spans trigger Verovio warnings.
+- Cold application startup, memory and actual highlight paint latency remain
+  part of the native display proof of concept.
+
 ## 2026-07-25 — Cycle 088: Native score compatibility analysis (DONE)
 
 ### Outcome

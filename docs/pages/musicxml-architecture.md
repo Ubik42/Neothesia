@@ -118,7 +118,7 @@ Remove invalidate stale analysis automatically.
 | Option | Strength | Cost or risk | Decision |
 | --- | --- | --- | --- |
 | Build engraving in native wgpu | Full visual control | Professional notation layout is a large product by itself | Do not pursue |
-| Verovio to SVG | Portable, open source, embeddable, MusicXML input | Needs fidelity, size, timing and native-display measurements | Next isolated spike |
+| Verovio to SVG | Portable, open source, embeddable, MusicXML input | 6.66 MiB module; requires page virtualization and a native display boundary | Approved for an isolated proof of concept |
 | MuseScore conversion | Broad import/export and mature engraving | Large external application; poor embedded runtime boundary | Optional authoring/export tool |
 | React rewrite | Easy SVG/DOM display | Replaces a working native interaction/render loop without improving score semantics | Not required |
 
@@ -129,6 +129,8 @@ support. See the [MusicXML 4.0 specification](https://www.w3.org/2021/06/musicxm
 and [MuseScore MusicXML guidance](https://handbook.musescore.org/file-management/working-with-musicxml-files).
 The pinned real-score evidence and exact counts live in the
 [compatibility matrix](../development/musicxml-compatibility).
+The renderer measurements and adoption constraints live in the
+[Verovio benchmark](../development/verovio-benchmark).
 
 ## Planned slices
 
@@ -141,9 +143,10 @@ The pinned real-score evidence and exact counts live in the
    player's performance timeline. The linear-timeline core is complete; repeat
    and ending playback policy remains.
 5. Measure Verovio import fidelity, SVG generation time, binary size and
-   highlight latency outside the main application.
-6. Add a synchronized grand-staff proof of concept only after the spike meets
-   explicit acceptance thresholds.
+   highlight latency outside the main application. This spike passed with
+   explicit size, virtualization and pedal-fidelity constraints.
+6. Add a feature-flagged synchronized grand-staff proof of concept behind a
+   renderer adapter, keeping the Rust semantic model authoritative.
 
 The original MIDI remains untouched. Notation layers must stay independently
 switchable and must report unsupported source features visibly.

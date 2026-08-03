@@ -1,6 +1,6 @@
 # Development progress
 
-Updated: 2026-07-25
+Updated: 2026-08-04
 
 ## Current milestone
 
@@ -9,6 +9,37 @@ Updated: 2026-07-25
 Overall state: **IN PROGRESS**
 
 ## Active cycle
+
+### Cycle 089 — Isolated Verovio renderer benchmark
+
+State: **DONE**
+
+Delivered:
+
+- pinned Verovio 6.1.0 outside the shipping dependency graph;
+- adopted the new local boundary: upstream source in `D:\cs\_reference` and a
+  disposable test shell in `D:\cs\_test`;
+- added one-command, hash-verified MusicXML/MXL benchmarking;
+- retained JSON metrics and SVG pages outside the repository;
+- measured load/render, module size and stable note-query latency;
+- visually inspected dense grand staff, tuplets/slurs, pedal marks and MXL;
+- completed `MUS-R01B`.
+
+Verification:
+
+- all eight pinned inputs loaded and all sampled note lookups resolved;
+- median full-score SVG generation was 16.21 ms; maximum was 46.32 ms;
+- worst mean time+attribute query was 0.180 ms;
+- the package module is 6.66 MiB and eleven SVG pages total 2.40 MiB;
+- pedal-span warnings are recorded as an explicit fidelity limitation;
+- tooling implementation commit: `7328549`.
+
+Next:
+
+- start `MUS-001D` as a feature-flagged, renderer-neutral synchronized
+  grand-staff proof of concept;
+- first define the renderer adapter and page/highlight protocol without adding
+  Verovio to the default build.
 
 ### Cycle 088 — Native score compatibility analysis
 

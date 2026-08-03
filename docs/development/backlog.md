@@ -187,7 +187,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [ ] `MUS-R01` Compare direct MusicXML rendering with an embedded notation engine.
 - [x] `MUS-R01A` Record the native, Verovio and MuseScore boundaries and choose
   the next renderer spike.
-- [ ] `MUS-R01B` Measure Verovio import fidelity, SVG generation time, binary
+- [x] `MUS-R01B` Measure Verovio import fidelity, SVG generation time, binary
   size and interactive highlight latency on representative piano scores.
 
 ## Definition of done
