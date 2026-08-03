@@ -91,6 +91,16 @@ for (const file of files) {
     if (Number.isFinite(time) && time >= 0) timedNotes += 1;
   }
   const lookupMs = performance.now() - lookupStarted;
+  const semanticKeys = new Map();
+  let midiValueNotes = 0;
+  for (const id of noteIds) {
+    const values = toolkit.getMIDIValuesForElement(id);
+    if (![values.time, values.pitch, values.duration].every(Number.isFinite)) continue;
+    midiValueNotes += 1;
+    const key = `${values.time}:${values.pitch}:${values.duration}`;
+    semanticKeys.set(key, (semanticKeys.get(key) ?? 0) + 1);
+  }
+  const ambiguousSemanticGroups = [...semanticKeys.values()].filter((count) => count > 1);
   results.push({
     file: path.basename(file),
     loaded: true,
@@ -105,6 +115,10 @@ for (const file of files) {
     timedNotes,
     lookupMs,
     lookupMeanMs: samples.length ? lookupMs / samples.length : null,
+    midiValueNotes,
+    uniqueSemanticKeys: semanticKeys.size,
+    ambiguousSemanticGroups: ambiguousSemanticGroups.length,
+    maximumSemanticMultiplicity: Math.max(0, ...ambiguousSemanticGroups),
     pages,
   });
   toolkit.destroy();

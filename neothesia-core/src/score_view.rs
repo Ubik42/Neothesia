@@ -5,7 +5,10 @@
 //! model remains authoritative: an adapter must return a [`ScoreRenderIndex`]
 //! that maps those private identifiers back to stable score-event identities.
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Duration,
+};
 
 use thiserror::Error;
 
@@ -20,6 +23,98 @@ pub struct RenderedScoreElement {
     pub source_id: ScoreEventId,
     pub renderer_id: String,
     pub page_index: usize,
+}
+
+/// Renderer-exported evidence used to correlate a generated SVG element back
+/// to a native score event. Values are nominal score MIDI values, not human
+/// performance timing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ScoreNoteSemanticKey {
+    pub onset_millis: i64,
+    pub pitch: u8,
+    pub duration_millis: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeScoreNoteEvidence {
+    pub source_id: ScoreEventId,
+    pub key: ScoreNoteSemanticKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RendererScoreNoteEvidence {
+    pub renderer_id: String,
+    pub page_index: usize,
+    pub key: ScoreNoteSemanticKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScoreCorrelationAmbiguity {
+    pub key: ScoreNoteSemanticKey,
+    pub native_count: usize,
+    pub renderer_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScoreCorrelation {
+    pub elements: Vec<RenderedScoreElement>,
+    pub unmatched_native: Vec<ScoreEventId>,
+    pub unmatched_renderer: Vec<String>,
+    pub ambiguities: Vec<ScoreCorrelationAmbiguity>,
+}
+
+/// Correlates only unique semantic groups. Unisons in separate voices or any
+/// other duplicate evidence remain explicit ambiguities; source order is never
+/// used as a hidden tie-breaker.
+pub fn correlate_score_notes(
+    native: impl IntoIterator<Item = NativeScoreNoteEvidence>,
+    rendered: impl IntoIterator<Item = RendererScoreNoteEvidence>,
+) -> ScoreCorrelation {
+    let mut native_groups: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    let mut renderer_groups: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    for note in native {
+        native_groups.entry(note.key).or_default().push(note);
+    }
+    for note in rendered {
+        renderer_groups.entry(note.key).or_default().push(note);
+    }
+
+    let mut keys: Vec<_> = native_groups
+        .keys()
+        .chain(renderer_groups.keys())
+        .copied()
+        .collect();
+    keys.sort();
+    keys.dedup();
+    let mut result = ScoreCorrelation::default();
+    for key in keys {
+        let native_notes = native_groups.remove(&key).unwrap_or_default();
+        let renderer_notes = renderer_groups.remove(&key).unwrap_or_default();
+        if native_notes.len() == 1 && renderer_notes.len() == 1 {
+            let native_note = native_notes.into_iter().next().unwrap();
+            let renderer_note = renderer_notes.into_iter().next().unwrap();
+            result.elements.push(RenderedScoreElement {
+                source_id: native_note.source_id,
+                renderer_id: renderer_note.renderer_id,
+                page_index: renderer_note.page_index,
+            });
+            continue;
+        }
+        if native_notes.len() > 1 || renderer_notes.len() > 1 {
+            result.ambiguities.push(ScoreCorrelationAmbiguity {
+                key,
+                native_count: native_notes.len(),
+                renderer_count: renderer_notes.len(),
+            });
+        }
+        result
+            .unmatched_native
+            .extend(native_notes.into_iter().map(|note| note.source_id));
+        result
+            .unmatched_renderer
+            .extend(renderer_notes.into_iter().map(|note| note.renderer_id));
+    }
+    result
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +320,88 @@ mod tests {
             timestamp: Duration::from_millis(start_ms),
             duration: Duration::from_millis(duration_ms),
         }
+    }
+
+    fn semantic(onset_millis: i64, pitch: u8) -> ScoreNoteSemanticKey {
+        ScoreNoteSemanticKey {
+            onset_millis,
+            pitch,
+            duration_millis: 250,
+        }
+    }
+
+    #[test]
+    fn correlates_only_unique_semantic_note_groups() {
+        let unique = score_id(0, 0).source_id;
+        let unison_a = score_id(1, 0).source_id;
+        let unison_b = score_id(2, 0).source_id;
+        let correlation = correlate_score_notes(
+            [
+                NativeScoreNoteEvidence {
+                    source_id: unique.clone(),
+                    key: semantic(0, 60),
+                },
+                NativeScoreNoteEvidence {
+                    source_id: unison_a.clone(),
+                    key: semantic(250, 64),
+                },
+                NativeScoreNoteEvidence {
+                    source_id: unison_b.clone(),
+                    key: semantic(250, 64),
+                },
+            ],
+            [
+                RendererScoreNoteEvidence {
+                    renderer_id: "unique".into(),
+                    page_index: 0,
+                    key: semantic(0, 60),
+                },
+                RendererScoreNoteEvidence {
+                    renderer_id: "unison-1".into(),
+                    page_index: 0,
+                    key: semantic(250, 64),
+                },
+                RendererScoreNoteEvidence {
+                    renderer_id: "unison-2".into(),
+                    page_index: 0,
+                    key: semantic(250, 64),
+                },
+            ],
+        );
+        assert_eq!(correlation.elements.len(), 1);
+        assert_eq!(correlation.elements[0].source_id, unique);
+        assert_eq!(correlation.unmatched_native, vec![unison_a, unison_b]);
+        assert_eq!(
+            correlation.unmatched_renderer,
+            vec!["unison-1".to_owned(), "unison-2".to_owned()]
+        );
+        assert_eq!(
+            correlation.ambiguities,
+            vec![ScoreCorrelationAmbiguity {
+                key: semantic(250, 64),
+                native_count: 2,
+                renderer_count: 2,
+            }]
+        );
+    }
+
+    #[test]
+    fn reports_one_sided_correlation_gaps() {
+        let native_only = score_id(0, 0).source_id;
+        let correlation = correlate_score_notes(
+            [NativeScoreNoteEvidence {
+                source_id: native_only.clone(),
+                key: semantic(0, 60),
+            }],
+            [RendererScoreNoteEvidence {
+                renderer_id: "renderer-only".into(),
+                page_index: 0,
+                key: semantic(500, 72),
+            }],
+        );
+        assert_eq!(correlation.unmatched_native, vec![native_only]);
+        assert_eq!(correlation.unmatched_renderer, vec!["renderer-only"]);
+        assert!(correlation.ambiguities.is_empty());
     }
 
     #[test]
