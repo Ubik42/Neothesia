@@ -11,6 +11,9 @@ mod icons;
 mod input_manager;
 mod output_manager;
 mod scene;
+#[cfg(feature = "score-verovio")]
+#[allow(dead_code)]
+mod score_renderer_worker;
 mod song;
 mod utils;
 
