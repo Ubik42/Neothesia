@@ -81,6 +81,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
   native-to-renderer correlation with explicit unison ambiguity.
 - [x] `MUS-001D2B` Export a versioned page/element manifest from the pinned
   Verovio worker and validate it through the native render index.
+- [x] `MUS-001D2C` Bind every SVG page to its own content fingerprint and
+  verify page bytes before native loading.
+- [ ] `MUS-001D2D` Add a bounded current/previous/next page cache with explicit
+  eviction and cancellation of stale worker results.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans

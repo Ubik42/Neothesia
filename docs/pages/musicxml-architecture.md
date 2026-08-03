@@ -147,6 +147,12 @@ paths, note ranges and renderer-ID uniqueness before correlation. This makes
 generated artifacts cacheable while preventing stale or partially replaced
 score pages from entering the player.
 
+Manifest schema 2 also binds each individual SVG page by byte length and
+SHA-256. Verification happens after reading the page and before it can be handed
+to a texture or web display. Schema 1 remains structurally readable for
+diagnostics, but page loading requires per-page hashes and therefore fails
+closed for older artifacts.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

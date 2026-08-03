@@ -4,6 +4,40 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 093: Content-verified score pages (DONE)
+
+### Outcome
+
+Every generated notation page is now independently trustworthy. The future
+page cache can reject truncated, stale or replaced SVG files before displaying
+them, even when the surrounding manifest still parses.
+
+### Implemented
+
+- Added per-page SHA-256 to manifest schema 2.
+- Verified page byte length and content after reading from disk.
+- Added explicit errors for missing hash, I/O, size and fingerprint failures.
+- Kept schema 1 readable but ineligible for verified page loading.
+- Extended the native inspector to validate the complete artifact set.
+
+### Verification
+
+- All eleven pages across eight pinned fixtures pass native verification.
+- A same-byte-length mutation fails with `PageHashMismatch`.
+- Nine focused score-view tests pass.
+- 147 core, 64 application and four MIDI-file tests pass.
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings.
+
+Implementation commit: `1d404ca` (`feat: verify rendered score page content`).
+
+### Known limitations
+
+- Page verification currently reads all pages in the inspector; application
+  integration must verify lazily as pages enter the bounded cache.
+- Worker request generations and stale-result cancellation are not yet modeled.
+- SVG parsing/display remains outside the default application build.
+
 ## 2026-08-04 — Cycle 092: Versioned Verovio artifact manifest (DONE)
 
 ### Outcome

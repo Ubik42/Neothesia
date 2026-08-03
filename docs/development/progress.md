@@ -10,6 +10,37 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 093 — Content-verified score pages
+
+State: **DONE**
+
+Delivered:
+
+- advanced the artifact contract to manifest schema 2;
+- stored an independent SHA-256 and byte length for every SVG page;
+- verified actual page bytes before native loading;
+- rejected missing hashes, unreadable files, size mismatches and same-size
+  content replacements;
+- retained schema 1 parsing for diagnostics while requiring schema 2 hashes for
+  page loading;
+- completed `MUS-001D2C`.
+
+Verification:
+
+- all eleven generated SVG pages validate through the Rust inspector;
+- a same-length tampered page is rejected by its content fingerprint;
+- nine score-view tests pass;
+- 147 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, formatting and diff checks pass with only pre-existing
+  warnings;
+- implementation commit: `1d404ca`.
+
+Next:
+
+- implement `MUS-001D2D`: bounded current/previous/next page caching;
+- add generation/request identity so a late worker result cannot replace pages
+  belonging to the newly opened song.
+
 ### Cycle 092 — Versioned Verovio artifact manifest
 
 State: **DONE**

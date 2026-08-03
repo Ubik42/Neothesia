@@ -23,6 +23,9 @@ records schema version, renderer/version, source size, zero-based page table,
 safe relative SVG paths and every renderer note's nominal time, pitch and
 duration. Native validation rejects stale fingerprints, unsupported schemas,
 missing/duplicate pages, unsafe paths, duplicate IDs and invalid note values.
+Schema 2 additionally records SHA-256 for every SVG page. The native inspector
+reads each page and verifies both byte length and content hash, so a replaced or
+partially written page cannot pass merely because the top-level score matches.
 
 ## Results
 
