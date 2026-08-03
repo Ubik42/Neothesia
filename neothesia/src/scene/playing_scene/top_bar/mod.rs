@@ -547,6 +547,28 @@ impl TopBar {
                     this.player.pause_resume();
                 }
 
+                #[cfg(feature = "score-verovio")]
+                if this.score_available() {
+                    nuon::translate().x(-92.0).add_to_current(ui);
+                    let visible = this.score_visible(ctx);
+                    if nuon::button()
+                        .id(super::practice_ui_ids::PLAYER_SCORE)
+                        .size(86.0, 30.0)
+                        .label(if visible { "Score: ON" } else { "Score: OFF" })
+                        .color(if visible {
+                            [52, 111, 169]
+                        } else {
+                            [74, 68, 88]
+                        })
+                        .hover_color([67, 136, 199])
+                        .preseed_color([77, 146, 209])
+                        .border_radius([5.0; 4])
+                        .build(ui)
+                    {
+                        this.toggle_score_visibility(ctx);
+                    }
+                }
+
                 if this.can_edit_fingerings() {
                     nuon::translate().x(-98.0).add_to_current(ui);
                     let active = this.fingering_editor_active();

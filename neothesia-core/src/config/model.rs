@@ -234,6 +234,9 @@ pub struct AppearanceConfigV1 {
     #[serde(default = "default_exercise_fingerings")]
     pub exercise_fingerings: bool,
 
+    #[serde(default = "default_score_visible")]
+    pub score_visible: bool,
+
     #[serde(default = "default_glow")]
     pub glow: bool,
 }
@@ -253,6 +256,7 @@ impl Default for AppearanceConfig {
             beat_guidelines: default_beat_guidelines(),
             measure_numbers: default_measure_numbers(),
             exercise_fingerings: default_exercise_fingerings(),
+            score_visible: default_score_visible(),
             glow: default_glow(),
         })
     }
@@ -330,6 +334,10 @@ fn default_exercise_fingerings() -> bool {
     true
 }
 
+fn default_score_visible() -> bool {
+    true
+}
+
 fn default_glow() -> bool {
     true
 }
@@ -395,6 +403,7 @@ mod tests {
         let AppearanceConfig::V1(appearance) = AppearanceConfig::default();
         assert!(appearance.measure_numbers);
         assert!(appearance.exercise_fingerings);
+        assert!(appearance.score_visible);
         assert!(!appearance.beat_guidelines);
     }
 
@@ -414,6 +423,7 @@ mod tests {
         .unwrap();
 
         assert!(appearance.exercise_fingerings);
+        assert!(appearance.score_visible);
     }
 
     #[test]

@@ -161,6 +161,14 @@ impl Config {
         self.appearance.measure_numbers = measure_numbers;
     }
 
+    pub fn score_visible(&self) -> bool {
+        self.appearance.score_visible
+    }
+
+    pub fn set_score_visible(&mut self, visible: bool) {
+        self.appearance.score_visible = visible;
+    }
+
     pub fn exercise_fingerings(&self) -> bool {
         self.appearance.exercise_fingerings
     }
@@ -510,6 +518,17 @@ fn valid_unique_exercise_specs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn score_visibility_can_be_changed_without_affecting_score_availability() {
+        let mut config = Model::default().build();
+
+        assert!(config.score_visible());
+        config.set_score_visible(false);
+        assert!(!config.score_visible());
+        config.set_score_visible(true);
+        assert!(config.score_visible());
+    }
 
     #[test]
     fn watched_folders_are_unique_and_removable() {

@@ -413,6 +413,7 @@ try {
     Assert-True ($null -ne $player) "Player scene did not become active"
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
     $scoreSnapshot = $null
+    $scoreToggleRestored = $null
     if ($ScoreFixture) {
         for ($attempt = 0; $attempt -lt 150; $attempt++) {
             Start-Sleep -Milliseconds 100
@@ -429,8 +430,29 @@ try {
             [int]$scoreSnapshot.score_focused_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_width -gt 0 -and
-            [int]$scoreSnapshot.score_texture_height -gt 0
+            [int]$scoreSnapshot.score_texture_height -gt 0 -and
+            $scoreSnapshot.score_visible
         ) "Verified score page did not reach the focused GPU texture"
+        $toggleScoreOff = Invoke-DebugDriver "ACTION practice.player.score"
+        $scoreOff = Get-PracticeSnapshot
+        Assert-True (
+            $toggleScoreOff.ok -and $toggleScoreOff.accepted -and
+            -not $scoreOff.score_visible -and
+            $scoreOff.score_artifact_ready -and
+            [int]$scoreOff.score_cached_pages -eq 1 -and
+            [int]$scoreOff.score_focused_page -eq 0 -and
+            $null -eq $scoreOff.score_texture_page
+        ) "Score toggle did not hide and release only the GPU texture"
+        $toggleScoreOn = Invoke-DebugDriver "ACTION practice.player.score"
+        $scoreOn = Get-PracticeSnapshot
+        Assert-True (
+            $toggleScoreOn.ok -and $toggleScoreOn.accepted -and
+            $scoreOn.score_visible -and
+            [int]$scoreOn.score_texture_page -eq 0 -and
+            [int]$scoreOn.score_texture_width -eq [int]$scoreSnapshot.score_texture_width -and
+            [int]$scoreOn.score_texture_height -eq [int]$scoreSnapshot.score_texture_height
+        ) "Score toggle did not restore the cached focused texture"
+        $scoreToggleRestored = "hidden with cache retained, then restored"
         if ($ScreenshotPath) {
             Start-Sleep -Milliseconds 250
             Save-ProcessWindowScreenshot $process $ScreenshotPath
@@ -806,6 +828,16 @@ try {
     }
 
     $exercisePersistence = $null
+    if ($ScoreFixture) {
+        $settingsPath = Join-Path $runDirectory "settings.ron"
+        Assert-True (
+            [System.IO.File]::Exists($settingsPath)
+        ) "Score run did not persist settings"
+        $settingsText = [System.IO.File]::ReadAllText($settingsPath)
+        Assert-True (
+            $settingsText -match "score_visible:\s*true"
+        ) "Settings did not persist the restored score visibility"
+    }
     if ($ExerciseFixture) {
         $settingsPath = Join-Path $runDirectory "settings.ron"
         Assert-True (
@@ -851,6 +883,7 @@ try {
         ScoreTexture = if ($scoreSnapshot) {
             "$($scoreSnapshot.score_texture_width)x$($scoreSnapshot.score_texture_height)"
         } else { $null }
+        ScoreToggle = $scoreToggleRestored
         Screenshot = if ($ScreenshotPath) {
             [System.IO.Path]::GetFullPath($ScreenshotPath)
         } else { $null }

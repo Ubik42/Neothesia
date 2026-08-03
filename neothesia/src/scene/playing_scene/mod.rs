@@ -57,6 +57,8 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_HANDS: &str = "practice.player.hands";
     pub const PLAYER_LOOP: &str = "practice.player.loop";
     pub const PLAYER_FINGERINGS: &str = "practice.player.fingerings";
+    #[cfg(feature = "score-verovio")]
+    pub const PLAYER_SCORE: &str = "practice.player.score";
     pub const PLAYER_FINGERING_EDITOR: &str = "practice.player.fingering-editor";
     #[cfg(any(debug_assertions, test))]
     pub const PLAYER_FINGERING_NEXT: &str = "practice.player.fingering-next";
@@ -113,6 +115,8 @@ pub(crate) mod practice_ui_ids {
         PLAYER_HANDS,
         PLAYER_LOOP,
         PLAYER_FINGERINGS,
+        #[cfg(feature = "score-verovio")]
+        PLAYER_SCORE,
         PLAYER_FINGERING_EDITOR,
         PLAYER_FINGERING_NEXT,
         PLAYER_FINGERING_ASSIGN_1,
@@ -140,6 +144,8 @@ enum DebugPracticeAction {
     CycleHands,
     ToggleLoop,
     ToggleFingerings,
+    #[cfg(feature = "score-verovio")]
+    ToggleScore,
     ToggleFingeringEditor,
     NextFingeringTarget,
     AssignFingerOne,
@@ -163,6 +169,8 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_HANDS => Some(Self::CycleHands),
             practice_ui_ids::PLAYER_LOOP => Some(Self::ToggleLoop),
             practice_ui_ids::PLAYER_FINGERINGS => Some(Self::ToggleFingerings),
+            #[cfg(feature = "score-verovio")]
+            practice_ui_ids::PLAYER_SCORE => Some(Self::ToggleScore),
             practice_ui_ids::PLAYER_FINGERING_EDITOR => Some(Self::ToggleFingeringEditor),
             practice_ui_ids::PLAYER_FINGERING_NEXT => Some(Self::NextFingeringTarget),
             practice_ui_ids::PLAYER_FINGERING_ASSIGN_1 => Some(Self::AssignFingerOne),
@@ -2190,6 +2198,31 @@ fn tempo_coach_message(decision: AdaptiveTempoDecision) -> String {
 
 #[cfg(feature = "score-verovio")]
 impl PlayingScene {
+    fn score_available(&self) -> bool {
+        self.score_artifact.is_some()
+    }
+
+    fn score_visible(&self, ctx: &Context) -> bool {
+        self.score_available() && ctx.config.score_visible()
+    }
+
+    fn toggle_score_visibility(&mut self, ctx: &mut Context) -> bool {
+        if !self.score_available() {
+            return false;
+        }
+        let visible = !ctx.config.score_visible();
+        ctx.config.set_score_visible(visible);
+        ctx.config.save();
+        if visible {
+            self.upload_focused_score_page(ctx);
+        } else if let Some(previous) = self.score_texture.take() {
+            self.nuon_renderer.remove_image(previous.image);
+        }
+        self.toast_manager
+            .toast(if visible { "Score ON" } else { "Score OFF" });
+        true
+    }
+
     fn upload_focused_score_page(&mut self, ctx: &mut Context) -> bool {
         let Some(page_index) = self.score_pages.focus() else {
             return false;
@@ -2345,7 +2378,7 @@ impl Scene for PlayingScene {
         if disposition != neothesia_core::score_view::PageLoadDisposition::Accepted {
             return false;
         }
-        if self.score_pages.focus() == Some(request.page_index) {
+        if ctx.config.score_visible() && self.score_pages.focus() == Some(request.page_index) {
             self.upload_focused_score_page(ctx);
         }
         true
@@ -2579,6 +2612,12 @@ impl Scene for PlayingScene {
                     return false;
                 }
             }
+            #[cfg(feature = "score-verovio")]
+            DebugPracticeAction::ToggleScore => {
+                if !self.toggle_score_visibility(ctx) {
+                    return false;
+                }
+            }
             DebugPracticeAction::ToggleFingeringEditor => {
                 if !self.toggle_fingering_editor(ctx) {
                     return false;
@@ -2643,9 +2682,10 @@ impl Scene for PlayingScene {
             self.score_texture.map(|texture| texture.page_index),
             self.score_texture.map(|texture| texture.width as usize),
             self.score_texture.map(|texture| texture.height as usize),
+            self.score_visible(ctx),
         );
         #[cfg(not(feature = "score-verovio"))]
-        let score_state = (false, 0, None, None, None, None);
+        let score_state = (false, 0, None, None, None, None, false);
         let loop_range = self
             .top_bar
             .is_looper_active()
@@ -2691,6 +2731,7 @@ impl Scene for PlayingScene {
             score_texture_page: score_state.3,
             score_texture_width: score_state.4,
             score_texture_height: score_state.5,
+            score_visible: score_state.6,
         })
     }
 
@@ -3116,6 +3157,11 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_FINGERINGS,
                 DebugPracticeAction::ToggleFingerings,
+            ),
+            #[cfg(feature = "score-verovio")]
+            (
+                practice_ui_ids::PLAYER_SCORE,
+                DebugPracticeAction::ToggleScore,
             ),
             (
                 practice_ui_ids::PLAYER_FINGERING_EDITOR,

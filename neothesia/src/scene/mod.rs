@@ -93,6 +93,7 @@ pub struct DebugPracticeSnapshot {
     pub score_texture_page: Option<usize>,
     pub score_texture_width: Option<usize>,
     pub score_texture_height: Option<usize>,
+    pub score_visible: bool,
 }
 
 #[cfg(debug_assertions)]
