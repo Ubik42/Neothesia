@@ -237,6 +237,9 @@ pub struct AppearanceConfigV1 {
     #[serde(default = "default_score_visible")]
     pub score_visible: bool,
 
+    #[serde(default = "default_score_zoom_percent")]
+    pub score_zoom_percent: u8,
+
     #[serde(default = "default_glow")]
     pub glow: bool,
 }
@@ -257,6 +260,7 @@ impl Default for AppearanceConfig {
             measure_numbers: default_measure_numbers(),
             exercise_fingerings: default_exercise_fingerings(),
             score_visible: default_score_visible(),
+            score_zoom_percent: default_score_zoom_percent(),
             glow: default_glow(),
         })
     }
@@ -338,6 +342,10 @@ fn default_score_visible() -> bool {
     true
 }
 
+fn default_score_zoom_percent() -> u8 {
+    62
+}
+
 fn default_glow() -> bool {
     true
 }
@@ -404,6 +412,7 @@ mod tests {
         assert!(appearance.measure_numbers);
         assert!(appearance.exercise_fingerings);
         assert!(appearance.score_visible);
+        assert_eq!(appearance.score_zoom_percent, 62);
         assert!(!appearance.beat_guidelines);
     }
 
@@ -424,6 +433,7 @@ mod tests {
 
         assert!(appearance.exercise_fingerings);
         assert!(appearance.score_visible);
+        assert_eq!(appearance.score_zoom_percent, 62);
     }
 
     #[test]

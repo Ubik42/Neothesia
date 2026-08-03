@@ -11,6 +11,9 @@ use model::{
 
 const RECENT_EXERCISE_LIMIT: usize = 8;
 const FAVOURITE_EXERCISE_LIMIT: usize = 12;
+pub const SCORE_ZOOM_MIN_PERCENT: u8 = 40;
+pub const SCORE_ZOOM_MAX_PERCENT: u8 = 72;
+pub const SCORE_ZOOM_STEP_PERCENT: u8 = 5;
 
 fn ron_options() -> ron::Options {
     ron::Options::default()
@@ -167,6 +170,17 @@ impl Config {
 
     pub fn set_score_visible(&mut self, visible: bool) {
         self.appearance.score_visible = visible;
+    }
+
+    pub fn score_zoom_percent(&self) -> u8 {
+        self.appearance
+            .score_zoom_percent
+            .clamp(SCORE_ZOOM_MIN_PERCENT, SCORE_ZOOM_MAX_PERCENT)
+    }
+
+    pub fn set_score_zoom_percent(&mut self, percent: u8) {
+        self.appearance.score_zoom_percent =
+            percent.clamp(SCORE_ZOOM_MIN_PERCENT, SCORE_ZOOM_MAX_PERCENT);
     }
 
     pub fn exercise_fingerings(&self) -> bool {
@@ -528,6 +542,19 @@ mod tests {
         assert!(!config.score_visible());
         config.set_score_visible(true);
         assert!(config.score_visible());
+    }
+
+    #[test]
+    fn score_zoom_defaults_and_clamps_to_the_safe_layout_range() {
+        let mut config = Model::default().build();
+
+        assert_eq!(config.score_zoom_percent(), 62);
+        config.set_score_zoom_percent(0);
+        assert_eq!(config.score_zoom_percent(), SCORE_ZOOM_MIN_PERCENT);
+        config.set_score_zoom_percent(u8::MAX);
+        assert_eq!(config.score_zoom_percent(), SCORE_ZOOM_MAX_PERCENT);
+        config.set_score_zoom_percent(57);
+        assert_eq!(config.score_zoom_percent(), 57);
     }
 
     #[test]

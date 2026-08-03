@@ -439,6 +439,7 @@ try {
     Assert-True $player.wait_for_notes "Wait-for-notes did not default to on"
     $scoreSnapshot = $null
     $scoreToggleRestored = $null
+    $scoreZoomVerified = $null
     if ($ScoreFixture) {
         for ($attempt = 0; $attempt -lt 150; $attempt++) {
             Start-Sleep -Milliseconds 100
@@ -458,6 +459,7 @@ try {
             [int]$scoreSnapshot.score_texture_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_width -gt 0 -and
             [int]$scoreSnapshot.score_texture_height -gt 0 -and
+            [int]$scoreSnapshot.score_zoom_percent -eq 62 -and
             $scoreSnapshot.score_visible
         ) (
             "Verified score page did not reach the focused GPU texture: " +
@@ -501,6 +503,25 @@ try {
             [int]$scoreOn.score_texture_height -eq [int]$scoreSnapshot.score_texture_height
         ) "Score toggle did not restore the cached focused texture"
         $scoreToggleRestored = "hidden with cache retained, then restored"
+        foreach ($expectedZoom in 67, 72, 72) {
+            $zoomIn = Invoke-DebugDriver "ACTION practice.player.score.zoom-in"
+            $zoomed = Get-PracticeSnapshot
+            Assert-True (
+                $zoomIn.ok -and $zoomIn.accepted -and
+                [int]$zoomed.score_zoom_percent -eq $expectedZoom -and
+                [int]$zoomed.score_visible_highlights -eq 4
+            ) "Score zoom-in did not advance or clamp safely at $expectedZoom percent"
+        }
+        foreach ($expectedZoom in 67, 62) {
+            $zoomOut = Invoke-DebugDriver "ACTION practice.player.score.zoom-out"
+            $zoomed = Get-PracticeSnapshot
+            Assert-True (
+                $zoomOut.ok -and $zoomOut.accepted -and
+                [int]$zoomed.score_zoom_percent -eq $expectedZoom -and
+                [int]$zoomed.score_visible_highlights -eq 4
+            ) "Score zoom-out did not restore $expectedZoom percent"
+        }
+        $scoreZoomVerified = "62% default, bounded at 72%, restored to 62%"
         if ($ScreenshotPath) {
             Start-Sleep -Milliseconds 250
             Save-ProcessWindowScreenshot $process $ScreenshotPath
@@ -911,6 +932,9 @@ try {
         Assert-True (
             $settingsText -match "score_visible:\s*true"
         ) "Settings did not persist the restored score visibility"
+        Assert-True (
+            $settingsText -match "score_zoom_percent:\s*62"
+        ) "Settings did not persist the restored score size"
     }
     if ($ExerciseFixture) {
         $settingsPath = Join-Path $runDirectory "settings.ron"
@@ -958,6 +982,7 @@ try {
             "$($scoreSnapshot.score_texture_width)x$($scoreSnapshot.score_texture_height)"
         } else { $null }
         ScoreToggle = $scoreToggleRestored
+        ScoreZoom = $scoreZoomVerified
         ScorePageFollowing = $scorePageFollowing
         Screenshot = if ($ScreenshotPath) {
             [System.IO.Path]::GetFullPath($ScreenshotPath)

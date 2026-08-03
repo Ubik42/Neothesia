@@ -59,6 +59,10 @@ pub(crate) mod practice_ui_ids {
     pub const PLAYER_FINGERINGS: &str = "practice.player.fingerings";
     #[cfg(feature = "score-verovio")]
     pub const PLAYER_SCORE: &str = "practice.player.score";
+    #[cfg(feature = "score-verovio")]
+    pub const PLAYER_SCORE_ZOOM_OUT: &str = "practice.player.score.zoom-out";
+    #[cfg(feature = "score-verovio")]
+    pub const PLAYER_SCORE_ZOOM_IN: &str = "practice.player.score.zoom-in";
     pub const PLAYER_FINGERING_EDITOR: &str = "practice.player.fingering-editor";
     #[cfg(any(debug_assertions, test))]
     pub const PLAYER_FINGERING_NEXT: &str = "practice.player.fingering-next";
@@ -117,6 +121,10 @@ pub(crate) mod practice_ui_ids {
         PLAYER_FINGERINGS,
         #[cfg(feature = "score-verovio")]
         PLAYER_SCORE,
+        #[cfg(feature = "score-verovio")]
+        PLAYER_SCORE_ZOOM_OUT,
+        #[cfg(feature = "score-verovio")]
+        PLAYER_SCORE_ZOOM_IN,
         PLAYER_FINGERING_EDITOR,
         PLAYER_FINGERING_NEXT,
         PLAYER_FINGERING_ASSIGN_1,
@@ -146,6 +154,10 @@ enum DebugPracticeAction {
     ToggleFingerings,
     #[cfg(feature = "score-verovio")]
     ToggleScore,
+    #[cfg(feature = "score-verovio")]
+    ScoreZoomOut,
+    #[cfg(feature = "score-verovio")]
+    ScoreZoomIn,
     ToggleFingeringEditor,
     NextFingeringTarget,
     AssignFingerOne,
@@ -171,6 +183,10 @@ impl DebugPracticeAction {
             practice_ui_ids::PLAYER_FINGERINGS => Some(Self::ToggleFingerings),
             #[cfg(feature = "score-verovio")]
             practice_ui_ids::PLAYER_SCORE => Some(Self::ToggleScore),
+            #[cfg(feature = "score-verovio")]
+            practice_ui_ids::PLAYER_SCORE_ZOOM_OUT => Some(Self::ScoreZoomOut),
+            #[cfg(feature = "score-verovio")]
+            practice_ui_ids::PLAYER_SCORE_ZOOM_IN => Some(Self::ScoreZoomIn),
             practice_ui_ids::PLAYER_FINGERING_EDITOR => Some(Self::ToggleFingeringEditor),
             practice_ui_ids::PLAYER_FINGERING_NEXT => Some(Self::NextFingeringTarget),
             practice_ui_ids::PLAYER_FINGERING_ASSIGN_1 => Some(Self::AssignFingerOne),
@@ -2223,6 +2239,26 @@ impl PlayingScene {
         true
     }
 
+    fn adjust_score_zoom(&mut self, ctx: &mut Context, delta: i8) -> bool {
+        if !self.score_available() {
+            return false;
+        }
+        let current = ctx.config.score_zoom_percent();
+        let next = (i16::from(current) + i16::from(delta)).clamp(
+            i16::from(neothesia_core::config::SCORE_ZOOM_MIN_PERCENT),
+            i16::from(neothesia_core::config::SCORE_ZOOM_MAX_PERCENT),
+        ) as u8;
+        if next != current {
+            ctx.config.set_score_zoom_percent(next);
+            ctx.config.save();
+            self.toast_manager.toast(format!("Score size: {next}%"));
+        } else {
+            self.toast_manager
+                .toast(format!("Score size limit: {current}%"));
+        }
+        true
+    }
+
     fn follow_score_playback(&mut self, ctx: &mut Context) -> bool {
         let score_time = self.player.time().saturating_sub(*self.player.leed_in());
         let target_page = self
@@ -2335,7 +2371,7 @@ impl PlayingScene {
         true
     }
 
-    fn score_page_ui(&mut self, ctx: &Context) {
+    fn score_page_ui(&mut self, ctx: &mut Context) {
         let Some(texture) = self.score_texture else {
             return;
         };
@@ -2349,6 +2385,7 @@ impl PlayingScene {
             viewport.height,
             texture.width,
             texture.height,
+            ctx.config.score_zoom_percent(),
         );
         let mut ui = std::mem::replace(&mut self.nuon, nuon::Ui::new());
         nuon::quad()
@@ -2359,17 +2396,58 @@ impl PlayingScene {
             .build(&mut ui);
         nuon::label()
             .pos(x, y - 27.0)
-            .size(width, 20.0)
+            .size((width - 112.0).max(1.0), 20.0)
             .font_size(13.0)
             .color([205, 202, 216])
             .text(format!(
-                "Score  ·  page {} of {}",
+                "Score  ·  page {} of {}  ·  size {}%",
                 texture.page_index + 1,
                 self.score_artifact
                     .as_ref()
-                    .map_or(1, |artifact| artifact.manifest.page_count)
+                    .map_or(1, |artifact| artifact.manifest.page_count),
+                ctx.config.score_zoom_percent(),
             ))
             .build(&mut ui);
+        let zoom = ctx.config.score_zoom_percent();
+        let zoom_out_color = if zoom == neothesia_core::config::SCORE_ZOOM_MIN_PERCENT {
+            [54, 51, 63]
+        } else {
+            [74, 68, 88]
+        };
+        if nuon::button()
+            .id(practice_ui_ids::PLAYER_SCORE_ZOOM_OUT)
+            .pos(x + width - 66.0, y - 29.0)
+            .size(30.0, 24.0)
+            .label("-")
+            .color(zoom_out_color)
+            .hover_color([67, 136, 199])
+            .preseed_color([77, 146, 209])
+            .border_radius([4.0; 4])
+            .build(&mut ui)
+        {
+            self.adjust_score_zoom(
+                ctx,
+                -(neothesia_core::config::SCORE_ZOOM_STEP_PERCENT as i8),
+            );
+        }
+        let zoom_in_color = if zoom == neothesia_core::config::SCORE_ZOOM_MAX_PERCENT {
+            [54, 51, 63]
+        } else {
+            [74, 68, 88]
+        };
+        if nuon::button()
+            .id(practice_ui_ids::PLAYER_SCORE_ZOOM_IN)
+            .pos(x + width - 30.0, y - 29.0)
+            .size(30.0, 24.0)
+            .label("+")
+            .color(zoom_in_color)
+            .hover_color([67, 136, 199])
+            .preseed_color([77, 146, 209])
+            .border_radius([4.0; 4])
+            .build(&mut ui)
+        {
+            self.adjust_score_zoom(ctx, neothesia_core::config::SCORE_ZOOM_STEP_PERCENT as i8);
+        }
         nuon::image(texture.image)
             .pos(x, y)
             .size(width, height)
@@ -2455,16 +2533,23 @@ fn score_page_layout(
     window_height: f32,
     page_width: u32,
     page_height: u32,
+    zoom_percent: u8,
 ) -> (f32, f32, f32, f32) {
+    const PAGE_TOP: f32 = 54.0;
+    const KEYBOARD_RESERVE: f32 = 160.0;
     let available_width = (window_width - 48.0).max(1.0);
-    let available_height = (window_height * 0.52)
-        .min((window_height - 160.0).max(1.0))
+    let zoom_percent = zoom_percent.clamp(
+        neothesia_core::config::SCORE_ZOOM_MIN_PERCENT,
+        neothesia_core::config::SCORE_ZOOM_MAX_PERCENT,
+    );
+    let available_height = (window_height * f32::from(zoom_percent) / 100.0)
+        .min((window_height - PAGE_TOP - KEYBOARD_RESERVE).max(1.0))
         .max(1.0);
     let scale = (available_width / page_width.max(1) as f32)
         .min(available_height / page_height.max(1) as f32);
     let width = page_width.max(1) as f32 * scale;
     let height = page_height.max(1) as f32 * scale;
-    (nuon::center_x(window_width, width), 54.0, width, height)
+    (nuon::center_x(window_width, width), PAGE_TOP, width, height)
 }
 
 #[cfg(feature = "score-verovio")]
@@ -2767,6 +2852,23 @@ impl Scene for PlayingScene {
                     return false;
                 }
             }
+            #[cfg(feature = "score-verovio")]
+            DebugPracticeAction::ScoreZoomOut => {
+                if !self.adjust_score_zoom(
+                    ctx,
+                    -(neothesia_core::config::SCORE_ZOOM_STEP_PERCENT as i8),
+                ) {
+                    return false;
+                }
+            }
+            #[cfg(feature = "score-verovio")]
+            DebugPracticeAction::ScoreZoomIn => {
+                if !self
+                    .adjust_score_zoom(ctx, neothesia_core::config::SCORE_ZOOM_STEP_PERCENT as i8)
+                {
+                    return false;
+                }
+            }
             DebugPracticeAction::ToggleFingeringEditor => {
                 if !self.toggle_fingering_editor(ctx) {
                     return false;
@@ -2896,6 +2998,7 @@ impl Scene for PlayingScene {
             score_texture_width: score_state.8,
             score_texture_height: score_state.9,
             score_visible: score_state.10,
+            score_zoom_percent: ctx.config.score_zoom_percent(),
         })
     }
 
@@ -3199,11 +3302,29 @@ mod tests {
     #[cfg(feature = "score-verovio")]
     #[test]
     fn score_page_layout_stays_inside_the_minimum_window() {
-        let (x, y, width, height) = score_page_layout(670.0, 620.0, 1_600, 2_263);
-        assert!(x >= 24.0);
-        assert!(y >= 32.0);
-        assert!(x + width <= 670.0 - 24.0);
-        assert!(y + height <= 620.0 - 160.0);
+        for zoom in [0, 40, 52, 72, u8::MAX] {
+            let (x, y, width, height) = score_page_layout(670.0, 620.0, 1_600, 2_263, zoom);
+            assert!(x >= 24.0);
+            assert!(y >= 32.0);
+            assert!(x + width <= 670.0 - 24.0);
+            assert!(y + height <= 620.0 - 160.0);
+        }
+    }
+
+    #[cfg(feature = "score-verovio")]
+    #[test]
+    fn score_page_layout_grows_monotonically_and_clamps_invalid_zoom() {
+        let layout = |zoom| score_page_layout(1_620.0, 1_138.0, 840, 1_188, zoom);
+        let below_minimum = layout(0);
+        let minimum = layout(neothesia_core::config::SCORE_ZOOM_MIN_PERCENT);
+        let default = layout(62);
+        let maximum = layout(neothesia_core::config::SCORE_ZOOM_MAX_PERCENT);
+        let above_maximum = layout(u8::MAX);
+
+        assert_eq!(below_minimum, minimum);
+        assert!(minimum.3 < default.3);
+        assert!(default.3 < maximum.3);
+        assert_eq!(maximum, above_maximum);
     }
 
     #[cfg(feature = "score-verovio")]
@@ -3430,6 +3551,16 @@ mod tests {
             (
                 practice_ui_ids::PLAYER_SCORE,
                 DebugPracticeAction::ToggleScore,
+            ),
+            #[cfg(feature = "score-verovio")]
+            (
+                practice_ui_ids::PLAYER_SCORE_ZOOM_OUT,
+                DebugPracticeAction::ScoreZoomOut,
+            ),
+            #[cfg(feature = "score-verovio")]
+            (
+                practice_ui_ids::PLAYER_SCORE_ZOOM_IN,
+                DebugPracticeAction::ScoreZoomIn,
             ),
             (
                 practice_ui_ids::PLAYER_FINGERING_EDITOR,

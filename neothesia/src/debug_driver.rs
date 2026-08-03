@@ -186,7 +186,7 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                     r#""score_cached_pages":{},"#,
                     r#""score_focused_page":{},"score_texture_page":{},"#,
                     r#""score_texture_width":{},"score_texture_height":{},"#,
-                    r#""score_visible":{}"#,
+                    r#""score_visible":{},"score_zoom_percent":{}"#,
                     "}}}}\n"
                 ),
                 snapshot.wait_for_notes,
@@ -224,6 +224,7 @@ fn execute(command: Result<DriverCommand<'_>, &'static str>, harness: &DebugUiHa
                 json_number(snapshot.score_texture_width),
                 json_number(snapshot.score_texture_height),
                 snapshot.score_visible,
+                snapshot.score_zoom_percent,
             ),
             None => r#"{"ok":true,"snapshot":null}"#.to_owned() + "\n",
         },
