@@ -10,6 +10,47 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 098 — Focused engraved-score texture
+
+State: **DONE**
+
+Delivered:
+
+- added feature-gated, pure-Rust SVG rasterization with a shared system-font
+  database;
+- bounded every decoded page to 1600×2400 and four million pixels;
+- retained current/adjacent RGBA pages in the three-page CPU cache while
+  uploading only the focused page to the native GPU renderer;
+- added a calm centred score surface below the existing top control layer;
+- added debug snapshot fields for artifact, cache, focus and texture state;
+- added a self-contained real-process score fixture and optional DPI-aware
+  native-window screenshot capture;
+- captured the product register and design principles in root `PRODUCT.md`;
+- completed `MUS-001D2G`.
+
+Verification:
+
+- raster tests cover exact RGBA colour and bounded aspect-preserving output;
+- layout and upload-decision tests cover the minimum window and neighbour-page
+  exclusion;
+- 150 core, 64 default application, 72 feature application and four MIDI-file
+  tests pass;
+- the score smoke rendered a real Verovio page into an 840×1188 GPU texture,
+  exercised the normal practice flow and exited cleanly;
+- the DPI-aware 1620×1138 screenshot confirms the centred score, visible piano
+  and unobstructed top controls;
+- exercise and fingering real-process smokes, the eight-score MusicXML corpus
+  and the VitePress documentation build pass;
+- default/feature Release builds and Clippy pass with only pre-existing
+  warnings;
+- implementation commit: `272dd83`.
+
+Next:
+
+- begin `MUS-001D3` with an explicit score visibility control and persisted
+  preference;
+- connect semantic focus to page following before adding note highlight paint.
+
 ### Cycle 097 — Asynchronous verified page loading
 
 State: **DONE**

@@ -38,7 +38,8 @@ event loop and requests a read-only practice snapshot through that same loop.
 The snapshot currently exposes wait mode, Tempo Coach, selected hands, loop
 activation/range/count-in state, pause state, completion tab,
 matched/wrong/missed totals, currently required note pitches and input-latency
-compensation.
+compensation. It also exposes additive engraved-score state: artifact readiness,
+cached-page count, focused page, uploaded texture page and texture dimensions.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active
@@ -101,9 +102,33 @@ switches through Technique and History, returns to Overview, selects Retry and
 asserts that the scored attempt resets. The fixture is deleted with the run
 directory.
 
+Run the complete feature-gated engraving boundary with:
+
+```powershell
+.\scripts\debug-practice-smoke.ps1 -ScoreFixture
+```
+
+This mode creates an isolated MIDI and MusicXML pair, writes their normal
+content-bound sidecar through the `score-associate` developer example, starts
+the pinned Verovio worker, waits for a verified raster and asserts that page zero
+is the sole focused GPU texture. It then completes the ordinary wait, MIDI,
+hands, loop, restart, menu and clean-exit sequence. The default package root is
+`D:\cs\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
+`-VerovioPackageRoot`.
+
+For a DPI-aware native-window artifact, add:
+
+```powershell
+.\scripts\debug-practice-smoke.ps1 -ScoreFixture `
+  -ScreenshotPath ".\target\score-smoke.png"
+```
+
+The optional capture uses the real HWND and accounts for per-window DPI. It is
+visual evidence only; semantic snapshot assertions remain the regression gate.
+
 The next automation layer should:
 
-1. capture deterministic screenshots at supported window sizes;
+1. add explicit minimum/default/large window sizing to screenshot capture;
 2. cover parameterized calibration and recommendation actions without
    duplicating their product logic;
 3. extend the completion fixture through calibration and recommendations when

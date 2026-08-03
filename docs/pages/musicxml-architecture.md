@@ -199,6 +199,23 @@ cross-song results; the page cache rejects old windows and duplicates. Failed
 current-window reads release their pending slot so a later focus action can
 retry them. Debug snapshots expose focused and cached page counts.
 
+Verified page bytes are now parsed and rasterized by `resvg` on those page
+threads. Raster surfaces are opaque sRGB RGBA, preserve the SVG aspect ratio and
+are capped at 1600×2400 and four million pixels before allocation. A process-wide
+read-only font database avoids rescanning system fonts for neighbouring pages.
+The bounded cache stores reference-counted RGBA values, but only its focused
+page is uploaded through the existing native image pipeline. Replacing focus or
+the complete score document releases the previous GPU image; neighbour pages
+never allocate textures.
+
+The first visible surface fits one engraved page within 52 percent of the
+logical viewport height, stays inside the supported 670×620 minimum window and
+is composed before the top controls so practice actions remain unobstructed.
+This is intentionally a renderer shell: it does not own playback position,
+practice matching or highlight authority. Debug snapshots distinguish artifact,
+CPU cache, focus and GPU texture state so the boundary can be tested without
+screen-coordinate assertions.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

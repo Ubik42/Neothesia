@@ -6,6 +6,8 @@ second.
 
 ## Documents
 
+- Product context (`PRODUCT.md` at the repository root) — audience, purpose,
+  product register, design principles and anti-references
 - [Product roadmap](roadmap.md) — product direction, architecture and milestones
 - [Backlog](backlog.md) — ordered, testable work items
 - [Progress](progress.md) — current release, active cycle and product status

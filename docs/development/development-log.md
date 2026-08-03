@@ -4,6 +4,60 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 098: Focused engraved-score texture (DONE)
+
+### Outcome
+
+A paired MusicXML score can now cross the entire opt-in boundary and appear as
+a real native GPU surface in the practice player. SVG parsing remains off the
+event loop, adjacent pages remain CPU-only and the existing piano, waterfall
+and control layers stay available.
+
+### Implemented
+
+- Added optional `resvg` 0.48.1 to the existing `score-verovio` feature.
+- Rasterized only verified SVG bytes on named background page threads.
+- Bounded decoded dimensions and total pixels before allocation.
+- Reused one process-wide system-font database across page work.
+- Stored reference-counted RGBA pages in the bounded three-page cache.
+- Added direct RGBA upload to the existing native image renderer.
+- Replaced the previous focused texture instead of accumulating GPU images.
+- Composed a centred score panel below the top control layer with a page label.
+- Extended debug snapshots with artifact/cache/focus/texture evidence.
+- Added a self-contained score association helper and real-process score smoke.
+- Added optional DPI-aware HWND screenshot capture to the smoke runner.
+- Added root `PRODUCT.md` for the product register, audience, purpose,
+  anti-references, design principles and accessibility target.
+
+### Verification
+
+- Raster tests prove exact opaque RGBA output and aspect-preserving size caps.
+- Layout tests cover the supported 670×620 minimum window.
+- Upload-decision tests reject no-focus, current-texture and neighbour-only
+  cases.
+- 150 core, 64 default application, 72 feature application and four MIDI-file
+  tests pass.
+- The feature smoke rendered the real fixture to an 840×1188 focused texture,
+  completed the practice-control sequence and exited with code zero.
+- A 1620×1138 DPI-aware native screenshot confirms the score is centred, the
+  keyboard remains visible and the top controls render above it.
+- Exercise and fingering real-process smokes, the eight-score MusicXML corpus
+  and the VitePress documentation build pass.
+- Default and feature Clippy and Release builds pass with only the three
+  pre-existing Windows warnings.
+
+Implementation commit: `272dd83` (`feat: render verified score page texture`).
+
+### Known limitations
+
+- Score visibility is feature/configuration driven; there is no player toggle
+  or persisted user preference yet.
+- Focus remains on page zero; playback-driven page following and highlights are
+  the next slice.
+- Raster size is a fixed bounded quality target rather than viewport/DPI-aware
+  rerasterization.
+- Node and the pinned Verovio package remain developer-provided dependencies.
+
 ## 2026-08-04 — Cycle 097: Asynchronous verified page loading (DONE)
 
 ### Outcome

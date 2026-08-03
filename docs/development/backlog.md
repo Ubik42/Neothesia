@@ -93,7 +93,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
   event loop and discard obsolete worker responses before scene mutation.
 - [x] `MUS-001D2F` Instantiate the verified three-page cache in PlayingScene and
   load page bytes asynchronously from the accepted artifact.
-- [ ] `MUS-001D2G` Rasterize verified SVG pages behind the feature flag and
+- [x] `MUS-001D2G` Rasterize verified SVG pages behind the feature flag and
   upload only the focused page texture to the native GPU renderer.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
