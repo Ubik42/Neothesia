@@ -426,6 +426,7 @@ try {
         Assert-True (
             $null -ne $scoreSnapshot -and
             $scoreSnapshot.score_artifact_ready -and
+            $scoreSnapshot.score_synchronization_ready -and
             [int]$scoreSnapshot.score_cached_pages -eq 1 -and
             [int]$scoreSnapshot.score_focused_page -eq 0 -and
             [int]$scoreSnapshot.score_texture_page -eq 0 -and

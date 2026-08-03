@@ -2223,6 +2223,42 @@ impl PlayingScene {
         true
     }
 
+    fn follow_score_playback(&mut self, ctx: &mut Context) -> bool {
+        let score_time = self.player.time().saturating_sub(*self.player.leed_in());
+        let target_page = self
+            .score_artifact
+            .as_ref()
+            .and_then(|artifact| artifact.synchronization.as_ref())
+            .and_then(|synchronization| score_focus_page(synchronization, score_time));
+        let Some(target_page) = target_page else {
+            return false;
+        };
+        if self.score_pages.focus() == Some(target_page) {
+            return false;
+        }
+        let Ok(requests) = self.score_pages.focus_page(target_page) else {
+            return false;
+        };
+        if let Some(previous) = self.score_texture.take() {
+            self.nuon_renderer.remove_image(previous.image);
+        }
+        if ctx.config.score_visible() {
+            self.upload_focused_score_page(ctx);
+        }
+        if !requests.is_empty()
+            && let (Some(artifact), Some(generation)) =
+                (&self.score_artifact, self.score_render_generation)
+        {
+            crate::score_renderer_worker::start_page_loads(
+                artifact,
+                generation,
+                requests,
+                ctx.proxy.clone(),
+            );
+        }
+        true
+    }
+
     fn upload_focused_score_page(&mut self, ctx: &mut Context) -> bool {
         let Some(page_index) = self.score_pages.focus() else {
             return false;
@@ -2300,6 +2336,18 @@ impl PlayingScene {
             .build(&mut ui);
         self.nuon = ui;
     }
+}
+
+#[cfg(feature = "score-verovio")]
+fn score_focus_page(
+    synchronization: &crate::score_renderer_worker::ScoreSynchronization,
+    score_time: Duration,
+) -> Option<usize> {
+    synchronization
+        .timeline
+        .frame_at(score_time, &synchronization.index)
+        .focus
+        .map(|focus| focus.page_index)
 }
 
 #[cfg(feature = "score-verovio")]
@@ -2393,6 +2441,8 @@ impl Scene for PlayingScene {
         self.toast_manager.update(&mut self.text_renderer);
 
         let time = self.update_midi_player(ctx, delta);
+        #[cfg(feature = "score-verovio")]
+        self.follow_score_playback(ctx);
         self.waterfall.update(time);
         self.guidelines.update(
             &mut self.quad_renderer_bg,
@@ -2677,6 +2727,9 @@ impl Scene for PlayingScene {
         #[cfg(feature = "score-verovio")]
         let score_state = (
             self.score_artifact.is_some(),
+            self.score_artifact
+                .as_ref()
+                .is_some_and(|artifact| artifact.synchronization.is_some()),
             self.score_pages.cached_pages().count(),
             self.score_pages.focus(),
             self.score_texture.map(|texture| texture.page_index),
@@ -2685,7 +2738,7 @@ impl Scene for PlayingScene {
             self.score_visible(ctx),
         );
         #[cfg(not(feature = "score-verovio"))]
-        let score_state = (false, 0, None, None, None, None, false);
+        let score_state = (false, false, 0, None, None, None, None, false);
         let loop_range = self
             .top_bar
             .is_looper_active()
@@ -2726,12 +2779,13 @@ impl Scene for PlayingScene {
                 .pending_fingering_suggestion()
                 .map(|suggestion| usize::from(suggestion.confidence_percent)),
             score_artifact_ready: score_state.0,
-            score_cached_pages: score_state.1,
-            score_focused_page: score_state.2,
-            score_texture_page: score_state.3,
-            score_texture_width: score_state.4,
-            score_texture_height: score_state.5,
-            score_visible: score_state.6,
+            score_synchronization_ready: score_state.1,
+            score_cached_pages: score_state.2,
+            score_focused_page: score_state.3,
+            score_texture_page: score_state.4,
+            score_texture_width: score_state.5,
+            score_texture_height: score_state.6,
+            score_visible: score_state.7,
         })
     }
 
@@ -3050,6 +3104,90 @@ mod tests {
         assert!(!score_page_needs_upload(None, Some(0)));
         assert!(!score_page_needs_upload(Some(1), Some(1)));
         assert!(score_page_needs_upload(Some(2), Some(1)));
+    }
+
+    #[cfg(feature = "score-verovio")]
+    #[test]
+    fn semantic_playback_focus_follows_pages_and_holds_during_rests() {
+        use neothesia_core::{
+            musicxml::{ScoreEventId, ScoreEventKind},
+            score_alignment::MidiNoteId,
+            score_playback::ScoreEventOccurrenceId,
+            score_view::{
+                RenderedScoreElement, ScoreHighlightCue, ScoreHighlightTimeline, ScoreRenderIndex,
+            },
+        };
+
+        let source = |ordinal| ScoreEventId {
+            part_id: "P1".into(),
+            measure_ordinal: ordinal,
+            kind: ScoreEventKind::Note,
+            ordinal: 0,
+        };
+        let first = source(0);
+        let second = source(8);
+        let synchronization = crate::score_renderer_worker::ScoreSynchronization {
+            timeline: ScoreHighlightTimeline {
+                cues: vec![
+                    ScoreHighlightCue {
+                        score_id: ScoreEventOccurrenceId {
+                            source_id: first.clone(),
+                            measure_occurrence_ordinal: 0,
+                        },
+                        midi_id: MidiNoteId {
+                            track_id: 0,
+                            note_index: 0,
+                        },
+                        start: Duration::from_secs(1),
+                        end: Duration::from_secs(2),
+                    },
+                    ScoreHighlightCue {
+                        score_id: ScoreEventOccurrenceId {
+                            source_id: second.clone(),
+                            measure_occurrence_ordinal: 0,
+                        },
+                        midi_id: MidiNoteId {
+                            track_id: 0,
+                            note_index: 1,
+                        },
+                        start: Duration::from_secs(5),
+                        end: Duration::from_secs(6),
+                    },
+                ],
+                missing_performance_notes: Vec::new(),
+            },
+            index: ScoreRenderIndex::new(
+                2,
+                [
+                    RenderedScoreElement {
+                        source_id: first,
+                        renderer_id: "note-page-1".into(),
+                        page_index: 0,
+                    },
+                    RenderedScoreElement {
+                        source_id: second,
+                        renderer_id: "note-page-2".into(),
+                        page_index: 1,
+                    },
+                ],
+            )
+            .unwrap(),
+        };
+
+        assert_eq!(score_focus_page(&synchronization, Duration::ZERO), None);
+        assert_eq!(
+            score_focus_page(&synchronization, Duration::from_secs(1)),
+            Some(0)
+        );
+        assert_eq!(
+            score_focus_page(&synchronization, Duration::from_secs(4)),
+            Some(0),
+            "rests retain the last started score page"
+        );
+        assert_eq!(
+            score_focus_page(&synchronization, Duration::from_secs(5)),
+            Some(1)
+        );
     }
 
     #[test]

@@ -58,6 +58,13 @@ pub struct VerovioWorkerConfig {
 pub struct RenderedScoreArtifact {
     pub root: PathBuf,
     pub manifest: VerovioManifest,
+    pub synchronization: Option<ScoreSynchronization>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScoreSynchronization {
+    pub timeline: neothesia_core::score_view::ScoreHighlightTimeline,
+    pub index: neothesia_core::score_view::ScoreRenderIndex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,6 +174,7 @@ impl VerovioWorkerConfig {
         Ok(RenderedScoreArtifact {
             root: final_root,
             manifest: artifact.manifest,
+            synchronization: None,
         })
     }
 
@@ -229,6 +237,7 @@ pub fn start_for_song(
         return false;
     };
     let score_path = neothesia_core::library::resolve_score_path(&midi_path, &association);
+    let midi = song.file.clone();
     std::thread::Builder::new()
         .name("score-render-worker".into())
         .spawn(move || {
@@ -239,13 +248,51 @@ pub fn start_for_song(
                     return Err("paired score content has changed".to_owned());
                 }
                 let source_hash = source_sha256(&score_path).map_err(|error| error.to_string())?;
-                config
+                let mut artifact = config
                     .render(&score_path, &source_hash)
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| error.to_string())?;
+                artifact.synchronization = build_synchronization(&score_path, &midi, &artifact);
+                Ok(artifact)
             })();
             let _ = proxy.send_event(NeothesiaEvent::ScoreArtifactReady { generation, result });
         })
         .is_ok()
+}
+
+fn build_synchronization(
+    score_path: &Path,
+    midi: &midi_file::MidiFile,
+    artifact: &RenderedScoreArtifact,
+) -> Option<ScoreSynchronization> {
+    let score = match neothesia_core::musicxml::import_musicxml_file(score_path) {
+        Ok(score) => score,
+        Err(error) => {
+            log::warn!("Could not prepare score synchronization: {error}");
+            return None;
+        }
+    };
+    let performance = neothesia_core::score_alignment::performance_notes(midi);
+    let alignment = neothesia_core::score_alignment::align_score_to_midi(&score, midi);
+    let native = neothesia_core::score_view::native_score_note_evidence(&score, &midi.tempo_track);
+    let correlation = neothesia_core::score_view::correlate_score_notes(
+        native,
+        artifact.manifest.renderer_evidence(),
+    );
+    let index = match neothesia_core::score_view::ScoreRenderIndex::new(
+        artifact.manifest.page_count,
+        correlation.elements,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            log::warn!("Could not index engraved score: {error}");
+            return None;
+        }
+    };
+    let timeline = neothesia_core::score_view::ScoreHighlightTimeline::from_alignment(
+        &alignment,
+        &performance,
+    );
+    Some(ScoreSynchronization { timeline, index })
 }
 
 pub fn start_page_loads(
@@ -334,6 +381,7 @@ fn load_artifact(
     Ok(RenderedScoreArtifact {
         root: root.to_owned(),
         manifest,
+        synchronization: None,
     })
 }
 

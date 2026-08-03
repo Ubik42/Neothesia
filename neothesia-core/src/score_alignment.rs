@@ -259,8 +259,19 @@ pub fn project_performed_part_timeline(
 /// Aligns a semantic score with the concrete MIDI notes already used by the
 /// player. Drum-channel notes are excluded from the performance candidates.
 pub fn align_score_to_midi(score: &Score, midi: &MidiFile) -> ScoreMidiAlignment {
-    let performance: Vec<_> = midi
-        .tracks
+    let performance = performance_notes(midi);
+    align_score_occurrences(
+        score,
+        &midi.tempo_track,
+        &performance,
+        PlaybackLimits::default(),
+    )
+}
+
+/// Returns the stable non-drum MIDI note identities used by alignment and
+/// renderer synchronization.
+pub fn performance_notes(midi: &MidiFile) -> Vec<PerformanceNote> {
+    midi.tracks
         .iter()
         .flat_map(|track| {
             track
@@ -278,13 +289,7 @@ pub fn align_score_to_midi(score: &Score, midi: &MidiFile) -> ScoreMidiAlignment
                     duration: note.duration,
                 })
         })
-        .collect();
-    align_score_occurrences(
-        score,
-        &midi.tempo_track,
-        &performance,
-        PlaybackLimits::default(),
-    )
+        .collect()
 }
 
 /// Aligns the performed occurrence order, including common repeats and

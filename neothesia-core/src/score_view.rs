@@ -15,10 +15,66 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    musicxml::ScoreEventId,
-    score_alignment::{MidiNoteId, PerformanceNote, ScoreMidiAlignment},
+    musicxml::{Pitch, Score, ScoreEvent, ScoreEventId, Step},
+    score_alignment::{MidiNoteId, PerformanceNote, ScoreMidiAlignment, project_score_timeline},
     score_playback::ScoreEventOccurrenceId,
 };
+
+/// Builds renderer-correlation evidence from the native semantic score using
+/// the paired MIDI tempo map. Unpitched notes remain intentionally absent.
+pub fn native_score_note_evidence(
+    score: &Score,
+    tempo: &midi_file::tempo_track::TempoTrack,
+) -> Vec<NativeScoreNoteEvidence> {
+    let projected = project_score_timeline(score, tempo);
+    let timings: HashMap<_, _> = projected
+        .events
+        .into_iter()
+        .map(|event| (event.id, (event.timestamp, event.duration)))
+        .collect();
+    let mut evidence = Vec::new();
+    for note in score.parts.iter().flat_map(|part| {
+        part.measures.iter().flat_map(|measure| {
+            measure.events.iter().filter_map(|event| match event {
+                ScoreEvent::Note(note) => Some(note),
+                ScoreEvent::Direction(_) => None,
+            })
+        })
+    }) {
+        let Some((timestamp, duration)) = timings.get(&note.id) else {
+            continue;
+        };
+        let Some(pitch) = note.pitch.as_ref().and_then(score_midi_pitch) else {
+            continue;
+        };
+        evidence.push(NativeScoreNoteEvidence {
+            source_id: note.id.clone(),
+            key: ScoreNoteSemanticKey {
+                onset_millis: timestamp.as_millis().min(i64::MAX as u128) as i64,
+                pitch,
+                duration_millis: duration
+                    .unwrap_or_default()
+                    .as_millis()
+                    .min(i64::MAX as u128) as i64,
+            },
+        });
+    }
+    evidence
+}
+
+fn score_midi_pitch(pitch: &Pitch) -> Option<u8> {
+    let semitone = match pitch.step {
+        Step::C => 0,
+        Step::D => 2,
+        Step::E => 4,
+        Step::F => 5,
+        Step::G => 7,
+        Step::A => 9,
+        Step::B => 11,
+    } + i16::from(pitch.alter);
+    let value = (i16::from(pitch.octave) + 1) * 12 + semitone;
+    u8::try_from(value).ok().filter(|value| *value <= 127)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedScoreElement {
@@ -708,6 +764,42 @@ mod tests {
             pitch,
             duration_millis: 250,
         }
+    }
+
+    #[test]
+    fn native_renderer_evidence_uses_projected_milliseconds_and_midi_pitch() {
+        let score = crate::musicxml::import_musicxml_document(
+            br#"<?xml version="1.0"?>
+            <score-partwise version="4.0">
+              <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+              <part id="P1"><measure number="1">
+                <attributes><divisions>1</divisions></attributes>
+                <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+                <note><pitch><step>D</step><alter>1</alter><octave>4</octave></pitch><duration>1</duration></note>
+              </measure></part>
+            </score-partwise>"#,
+        )
+        .unwrap();
+        let tempo = midi_file::tempo_track::TempoTrack::build(&[], 480);
+        let evidence = native_score_note_evidence(&score, &tempo);
+
+        assert_eq!(evidence.len(), 2);
+        assert_eq!(
+            evidence[0].key,
+            ScoreNoteSemanticKey {
+                onset_millis: 0,
+                pitch: 60,
+                duration_millis: 500,
+            }
+        );
+        assert_eq!(
+            evidence[1].key,
+            ScoreNoteSemanticKey {
+                onset_millis: 500,
+                pitch: 63,
+                duration_millis: 500,
+            }
+        );
     }
 
     const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

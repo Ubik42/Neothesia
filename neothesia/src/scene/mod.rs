@@ -88,6 +88,7 @@ pub struct DebugPracticeSnapshot {
     pub suggested_fingering_count: usize,
     pub suggestion_confidence_percent: Option<usize>,
     pub score_artifact_ready: bool,
+    pub score_synchronization_ready: bool,
     pub score_cached_pages: usize,
     pub score_focused_page: Option<usize>,
     pub score_texture_page: Option<usize>,
