@@ -139,6 +139,14 @@ groups, one-sided notes and extra renderer elements remain explicit. Source
 order is deliberately not a tie-breaker because it could highlight the wrong
 voice while appearing visually plausible.
 
+The worker boundary is a versioned JSON manifest rather than in-process
+JavaScript objects. It binds generated SVG pages to the exact score SHA-256 and
+contains only safe relative page paths plus renderer note evidence. The native
+side validates schema, renderer identity, fingerprint, complete page numbering,
+paths, note ranges and renderer-ID uniqueness before correlation. This makes
+generated artifacts cacheable while preventing stale or partially replaced
+score pages from entering the player.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

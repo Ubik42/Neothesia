@@ -10,6 +10,38 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 092 — Versioned Verovio artifact manifest
+
+State: **DONE**
+
+Delivered:
+
+- emitted a schema-versioned manifest beside every generated score;
+- bound manifests to the exact source SHA-256 and byte length;
+- recorded renderer version, complete page table, safe SVG paths and all note
+  semantic evidence;
+- added native JSON parsing and strict validation for schema, fingerprint,
+  pages, paths, renderer IDs and MIDI-domain values;
+- exposed validated renderer evidence to the fail-closed correlator;
+- made the benchmark invoke the native validator over all generated manifests;
+- completed `MUS-001D2B`.
+
+Verification:
+
+- all eight pinned fixtures generate and independently validate a manifest;
+- the manifests cover eleven SVG pages and 1,945 renderer notes;
+- tests reject stale hashes, unsupported schemas and parent-path traversal;
+- eight score-view tests pass;
+- 146 core, 64 application and four MIDI-file tests pass;
+- Clippy, release build, both native smokes, formatting and diff checks pass
+  with only pre-existing warnings;
+- implementation commit: `2caebfc`.
+
+Next:
+
+- start the feature-flagged worker/cache boundary for `MUS-001D2`;
+- load only the current page and its neighbours before integrating player UI.
+
 ### Cycle 091 — Fail-closed engraved-note correlation
 
 State: **DONE**

@@ -14,8 +14,15 @@ Run the benchmark from the repository root:
 
 The wrapper verifies the same eight pinned OSMD/MuseScore fixtures used by the
 native importer audit, invokes the pinned NPM/WASM package, writes a JSON report
-and retains every SVG page for visual inspection. It does not add Verovio to the
-shipping application.
+and retains every SVG page for visual inspection. It also emits one versioned
+manifest per score and runs the native Rust validator over all eight manifests.
+It does not add Verovio to the shipping application.
+
+Each manifest binds its pages and note evidence to the exact input SHA-256 and
+records schema version, renderer/version, source size, zero-based page table,
+safe relative SVG paths and every renderer note's nominal time, pitch and
+duration. Native validation rejects stale fingerprints, unsupported schemas,
+missing/duplicate pages, unsafe paths, duplicate IDs and invalid note values.
 
 ## Results
 
@@ -49,6 +56,8 @@ compressed MXL fixture loaded and rendered normally.
 - all 1,945 rendered note IDs returned nominal MIDI time, pitch and duration;
   six fixtures were unique by that semantic key, while the voice-alignment
   fixture had two two-way ambiguities and the MXL fixture had thirteen;
+- all eight generated manifests passed the independent Rust validator against
+  the pinned source hashes;
 - the pedal fixture rendered seven pedal elements but emitted warnings for two
   time-spanning pedal pairs whose starts did not precede their ends. Pedal
   fidelity must remain diagnostic, not silently claimed as complete.
