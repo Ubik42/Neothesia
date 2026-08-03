@@ -6,7 +6,7 @@
 //! that maps those private identifiers back to stable score-event identities.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     time::Duration,
 };
 
@@ -228,6 +228,152 @@ fn valid_sha256(value: Option<&str>) -> bool {
             && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
             && hash == hash.to_ascii_lowercase()
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ScoreDocumentGeneration(u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScorePageRequest {
+    pub generation: ScoreDocumentGeneration,
+    pub page_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageLoadDisposition {
+    Accepted,
+    StaleGeneration,
+    OutsideWindow,
+    Unexpected,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum ScorePageCacheError {
+    #[error("an engraved score must contain at least one page")]
+    EmptyDocument,
+    #[error("page {page_index} is outside the {page_count}-page document")]
+    PageOutOfRange {
+        page_index: usize,
+        page_count: usize,
+    },
+}
+
+/// A bounded cache for the focused score page and its immediate neighbours.
+/// Worker results carry a document generation, so output from a previously
+/// opened song cannot enter the current cache.
+#[derive(Debug, Clone)]
+pub struct ScorePageCache<T> {
+    generation: ScoreDocumentGeneration,
+    next_generation: u64,
+    page_count: usize,
+    focus: Option<usize>,
+    desired: BTreeSet<usize>,
+    pending: BTreeSet<usize>,
+    pages: BTreeMap<usize, T>,
+}
+
+impl<T> Default for ScorePageCache<T> {
+    fn default() -> Self {
+        Self {
+            generation: ScoreDocumentGeneration(0),
+            next_generation: 1,
+            page_count: 0,
+            focus: None,
+            desired: BTreeSet::new(),
+            pending: BTreeSet::new(),
+            pages: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T> ScorePageCache<T> {
+    pub fn begin_document(
+        &mut self,
+        page_count: usize,
+    ) -> Result<ScoreDocumentGeneration, ScorePageCacheError> {
+        if page_count == 0 {
+            return Err(ScorePageCacheError::EmptyDocument);
+        }
+        self.generation = ScoreDocumentGeneration(self.next_generation);
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        self.page_count = page_count;
+        self.focus = None;
+        self.desired.clear();
+        self.pending.clear();
+        self.pages.clear();
+        Ok(self.generation)
+    }
+
+    /// Changes focus and returns new load requests in current/previous/next
+    /// priority order. Pages outside that three-page window are evicted.
+    pub fn focus_page(
+        &mut self,
+        page_index: usize,
+    ) -> Result<Vec<ScorePageRequest>, ScorePageCacheError> {
+        if page_index >= self.page_count {
+            return Err(ScorePageCacheError::PageOutOfRange {
+                page_index,
+                page_count: self.page_count,
+            });
+        }
+        self.focus = Some(page_index);
+        self.desired.clear();
+        self.desired.insert(page_index);
+        if page_index > 0 {
+            self.desired.insert(page_index - 1);
+        }
+        if page_index + 1 < self.page_count {
+            self.desired.insert(page_index + 1);
+        }
+        self.pages.retain(|index, _| self.desired.contains(index));
+        self.pending.retain(|index| self.desired.contains(index));
+
+        let priorities = [
+            Some(page_index),
+            page_index.checked_sub(1),
+            page_index.checked_add(1),
+        ];
+        let mut requests = Vec::new();
+        for candidate in priorities.into_iter().flatten() {
+            if candidate < self.page_count
+                && !self.pages.contains_key(&candidate)
+                && self.pending.insert(candidate)
+            {
+                requests.push(ScorePageRequest {
+                    generation: self.generation,
+                    page_index: candidate,
+                });
+            }
+        }
+        Ok(requests)
+    }
+
+    pub fn complete(&mut self, request: ScorePageRequest, page: T) -> PageLoadDisposition {
+        if request.generation != self.generation {
+            return PageLoadDisposition::StaleGeneration;
+        }
+        if !self.desired.contains(&request.page_index) {
+            self.pending.remove(&request.page_index);
+            return PageLoadDisposition::OutsideWindow;
+        }
+        if !self.pending.remove(&request.page_index) {
+            return PageLoadDisposition::Unexpected;
+        }
+        self.pages.insert(request.page_index, page);
+        PageLoadDisposition::Accepted
+    }
+
+    pub fn page(&self, page_index: usize) -> Option<&T> {
+        self.pages.get(&page_index)
+    }
+
+    pub fn cached_pages(&self) -> impl Iterator<Item = usize> + '_ {
+        self.pages.keys().copied()
+    }
+
+    pub fn focus(&self) -> Option<usize> {
+        self.focus
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -619,6 +765,97 @@ mod tests {
             Err(VerovioManifestError::PageHashMismatch("score.svg".into()))
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn page_cache_prioritizes_focus_and_neighbours_then_evicts() {
+        let mut cache = ScorePageCache::default();
+        cache.begin_document(5).unwrap();
+        let initial = cache.focus_page(2).unwrap();
+        assert_eq!(
+            initial
+                .iter()
+                .map(|request| request.page_index)
+                .collect::<Vec<_>>(),
+            vec![2, 1, 3]
+        );
+        for request in initial {
+            assert_eq!(
+                cache.complete(request, format!("page-{}", request.page_index)),
+                PageLoadDisposition::Accepted
+            );
+        }
+        assert_eq!(cache.cached_pages().collect::<Vec<_>>(), vec![1, 2, 3]);
+
+        let shifted = cache.focus_page(3).unwrap();
+        assert_eq!(
+            shifted
+                .iter()
+                .map(|request| request.page_index)
+                .collect::<Vec<_>>(),
+            vec![4]
+        );
+        assert_eq!(cache.cached_pages().collect::<Vec<_>>(), vec![2, 3]);
+        assert_eq!(
+            cache.complete(shifted[0], "page-4".to_owned()),
+            PageLoadDisposition::Accepted
+        );
+        assert_eq!(cache.cached_pages().collect::<Vec<_>>(), vec![2, 3, 4]);
+        assert_eq!(cache.focus(), Some(3));
+    }
+
+    #[test]
+    fn page_cache_rejects_old_document_and_old_window_results() {
+        let mut cache = ScorePageCache::default();
+        let first_generation = cache.begin_document(4).unwrap();
+        let old_window = cache.focus_page(0).unwrap();
+        assert_eq!(old_window.len(), 2);
+
+        cache.focus_page(3).unwrap();
+        assert_eq!(
+            cache.complete(old_window[0], "late-page"),
+            PageLoadDisposition::OutsideWindow
+        );
+
+        let old_document = ScorePageRequest {
+            generation: first_generation,
+            page_index: 3,
+        };
+        let second_generation = cache.begin_document(2).unwrap();
+        assert_ne!(first_generation, second_generation);
+        cache.focus_page(0).unwrap();
+        assert_eq!(
+            cache.complete(old_document, "wrong-song"),
+            PageLoadDisposition::StaleGeneration
+        );
+        assert!(cache.cached_pages().next().is_none());
+    }
+
+    #[test]
+    fn page_cache_rejects_duplicate_and_invalid_requests() {
+        let mut cache = ScorePageCache::default();
+        assert_eq!(
+            cache.begin_document(0),
+            Err(ScorePageCacheError::EmptyDocument)
+        );
+        cache.begin_document(2).unwrap();
+        assert_eq!(
+            cache.focus_page(2),
+            Err(ScorePageCacheError::PageOutOfRange {
+                page_index: 2,
+                page_count: 2,
+            })
+        );
+        let request = cache.focus_page(0).unwrap()[0];
+        assert_eq!(
+            cache.complete(request, "page"),
+            PageLoadDisposition::Accepted
+        );
+        assert_eq!(
+            cache.complete(request, "duplicate"),
+            PageLoadDisposition::Unexpected
+        );
+        assert_eq!(cache.page(0), Some(&"page"));
     }
 
     #[test]
