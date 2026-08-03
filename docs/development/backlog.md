@@ -97,6 +97,12 @@ Items are ordered within each horizon. IDs remain stable after completion.
   upload only the focused page texture to the native GPU renderer.
 - [ ] `MUS-001D3` Integrate score visibility, page following and highlight
   paint into the player with semantic debug coverage.
+- [x] `MUS-001D3A` Add an explicit persisted player score toggle that releases
+  only the focused GPU texture while retaining the verified CPU page cache.
+- [ ] `MUS-001D3B` Drive bounded page focus and neighbour prefetch from the
+  occurrence-aware playback focus timeline.
+- [ ] `MUS-001D3C` Paint active score-note highlights from validated renderer
+  element identities without moving practice authority into the renderer.
 - [x] `MUS-001E` Preserve tuplet ratios, normal note types and display spans
   while retaining exact rational event timing.
 - [x] `MUS-001F` Preserve damper/sostenuto pedal directions and engraving

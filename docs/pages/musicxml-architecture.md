@@ -216,6 +216,16 @@ practice matching or highlight authority. Debug snapshots distinguish artifact,
 CPU cache, focus and GPU texture state so the boundary can be tested without
 screen-coordinate assertions.
 
+Score visibility is a persisted native appearance preference and defaults on,
+including when an older settings file has no field. The top-bar control is
+created only when a verified artifact exists. Hiding removes the focused image
+from the GPU renderer immediately but deliberately keeps the content-verified
+CPU window and semantic focus. Showing therefore uploads the cached page again
+without launching Node or Verovio. Page completions accepted while hidden stay
+CPU-only. The debug boundary exposes visibility separately from artifact,
+cache, focus and texture state so those lifetime guarantees are independently
+testable.
+
 ## Renderer decision
 
 | Option | Strength | Cost or risk | Decision |

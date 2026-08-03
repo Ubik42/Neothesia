@@ -4,6 +4,53 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-04 — Cycle 099: Persistent score visibility (DONE)
+
+### Outcome
+
+Players with a paired score now get an obvious `Score: ON` / `Score: OFF`
+control in the existing native top bar. Visibility defaults on, survives
+restart and can be changed without rerunning engraving work.
+
+### Implemented
+
+- Added a backwards-compatible `score_visible` appearance preference.
+- Exposed the control only after a verified score artifact is available.
+- Removed the focused GPU image immediately when the score is hidden.
+- Kept the content-verified CPU page cache and focus intact while hidden.
+- Re-uploaded the cached focused page when visibility is restored.
+- Prevented late page loads from uploading a texture while visibility is off.
+- Added the stable semantic action `practice.player.score` and snapshot state.
+- Extended the native score smoke through hide, cache verification, restore,
+  persistence and screenshot capture.
+
+### Verification
+
+- Configuration tests cover new and legacy defaults plus toggling.
+- 151 core, 64 default application, 72 feature application and four MIDI-file
+  tests pass.
+- Default and feature Clippy and Release builds pass with only the three
+  pre-existing Windows warnings.
+- The native score smoke hid and restored the 840×1188 focused texture without
+  losing its single cached page or page-zero focus, persisted the restored
+  state and exited with code zero.
+- The restored 1620×1138 screenshot shows the blue score control in the native
+  top bar while the keyboard and practice controls remain available.
+- Exercise/fingering process smokes, eight MusicXML corpus files and the
+  VitePress build pass.
+- The optional whole-workspace CLI target remains blocked by its pre-existing
+  external FFmpeg/vcpkg requirement; all in-scope packages pass.
+
+Implementation commit: `afca3b1` (`feat: add persistent score visibility control`).
+
+### Known limitations
+
+- Playback focus still remains on page zero; automatic page following is the
+  next slice.
+- Engraved notes are not highlighted yet.
+- Visibility is available only in builds that opt into `score-verovio` and for
+  songs with a valid content-bound score association.
+
 ## 2026-08-04 — Cycle 098: Focused engraved-score texture (DONE)
 
 ### Outcome

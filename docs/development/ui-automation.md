@@ -40,6 +40,7 @@ activation/range/count-in state, pause state, completion tab,
 matched/wrong/missed totals, currently required note pitches and input-latency
 compensation. It also exposes additive engraved-score state: artifact readiness,
 cached-page count, focused page, uploaded texture page and texture dimensions.
+It also reports persisted score visibility independently of texture presence.
 The harness can start the currently loaded song, activate player
 back/wait/coach/hands, and navigate completion tabs, retry and back. Each
 activation waits for an explicit accepted or rejected result from the active
@@ -112,7 +113,10 @@ This mode creates an isolated MIDI and MusicXML pair, writes their normal
 content-bound sidecar through the `score-associate` developer example, starts
 the pinned Verovio worker, waits for a verified raster and asserts that page zero
 is the sole focused GPU texture. It then completes the ordinary wait, MIDI,
-hands, loop, restart, menu and clean-exit sequence. The default package root is
+hands, loop, restart, menu and clean-exit sequence. Before that sequence it
+invokes `practice.player.score`, proves that hiding releases only the GPU image,
+invokes it again, proves the same cached texture is restored, and checks the
+restored preference in `settings.ron`. The default package root is
 `D:\cs\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
 `-VerovioPackageRoot`.
 

@@ -10,6 +10,42 @@ Overall state: **IN PROGRESS**
 
 ## Active cycle
 
+### Cycle 099 — Persistent score visibility
+
+State: **DONE**
+
+Delivered:
+
+- added a clear `Score: ON` / `Score: OFF` control whenever a verified score is
+  available;
+- defaulted score visibility on for new and legacy settings, then persisted
+  every user change;
+- released the focused GPU texture immediately on hide while retaining the
+  verified bounded CPU cache and semantic focus;
+- restored the focused texture from cache on show without rerunning Verovio;
+- extended semantic debug state/actions and the real-process score fixture;
+- completed `MUS-001D3A` and split the remaining page-follow/highlight work.
+
+Verification:
+
+- 151 core, 64 default application, 72 feature application and four MIDI-file
+  tests pass;
+- default/feature Clippy and Release builds pass with only the three existing
+  Windows warnings;
+- the score smoke hides and restores the 840×1188 texture, proves cache/focus
+  retention, verifies settings persistence, captures the restored native UI
+  and exits cleanly;
+- exercise and fingering native smokes, all eight MusicXML corpus fixtures and
+  the VitePress documentation build pass;
+- implementation commit: `afca3b1`.
+
+Next:
+
+- implement `MUS-001D3B`: map playback semantic focus to page transitions and
+  retain current/previous/next prefetch guarantees;
+- then add renderer-owned highlight paint without transferring playback or
+  judgement authority.
+
 ### Cycle 098 — Focused engraved-score texture
 
 State: **DONE**
