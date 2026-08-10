@@ -4,6 +4,23 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-11 — Product priority: performance before notation
+
+The active roadmap was reordered around the product's primary job: practising
+and performing MIDI reliably with a physical keyboard. The synchronized-score
+prototype remains available and tested, but dense-score reading modes and
+broader MusicXML work are deferred.
+
+The next delivery sequence is physical Pianoteq route evidence, MIDI device
+loss/reconnect, device-scoped latency, representative real-playing acceptance,
+long-session transport soak, library cold-start improvement and Windows
+packaging. Native VST3 research may continue only after the standalone route
+and realtime boundary have trustworthy evidence.
+
+This decision also changes the quality emphasis: real devices, interruption,
+re-entry, stuck-note prevention, long-session resource stability and clear
+recovery state are acceptance criteria, not post-feature cleanup.
+
 ## 2026-08-11 — Cycle 104: Source-aware practice library (DONE)
 
 ### Outcome

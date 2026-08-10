@@ -81,6 +81,26 @@ An optional HTML/React surface may later be prototyped for a rich library or
 analytics dashboard, but it is not a prerequisite and must communicate through
 a narrow command/query API.
 
+## Execution priority — updated 2026-08-11
+
+Milestone numbers describe capability groups, not the order of current work.
+The active order is now:
+
+1. harden everyday MIDI performance: device loss/reconnect, transport panic,
+   keyboard-specific latency and representative real-hardware acceptance;
+2. prove the external Pianoteq route through recorded 30/60-minute sessions;
+3. remove cold-start friction from the 2,000+ piece library and package a
+   repeatable Windows build;
+4. deepen deliberate-practice recommendations only where real session data
+   reveals a useful next action;
+5. return to dense-score reading modes and broader MusicXML compatibility
+   after the performance path is dependable.
+
+The feature-gated score prototype remains maintained and regression-tested,
+but it is not on the active delivery path. Native VST3 hosting also remains
+behind external-route and audio-boundary evidence rather than leapfrogging
+basic MIDI reliability.
+
 ## Milestones
 
 ### M0 — Trustworthy practice baseline
@@ -125,7 +145,7 @@ and tempo changes; results persist across restart.
 
 **Exit:** moving or renaming a MIDI file does not lose its practice history.
 
-### M3 — Musical guidance
+### M3 — Musical guidance (notation expansion deferred)
 
 **Outcome:** visual guidance teaches transferable piano skills.
 

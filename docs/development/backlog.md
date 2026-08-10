@@ -26,7 +26,7 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `DATA-010` Persist versioned practice sessions atomically.
 - [x] `DATA-011` Identify songs by MIDI content across moves and renames.
 
-## NEXT — reliability and sound
+## NOW — performance, practice, MIDI and sound reliability
 
 - [x] `MIDI-010` Audit stop/seek/loop/output-change panic behaviour.
 - [x] `MIDI-011` Preserve and test sustain, continuous pedal and pitch bend.
@@ -42,8 +42,23 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `AUD-011` Add a MIDI/Pianoteq acceptance test checklist.
 - [ ] `AUD-012` Complete and record the 30-minute physical Pianoteq soak test.
 - [x] `QA-010` Add deterministic player tests that do not use wall-clock sleeps.
+- [ ] `MIDI-013` Detect selected MIDI input/output disappearance, silence the
+  old route safely and offer an explicit reconnect when it returns.
+- [ ] `MIDI-014` Persist device-scoped input-latency calibration instead of
+  applying one global offset to every keyboard and route.
+- [ ] `PRA-023` Run a representative real-keyboard acceptance suite across
+  wait/flow, hands, loops, dynamics, continuous pedal and rapid repeated notes.
+- [ ] `QA-011` Record a 60-minute transport/device-churn soak with repeated
+  pause, seek, loop, restart and route restoration.
+- [ ] `LIB-008` Add numeric indexing progress and a content-safe cache so the
+  2,000+ piece library does not require a full rescan on every cold start.
+- [ ] `REL-001` Produce a repeatable Windows package and one-click launch path
+  that does not require a Rust development environment.
 
 ## LATER — repertoire and learning
+
+Further MusicXML engraving and score-reading work is paused until the open
+performance/MIDI reliability items above have physical-device evidence.
 
 - [x] `LIB-001` Scan watched folders and build a searchable local library.
 - [x] `LIB-002` Add stable content-based song identity and metadata sidecars.

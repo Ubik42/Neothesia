@@ -4,9 +4,19 @@ Updated: 2026-08-11
 
 ## Current milestone
 
-**M2 — Repertoire and practice continuity**
+**Core performance, practice and MIDI hardening**
 
 Overall state: **IN PROGRESS**
+
+## Current execution priority
+
+1. physical keyboard → Neothesia → Pianoteq route evidence and long-session
+   transport safety;
+2. MIDI device disappearance/reconnect and device-scoped latency;
+3. representative real-playing acceptance across wait/flow, hands, loops,
+   repeated notes, velocity and continuous pedal;
+4. cached/progressive indexing and repeatable Windows packaging;
+5. notation expansion only after these paths are dependable.
 
 ## Active cycle
 
@@ -45,11 +55,13 @@ Verification:
 
 Next:
 
-- add explicit minimum/default/large window variants to native score capture,
-  then audit a licensed dense score/MIDI pair before choosing a reading mode;
-- consider category/source filters only after observing search use with the
-  full corpus;
-- complete the physical standalone Pianoteq route and soak evidence.
+- complete the physical standalone Pianoteq route and 30-minute soak evidence;
+- harden MIDI device loss/reconnect and run the representative real-keyboard
+  practice matrix;
+- add cached/progressive library indexing, then create a repeatable Windows
+  package;
+- keep the existing score prototype regression-tested while deferring new
+  notation features.
 
 ### Cycle 103 — Public development handoff and practice corpus
 

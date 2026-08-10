@@ -13,6 +13,9 @@ It takes music notes from a MIDI file as an input and displays them as colorful 
 > is deliberate practice, local repertoire management, synchronized notation
 > and a dependable Pianoteq workflow. It is not yet a packaged end-user
 > release; build from source or use the existing local development build.
+> Current execution priority is performance and practice reliability: physical
+> MIDI hardware, transport safety, latency, Pianoteq routing and long-session
+> stability. Further notation work is intentionally deferred.
 
 Opensource Synthesia was abandoned in favour of [closed source commercial project](https://www.synthesiagame.com/)  
 The goal of this project is to bring Opensource Synthesia back to life, and make it look and work as good (or even better) than commercial Synthesia.
