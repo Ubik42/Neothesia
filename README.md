@@ -7,6 +7,13 @@ Neothesia is a cross-platform MIDI visualizer build in Rust.
 It helps people to quickly learn how to play piano.
 It takes music notes from a MIDI file as an input and displays them as colorful falling blocks on a virtual piano.
 
+> [!IMPORTANT]
+> This branch is an independently maintained piano-learning fork. It is 207
+> commits ahead of upstream and is under active development. The current focus
+> is deliberate practice, local repertoire management, synchronized notation
+> and a dependable Pianoteq workflow. It is not yet a packaged end-user
+> release; build from source or use the existing local development build.
+
 Opensource Synthesia was abandoned in favour of [closed source commercial project](https://www.synthesiagame.com/)  
 The goal of this project is to bring Opensource Synthesia back to life, and make it look and work as good (or even better) than commercial Synthesia.
 
@@ -41,9 +48,40 @@ All binary releases:
 
 ## Development roadmap
 
-- [Sustained piano-learning development](docs/development/README.md)
+- [Current development status](docs/development/progress.md)
+- [Sustained piano-learning plan](docs/development/README.md)
+- [Product and engineering roadmap](docs/development/roadmap.md)
+- [Ordered backlog](docs/development/backlog.md)
 - [Piano plug-in hosting (VST3 and Pianoteq)](docs/pages/plugin-hosting-roadmap.md)
 - [External Pianoteq practice workflow](docs/pages/pianoteq-external-routing.md)
+- [Public practice-library sources and sync](docs/pages/practice-library.md)
+
+### What works in this fork
+
+- wait-for-notes practice is the default and can be switched during playback;
+- measure numbers, optional beat subdivisions, hand selection, loops, count-in
+  and adaptive tempo support focused passage practice;
+- deterministic feedback covers note accuracy, timing, hands, measures,
+  dynamics, duration and pedal, with persisted sessions and recommendations;
+- the local practice library supports watched folders, search, recent songs,
+  favourites, a practice queue, metadata editing and missing-file repair;
+- exercise mode, manual and suggested fingering, free-play recording and
+  semantic UI automation are available;
+- paired MusicXML/MXL scores can be aligned to MIDI, rendered through the
+  optional Verovio feature, followed across pages and highlighted during
+  playback;
+- external MIDI output is suitable for routing into standalone Pianoteq, with
+  visible route diagnostics and panic/all-notes-off handling.
+
+### Experimental or not implemented yet
+
+- the engraved-score renderer is a default-off feature and currently requires
+  a Node/Verovio worker;
+- direct in-process VST3 hosting, including loading Pianoteq as a plug-in, has
+  not been implemented; standalone Pianoteq routing is the supported path;
+- dense-score reading modes, physical-device soak testing, accessibility
+  polish, installer/update packaging and release automation remain roadmap
+  work.
 
 ## Thanks to
 

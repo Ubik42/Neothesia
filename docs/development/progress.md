@@ -1,6 +1,6 @@
 # Development progress
 
-Updated: 2026-08-04
+Updated: 2026-08-10
 
 ## Current milestone
 
@@ -9,6 +9,40 @@ Updated: 2026-08-04
 Overall state: **IN PROGRESS**
 
 ## Active cycle
+
+### Cycle 103 — Public development handoff and practice corpus
+
+State: **DONE**
+
+Delivered:
+
+- moved the local tool collection to `D:\Music\_tools` and updated the
+  Transkun Skill default plus the Windows launch shortcut;
+- added a reproducible practice-library sync with checksum verification,
+  bounded Pop-K extraction and source/license catalogue generation;
+- populated the local library with 1,276 MAESTRO performances, 521
+  teaching/classical Mutopia files and 256 curated Pop-K excerpts;
+- documented the fork's actual capabilities, experimental boundaries and
+  long-term priorities at the repository entry point;
+- prepared the 207-commit development branch for publication as a GitHub fork
+  while preserving the original project as `upstream`.
+
+Verification:
+
+- all three repositories under `D:\Music\_tools` retain valid Git histories;
+- the obsolete `D:\Music\Tools` directory is gone and live launch/tool paths
+  resolve to the new root;
+- the PowerShell corpus sync parses successfully and downloaded archives match
+  their published checksums;
+- repository formatting, tests, documentation build and release checks are
+  rerun before publication.
+
+Next:
+
+- finish the dense-score readability audit at minimum/default/maximum sizes;
+- complete the physical standalone Pianoteq soak test before beginning the
+  optional in-process VST3 host boundary;
+- expose practice-corpus categories and licenses inside the native library.
 
 ### Cycle 102 — Persistent engraved-score sizing
 

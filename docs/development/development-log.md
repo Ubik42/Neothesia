@@ -4,6 +4,48 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-10 — Cycle 103: Public development handoff and practice corpus (DONE)
+
+### Outcome
+
+The active piano-learning fork now has an honest public entry point, a durable
+local tool location and a reproducible source-aware MIDI corpus for daily
+practice and feature testing.
+
+### Implemented
+
+- Migrated the music tool collection from `D:\Music\Tools` to
+  `D:\Music\_tools` without losing the Neothesia, Openthesia or Transkun Git
+  histories.
+- Updated the Transkun pipeline default, Skill links, REAPER reference and
+  desktop Neothesia shortcut to the new root.
+- Added `scripts/sync-practice-library.ps1` with checksum-verified MAESTRO and
+  Pop-K acquisition, bounded excerpt extraction and teaching-oriented Mutopia
+  collection.
+- Made per-piece Mutopia failures recoverable so one stale public link cannot
+  prevent the remaining corpus and catalogue from being published locally.
+- Added a generated catalogue contract that records category, title, composer,
+  license, source URL and local relative path.
+- Reworked the root README and roadmap capability map to distinguish working,
+  experimental and future functionality.
+
+### Verification
+
+- The old root is absent, the new root exists and all three nested repositories
+  resolve valid `HEAD` commits.
+- The PowerShell sync script parses under PowerShell 7.
+- MAESTRO and Pop-K archives match their official SHA-256 and MD5 values.
+- Rust, documentation and release gates are recorded after the final run.
+
+### Known limitations
+
+- MAESTRO and Pop-K carry non-commercial Creative Commons terms and therefore
+  are downloaded locally rather than bundled in this repository.
+- Mutopia licenses vary per piece; consumers must retain the generated source
+  and license metadata.
+- Direct VST3 hosting remains future work. The supported high-quality sound
+  path is external MIDI routing to standalone Pianoteq.
+
 ## 2026-08-04 — Cycle 102: Persistent engraved-score sizing (DONE)
 
 ### Outcome

@@ -53,6 +53,10 @@ Items are ordered within each horizon. IDs remain stable after completion.
 - [x] `LIB-003` Save per-song hand/track, loop and speed settings.
 - [x] `LIB-004` Add recent, favourite and practice-queue views.
 - [x] `LIB-005` Add a recent-practice library with verified missing-file repair.
+- [x] `LIB-006` Add a reproducible, checksum-verified public practice-corpus
+  sync for classical performance, classical teaching and pop-style excerpts.
+- [ ] `LIB-007` Surface corpus source, license and teaching category from the
+  generated catalogue inside Practice Library.
 - [x] `MUS-001` Add a MusicXML/grand-staff feasibility prototype.
 - [x] `MUS-001A` Add a notation-neutral score model and a tested uncompressed
   partwise MusicXML importer.

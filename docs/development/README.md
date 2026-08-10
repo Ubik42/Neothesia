@@ -19,6 +19,8 @@ second.
   content-bound repertoire metadata
 - [Explainable fingering suggestions](../pages/fingering-suggestions.md) —
   preview/accept cost model and honest scope
+- [Public practice library](../pages/practice-library.md) — reproducible,
+  license-aware local MIDI corpus
 - [Verovio renderer benchmark](verovio-benchmark.md) — pinned fidelity,
   performance, size and interaction evidence
 

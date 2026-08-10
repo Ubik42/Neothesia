@@ -37,14 +37,14 @@ This roadmap borrows outcomes, not implementations:
 
 | Area | Current fork | Target |
 | --- | --- | --- |
-| Guided playback | Wait, structured loops, adaptive tempo | Goals, editable recommendations |
-| Feedback | Internal rudimentary counters | Correct/wrong/missed, early/late, duration, pedal, dynamics |
-| Learning aids | Falling notes, labels, measures/beats | Fingering, notation, chords, key/scale context |
-| Repertoire | File picker and last file | Searchable library, metadata, favourites, practice queue |
-| Progress | Current-song history, trends and weak action | Library history, mastery |
-| Sound | Expressive MIDI, global panic, visible route | Validate Pianoteq, VST3 |
-| Creation | Free-play recording, video CLI | Recording review, annotations, shareable song metadata |
-| UX | Native custom GPU UI | Coherent practice workspace, accessible themes, automation hooks |
+| Guided playback | Wait-by-default, hand controls, loops, count-in, adaptive tempo | Editable goals and passage recommendations |
+| Feedback | Note/timing/measure/hand feedback, dynamics, duration and pedal | Calibration and deeper multi-attempt coaching |
+| Learning aids | Falling notes, measures/beats, exercises, fingering, synchronized score prototype | Dense-score reading modes, chords and key/scale context |
+| Repertoire | Watched folders, search, metadata, favourites, queue, missing-file repair | Mastery views and a polished library workflow |
+| Progress | Persistent sessions, trends, weak passages and recommendations | Passage-level spaced review and export |
+| Sound | Expressive SoundFont/MIDI output, panic, visible route, standalone Pianoteq workflow | Physical soak evidence and optional VST3 host |
+| Creation | Free-play recording, video CLI and portable song sidecars | Recording review and practice-plan annotations |
+| UX | Native GPU UI, semantic automation hooks and persisted score controls | First-run setup, accessibility and release polish |
 
 ## Architecture direction
 
