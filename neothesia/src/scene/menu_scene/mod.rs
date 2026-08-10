@@ -17,9 +17,9 @@ use std::{collections::BTreeMap, future::Future, hash::Hash, path::PathBuf, time
 
 use crate::utils::{BoxFuture, noop_waker_ref, window::WinitEvent};
 use neothesia_core::library::{
-    ScoreAnalysisSnapshot, ScoreAssociation, SongMetadata, clear_score_association,
-    load_song_sidecar, resolve_score_path, save_score_analysis, save_score_association,
-    save_song_metadata, verify_score_association,
+    LibraryProvenance, ScoreAnalysisSnapshot, ScoreAssociation, SongMetadata,
+    clear_score_association, load_song_sidecar, resolve_score_path, save_score_analysis,
+    save_score_association, save_song_metadata, verify_score_association,
 };
 use neothesia_core::musicxml::import_musicxml_file;
 use neothesia_core::practice_history::{ReviewReason, ReviewStatus};
@@ -88,10 +88,16 @@ struct MetadataEditor {
     score: Option<ScoreAssociation>,
     score_status: String,
     analysis_status: Option<String>,
+    provenance: Option<LibraryProvenance>,
 }
 
 impl MetadataEditor {
-    fn new(content_id: String, source_path: PathBuf, metadata: SongMetadata) -> Self {
+    fn new(
+        content_id: String,
+        source_path: PathBuf,
+        metadata: SongMetadata,
+        provenance: Option<LibraryProvenance>,
+    ) -> Self {
         let sidecar = load_song_sidecar(&source_path, &content_id).ok();
         let score = sidecar.as_ref().and_then(|sidecar| sidecar.score.clone());
         let analysis_status = sidecar
@@ -140,6 +146,7 @@ impl MetadataEditor {
             score,
             score_status,
             analysis_status,
+            provenance,
         }
     }
 
@@ -457,6 +464,7 @@ impl MenuScene {
                     content_id: song.content_id,
                     display_name: song.display_name,
                     metadata: SongMetadata::default(),
+                    provenance: None,
                     source_path: song.source_path,
                     exercise_spec: song.exercise_spec,
                     session_count: song.session_count,
@@ -481,15 +489,17 @@ impl MenuScene {
                         if available_path.is_some() {
                             row.source_path = available_path.clone();
                         }
-                        if song.metadata.title.is_some() {
+                        if song.metadata.title.is_some() || song.provenance.is_some() {
                             row.display_name = song.display_name.clone();
                         }
                         row.metadata = song.metadata.clone();
+                        row.provenance = song.provenance.clone();
                     })
                     .or_insert_with(|| LibraryRow {
                         content_id: song.content_id.clone(),
                         display_name: song.display_name.clone(),
                         metadata: song.metadata.clone(),
+                        provenance: song.provenance.clone(),
                         source_path: available_path,
                         exercise_spec: None,
                         session_count: 0,
@@ -695,12 +705,24 @@ impl MenuScene {
                                 .unwrap_or_default();
                             let review = song.review.map(format_review_status).unwrap_or_default();
                             let credit = metadata_credit(&song.metadata)
-                                .map(|credit| format!(" · {}", truncate_menu_label(&credit, 24)))
+                                .or_else(|| song.provenance.as_ref().and_then(provenance_credit))
+                                .map(|credit| format!(" · {}", truncate_menu_label(&credit, 18)))
+                                .unwrap_or_default();
+                            let provenance = song
+                                .provenance
+                                .as_ref()
+                                .map(|value| {
+                                    format!(
+                                        " · {}",
+                                        truncate_menu_label(&provenance_summary(value), 34)
+                                    )
+                                })
                                 .unwrap_or_default();
                             let label = format!(
-                                "{}{}  ·  {} session{}{}{}{}  ·  {}",
-                                truncate_menu_label(&song.display_name, 54),
+                                "{}{}{}  ·  {} session{}{}{}{}  ·  {}",
+                                truncate_menu_label(&song.display_name, 34),
                                 credit,
+                                provenance,
                                 song.session_count,
                                 if song.session_count == 1 { "" } else { "s" },
                                 accuracy,
@@ -784,6 +806,7 @@ impl MenuScene {
                                     song.content_id.clone(),
                                     path,
                                     song.metadata.clone(),
+                                    song.provenance.clone(),
                                 ));
                                 self.state.go_to(Page::Metadata);
                             }
@@ -931,17 +954,27 @@ impl MenuScene {
             .size(form_w, 24.0)
             .font_size(14.0)
             .color([178, 175, 190])
-            .text(format!(
-                "{} · click a field, then type · Tab moves · Ctrl+S saves",
-                truncate_menu_label(
+            .text({
+                let filename = truncate_menu_label(
                     &editor
                         .source_path
                         .file_name()
                         .unwrap_or_default()
                         .to_string_lossy(),
-                    52
+                    40,
+                );
+                let provenance = editor
+                    .provenance
+                    .as_ref()
+                    .map(|value| format!(" · {}", provenance_summary(value)))
+                    .unwrap_or_default();
+                truncate_menu_label(
+                    &format!(
+                        "{filename}{provenance} · click a field, then type · Tab moves · Ctrl+S saves"
+                    ),
+                    112,
                 )
-            ))
+            })
             .build(ui);
 
         let row_h = 58.0;
@@ -1168,14 +1201,20 @@ impl MenuScene {
                 let unreadable = index.unreadable_files;
                 let metadata = index.metadata_files_seen;
                 let invalid_metadata = index.invalid_metadata_files;
+                let catalogs = index.catalog_files_seen;
+                let catalog_entries = index.catalog_entries_loaded;
+                let invalid_catalog_entries = index.invalid_catalog_entries;
                 state.library_index = Some(index);
                 state.library_scanning = false;
                 state.library_message = Some(format!(
                     "Indexed {unique} unique piece{} from {seen} MIDI file{}; \
-                     loaded {metadata} metadata sidecar{}{}{}.",
+                     loaded {metadata} metadata sidecar{} and {catalog_entries} catalog entr{} \
+                     from {catalogs} catalog{}{}{}{}.",
                     if unique == 1 { "" } else { "s" },
                     if seen == 1 { "" } else { "s" },
                     if metadata == 1 { "" } else { "s" },
+                    if catalog_entries == 1 { "y" } else { "ies" },
+                    if catalogs == 1 { "" } else { "s" },
                     if unreadable == 0 {
                         String::new()
                     } else {
@@ -1185,6 +1224,11 @@ impl MenuScene {
                         String::new()
                     } else {
                         format!("; ignored {invalid_metadata} invalid metadata")
+                    },
+                    if invalid_catalog_entries == 0 {
+                        String::new()
+                    } else {
+                        format!("; ignored {invalid_catalog_entries} invalid catalog entries")
                     }
                 ));
             }));
@@ -1221,6 +1265,7 @@ struct LibraryRow {
     content_id: String,
     display_name: String,
     metadata: SongMetadata,
+    provenance: Option<LibraryProvenance>,
     source_path: Option<PathBuf>,
     exercise_spec: Option<neothesia_core::exercise::ExerciseSpec>,
     session_count: usize,
@@ -1399,6 +1444,11 @@ fn library_row_matches(query: &str, song: &LibraryRow) -> bool {
             .to_lowercase(),
         metadata.tags.join(" ").to_lowercase(),
         metadata.notes.as_deref().unwrap_or_default().to_lowercase(),
+        song.provenance
+            .as_ref()
+            .map(provenance_summary)
+            .unwrap_or_default()
+            .to_lowercase(),
         song.source_path
             .as_deref()
             .map(|path| path.to_string_lossy().to_lowercase())
@@ -1414,6 +1464,17 @@ fn metadata_credit(metadata: &SongMetadata) -> Option<String> {
         .as_deref()
         .or(metadata.composer.as_deref())
         .map(str::to_owned)
+}
+
+fn provenance_credit(provenance: &LibraryProvenance) -> Option<String> {
+    (!provenance.composer.trim().is_empty()).then(|| provenance.composer.clone())
+}
+
+fn provenance_summary(provenance: &LibraryProvenance) -> String {
+    format!(
+        "{} · {} · {}",
+        provenance.category, provenance.source, provenance.license
+    )
 }
 
 fn format_review_status(review: ReviewStatus) -> String {
@@ -1693,8 +1754,9 @@ impl Scene for MenuScene {
 #[cfg(test)]
 mod tests {
     use super::{
-        LibraryRow, MetadataEditor, ReviewReason, ReviewStatus, SongMetadata, format_review_status,
-        library_row_matches, metadata_credit, truncate_menu_label,
+        LibraryProvenance, LibraryRow, MetadataEditor, ReviewReason, ReviewStatus, SongMetadata,
+        format_review_status, library_row_matches, metadata_credit, provenance_credit,
+        provenance_summary, truncate_menu_label,
     };
 
     #[test]
@@ -1714,6 +1776,14 @@ mod tests {
                 tags: vec!["Impressionism".into()],
                 ..Default::default()
             },
+            provenance: Some(LibraryProvenance {
+                category: "Classical/Impressionism".into(),
+                title: "Clair de Lune".into(),
+                composer: "Claude Debussy".into(),
+                license: "CC BY-SA 4.0".into(),
+                source: "Teaching Corpus".into(),
+                source_url: "https://example.test/clair".into(),
+            }),
             source_path: Some("D:/Piano/Suite bergamasque/Track 3.mid".into()),
             exercise_spec: None,
             session_count: 0,
@@ -1727,6 +1797,7 @@ mod tests {
         assert!(library_row_matches("debussy lune", &song));
         assert!(library_row_matches("gieseking impressionism", &song));
         assert!(library_row_matches("suite track", &song));
+        assert!(library_row_matches("impressionism teaching by-sa", &song));
         assert!(!library_row_matches("debussy moonlight", &song));
         assert_eq!(
             metadata_credit(&song.metadata).as_deref(),
@@ -1744,6 +1815,7 @@ mod tests {
                 tags: vec!["etude".into(), "romantic".into()],
                 ..Default::default()
             },
+            None,
         );
         assert_eq!(editor.fields[0], "Song");
         assert_eq!(editor.fields[5], "etude, romantic");
@@ -1765,6 +1837,7 @@ mod tests {
             "content".into(),
             "D:/Piano/Song.mid".into(),
             SongMetadata::default(),
+            None,
         );
         editor.select_relative(-1);
         assert_eq!(editor.active, 0);
@@ -1772,6 +1845,26 @@ mod tests {
         assert_eq!(editor.active, 6);
         editor.select_relative(-2);
         assert_eq!(editor.active, 4);
+    }
+
+    #[test]
+    fn provenance_summary_exposes_category_source_license_and_fallback_credit() {
+        let provenance = LibraryProvenance {
+            category: "Teaching/Burgmuller".into(),
+            title: "Arabesque".into(),
+            composer: "Friedrich Burgmuller".into(),
+            license: "Public Domain".into(),
+            source: "Mutopia Project".into(),
+            source_url: "https://example.test/arabesque".into(),
+        };
+        assert_eq!(
+            provenance_summary(&provenance),
+            "Teaching/Burgmuller · Mutopia Project · Public Domain"
+        );
+        assert_eq!(
+            provenance_credit(&provenance).as_deref(),
+            Some("Friedrich Burgmuller")
+        );
     }
 
     #[test]

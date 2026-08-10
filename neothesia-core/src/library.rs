@@ -30,6 +30,28 @@ pub struct SongMetadata {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LibraryProvenance {
+    pub category: String,
+    pub title: String,
+    pub composer: String,
+    pub license: String,
+    pub source: String,
+    pub source_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct CatalogRecord {
+    category: String,
+    title: String,
+    composer: String,
+    license: String,
+    source: String,
+    source_url: String,
+    local_path: String,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct FingerHint {
     pub track_id: usize,
@@ -109,6 +131,7 @@ pub struct LibrarySong {
     pub content_id: String,
     pub display_name: String,
     pub metadata: SongMetadata,
+    pub provenance: Option<LibraryProvenance>,
     pub metadata_path: Option<PathBuf>,
     pub source_paths: Vec<PathBuf>,
     searchable_text: String,
@@ -121,13 +144,20 @@ pub struct LibraryIndex {
     pub unreadable_files: usize,
     pub metadata_files_seen: usize,
     pub invalid_metadata_files: usize,
+    pub catalog_files_seen: usize,
+    pub catalog_entries_loaded: usize,
+    pub invalid_catalog_entries: usize,
 }
 
 impl LibraryIndex {
     pub fn scan(roots: &[PathBuf]) -> Self {
-        let mut paths = collect_midi_paths(roots);
+        let (mut paths, mut catalog_paths) = collect_library_paths(roots);
         paths.sort();
         paths.dedup();
+        catalog_paths.sort();
+        catalog_paths.dedup();
+
+        let (catalog_entries, invalid_catalog_entries) = load_catalogs(&catalog_paths);
 
         let mut songs = BTreeMap::<String, LibrarySong>::new();
         let mut unreadable_files = 0;
@@ -161,11 +191,15 @@ impl LibraryIndex {
                                 content_id: file.content_id,
                                 display_name: file.name,
                                 metadata: SongMetadata::default(),
+                                provenance: None,
                                 metadata_path: None,
                                 source_paths: Vec::new(),
                                 searchable_text: String::new(),
                             });
                     song.source_paths.push(path.clone());
+                    if song.provenance.is_none() {
+                        song.provenance = catalog_entries.get(&path_identity(path)).cloned();
+                    }
                     if let Some((metadata, metadata_path)) = metadata {
                         song.metadata.merge(metadata);
                         if song.metadata_path.is_none() {
@@ -184,9 +218,15 @@ impl LibraryIndex {
         for song in &mut songs {
             if let Some(title) = song.metadata.title.as_deref() {
                 song.display_name = title.to_owned();
+            } else if let Some(provenance) = song.provenance.as_ref() {
+                song.display_name = provenance.title.clone();
             }
-            song.searchable_text =
-                searchable_text(&song.display_name, &song.metadata, &song.source_paths);
+            song.searchable_text = searchable_text(
+                &song.display_name,
+                &song.metadata,
+                song.provenance.as_ref(),
+                &song.source_paths,
+            );
         }
 
         Self {
@@ -195,6 +235,9 @@ impl LibraryIndex {
             unreadable_files,
             metadata_files_seen,
             invalid_metadata_files,
+            catalog_files_seen: catalog_paths.len(),
+            catalog_entries_loaded: catalog_entries.len(),
+            invalid_catalog_entries,
         }
     }
 
@@ -441,7 +484,12 @@ fn normalize_fingerings(fingerings: Vec<FingerHint>) -> Result<Vec<FingerHint>, 
     Ok(by_note.into_values().collect())
 }
 
-fn searchable_text(display_name: &str, metadata: &SongMetadata, paths: &[PathBuf]) -> String {
+fn searchable_text(
+    display_name: &str,
+    metadata: &SongMetadata,
+    provenance: Option<&LibraryProvenance>,
+    paths: &[PathBuf],
+) -> String {
     let mut searchable = display_name.to_lowercase();
     for value in [
         metadata.artist.as_deref(),
@@ -459,6 +507,19 @@ fn searchable_text(display_name: &str, metadata: &SongMetadata, paths: &[PathBuf
     for tag in &metadata.tags {
         searchable.push(' ');
         searchable.push_str(&tag.to_lowercase());
+    }
+    if let Some(provenance) = provenance {
+        for value in [
+            &provenance.category,
+            &provenance.title,
+            &provenance.composer,
+            &provenance.license,
+            &provenance.source,
+            &provenance.source_url,
+        ] {
+            searchable.push(' ');
+            searchable.push_str(&value.to_lowercase());
+        }
     }
     for path in paths {
         searchable.push(' ');
@@ -537,8 +598,9 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-fn collect_midi_paths(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut files = Vec::new();
+fn collect_library_paths(roots: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut midi_files = Vec::new();
+    let mut catalogs = Vec::new();
     let mut pending: Vec<_> = roots.iter().filter(|root| root.is_dir()).cloned().collect();
     let mut visited = BTreeSet::new();
 
@@ -561,11 +623,116 @@ fn collect_midi_paths(roots: &[PathBuf]) -> Vec<PathBuf> {
             if file_type.is_dir() {
                 pending.push(path);
             } else if file_type.is_file() && is_midi_path(&path) {
-                files.push(path);
+                midi_files.push(path);
+            } else if file_type.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("catalog.csv"))
+            {
+                catalogs.push(path);
             }
         }
     }
-    files
+    (midi_files, catalogs)
+}
+
+fn load_catalogs(catalog_paths: &[PathBuf]) -> (BTreeMap<PathBuf, LibraryProvenance>, usize) {
+    let mut entries = BTreeMap::new();
+    let mut invalid = 0;
+    for catalog_path in catalog_paths {
+        let Some(root) = catalog_path.parent() else {
+            invalid += 1;
+            continue;
+        };
+        let mut reader = match csv::ReaderBuilder::new()
+            .trim(csv::Trim::All)
+            .from_path(catalog_path)
+        {
+            Ok(reader) => reader,
+            Err(error) => {
+                invalid += 1;
+                log::warn!(
+                    "Ignoring practice catalog '{}': {error}",
+                    catalog_path.display()
+                );
+                continue;
+            }
+        };
+        for record in reader.deserialize::<CatalogRecord>() {
+            let record = match record {
+                Ok(record) => record,
+                Err(error) => {
+                    invalid += 1;
+                    log::warn!(
+                        "Ignoring invalid row in practice catalog '{}': {error}",
+                        catalog_path.display()
+                    );
+                    continue;
+                }
+            };
+            let Some(relative_path) = safe_catalog_relative_path(&record.local_path) else {
+                invalid += 1;
+                log::warn!(
+                    "Ignoring unsafe MIDI path '{}' in practice catalog '{}'",
+                    record.local_path,
+                    catalog_path.display()
+                );
+                continue;
+            };
+            let provenance = LibraryProvenance {
+                category: record.category.trim().to_owned(),
+                title: record.title.trim().to_owned(),
+                composer: record.composer.trim().to_owned(),
+                license: record.license.trim().to_owned(),
+                source: record.source.trim().to_owned(),
+                source_url: record.source_url.trim().to_owned(),
+            };
+            if provenance.category.is_empty()
+                || provenance.title.is_empty()
+                || provenance.license.is_empty()
+                || provenance.source.is_empty()
+            {
+                invalid += 1;
+                log::warn!(
+                    "Ignoring incomplete provenance for '{}' in practice catalog '{}'",
+                    record.local_path,
+                    catalog_path.display()
+                );
+                continue;
+            }
+            let target = root.join(relative_path);
+            if !is_midi_path(&target) {
+                invalid += 1;
+                continue;
+            }
+            entries.entry(path_identity(&target)).or_insert(provenance);
+        }
+    }
+    (entries, invalid)
+}
+
+fn safe_catalog_relative_path(value: &str) -> Option<PathBuf> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.starts_with(['/', '\\'])
+        || value.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+    {
+        return None;
+    }
+    let mut safe = PathBuf::new();
+    for component in value.split(['/', '\\']) {
+        match component.trim() {
+            "" | "." => {}
+            ".." => return None,
+            part => safe.push(part),
+        }
+    }
+    (!safe.as_os_str().is_empty()).then_some(safe)
+}
+
+fn path_identity(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn is_midi_path(path: &Path) -> bool {
@@ -650,6 +817,9 @@ mod tests {
         assert_eq!(index.unreadable_files, 1);
         assert_eq!(index.metadata_files_seen, 0);
         assert_eq!(index.invalid_metadata_files, 0);
+        assert_eq!(index.catalog_files_seen, 0);
+        assert_eq!(index.catalog_entries_loaded, 0);
+        assert_eq!(index.invalid_catalog_entries, 0);
         assert_eq!(index.songs.len(), 2);
         assert_eq!(
             index
@@ -671,11 +841,13 @@ mod tests {
                 content_id: "id".into(),
                 display_name: "Clair de Lune.mid".into(),
                 metadata: SongMetadata::default(),
+                provenance: None,
                 metadata_path: None,
                 source_paths: vec![PathBuf::from("D:/Piano/Debussy/Clair de Lune.mid")],
                 searchable_text: searchable_text(
                     "Clair de Lune.mid",
                     &SongMetadata::default(),
+                    None,
                     &[PathBuf::from("D:/Piano/Debussy/Clair de Lune.mid")],
                 ),
             }],
@@ -683,10 +855,75 @@ mod tests {
             unreadable_files: 0,
             metadata_files_seen: 0,
             invalid_metadata_files: 0,
+            catalog_files_seen: 0,
+            catalog_entries_loaded: 0,
+            invalid_catalog_entries: 0,
         };
 
         assert_eq!(index.search("debussy lune").len(), 1);
         assert!(index.search("debussy moonlight").is_empty());
+    }
+
+    #[test]
+    fn catalog_provenance_is_safe_searchable_and_secondary_to_user_metadata() {
+        let root = temp_directory("catalog");
+        let teaching = root.join("Teaching");
+        fs::create_dir_all(&teaching).unwrap();
+        let midi_path = teaching.join("Etude, No 1.mid");
+        write_midi(&midi_path, 60);
+        fs::write(
+            root.join("catalog.csv"),
+            concat!(
+                "\u{feff}Category,Title,Composer,License,Source,SourceUrl,LocalPath\n",
+                "Teaching/初级,\"Étude, No. 1\",Example Composer,CC0,Mutopia,",
+                "https://example.test/etude,\"Teaching\\Etude, No 1.mid\"\n",
+                "Unsafe,Escape,Unknown,CC0,Test,https://example.test,../outside.mid\n",
+                "Incomplete,Missing license,Unknown,,Test,https://example.test,missing.mid\n"
+            ),
+        )
+        .unwrap();
+        let content_id = midi_file::MidiFile::new(&midi_path).unwrap().content_id;
+        save_song_metadata(
+            &midi_path,
+            &content_id,
+            SongMetadata {
+                title: Some("My study copy".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let index = LibraryIndex::scan(std::slice::from_ref(&root));
+
+        assert_eq!(index.catalog_files_seen, 1);
+        assert_eq!(index.catalog_entries_loaded, 1);
+        assert_eq!(index.invalid_catalog_entries, 2);
+        assert_eq!(index.songs.len(), 1);
+        assert_eq!(index.songs[0].display_name, "My study copy");
+        let provenance = index.songs[0].provenance.as_ref().unwrap();
+        assert_eq!(provenance.title, "Étude, No. 1");
+        assert_eq!(provenance.category, "Teaching/初级");
+        assert_eq!(provenance.license, "CC0");
+        assert_eq!(index.search("初级 mutopia cc0").len(), 1);
+        assert_eq!(index.search("example etude").len(), 1);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn catalog_paths_accept_both_separators_and_reject_absolute_or_parent_paths() {
+        assert_eq!(
+            safe_catalog_relative_path("Classical/Bach/Prelude.mid"),
+            Some(PathBuf::from("Classical").join("Bach").join("Prelude.mid"))
+        );
+        assert_eq!(
+            safe_catalog_relative_path("Classical\\Bach\\Prelude.mid"),
+            Some(PathBuf::from("Classical").join("Bach").join("Prelude.mid"))
+        );
+        assert_eq!(safe_catalog_relative_path("../secret.mid"), None);
+        assert_eq!(safe_catalog_relative_path("C:\\secret.mid"), None);
+        assert_eq!(safe_catalog_relative_path("/secret.mid"), None);
+        assert_eq!(safe_catalog_relative_path("\\\\server\\share.mid"), None);
     }
 
     #[test]
