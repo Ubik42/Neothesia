@@ -1,14 +1,55 @@
 # Development progress
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 ## Current milestone
 
-**M1 — Practice intelligence**
+**M2 — Repertoire and practice continuity**
 
 Overall state: **IN PROGRESS**
 
 ## Active cycle
+
+### Cycle 104 — Source-aware practice library
+
+State: **DONE**
+
+Delivered:
+
+- discovered `catalog.csv` files during the existing recursive background
+  library scan without adding a second directory traversal;
+- attached read-only category, catalogue title, composer, source, source URL
+  and license provenance to each matching MIDI path;
+- kept user-edited content-bound sidecar metadata authoritative over catalogue
+  titles while retaining provenance for search and display;
+- exposed compact provenance in library rows and the song-information header;
+- added a deterministic command-line inspector for real-corpus scale and
+  search checks;
+- completed `LIB-007` and configured the local 2,053-file corpus as a watched
+  folder.
+
+Verification:
+
+- 155 core, 65 default application, 80 feature application and four MIDI-file
+  tests pass;
+- catalogue tests cover UTF-8 BOM, Chinese text, quoted commas, both path
+  separators, absolute/parent traversal, incomplete rows, fallback credits,
+  multi-term search and user metadata precedence;
+- the real 2,053-row catalogue linked every entry with zero invalid rows,
+  produced 2,044 content-unique songs and returned 187 `Bach Mutopia` matches;
+- the full real-corpus scan completed in about 12 seconds on the development
+  machine without blocking the application event thread;
+- default/feature Clippy and Release builds pass with the three existing
+  Windows warnings;
+- implementation commit: `3bbffb3`.
+
+Next:
+
+- add explicit minimum/default/large window variants to native score capture,
+  then audit a licensed dense score/MIDI pair before choosing a reading mode;
+- consider category/source filters only after observing search use with the
+  full corpus;
+- complete the physical standalone Pianoteq route and soak evidence.
 
 ### Cycle 103 — Public development handoff and practice corpus
 

@@ -4,6 +4,54 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-11 — Cycle 104: Source-aware practice library (DONE)
+
+### Outcome
+
+The 2,053-file local practice corpus is now more than a folder of opaque MIDI
+names. Practice Library can search and show its teaching category, composer,
+source and license while preserving the learner's own song information.
+
+### Implemented
+
+- Collected MIDI and `catalog.csv` paths in one guarded recursive traversal.
+- Added read-only `LibraryProvenance` separated from editable `SongMetadata`.
+- Parsed quoted UTF-8 CSV through the pinned `csv 1.4.0` crate.
+- Normalized Windows and portable relative separators, rejected absolute and
+  parent-traversing paths and skipped malformed/incomplete rows independently.
+- Applied catalogue titles only when no user title exists and retained stable
+  first-path provenance when identical MIDI content appears more than once.
+- Added compact category/source/license labels, composer fallback credits and
+  provenance-aware multi-term search to the native library.
+- Added `library-inspect` for deterministic scale, count and search evidence.
+
+### Verification
+
+- 155 core, 65 default application, 80 feature application and four MIDI-file
+  tests pass.
+- Focused tests cover BOM/Unicode, commas, malformed fields, traversal,
+  separators, metadata precedence and visible/searchable summaries.
+- The real corpus contains 2,053 readable MIDI files, 2,044 unique contents,
+  2,053 linked catalogue entries and zero invalid catalogue rows.
+- A real `Bach Mutopia` query returned 187 source-aware results in an
+  approximately 12-second full background scan.
+- Default and `score-verovio` Clippy/Release gates pass with only the three
+  pre-existing Windows warnings.
+
+Implementation commit: `3bbffb3` (`feat: surface practice catalog provenance`).
+
+### Known limitations
+
+- The initial catalogue scan still parses every MIDI to retain content-based
+  identity; the UI reports indexing state but does not yet expose numeric
+  progress.
+- Provenance is compact text rather than a dedicated filter or license detail
+  panel. Search is the intentional first interaction.
+- The Windows UI-control plugin available during this cycle lacked the
+  documentation API required by its own Skill, so visual desktop control was
+  not used as evidence; semantic UI tests and native build gates remain the
+  acceptance boundary.
+
 ## 2026-08-10 — Cycle 103: Public development handoff and practice corpus (DONE)
 
 ### Outcome

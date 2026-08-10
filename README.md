@@ -64,7 +64,8 @@ All binary releases:
 - deterministic feedback covers note accuracy, timing, hands, measures,
   dynamics, duration and pedal, with persisted sessions and recommendations;
 - the local practice library supports watched folders, search, recent songs,
-  favourites, a practice queue, metadata editing and missing-file repair;
+  favourites, a practice queue, metadata editing, source/license provenance
+  from `catalog.csv` and missing-file repair;
 - exercise mode, manual and suggested fingering, free-play recording and
   semantic UI automation are available;
 - paired MusicXML/MXL scores can be aligned to MIDI, rendered through the

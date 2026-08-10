@@ -36,6 +36,18 @@ piece is reported and skipped without invalidating the rest of the catalogue.
 
 ## Product integration status
 
-The native Practice Library can already scan the resulting directory as a
-watched folder. It does not yet import `catalog.csv` categories and license
-fields; that work is tracked as `LIB-007` in the development backlog.
+The native Practice Library scans `catalog.csv` beside watched MIDI folders in
+the same background indexing task. Catalogue title, composer, teaching
+category, source and license are searchable and appear as read-only provenance
+in the song list and information header. User-edited sidecar metadata remains
+authoritative and is never overwritten by catalogue data.
+
+Catalogue paths are treated as untrusted input: absolute paths and parent
+traversal are rejected, both Windows and portable separators are accepted, and
+one malformed row cannot prevent valid songs from loading. Run the real-corpus
+inspection without opening the GPU interface with:
+
+```powershell
+cargo run -q -p neothesia-core --example library-inspect -- `
+  "D:\Music\MusicLib\MIDI" "Bach Mutopia"
+```

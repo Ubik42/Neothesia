@@ -40,7 +40,7 @@ This roadmap borrows outcomes, not implementations:
 | Guided playback | Wait-by-default, hand controls, loops, count-in, adaptive tempo | Editable goals and passage recommendations |
 | Feedback | Note/timing/measure/hand feedback, dynamics, duration and pedal | Calibration and deeper multi-attempt coaching |
 | Learning aids | Falling notes, measures/beats, exercises, fingering, synchronized score prototype | Dense-score reading modes, chords and key/scale context |
-| Repertoire | Watched folders, search, metadata, favourites, queue, missing-file repair | Mastery views and a polished library workflow |
+| Repertoire | Watched folders, search, editable metadata, source/license provenance, favourites, queue, missing-file repair | Category filters, mastery views and a polished library workflow |
 | Progress | Persistent sessions, trends, weak passages and recommendations | Passage-level spaced review and export |
 | Sound | Expressive SoundFont/MIDI output, panic, visible route, standalone Pianoteq workflow | Physical soak evidence and optional VST3 host |
 | Creation | Free-play recording, video CLI and portable song sidecars | Recording review and practice-plan annotations |
