@@ -425,6 +425,19 @@ impl super::MenuScene {
                 {
                     ctx.config
                         .set_output(output.is_not_dummy().then(|| output.to_string()));
+                    let connected_output = match &output {
+                        #[cfg(feature = "synth")]
+                        crate::output_manager::OutputDescriptor::Synth(_) => {
+                            crate::output_manager::OutputDescriptor::Synth(
+                                ctx.config.soundfont_path().cloned(),
+                            )
+                        }
+                        _ => output.clone(),
+                    };
+                    ctx.output_manager.connect(connected_output);
+                    ctx.output_manager
+                        .connection()
+                        .set_gain(ctx.config.audio_gain());
                     data.selected_output = Some(output.clone());
                     self.popup.close();
                 }
@@ -444,12 +457,12 @@ impl super::MenuScene {
             .body(|ui, row_w, row_h| self.settings_output_picker(ui, ctx, row_w, row_h))
             .build(ui, rows);
 
-        let (is_synth, is_midi) = self
+        let (is_synth, is_midi, is_vst3) = self
             .state
             .selected_output
             .as_ref()
-            .map(|o| (o.is_synth(), o.is_midi()))
-            .unwrap_or((false, false));
+            .map(|o| (o.is_synth(), o.is_midi(), o.is_vst3()))
+            .unwrap_or((false, false, false));
 
         if is_synth {
             spacer(ui);
@@ -489,6 +502,31 @@ impl super::MenuScene {
                     .id("gain")
                     .build(ui, rows),
             );
+        } else if is_vst3 {
+            spacer(ui);
+
+            nuon::settings_row()
+                .title("Instrument Editor")
+                .subtitle(
+                    ctx.output_manager
+                        .last_error()
+                        .unwrap_or("Open the plug-in's native controls and presets"),
+                )
+                .body(|ui, row_w, row_h| {
+                    let w = 93.0;
+                    let h = 31.0;
+                    if button()
+                        .x(row_w - w)
+                        .y(nuon::center_y(row_h, h))
+                        .size(w, h)
+                        .label("Open")
+                        .build(ui)
+                        && let Err(error) = ctx.output_manager.open_vst3_editor()
+                    {
+                        log::error!("Failed to open VST3 editor: {error}");
+                    }
+                })
+                .build(ui, rows);
         } else if is_midi {
             spacer(ui);
 

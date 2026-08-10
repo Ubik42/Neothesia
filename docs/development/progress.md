@@ -4,21 +4,55 @@ Updated: 2026-08-11
 
 ## Current milestone
 
-**Core performance, practice and MIDI hardening**
+**Direct Pianoteq VST3 instrument hosting**
 
 Overall state: **IN PROGRESS**
 
 ## Current execution priority
 
-1. physical keyboard → Neothesia → Pianoteq route evidence and long-session
-   transport safety;
-2. MIDI device disappearance/reconnect and device-scoped latency;
-3. representative real-playing acceptance across wait/flow, hands, loops,
-   repeated notes, velocity and continuous pedal;
-4. cached/progressive indexing and repeatable Windows packaging;
+1. complete the direct Pianoteq VST3 path: editor, state, errors and soak tests;
+2. preserve realtime MIDI correctness and stuck-note safety across transport;
+3. MIDI device disappearance/reconnect and device-scoped latency;
+4. cached/progressive indexing; packaging is intentionally not a blocker;
 5. notation expansion only after these paths are dependable.
 
 ## Active cycle
+
+### Cycle 105 — Direct Pianoteq VST3 audio (IN PROGRESS)
+
+Delivered so far:
+
+- selected the MIT-licensed `vst3-host` 0.9.0 foundation after inspecting its
+  realtime, MIDI, state and Windows lifecycle boundaries;
+- added default-on `vst3-hosting` support while retaining a feature switch;
+- discovered standard Windows VST3 bundles and exposed them through the
+  existing output selector and persisted output identity;
+- added direct plug-in loading, audio-device-rate negotiation, non-blocking
+  MIDI queuing, full channel-message translation and deterministic pedal/all
+  notes/all sound shutdown;
+- connected output selection immediately, retained the existing output on a
+  failed plug-in load and exposed the actionable error in Settings;
+- added atomic per-class plug-in state save/restore with a 16 MiB read limit
+  and a native-editor window entry point serviced by the main event loop;
+- added `vst3-diagnostics` for repeatable local load and sound probes.
+
+Verification so far:
+
+- Pianoteq 6 STAGE 6.2.2 loads as an Instrument with MIDI input, one audio
+  output bus and a native editor;
+- a real 48 kHz / 256-sample audio stream accepted C4 note-on/note-off and
+  completed without error;
+- Pianoteq's 87,981-byte component/controller state completed a real in-memory
+  save/restore round trip; atomic file replacement has focused tests;
+- focused conversion, discovery and diagnostic argument tests pass; all
+  application targets compile.
+
+Next:
+
+- verify the complete native UI selection/play/stop/reselect flow and Windows
+  editor window manually or when the UI automation launcher is repaired;
+- verify state restoration after an actual application restart;
+- run velocity, continuous pedal, transport interruption and soak matrices.
 
 ### Cycle 104 — Source-aware practice library
 

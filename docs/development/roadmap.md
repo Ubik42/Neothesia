@@ -42,7 +42,7 @@ This roadmap borrows outcomes, not implementations:
 | Learning aids | Falling notes, measures/beats, exercises, fingering, synchronized score prototype | Dense-score reading modes, chords and key/scale context |
 | Repertoire | Watched folders, search, editable metadata, source/license provenance, favourites, queue, missing-file repair | Category filters, mastery views and a polished library workflow |
 | Progress | Persistent sessions, trends, weak passages and recommendations | Passage-level spaced review and export |
-| Sound | Expressive SoundFont/MIDI output, panic, visible route, standalone Pianoteq workflow | Physical soak evidence and optional VST3 host |
+| Sound | SoundFont/MIDI plus verified direct Pianoteq VST3 audio, panic and visible route | State/editor integration and physical soak evidence |
 | Creation | Free-play recording, video CLI and portable song sidecars | Recording review and practice-plan annotations |
 | UX | Native GPU UI, semantic automation hooks and persisted score controls | First-run setup, accessibility and release polish |
 
@@ -86,20 +86,21 @@ a narrow command/query API.
 Milestone numbers describe capability groups, not the order of current work.
 The active order is now:
 
-1. harden everyday MIDI performance: device loss/reconnect, transport panic,
+1. finish direct Pianoteq VST3 hosting: reliable errors/fallback, state,
+   native editor, transport correctness and long-session audio stability;
+2. harden everyday MIDI performance: device loss/reconnect, transport panic,
    keyboard-specific latency and representative real-hardware acceptance;
-2. prove the external Pianoteq route through recorded 30/60-minute sessions;
-3. remove cold-start friction from the 2,000+ piece library and package a
-   repeatable Windows build;
+3. remove cold-start friction from the 2,000+ piece library; packaging is not
+   a blocker for the local development workflow;
 4. deepen deliberate-practice recommendations only where real session data
    reveals a useful next action;
 5. return to dense-score reading modes and broader MusicXML compatibility
    after the performance path is dependable.
 
 The feature-gated score prototype remains maintained and regression-tested,
-but it is not on the active delivery path. Native VST3 hosting also remains
-behind external-route and audio-boundary evidence rather than leapfrogging
-basic MIDI reliability.
+but it is not on the active delivery path. Direct Pianoteq VST3 hosting is now
+the active sound-source milestone; general-purpose DAW features remain out of
+scope.
 
 ## Milestones
 

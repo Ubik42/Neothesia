@@ -5,7 +5,17 @@ instruments, including Pianoteq, directly inside Neothesia.
 
 ## Current status
 
-Neothesia does **not** currently host VST3 plug-ins.
+Neothesia now has an early, feature-gated Windows VST3 instrument host. It
+discovers bundles in the standard system directory, exposes them beside
+SoundFont and MIDI outputs, translates Neothesia MIDI events and drives the
+plug-in through the default audio device.
+
+The first verified target is the locally installed **Pianoteq 6 STAGE 6.2.2**.
+Its 64-bit VST3 module loads successfully, reports MIDI input and one audio
+output bus, restores its 87,981-byte opaque state snapshot, and produced audio
+from a C4 note-on/note-off acceptance probe at 48 kHz with a 256-sample block.
+This is a usable proof of concept, not yet the fully isolated host described by
+the later phases.
 
 Pianoteq can still be used today in its standalone mode:
 
@@ -133,16 +143,19 @@ on VST3 SDK types.
 - Automated tests cover event ordering, queue overflow policy, panic-safe
   shutdown, and All Notes Off.
 
-### Phase 2 — Windows VST3 proof of concept
+### Phase 2 — Windows VST3 proof of concept (implemented, hardening in progress)
 
 **Goal:** load one explicitly selected VST3 instrument and produce audio.
 
-- Add a build-time `vst3-host` feature.
+- Add a build-time `vst3-hosting` feature. **Done.**
 - Load a plug-in from an explicitly selected VST3 bundle; scanning is deferred.
 - Activate one stereo instrument bus at the audio device's sample rate and
   block size.
-- Translate Neothesia MIDI messages into sample-accurate VST3 events.
-- Implement load, activate, deactivate, unload, and audio-device restart.
+- Translate Neothesia MIDI messages into queued VST3 events without blocking
+  the UI thread. **Done for immediate block delivery; timeline sample offsets
+  remain follow-up work.**
+- Implement load, activate, deactivate and unload. **Done for the normal
+  connection lifecycle; audio-device restart remains follow-up work.**
 - Add a safe timeout/error path that returns the user to SoundFont or MIDI Out.
 - Keep the native plug-in editor optional; a generic status panel is enough.
 
@@ -162,6 +175,12 @@ on VST3 SDK types.
   process.
 - A plug-in failure produces an actionable error and does not corrupt saved
   settings.
+
+Current implementation also preserves the existing output when a new VST3
+load fails, displays the failure in Settings, atomically saves opaque plug-in
+state, restores it on the next instance and exposes the native editor entry
+point. Runtime validation of the Windows editor window remains open because the
+automation environment could not launch the local development executable.
 
 ### Phase 3 — Usable Windows integration
 
@@ -237,8 +256,10 @@ on VST3 SDK types.
 
 ## Dependency strategy
 
-Rust VST3 host libraries should be evaluated with a small throwaway prototype
-before they enter the application dependency graph. Selection criteria:
+The first host implementation uses the MIT-licensed `vst3-host` crate 0.9.0,
+wrapped behind Neothesia's existing `OutputDescriptor`/`OutputConnection`
+boundary. It was selected after a real Windows/Pianoteq load and audio probe,
+not only API inspection. Ongoing selection criteria remain:
 
 - VST3 lifecycle and bus negotiation coverage
 - Sample-accurate event support

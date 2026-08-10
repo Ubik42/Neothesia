@@ -1,6 +1,7 @@
 /target
 **/*.rs.bk
 /settings.ron
+/vst3-state
 /out
 .DS_Store
 node_modules

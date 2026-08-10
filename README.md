@@ -13,9 +13,9 @@ It takes music notes from a MIDI file as an input and displays them as colorful 
 > is deliberate practice, local repertoire management, synchronized notation
 > and a dependable Pianoteq workflow. It is not yet a packaged end-user
 > release; build from source or use the existing local development build.
-> Current execution priority is performance and practice reliability: physical
-> MIDI hardware, transport safety, latency, Pianoteq routing and long-session
-> stability. Further notation work is intentionally deferred.
+> Current execution priority is the direct Pianoteq VST3 instrument path,
+> followed by performance and MIDI reliability. Further notation work is
+> intentionally deferred.
 
 Opensource Synthesia was abandoned in favour of [closed source commercial project](https://www.synthesiagame.com/)  
 The goal of this project is to bring Opensource Synthesia back to life, and make it look and work as good (or even better) than commercial Synthesia.
@@ -76,13 +76,16 @@ All binary releases:
   playback;
 - external MIDI output is suitable for routing into standalone Pianoteq, with
   visible route diagnostics and panic/all-notes-off handling.
+- Windows builds now discover standard VST3 bundles and can load Pianoteq as a
+  direct instrument output with realtime MIDI delivery and native audio.
 
 ### Experimental or not implemented yet
 
 - the engraved-score renderer is a default-off feature and currently requires
   a Node/Verovio worker;
-- direct in-process VST3 hosting, including loading Pianoteq as a plug-in, has
-  not been implemented; standalone Pianoteq routing is the supported path;
+- VST3 hosting is an early Windows implementation: Pianoteq loading and audio
+  are verified, while editor embedding, preset-state restoration, guarded
+  scanning and broad third-party compatibility are still in progress;
 - dense-score reading modes, physical-device soak testing, accessibility
   polish, installer/update packaging and release automation remain roadmap
   work.

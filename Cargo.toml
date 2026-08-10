@@ -50,6 +50,7 @@ winit = "0.30"
 dpi = "0.1"
 rfd = "0.17"
 cpal = "0.18"
+vst3-host = { version = "0.9", default-features = false, features = ["cpal-backend"] }
 fluidlite = { version = "0.2", features = ["builtin"] }
 oxisynth = "0.1.0"
 embed-resource = "3.0"

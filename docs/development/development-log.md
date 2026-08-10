@@ -4,6 +4,37 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-11 — Cycle 105: Direct Pianoteq VST3 audio (IN PROGRESS)
+
+The active sound path moved from standalone routing to direct in-process VST3
+hosting. Neothesia now discovers standard Windows VST3 bundles, exposes them in
+the existing output selector and loads instrument plug-ins through a bounded,
+non-blocking MIDI control queue and CPAL audio stream.
+
+The implementation is feature-gated as `vst3-hosting` but enabled in the local
+default build. MIDI note, pressure, controller, program and pitch-bend events
+are preserved; Note On with zero velocity is normalized to Note Off; output
+switching sends sustain-off, All Notes Off and All Sound Off on all channels.
+A dedicated diagnostic command makes the native plug-in load and sound probe
+repeatable.
+
+Selecting an output now connects it immediately. Failed plug-in loads retain
+the previous output and publish a readable Settings error. Each valid VST3
+class gets an atomically replaced, size-bounded opaque state file, restored on
+the next instance. The native editor window is wired into Settings and serviced
+once per application frame; only its real Windows interaction evidence remains
+open.
+
+Real local verification loaded Pianoteq 6 STAGE 6.2.2 as a VST3 Instrument,
+identified MIDI input, one audio output bus and its native editor, completed an
+87,981-byte state save/restore round trip, then drove a 48 kHz / 256-sample
+audio stream with a C4 note-on/note-off without error. Focused tests and
+all-target compilation pass.
+
+Remaining work in this cycle is native-window interaction evidence, an actual
+application-restart state proof and the full velocity/pedal/transport/soak
+matrix.
+
 ## 2026-08-11 — Product priority: performance before notation
 
 The active roadmap was reordered around the product's primary job: practising

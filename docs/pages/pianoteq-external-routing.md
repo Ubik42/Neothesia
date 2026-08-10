@@ -1,8 +1,8 @@
 # External Pianoteq practice workflow
 
-This is the supported low-friction path to Pianoteq-quality sound before native
-VST3 hosting is implemented. Pianoteq runs as a standalone application and owns
-the audio device; Neothesia sends it MIDI through a virtual MIDI cable.
+This remains a useful fallback and comparison path now that early native VST3
+hosting exists. Pianoteq runs as a standalone application and owns the audio
+device; Neothesia sends it MIDI through a virtual MIDI cable.
 
 ```text
 Physical keyboard
@@ -158,9 +158,10 @@ competing for the same audio device and inspect Pianoteq's performance meter.
 ## Current boundary
 
 This route provides Pianoteq sound but does not embed its editor, audio engine,
-presets or state inside Neothesia. Pianoteq must be started separately. Native
-single-instrument VST3 hosting remains a later, optional phase described in the
-[plug-in hosting roadmap](plugin-hosting-roadmap.md).
+presets or state inside Neothesia. Pianoteq must be started separately. The
+native single-instrument host can now load and play Pianoteq directly, but its
+editor, state restoration and broad compatibility hardening remain in progress
+as described in the [plug-in hosting roadmap](plugin-hosting-roadmap.md).
 
 The diagnostic opens only Neothesia's sending endpoint. It cannot inspect
 Pianoteq's private device selection, confirm that Pianoteq consumed a message

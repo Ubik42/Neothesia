@@ -6,12 +6,13 @@ edition.workspace = true
 default-run = "neothesia"
 
 [features]
-default = ["oxi-synth"]
+default = ["oxi-synth", "vst3-hosting"]
 
 profiling-on = ["profiling/profile-with-puffin", "puffin", "puffin_http"]
 synth = []
 fluid-synth = ["synth", "cpal", "fluidlite", "oxisynth"]
 oxi-synth = ["synth", "cpal", "oxisynth"]
+vst3-hosting = ["synth", "cpal", "dep:vst3-host"]
 score-verovio = ["sha2", "resvg"]
 
 [dependencies]
@@ -35,6 +36,7 @@ winit.workspace = true
 rfd.workspace = true
 
 cpal = { workspace = true, optional = true }
+vst3-host = { workspace = true, optional = true }
 fluidlite = { workspace = true, optional = true }
 oxisynth = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -48,5 +50,13 @@ piano-layout.workspace = true
 [[bin]]
 name = "neothesia"
 
+[[bin]]
+name = "vst3-diagnostics"
+path = "src/bin/vst3-diagnostics.rs"
+required-features = ["vst3-hosting"]
+
 [target.'cfg(target_os = "windows")'.build-dependencies]
 embed-resource.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }

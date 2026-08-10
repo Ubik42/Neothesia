@@ -224,8 +224,17 @@ performance/MIDI reliability items above have physical-device evidence.
 
 ## RESEARCH — architecture spikes
 
-- [ ] `AUD-R01` Compare maintained Rust VST3 host libraries with Pianoteq.
-- [ ] `AUD-R02` Prototype the block audio boundary behind a feature flag.
+- [x] `AUD-R01` Compare maintained Rust VST3 host libraries with Pianoteq.
+- [x] `AUD-R02` Prototype the block audio boundary behind a feature flag.
+- [x] `AUD-001` Surface VST3 load/audio failures in the native UI and fall back
+  safely without losing the previous output.
+- [x] `AUD-002` Persist and atomically restore Pianoteq component/controller
+  state.
+- [ ] `AUD-003` Runtime-validate opening, resizing and closing Pianoteq's native
+  editor on Windows (implementation is wired).
+- [ ] `AUD-004` Preserve timeline sample offsets through the VST3 event queue.
+- [ ] `AUD-005` Complete velocity, CC64 half-pedal, transport, reselect and
+  two-hour soak acceptance.
 - [x] `UI-R01` Define semantic UI action IDs for reliable automation.
 - [x] `UI-R03` Add a debug-only semantic action channel and practice snapshot.
 - [x] `UI-R04` Return accepted/rejected results for debug semantic actions.
