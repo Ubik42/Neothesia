@@ -1,12 +1,21 @@
 # Development progress
 
-Updated: 2026-08-11
+Updated: 2026-08-15
+
+## Project status
+
+**PAUSED BY OWNER — 2026-08-15**
+
+Feature development is intentionally paused while work shifts to the local
+MIDI preparation and score-conversion toolchain. The branch remains at the
+Cycle 105 checkpoint below; no packaging or notation work should start until
+the owner explicitly resumes development.
 
 ## Current milestone
 
 **Direct Pianoteq VST3 instrument hosting**
 
-Overall state: **IN PROGRESS**
+Overall state: **PAUSED (implementation checkpoint preserved)**
 
 ## Current execution priority
 

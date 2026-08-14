@@ -4,6 +4,13 @@ This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
 
+## 2026-08-15 — Development paused at Cycle 105
+
+The owner paused Neothesia feature development to focus on the reusable MIDI
+preparation and PDF-score conversion workflow. The current VST3 implementation,
+open verification items and working branch are preserved without further code
+changes. Resume only after an explicit owner decision.
+
 ## 2026-08-11 — Cycle 105: Direct Pianoteq VST3 audio (IN PROGRESS)
 
 The active sound path moved from standalone routing to direct in-process VST3
