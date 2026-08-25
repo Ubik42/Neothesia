@@ -1,97 +1,102 @@
-![Neothesia Baner](https://github.com/user-attachments/assets/383438e5-80cd-49d2-af30-85afe5d79c6b)
-
+<p align="center">
+  <img src="assets/banner.png" alt="Neothesia" width="760">
+</p>
 
 # Neothesia
 
-Neothesia is a cross-platform MIDI visualizer build in Rust.
-It helps people to quickly learn how to play piano.
-It takes music notes from a MIDI file as an input and displays them as colorful falling blocks on a virtual piano.
+面向本地钢琴练习的跨平台 MIDI 可视化与训练工具。本仓库是在开源项目 [PolyMeilex/Neothesia](https://github.com/PolyMeilex/Neothesia) 基础上长期维护的个人分支，重点不只是播放“瀑布流”，而是把选曲、分段练习、演奏反馈、乐谱跟随和 Pianoteq 音源连接成一套稳定的日常练琴流程。
 
-> [!IMPORTANT]
-> This branch is an independently maintained piano-learning fork. It is 207
-> commits ahead of upstream and is under active development. The current focus
-> is deliberate practice, local repertoire management, synchronized notation
-> and a dependable Pianoteq workflow. It is not yet a packaged end-user
-> release; build from source or use the existing local development build.
-> Current execution priority is the direct Pianoteq VST3 instrument path,
-> followed by performance and MIDI reliability. Further notation work is
-> intentionally deferred.
+> **当前状态：暂停开发。** 功能停留在 2026-08-15 的 Cycle 105 检查点。现有练习功能可以从源码运行；Pianoteq VST3 直连仍属于进行中的 Windows 实现，不应视为已经打包完成的正式版本。
 
-Opensource Synthesia was abandoned in favour of [closed source commercial project](https://www.synthesiagame.com/)  
-The goal of this project is to bring Opensource Synthesia back to life, and make it look and work as good (or even better) than commercial Synthesia.
+![Neothesia playback interface](https://github.com/PolyMeilex/Neothesia/assets/20758186/65483bab-0b74-4fd4-90b1-fdd00508b676)
 
-If you have any questions, feel free to join my Discord
+## 这个分支解决什么问题
 
-[<img alt="Discord" src="https://img.shields.io/discord/273176778946641920?logo=discord&style=for-the-badge&color=%23a051ee">](https://discord.gg/sgeZuVA)
+普通 MIDI 可视化器适合跟弹，却很难回答“这一段为什么总弹不好、下次应该练什么”。这个分支把练习过程拆成可恢复、可度量的闭环：
 
-## Screenshots
+```text
+本地曲库 → 选择段落与左右手 → 等待正确音符 / 自适应速度
+        → 音准、节奏、力度、时值、踏板反馈 → 保存练习记录与建议
+```
 
-![image](https://github.com/PolyMeilex/Neothesia/assets/20758186/65483bab-0b74-4fd4-90b1-fdd00508b676)
+所有曲库、设置与练习记录保留在本地。模型、账号和云端服务都不是日常练习的前置条件。
 
-[![Video](https://github.com/PolyMeilex/Neothesia/assets/20758186/dc564433-aade-4430-b137-5f90000ae9e0)](https://youtu.be/ReE9nVuMCSE)
+## 已实现能力
 
-|![settings](https://github.com/PolyMeilex/Neothesia/assets/20758186/e38642e2-6118-4931-9964-a1df27a36db9)|![track selection](https://github.com/PolyMeilex/Neothesia/assets/20758186/2309d970-0234-45ff-a9f4-105ff08514af)|
-|--|--|
+- **专注练习**：等待音符模式、左右手筛选、小节循环、预备拍、节拍细分与自适应速度。
+- **可解释反馈**：分别统计音准、时机、左右手、小节、力度、时值与踏板表现，并保存练习会话和改进建议。
+- **本地曲库**：监视多个文件夹，支持搜索、最近曲目、收藏、练习队列、元数据编辑、来源与许可证记录，以及缺失文件修复。
+- **MIDI 与乐谱配对**：可关联 MusicXML/MXL，使用可选的 Verovio 渲染乐谱，并在播放时翻页、定位和高亮当前音符。
+- **指法与自由演奏**：支持手动/建议指法、练习模式以及自由演奏录制。
+- **外部音源**：可把实时 MIDI 安全地路由到独立运行的 Pianoteq，包含暂停、跳转和退出时的 all-notes-off / pedal-up 保护。
+- **实验性 VST3 托管**：Windows 下能够发现并加载 Pianoteq VST3、发送实时 MIDI 和输出音频；编辑器嵌入、重启后的状态恢复和第三方兼容性仍待完整验证。
 
-[Video](https://youtu.be/ReE9nVuMCSE)
+## 乐谱与练习界面
 
-## Download
+[![Neothesia demonstration video](https://github.com/PolyMeilex/Neothesia/assets/20758186/dc564433-aade-4430-b137-5f90000ae9e0)](https://youtu.be/ReE9nVuMCSE)
 
-<a href="https://flathub.org/apps/details/com.github.polymeilex.neothesia"><img width="240" alt="Download on Flathub" src="https://flathub.org/assets/badges/flathub-badge-en.png"/></a>
+上面的公开视频展示上游项目的基础播放界面。本分支新增的刻谱视图、语义高亮、曲库来源信息和 Pianoteq 工作流以代码、自动化检查与开发记录为准，详见[开发进度](docs/development/progress.md)。
 
-Arch Linux (**Unofficial AUR** built from source, maintained by @zayn7lie): <https://aur.archlinux.org/packages/neothesia>
+## 从源码运行
 
-All binary releases:
-[https://github.com/PolyMeilex/Neothesia/releases](https://github.com/PolyMeilex/Neothesia/releases)
+需要 Rust 工具链以及各平台对应的音频/MIDI 运行环境。
 
-## FAQ
+```powershell
+git clone https://github.com/Ubik42/Neothesia.git
+cd Neothesia
+cargo run --release
+```
 
-- [FAQ](https://polymeilex.github.io/Neothesia/pages/installation.html)
-- [Video encoding](https://polymeilex.github.io/Neothesia/pages/video-encoding.html)
+常用验证：
 
-## Development roadmap
+```powershell
+cargo test
+cargo clippy --all-targets
+```
 
-- [Current development status](docs/development/progress.md)
-- [Sustained piano-learning plan](docs/development/README.md)
-- [Product and engineering roadmap](docs/development/roadmap.md)
-- [Ordered backlog](docs/development/backlog.md)
-- [Piano plug-in hosting (VST3 and Pianoteq)](docs/pages/plugin-hosting-roadmap.md)
-- [External Pianoteq practice workflow](docs/pages/pianoteq-external-routing.md)
-- [Public practice-library sources and sync](docs/pages/practice-library.md)
+刻谱功能使用可选的 Node/Verovio worker；Pianoteq 既可以通过虚拟 MIDI 端口独立运行，也可以在 Windows 上试用当前的 VST3 托管实现。配置与边界见：
 
-### What works in this fork
+- [MusicXML 与刻谱架构](docs/pages/musicxml-architecture.md)
+- [外部 Pianoteq 路由](docs/pages/pianoteq-external-routing.md)
+- [VST3 托管路线图](docs/pages/plugin-hosting-roadmap.md)
 
-- wait-for-notes practice is the default and can be switched during playback;
-- measure numbers, optional beat subdivisions, hand selection, loops, count-in
-  and adaptive tempo support focused passage practice;
-- deterministic feedback covers note accuracy, timing, hands, measures,
-  dynamics, duration and pedal, with persisted sessions and recommendations;
-- the local practice library supports watched folders, search, recent songs,
-  favourites, a practice queue, metadata editing, source/license provenance
-  from `catalog.csv` and missing-file repair;
-- exercise mode, manual and suggested fingering, free-play recording and
-  semantic UI automation are available;
-- paired MusicXML/MXL scores can be aligned to MIDI, rendered through the
-  optional Verovio feature, followed across pages and highlighted during
-  playback;
-- external MIDI output is suitable for routing into standalone Pianoteq, with
-  visible route diagnostics and panic/all-notes-off handling.
-- Windows builds now discover standard VST3 bundles and can load Pianoteq as a
-  direct instrument output with realtime MIDI delivery and native audio.
+## 本地练习曲库
 
-### Experimental or not implemented yet
+仓库提供同步脚本，但不把第三方曲库打包进发行版：
 
-- the engraved-score renderer is a default-off feature and currently requires
-  a Node/Verovio worker;
-- VST3 hosting is an early Windows implementation: Pianoteq loading and audio
-  are verified, while editor embedding, preset-state restoration, guarded
-  scanning and broad third-party compatibility are still in progress;
-- dense-score reading modes, physical-device soak testing, accessibility
-  polish, installer/update packaging and release automation remain roadmap
-  work.
+```powershell
+.\scripts\sync-practice-library.ps1
+```
 
-## Thanks to
+脚本可以建立带来源和许可证记录的本地曲库。当前流程覆盖 MAESTRO、Mutopia 与受控数量的 Pop-K 条目；这些来源的许可条件并不相同，尤其部分数据集包含非商业限制。具体说明见[公开练习曲库](docs/pages/practice-library.md)。
 
-- [WGPU](https://wgpu.rs/)
-- [Linthesia](https://github.com/linthesia/linthesia)
-- [Synthesia](https://github.com/johndpope/pianogame)
+## 当前边界
+
+- 项目尚未提供本分支的正式安装包或自动更新流程。
+- 刻谱渲染默认关闭，并依赖 Node/Verovio worker。
+- Pianoteq VST3 已验证加载、实时 MIDI、音频和状态往返，但完整 UI、重启恢复、长时间稳定性和广泛插件兼容性仍需人工验收。
+- 物理 MIDI 设备掉线重连、无障碍细节和大曲库渐进索引仍在路线图中。
+
+## 工程结构
+
+| 目录 | 职责 |
+| --- | --- |
+| `neothesia/` | 桌面应用、场景与交互 |
+| `neothesia-core/` | 练习、曲库、乐谱、反馈与渲染核心 |
+| `midi-file/` / `midi-io/` | MIDI 文件播放与设备输入输出 |
+| `piano-layout/` | 键盘布局 |
+| `docs/` | 使用说明、架构与逐周期开发证据 |
+| `scripts/` | 曲库同步、兼容性检查与练习流程验证 |
+
+## 开发文档
+
+- [当前开发状态](docs/development/progress.md)
+- [开发文档入口](docs/development/README.md)
+- [路线图](docs/development/roadmap.md)
+- [有序 Backlog](docs/development/backlog.md)
+- [快捷键](docs/pages/shortcuts.md)
+- [指法建议](docs/pages/fingering-suggestions.md)
+
+## 上游与许可证
+
+本项目延续 [PolyMeilex/Neothesia](https://github.com/PolyMeilex/Neothesia) 的开源工作，并使用 WGPU、Linthesia、Synthesia 等项目提供的技术与设计参考。许可证见 [LICENSE](LICENSE)。
