@@ -1,0 +1,22 @@
+[package]
+name = "neothesia-engine"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+neothesia-core = {workspace=true,features=["vst3-hosting"]}
+midi-file.workspace = true
+midir.workspace = true
+cpal.workspace = true
+oxisynth.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+csv.workspace = true
+blake3.workspace = true
+zip.workspace = true
+quick-xml.workspace = true
+tiny_http = "0.12"
+
+[[bin]]
+name = "neothesia-service"
+path = "src/main.rs"

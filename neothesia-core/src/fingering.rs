@@ -1,8 +1,13 @@
 use std::time::Duration;
+mod alternatives;
+pub use alternatives::{validate_substitution_plan,FingerSubstitution,suggest_fingering_plans_with_substitutions,FingeringPlan, FingeringSearchFailure, suggest_fingering_plans, suggest_fingering_plans_at_rate, suggest_fingering_plans_for_indices};
+mod review;
+pub use review::{FingeringReview, FingeringReviewKind, review_fingering_plan};
+use review::timed_movement_cost;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FingeringHand {
     Right,
     Left,
@@ -50,7 +55,7 @@ impl HandSpanProfile {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FingeringNote {
     pub pitch: u8,
     pub onset: Duration,
@@ -703,13 +708,18 @@ fn suggest_run(
 }
 
 fn rapid_repeated_transition(notes: &[FingeringNote], note_index: usize) -> bool {
+    rapid_repeated_transition_at_rate(notes, note_index, 1.0)
+}
+
+fn rapid_repeated_transition_at_rate(notes: &[FingeringNote], note_index: usize, rate: f64) -> bool {
     if note_index == 0 || notes[note_index - 1].pitch != notes[note_index].pitch {
         return false;
     }
     let current_gap = notes[note_index]
         .onset
         .saturating_sub(notes[note_index - 1].onset);
-    if current_gap > RAPID_REPEAT_MAX_INTERVAL {
+    let threshold = Duration::from_secs_f64(RAPID_REPEAT_MAX_INTERVAL.as_secs_f64() * rate);
+    if current_gap > threshold {
         return false;
     }
     let rapid_before = note_index >= 2
@@ -717,10 +727,10 @@ fn rapid_repeated_transition(notes: &[FingeringNote], note_index: usize) -> bool
         && notes[note_index - 1]
             .onset
             .saturating_sub(notes[note_index - 2].onset)
-            <= RAPID_REPEAT_MAX_INTERVAL;
+            <= threshold;
     let rapid_after = notes.get(note_index + 1).is_some_and(|next| {
         next.pitch == notes[note_index].pitch
-            && next.onset.saturating_sub(notes[note_index].onset) <= RAPID_REPEAT_MAX_INTERVAL
+            && next.onset.saturating_sub(notes[note_index].onset) <= threshold
     });
     rapid_before || rapid_after
 }
@@ -829,7 +839,7 @@ fn transition_reason(
         return FingeringReason::RepeatedNote;
     }
     let pitch_delta = i16::from(next_pitch) - i16::from(prior_pitch);
-    if pitch_delta.unsigned_abs() > 12 {
+    if pitch_delta.unsigned_abs() > 12 || prior_finger == next_finger {
         return FingeringReason::PositionShift;
     }
     let outward = match hand {
@@ -840,6 +850,8 @@ fn transition_reason(
         FingeringReason::ThumbUnder
     } else if !outward && prior_finger == 1 && next_finger >= 2 {
         FingeringReason::FingerOver
+    } else if (outward && next_finger < prior_finger) || (!outward && next_finger > prior_finger) {
+        FingeringReason::PositionShift
     } else {
         FingeringReason::InPosition
     }

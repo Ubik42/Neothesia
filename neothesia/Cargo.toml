@@ -12,7 +12,7 @@ profiling-on = ["profiling/profile-with-puffin", "puffin", "puffin_http"]
 synth = []
 fluid-synth = ["synth", "cpal", "fluidlite", "oxisynth"]
 oxi-synth = ["synth", "cpal", "oxisynth"]
-vst3-hosting = ["synth", "cpal", "dep:vst3-host"]
+vst3-hosting = ["synth", "cpal", "dep:vst3-host", "neothesia-core/vst3-hosting"]
 score-verovio = ["sha2", "resvg"]
 
 [dependencies]

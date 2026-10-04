@@ -302,7 +302,7 @@ pub fn align_score_occurrences(
 ) -> ScoreMidiAlignment {
     let mut score_by_pitch: BTreeMap<u8, Vec<ScoreCandidate>> = BTreeMap::new();
     let mut result = ScoreMidiAlignment::default();
-    let mut reference_navigation: Option<Vec<(u32, u16)>> = None;
+    let mut reference_navigation: Option<Vec<(u32, u16, ScoreTime, ScoreTime)>> = None;
 
     for part in &score.parts {
         let plan = build_playback_plan(part, limits);
@@ -322,7 +322,14 @@ pub fn align_score_occurrences(
         let signature: Vec<_> = plan
             .visits
             .iter()
-            .map(|visit| (visit.source_measure_ordinal, visit.repeat_pass))
+            .map(|visit| {
+                (
+                    visit.source_measure_ordinal,
+                    visit.repeat_pass,
+                    visit.source_start,
+                    visit.source_end,
+                )
+            })
             .collect();
         if let Some(reference) = &reference_navigation {
             if *reference != signature {

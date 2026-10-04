@@ -5,3 +5,12 @@
 /out
 .DS_Store
 node_modules
+/work
+/neothesia-web/dist
+/neothesia-web/test-results
+/neothesia-web/playwright-report
+*.tsbuildinfo
+
+# Local verification and distribution artifacts
+/outputs
+/test-results

@@ -1,8 +1,215 @@
 # Development log
 
+### Cycle 123 — 谱面音符指法、推荐解释与反复位置编辑（2026-10-02）
+
+- MusicXML/MXL 乐谱中的可信音符对应增加准确音轨/原始音符索引及原谱指法；谱面点选或键盘 Enter/空格进入编辑，与键盘共用保存数据和编辑模式。
+- 谱面侧栏显示原谱/当前练习指法、所属声部和小节；可逐音指定左右手、选择 1–5 指、清除个人覆盖、查看当前手型的推荐原因/评分、采用建议、打开和弦/选段建议，以及撤销上一笔指法。
+- 同一个书面谱音有多个演奏位置时按小节选择，默认只修改当前演奏位置；“全部应用”明确将修改应用到所有已映射位置，作为同一笔保存和撤销。多个位置指法不同显示如 2/4；原谱印刷标记保留，彩色练习指法可显示/隐藏。
+- 新的内容绑定批量编辑和撤销命令：实际曲目身份核对、重复音符/无效编号/清除索引校验，出错不写部分结果；一次最多 4096 音符，保留现有最多 30 笔内存撤销。没有可信映射的谱音不猜测编辑，未分手的音符先明确手别再推荐。
+- 修复 Verovio HTML5 的 data-id 未用于实际定位和高亮，以及演奏状态刷新重写 SVG 造成标记消失的问题；纸面内容稳定复用。映射查找和谱面音符查找使用索引；侧栏按实际区域高度滚动，空心符头可直接点选。
+- 验证：新增原子编辑/清除/身份保护/撤销引擎检查通过；真实后端与真实 Verovio 流程通过点选、保存/清除/撤销、原谱保留、逐音分手、较大手型推荐/原因/接受、显示隐藏及重开恢复。反复谱音两次位置分别 2/4、全部改 5/5、一次撤销回 2/4 的流程通过。前端生产构建通过；桌面打包和独立数据目录窗口检查 PASS，包含前端/IPC、12913 首曲库、音源、乐谱 WASM、PDF 渲染与 MIDI 连接；本机运行版及便携包已同步。
+- 开放：多个备选指法、重要位置简化显示、整段演示、乐句/持音换指/身体约束评估、改写导出原谱、PDF 小节映射及附件携带。长期目标 active，无提交或推送。
+
+### Cycle 122 — PDF / 图片谱面、版本浏览与阅读状态（2026-10-02）
+
+- 谱面管理新增 PDF / 图片页签：多份版本、重命名、移除登记、当前版本选择；桌面多文件选择和 Web 上传共用内容绑定目录，逐项报告错误。单份 48 MB，每曲登记总量 240 MB，最多 40 份版本；图片谱面最多 80 页。
+- 导入副本保存在软件数据目录，按曲目内容身份关联，与原文件路径分开；验证格式签名、读取时核对哈希。PDF 独立版本，多张图片组成一份版本，支持追加、前移/后移、移除单页。移除登记保留副本和原件，不清理缓存。
+- 主练习区新增“谱页”：真实 PDF 逐页渲染、图片浏览，页码/上一页/下一页、适合宽度、25–300% 缩放、90° 旋转；版本、页码、缩放及旋转保存，重新打开恢复。PDF 密码入口、不支持/损坏/缺失与内容改变均显示错误。
+- 曲库管理显示 PDF / 图片版本数和名称，并纳入有谱面筛选。MusicXML/MXL 演奏谱面仍独立管理和定位。PDF/图片手动翻页，不自动映射音符、小节或跟随演奏。
+- PDF.js 6.3.289 按需加载，worker、CMaps、标准字体和 WASM 全部随程序打包，附许可证；PDF 画布与图片渲染限制像素规模。桌面检查增加实际 PDF 页面渲染与像素校验。
+- 验证：40 项引擎检查通过；真实后端界面流程通过双页 PDF、页码/缩放/旋转保存、名称修改、两页图片导入/重排、主练习区阅读与刷新恢复；补充像素检查确认 PDF 实际绘制，前端生产构建通过。桌面打包与独立数据目录窗口检查 PASS，包含前端/IPC、12913 首曲库、音源、乐谱 WASM、真实 PDF 页面像素和已连接 MIDI；本机运行版与便携包已更新。
+- 开放：曲库内直接展开全部谱面版本、PDF/图片随 .neopiece 携带、缓存清理/回收、PDF 与小节映射/自动翻页、谱页标记/手写和谱面指法编辑。长期目标 active；无提交、推送或发布。
+
+### Cycle 121 — 缺失文件处理、重复副本与常用位置（2026-10-02）
+
+- 曲库管理新增“文件位置”：按曲目内容身份汇总缺失、重复、待核对和已处理位置，搜索、分页、检查本页、逐项及批量关联；一次最多 100 项，显示各项成功、失败和附加信息警告。
+- 新位置按实际 MIDI 内容核对；同名但内容不同拒绝关联。桌面可以选择未登记的外部 MIDI。关联只更新曲库信息，不切换当前演奏。
+- 保留旧位置记录、分组和评级；从旧文件恢复指法/分手等附加信息，优先保留目标已有的有效附加信息与非空元数据，合并标签和分组。附加信息不可写或有冲突时明确报告；不删除实际 MIDI。
+- 重复内容可设置/撤销常用位置、合并显示、恢复路径显示。收藏、历史和计划使用常用可用位置，仍实际核对内容；旧位置被另一首替换时归档原身份，不把原曲分组和评级传给新曲。
+- 缺失或已替换的旧位置可以忽略，并在“已处理”恢复显示。忽略旧身份不隐藏同一路径的新曲；历史保留。合法可用副本要求使用合并显示。
+- 验证：前一批 37 项引擎检查通过；本批补充后 5 项文件修复检查通过，覆盖错误内容拒绝、部分成功、有效身份归档、反向合并和忽略恢复。真实后端界面流程通过批量部分失败、指法/收藏/历史恢复、常用位置、合并/恢复显示与键盘返回；前端生产构建通过。桌面打包与独立数据目录窗口检查 PASS（12913 首曲库、前端/IPC、音源、乐谱 WASM 与已连接 MIDI）；本机运行版及便携包已同步。
+- 开放：谱面 PDF/图片附件、MusicXML 原件变化更新、谱面上的指法编辑/解释、各音轨控制、复习排程及计划备份。长期目标 active；未声称 Synthesia 全部复刻，无提交或推送。
+
+### Cycle 120 — 本地文件自动发现、改名恢复与目录重连（2026-10-02）
+
+- 新增独立后台曲库更新服务，桌面与 Web 服务共用实现。定期扫描登记的 MIDI 文件夹，检查已索引 MIDI/附加信息和目录清单变化；新/改写文件经两次稳定观察后再解析，按小批次更新缓存。曲目发现和解析不进入音乐时钟线程，不自动切曲或改当前练习条件。
+- 新文件自动出现并补索引；移除/断开保留内容身份、元数据、分组/评级和历史；目录不可读时保留上次目录并显示原因，恢复后重新检查/解析。首次发现列表持久保存，重启仍可显示此前未完成解析的断开文件。移除登记停止目录发现，已有索引/历史保留。
+- 同内容改名可继承分组/评级，并在新位置没有附加信息时恢复原指法/分手/拍号/当前谱面关联；新位置有效附加信息优先，不覆盖冲突或损坏信息。同路径换另一内容会重置旧分组/评级，并拒绝按旧曲目身份打开。收藏、历史恢复和日课打开会查找已索引的新路径，再实际解析核对内容，而非相信文件名称。
+- “曲库管理”显示自动更新开关、上次检查、当前解析、剩余文件及需要处理的原因。开关持久保存；暂停自动更新时仍可点立即检查，完成该次发现/稳定确认/解析。主曲库列表自动跟随更新；失效目录在文件夹栏及缺失文件筛选中可见。修正开关返回旧状态的反馈问题，后台失败按间隔重试。
+- 验证：33 项引擎通过，包含自动发现/改名/内容替换/断开恢复/移除登记；随后新增收藏和历史使用新路径、内容替换拒绝的针对性检查通过。真实后端界面整段流程通过自动发现、改名指法恢复、播放条件保持、暂停/手动检查、目录恢复和内容替换拒绝；补充检查用真实扫描时间和目录错误确认断开/恢复已被后台观察。开关暂停在实际服务重启后保留。前端生产构建、桌面打包与独立数据目录窗口检查 PASS（12913 首曲库、前端/IPC、音源、乐谱 WASM 与 MIDI 连接）；稳定运行版和便携包更新。
+- 范围：自动发现为 MIDI/midi 文件；MusicXML/MXL 原件变化后重新生成演奏、谱面/附件变更通知、缺失文件统一修复和重复路径合并仍开放。长期目标 active，无提交或推送。
+
+### Cycle 119 — 曲库字段搜索、练习筛选与键盘操作（2026-10-02）
+
+- 可限定曲名、作曲家、演奏者、曲集、标签、难度、备注、路径或来源/类别；支持多词同时匹配、双引号短语和负词排除。
+- 叠加文件状态/分组、最低评级、时长上下限及已有成绩/尚无成绩/收藏/待复习筛选；缺少时长不冒充 0，范围倒置提示；可清除筛选。
+- 按曲名、作曲家、难度、评级、时长、最近实际成绩、保留次数、小节数、音符数和路径排序；升/降可切换，未知值始终最后，标题/路径保持稳定顺序。常用列标题可点选。成绩日期与打开日期分开；每曲最多保留 200 次成绩，界面提示限制。
+- 查询、字段、排序和组合筛选本机保存。方向键、Home/End、Ctrl+Home/End、PageUp/PageDown 跨页定位；Shift 连选可反向收缩；Ctrl+A 或选择全部结果选择全部筛选结果，原本页选择保留。
+- 验证：真实后端检查通过字段/备注/排除短语、实际成绩排序、收藏和已练/未练、评级/时长、视图保存与窄窗口；键盘首次连选起点已修正，取消按钮合并。全库检查通过首尾跨页、51 首连选和反向收缩。列标题排序与宽/窄截图验收通过。前端生产构建、桌面打包和独立数据目录窗口检查 PASS（12913 首曲库、前端/IPC、音源、乐谱 WASM 与 MIDI 连接）；稳定运行版和便携包同步更新。已索引替换文件按内容身份查成绩，不继承旧路径成绩。
+- 仍开放：自动文件更新、缺失文件统一处理、重复路径管理、谱面附件、复杂导航、谱面指法编辑/解释、多音轨设置、自动复习和备份。长期目标 active。
+
+### Cycle 118 — 常用计划、按日期安排与真实达标推进（2026-10-02）
+
+- 新增“练习计划”工作区：常用模板与某一天的安排分开，支持新建/改名/备注、复制为模板、移除模板、项目添加/编辑/排序/移除。移除模板保留已经建立的日期安排；各日期保存独立项目快照和成绩进度。
+- 项目可捕获当前曲目/选段、命名练习段落或完整速度阶梯规则，保存实际声部/左右手、模式、速度、预备、节拍器、输入校准、生成变体、网格和评分范围；计划中的阶梯不依赖原方案继续存在。可以搜索换另一首曲目或选择最近生成练习，再加入项目。
+- 项目要求包含文字说明、累计或连续达标次数、正确率、可选准时率和本次轮数上限。使用实际整轮结果及目标音符覆盖判断，等音不评价准时率；阶梯在目标级达标才完成。未达标可以继续当前项目，轮数到上限可中断后继续。跳过单独记录原因，不计达标。
+- 主界面显示当天计划、项目顺序、要求和达标次数，完成后明确打开下一项，不自动切曲演奏。保存重启后进度仍在；打开项目从该范围开始新的一轮，不恢复半轮为完整成绩。普通等音/连续项目可重复整曲或片段，完整演奏/背谱仍每次单遍，按完成次数计目标。
+- 计划执行期间保护评分条件和提前保存/录音；切到其他曲目会结束本项并保留进度。原文件内容身份、网格和逐音分手核对后才恢复，改变时要求重新捕获。修改当天目标/条件重置本项进度，历史保留；只改名称/说明保留次数。历史保存当时计划、日期、项目、要求和目标。
+- 界面项目行可直接打开练习；计划信息默认折叠，返回安排自动选中正在练习的项目。教师要求与跳过原因分开。模板首次使用时复制到日期，随后模板变更不改已有日期安排。
+- 验证：32 项引擎通过，新增实际计分/中断重启/日期隔离/模板变化与移除、阶梯原方案移除后的快照执行；之后补充的未建立日期预览复制检查通过同一针对性检查。真实后端界面流程通过模板排序、日期执行、弹对达标、下一项、跳过与日期隔离；小范围界面调整后使用新数据目录再次通过。前端生产构建和桌面打包通过；独立数据目录实际窗口检查 PASS（12913 首曲库、前端/IPC、真实音源、乐谱 WASM 与已连接 MIDI）。练后选段重练先结束计划/阶梯并保存进度。稳定运行版、快捷入口及便携包已同步更新。
+- 仍开放：自动薄弱片段排程、周期重复/时长目标、计划及阶梯携带/备份、文件系统自动更新、缺失文件统一处理、谱面附件/指法编辑和复杂乐谱导航。长期目标 active；无提交、推送或发布。
+
+
+### Cycle 117 — 可保存的速度阶梯与逐轮晋级（2026-10-02）
+
+- 新增每曲多个命名速度阶梯方案：小节范围、起始/目标速度、步长、连续达标轮数、正确率、可选准时率、重复/回退规则及本次轮数上限。保存当前模式、音轨、分手、预备、节拍器和校准设置；等音不允许准时率门槛。
+- 使用真实整轮计分晋级，必须覆盖该范围目标音符；正确率包含错音/漏音，连续模式准时率以正确音符为分母。目标级也要达标才完成；未达标清除连续达标次数，可按设定回退一级；轮数到上限后停止并保留进度。
+- 主界面显示当前级别、速度、连续达标次数、晋级标准、总轮数及最近结果。阶梯期间保护速度、音轨、分手、小节网格、导航和录音/提前保存，避免悄悄改变评分条件。普通自动提速在阶梯内关闭。
+- 每方案进度独立保存，暂停继续当前轮，结束/关闭后可从已保存的级别继续；应用方案不自动演奏，重启不自动启用阶梯。可从首级重练、编辑或移除；仅改名保留进度，改变条件会清除原进度。网格或逐音分手改变时需核对并重新保存。
+- 历史记录保存所属方案、当轮级别、实际速度与目标速度。低于方案目标速度的成绩不作为复习掌握证据；完整达标与部分结果仍区分。生成器变体按方案恢复。
+- 验证：核心规则检查覆盖连续达标、最后一级、不整除步长、准时率不达标回退、部分结果拒绝和轮数限制/继续；真实引擎检查覆盖实际 MIDI 判定晋级、保护、保存重启/继续、仅改名保留、两级历史与网格变更拒绝。真实界面流程通过新建/保存、弹对晋级、结束/继续和目标级完成。前端生产构建和桌面打包通过；独立数据目录实际窗口检查 PASS（12913 首曲库、前端/IPC、真实音源、乐谱 WASM 与 MIDI 连接）。稳定运行版、快捷入口及便携包已同步更新。
+- 仍开放：日常计划/复习安排、阶段目标、阶梯方案随曲目包携带、书面与反复位置对应、文件监听、谱面附件/指法编辑、历史备注与备份。长期目标 active；无提交、推送或发布。
+
+
+### Cycle 116 — 可检索历史、同条件比较与练习恢复（2026-10-02）
+
+- 历史改为后端筛选与分页，支持曲名/路径、模式、手别、全曲/选段及日期；每页 50 条，不再全局截断为最近 200 条。每首曲目的存储上限仍为 200 次，并在界面明确说明。
+- 单次详情显示当时成绩、完成范围、目标音符数、声部设置、预备/节拍器/速度及逐小节/分手证据。可按小节或错漏排序；连续/完整演奏/背谱显示节奏、和弦、时值及力度摘要。部分保存不会冒充整曲完成，也不会成为新记录的复习掌握证据。
+- 新记录增加稳定记录 ID 和不可变练习条件，兼容旧 RON。上次/最佳/最近走势只使用此前同曲目、模式、手别、选段、速度、有效 BPM、评分范围、实际生成器变体、声部/伴奏、节拍器、延迟、自适应与相同完成量的记录。旧记录缺失条件不伪造。
+- 可打开原曲、恢复那次速度/音轨/分手/预备/节拍器/模式/选段/轮数/延迟，或从历史小节切到连续模式重练；不会自动开始播放。生成练习恢复当时实际速度、遍数及手别变体，避免使用最新生成器方案替代。
+- 打开前核对原文件内容身份；小节/逐音分手改变时仅打开当前曲目并提示未恢复旧条件，不覆盖现有标注。录音期间禁止切换，恢复期间窗口关闭受保护。
+- 验证：28 项引擎与 25 项历史兼容检查通过，后续新增的生成变体/部分结果复习检查连同 2 项历史检查通过；真实后端界面流程已通过筛选、同条件详情、走势、恢复及逐小节重练。最终前端与桌面构建通过；独立数据目录实际窗口检查 PASS（12913 首曲库、前端/IPC、真实音源、乐谱 WASM、MIDI 已连接）。稳定运行版、快捷入口及便携包同步更新。
+- 仍开放：所有曲库复习入口的完整条件展示、历史备注/导出/备份、阶段目标、速度阶梯/日常安排、书面与反复位置对应、文件监听、谱面附件和复杂指法教学。长期目标 active；无提交或推送。
+
+
+### Cycle 115 — 精细音乐导航、完整演奏与背谱（2026-10-02）
+
+- 新增小节导航条：按音乐小节排列、显示拍号/弱起和拍分组；鼠标拖选、Shift 点击扩展、方向键/Shift 方向键、分页缩放、自动跟随和选段循环。选段与命名练习段落的起止共用数据；外部范围变化刷新选区。
+- 新增按小节/拍位定位与上一拍/下一拍，使用真实 tick、速度图和拍号；复拍子按大拍移动，弱起拒绝不存在的拍位，循环范围内不越界。
+- 新增完整演奏与背谱：曲首开始、单遍、不中断计分，取消循环/自适应速度；演奏开始后保护速度、声部和导航条件。背谱隐藏目标音符、谱面、指法与待弹提示；保留用户自己的按键反馈。结束自动保存并显示完整反馈、再演奏和薄弱小节重练入口。薄弱段重练切换连续模式。
+- 两种模式按曲恢复，等音/连续/完整演奏/背谱成绩分别比较；时机、和弦、力度、踏板与时值仍依据原核心证据。演奏过程暂不显示结果，结束后再评估；暂停可以继续，修改演奏条件需要重新开始。
+- 修复 MIDI 在曲终小节边界创建空白小节，以及完成位置跳到下一小节的问题；索引分析版本更新为 2，旧缓存在后续索引时重新解析。网格签名改变的旧命名段落仍需重新确认范围；旧记录可读且比较范围保持隔离。
+- 验证：6 项 MIDI/音乐网格及 26 项引擎通过，新增覆盖弱起/变速拍位、两个单遍模式的漏音完成/保存/恢复及条件保护。3 条真实后端界面流程通过：拖选循环和逐拍定位、背谱自动完成/再演奏、曲目包导出/合并/恢复。截图已保存。前端生产构建、桌面打包及独立数据目录实际窗口启动通过（12913 首曲库、前端/IPC、真实音源、乐谱 WASM 与 MIDI 连接）；运行版已更新。
+- 未完成：书面小节与反复展开位置完整对应、速度阶梯、每日复习队列/目标、历史详情、文件监听、谱面附件、谱面指法编辑及复杂指法教学。长期目标继续 active；无提交、推送或发布。
+
+
+### Cycle 114 — 可移植曲目包与教学内容恢复（2026-10-02）
+
+- 新增 .neopiece（ZIP + versioned manifest）导出/导入，包含当前实际 MIDI、全部谱面版本和当前关联、元数据/教师备注、指法、逐音分手、来源声部、拍号/弱起修正、嵌套分组、评级、有效的各手跨度、当前练习设置/循环以及命名练习段落。
+- “曲目包”窗口支持选择或拖入文件、完整内容预览、来源许可展示，以及保留本地、合并（本地冲突项优先）、使用包内内容三种方式。保留已有成绩；谱面版本按内容与名称去重。全部文件写入应用管理目录，原 MIDI 和谱面文件不改写。导入后可直接练习；桌面系统保存框和浏览器下载均有入口。
+- 清单声明及每个文件大小/哈希、MIDI 身份、音符下标/指法范围、拍号、练习设置和小节范围、压缩展开大小/文件数、文件路径和谱面解析在写入前验证。不解压到清单提供的外部路径。曲目包预览独立于音乐时钟；导入/导出先暂停参考播放。个人成绩和设备校准不包含在单曲内容包中。
+- 生成练习导出使用当前实际变体，避免读取同一教学身份下较早生成的 MIDI 容器。当前速度、遍数、音符与指法一起转为可移植 MIDI；导入后作为普通本地曲目练习，生成器参数方案仍由技术练习方案单独管理。
+- 验证：引擎 24 项通过，含新增 4 项：跨独立数据目录及重启恢复、两个谱面版本/元数据/分组评级/段落恢复、冲突保留与包内容恢复、生成练习不同速度/遍数、哈希损坏与非法路径拒绝；最后的有效手型补充通过同一针对性检查。真实后端浏览器操作通过导出下载、导入预览、合并保留个人修改、使用包内内容恢复和练习段落访问；截图已保存。前端生产构建和桌面打包通过；独立数据目录实际窗口启动 PASS（前端/IPC、12913 首曲库、真实音源、乐谱 WASM 与 MIDI 连接）。桌面入口与运行包已更新。
+- 未完成：精细小节/逐拍导航、书面与反复演奏位置对应、完整演奏/背谱、历史详情、日常练习安排、文件监听、谱面附件与复杂指法教学。长期目标继续 active；无提交、推送或发布。
+
+
+### Cycle 113 — 直接乐谱练习、批量导入与后台索引（2026-10-02）
+
+- MusicXML/MXL 可直接生成 MIDI 并开始练习；保留精确有理数节奏、拍号与变速、弱起、常规反复及一二房、连音合并、力度、踏板和原谱指法。两谱表钢琴使用独立左右手音轨，其他结构保留待分配声部。原谱作为独立版本保留；个人元数据、分手和指法不会被再次导入覆盖。
+- 导入窗口支持多选和拖放 MIDI、MusicXML、MXL，逐文件进度/错误/警告、当前文件后暂停与继续、导入后打开练习。损坏文件不阻止后续文件；复制到应用管理目录并按内容去重，保留原文件。桌面“打开文件”也可直接选乐谱。
+- 全库索引成为独立后台任务，提供进度、错误数、暂停、恢复和取消；关闭管理窗口后继续，重启后从持久化检查点恢复。缓存带分析版本和附加文件修改信息；后台索引与分组/评级/元数据修改串行保存，避免互相覆盖。文件验证由逐行查找改为集合匹配。
+- 曲库管理、解析和索引从音乐时钟线程移出；重型导入先暂停参考演奏并停止发声。MIDI 总时长计入末尾休止，修复尾音之前提前结束的问题。重新定位一次保存整份附加文件，保留谱面、指法、分手、网格与来源声部。
+- 验证：乐谱演奏生成 2 项、MusicXML 解析 12 项、引擎 20 项通过；8 条真实后端浏览器流程通过（首次空数据检查暴露自动化未等待生成完成，修正等待后该项通过），覆盖混合导入/损坏文件/MXL 排版、全库任务暂停恢复、指法与分手审阅撤销、网格修正、谱面版本、曲库分组/元数据和练习方案。后台任务实际重启后从 64/1200 恢复并完成，解析错误 0。前端生产构建与桌面打包通过；独立数据目录的实际窗口启动 PASS（visible、前端/IPC、12913 首曲库、真实音源、乐谱 WASM 与 MIDI 连接）。桌面入口与运行包已更新。
+- 直接乐谱导入范围：常规小节反复已实现；D.C./D.S./Coda 跳转、移调谱与不支持的复杂导航明确拒绝，装饰音/自由时值有提示。书面小节与展开演奏位置的完整导航、复杂演奏解释、PDF/图片、曲目包、背谱、历史详情及文件监听仍开放。长期目标保持 active；无提交、推送或发布。
+
+
+### Cycle 112 — 逐音分手、小节校正与谱面版本（2026-10-02）
+
+- 保留 MIDI 原始音符身份，新增逐音左手/右手/未分手标注、内容校验、原子附加文件保存、撤销与恢复；迁移曲目位置时恢复分手和网格。单轨内两只手分别进入练习与伴奏，成绩声部、颜色和指法推荐使用同一份分手数据。
+- 分手建议以同时发声手型、持续音、前后移动与可调参考手位进行有界候选搜索；保留已确认分手。预览按小节筛选、批量调整和逐音审阅；交叉声部/复杂和弦需要人工确认，置信等级不是正确率。
+- 指法建议只计算所选手的音符，保留原始下标；左右手独立跨度、每曲/轨覆盖及跨曲默认均已接入。
+- 整曲拍号与首小节弱起修正、来源标识和恢复原始网格；保持原音符/速度/内容身份。清除当前循环和成绩，重建小节/节拍网格与谱面映射，旧命名练习段的网格改变时拒绝套用旧范围。
+- 多谱面导入采用独立版本文件，保留旧谱面；管理窗口支持切换、重命名、解除关联和移除登记。版本切换刷新真实排版，过期排版结果被版本校验拒绝；移除不删除谱面文件。
+- 历史增加可选比较范围签名，隔离网格、实际目标音符与逐音手别变更，原有选段/模式/手别条件继续有效。旧记录保持可读。
+- 验证：引擎 19 项通过；历史旧 24 项与新增范围隔离测试通过；6 条真实后端浏览器流程通过，覆盖本批与上批完整保存/撤销/恢复操作。原生 Fork 编译与前端生产构建通过。界面截图已保存。桌面运行包已更新；独立数据目录的实际窗口启动确认 PASS（前端、IPC、12913 首曲库、音源、乐谱 WASM 与 MIDI 连接）。
+- 未完成：直接 MusicXML/MXL 练习、全库后台索引/监听、可移植曲目包、谱面 PDF/图片附件、分段变拍校正、背谱/完整演奏、逐拍精细导航和历史详情。长期目标继续保持 active。
+
+
 This is an append-only engineering log. Newest entries go first. Every closed
 cycle records the user outcome, implementation, verification, known limitations
 and commit.
+
+### Cycle 111 — Repertoire management, reviewed fingering and practice organization (2026-10-02)
+
+The owner explicitly requested a long-running product-development goal, beyond launch checks. Established the active goal and `product-roadmap.md`, grounded in the existing native roadmap/backlog and official Synthesia guides. The new scope follows user workflows: files/scores, hand/fingering guidance, passage/lesson organization, navigation/display and progress.
+
+Implemented the Chinese library-management workspace with nested groups, multi-selection, range selection, pagination, metadata/tag search, rating/difficulty sorting, folder registration refresh/removal, per-file inspection and indexed duplicate-content recognition. Content changes invalidate old grouping; matching copies share organization. Missing indexed files remain reachable, and relocation recovers existing portable annotations while preserving destination annotations.
+
+Migrated the native dynamic-programming fingering model into a complete review flow: hand-span profile, selected note/chord or passage, reasons/confidence, editable previews, explicit acceptance, content validation, atomic save and undo. Unassigned hands do not receive guessed recommendations. Sorted a chronological view while retaining the original note-off-order indices used by saved hints. Generated exercises now own a stable MIDI annotation container so personal fingers, metadata and paired scores restore.
+
+Added named practice passages carrying musical bounds, notes, full track/hand/mode/speed/count-in/round settings, plus saved exercise configurations with reuse/removal. Recording now rejects practice/song changes until recording stops.
+
+Validation: 16 engine checks passed, including stale-content/invalid-batch rejection, preview/undo, generated annotation recovery, release-order note identity and duplicate-content grouping. Three targeted real-backend browser workflows passed: fingering review/save/undo, library organization/metadata/tag lookup, and saved passage/exercise reuse. Build/type checks pass. No claim of full Synthesia parity: outstanding product work remains explicitly on the active roadmap. No commit or publication.
+
+### Cycle 110 — Musical practice and native capability migration (2026-10-02)
+
+Implemented meter/tempo-aware MIDI positions and bar navigation; extracted native track configuration, recording and VST3 hosting into the shared core. The new desktop now has distinct wait/flow/listen modes, true track hand roles, per-song settings, audible count-in/metronome, bar loops, round limits and opt-in adaptive speed.
+
+Connected the full exercise generator and reviewed fingerings, editable finger sidecars, MusicXML/MXL pairing with existing semantic alignment, bundled Verovio WASM rendering/following, free-play recording and MIDI export. Structured feedback and weak-passage navigation use existing evidence; attempt history separates modes and hand scopes. Added folder import, metadata editing, missing-file relocation, device-specific latency calibration and panic controls. Shared VST3 backend preserves its original experimental compatibility boundary.
+
+Final operation testing caught a recording-state leak into the prior song. Recording now preserves its practice mode; re-opening returns to correct wait behavior. Invalid historical free-mode preferences fall back to wait.
+
+Validation: 12 engine tests, six MIDI music-grid tests, three shared recorder tests and 24 history tests passed. Final standalone Windows entry passed visible-window, real DOM/IPC, 12,913 catalogue rows, SoundFont/audio, real notation WASM and connected physical MIDI input initialization. All seven browser operation checks passed against the real Rust service with isolated test data. Hardware initialization is not a sustained physical performance or VST editor soak test.
+
+Remaining parity: finger-suggestion review UI, manual musical-grid correction, fuller folder maintenance and custom-track comparison scope. Generated score associations need persistent ownership. Long-duration real playing, unplug/reconnect and third-party VST editor validation remain open. No commit or publication performed.
+
+## 2026-10-01 — Cycle 107: Web＋Tauri first practice loop (DONE)
+
+The owner approved migration to React/TypeScript with Tauri while retaining
+Rust music logic. Added `neothesia-engine` and `neothesia-web` without replacing
+the original native application. The engine owns its worker clock, MIDI devices,
+SoundFont audio and practice matcher independently of rendering. Both Tauri IPC
+and a loopback browser-development adapter use this engine.
+
+The Chinese interface includes source-aware catalogue search, Canvas waterfall
+and keyboard, wait-guided practice, playback transport/speed, input/output
+selection, high/low pitch-range selection, local result saving and desktop MIDI
+import. A bundled original nine-note exercise makes a fresh installation useful
+without external datasets. Current song and statistics recover after a browser
+refresh. Catalogue listing reads metadata instead of parsing every MIDI up front.
+
+Three engine tests passed, as did two headless Playwright tests using the actual
+Rust service. These cover nine-note completion and persistence, wait freeze,
+pause/resume, refresh recovery, real GiantMIDI search and a narrow-screen layout.
+The built-in SoundFont and real audio output initialized without emitting notes.
+The distributed Tauri executable passed a hidden frontend/IPC/audio startup check
+with 12,909 catalogue rows and exit code 0. An initial remote-debugging-port launch
+was rejected by automatic approval; the replacement check exposes no debug port.
+
+Portable development packaging includes the embedded-frontend executable and
+SoundFont; `Open-Desktop.cmd` and `Open-Web.cmd` provide local launch entries.
+This is a first practice-loop migration, not parity with all native features.
+Notation, fingering, loops, favourites/queues, VST3 editors, sample-accurate
+scheduling, physical device recovery and long-duration playing remain follow-up
+work. The detected Keystation endpoint has not been physically played in this
+cycle. Changes remain local and preserve pre-existing working-tree edits.
+
+## 2026-10-01 — Cycle 106: GiantMIDI-Piano library integration (DONE)
+
+The owner resumed development and requested the GiantMIDI-Piano fork as an
+additional public MIDI source. The fork is cloned under the Music reference
+directory; the official public v1.2 archive has been downloaded and its complete
+10,855-file release imported into a separate unreviewed-transcription collection.
+
+Added a repeatable release preparation tool with a locally observed SHA-256 pin,
+ZIP CRC verification, Windows filename normalization and original-name mapping.
+The source-aware PowerShell importer preserves unrelated catalogue rows, rejects
+same-path changed files, records per-file hashes and atomically replaces the CSV.
+The original three-source sync now retains independent imports and can optionally
+invoke GiantMIDI import. The local watched-folder path follows the migrated library.
+
+Native library inspection read 12,908 MIDI files and catalogue records with no
+unreadable MIDI or invalid rows. Content deduplication produced 12,156 songs and
+10,112 GiantMIDI search matches in a 66-second full scan. Focused isolated import
+checks passed for personal-row preservation, original-name mapping, invalid-header
+skipping, repeated imports and changed-file collision rejection. PowerShell parse
+checks and the whitespace diff check passed. No new physical keyboard, playback,
+VST3 native window or soak verification is claimed.
+
+This collection remains automatic transcription rather than reviewed teaching
+scores. No hand separation, quantization, fingering or note correction is applied.
+Large-library cold-start improvement remains a follow-up product priority. Changes
+remain local; no commit or remote publication was performed in this cycle.
 
 ## 2026-08-15 — Development paused at Cycle 105
 
@@ -5222,3 +5429,60 @@ Implementation commit: `a1755bc` (`feat: add guided piano practice baseline`).
   reliable learner-facing score.
 - Measure generation currently follows the MIDI parser's existing time-signature
   assumptions and needs broader fixture coverage.
+
+### Cycle 108 — Persistent practice settings, history and passage loops (DONE)
+
+- Restore the last MIDI, speed, waiting mode, pitch range, selected devices and
+  passage bounds without automatically starting playback; retain unavailable
+  device preferences and surface connection errors.
+- Save settings with a synchronized temporary JSON file and replacement.
+- Add second-based half-open passage loops, current-position boundary controls,
+  completed-round counts and separate automatic records per guided round.
+- Add a Chinese history dialog with the latest 200 saved sessions, dates,
+  pitch ranges, speeds and note results; keyboard audition is suspended in dialogs.
+- Publish snapshots before replying to commands to prevent stale state reads.
+- Validation: five Rust engine tests and three real-backend headless browser
+  tests pass, including two loop rounds and restart persistence. Frontend build
+  passes; native packaged startup and audio initialization checked separately.
+- No physical-keyboard soak test or VST3 migration claimed. Favourites, queues,
+  notation and fingering remain subsequent work.
+
+
+### Cycle 109 — Launch repair and piano workstation (DONE)
+
+- Reproduced failure of the owner-facing Windows batch entry. Replaced the
+  UTF-8/Chinese-path/LF script with ASCII content, CRLF and an ASCII package
+  directory; provided a desktop shortcut that directly targets the executable.
+- Rebuilt the interface around the playing surface: docked library, waterfall,
+  compact practice controls, timeline and transport; removed the presentation
+  framing, cream theme, oversized headings and promotional text.
+- Added favorites, recent/imported-file reopening, ordered queues, reordering
+  and explicit next-song switching using the existing content-identified store.
+- Added persisted native audio volume, preview duration and 49/88-key views;
+  changing listening/practice mode starts a fresh attempt at the current position.
+- Bundled four more original lessons: C scale, bass five-finger, parallel octaves
+  and C/F/G triads; retained the original warmup (five lessons total).
+- Added startup error dialogs and diagnostics, a desktop data lock, keyboard
+  isolation/focus cycling in dialogs and actual visible-window startup checking.
+- Validation: seven Rust tests pass (including queue persistence and chords),
+  three existing browser flows pass and the new favorite/queue/device flow passes.
+  The repaired exact owner entry passes --window-check: visible=true, real DOM,
+  IPC, 12,913 catalog rows, nine warmup notes and actual audio initialization.
+- Scope remaining: notation/fingering, native VST3 editor and physical-device
+  sustained-session checks are not reported as delivered by this cycle.
+
+## 2026-10-02 — Cycle 129
+
+Weekly routine schedules with start/end dates, pause/resume/cancel and independent dated snapshots; old days and grading are retained. Schedules travel with practice backups. Focused calendar/persistence/backup check and actual browser configuration-to-graded-round flow passed; production desktop gate passed with MIDI connected. Local runnable and portable outputs updated; long-term goal remains active, no commit/push.
+
+## 2026-10-02 — Cycle 130
+
+Added per-attempt practice notes, teacher comments and next focus, text search and unsaved-edit protection. Optimistic annotation checks prevent stale overwrites; legacy identities and score evidence stay stable. Backup merges comments without duplicate grades, including reimported collision records. Four focused backup tests, actual browser note/conflict flow and existing history restore/repractice flow passed; desktop startup gate passed with MIDI connected. Local outputs updated; goal active, no commit/push.
+
+## 2026-10-02 — Cycle 131
+
+Added evidence-based accuracy review suggestions, separated by practice conditions, preview/selection and addition to templates or daily plans. Repeated fully covered measure evidence is required; duplicate complete conditions are skipped, stale evidence/calibration is rejected, and old progress is retained. Focused engine checks plus actual two-error-attempt -> suggestion -> daily plan -> two-passing-round browser flow passed. Production desktop gate passed with MIDI connected; local outputs updated. Goal active, no commit/push.
+
+## 2026-10-02 — Cycle 132
+
+Added rhythm review suggestions from repeated fully covered non-wait measures with sufficient timing samples. Preview includes on-time ratio and summarized offsets/deviation; plans require accuracy and timing together and enable metronome. Main practice status explains insufficient coverage, accuracy or timing. Focused evidence tests, actual late-note -> rhythm plan -> timing failure -> two on-time passes browser flow and existing accuracy review flow passed. Production desktop gate passed with MIDI connected; local outputs updated. Goal active, no commit/push.

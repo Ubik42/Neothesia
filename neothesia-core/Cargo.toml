@@ -3,7 +3,12 @@ name = "neothesia-core"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+vst3-hosting=["dep:cpal","dep:vst3-host"]
+
 [dependencies]
+cpal={workspace=true,optional=true}
+vst3-host={workspace=true,optional=true}
 serde = { workspace = true, features = ["serde_derive"] }
 serde_json.workspace = true
 sha2.workspace = true

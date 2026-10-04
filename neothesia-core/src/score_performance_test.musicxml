@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+<work><work-title>弱起与连音练习</work-title></work><identification><creator type="composer">教学测试</creator></identification>
+<part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+<part id="P1">
+<measure number="0" implicit="yes"><attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time><staves>2</staves></attributes>
+<barline location="left"><repeat direction="forward"/></barline>
+<direction><sound tempo="60"/><direction-type><pedal type="start"/></direction-type></direction>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><staff>1</staff><tie type="start"/><notations><technical><fingering>3</fingering></technical></notations></note>
+<backup><duration>1</duration></backup><note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>2</voice><staff>2</staff></note></measure>
+<measure number="1"><attributes><divisions>1</divisions></attributes><direction><direction-type><dynamics><f/></dynamics><pedal type="stop"/></direction-type><sound tempo="120"/></direction>
+<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice><staff>1</staff><tie type="stop"/></note><note><rest/><duration>1</duration><voice>1</voice><staff>1</staff></note>
+<backup><duration>3</duration></backup><note><pitch><step>D</step><octave>3</octave></pitch><duration>3</duration><voice>2</voice><staff>2</staff></note>
+<barline location="right"><repeat direction="backward" times="2"/></barline></measure>
+</part></score-partwise>

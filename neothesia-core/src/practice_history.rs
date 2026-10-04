@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     exercise::ExerciseSpec,
-    practice::{AttemptSummary, PracticeBreakdown, PracticeHands},
+    practice::{AttemptSummary, PracticeBreakdown, PracticeHands, PracticePart},
 };
 
 const MAX_SESSIONS_PER_SONG: usize = 200;
@@ -25,16 +25,94 @@ pub enum PracticeSessionKind {
     },
 }
 
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
+pub struct PracticeAnnotation {
+    pub note: String,
+    pub teacher: String,
+    pub next: String,
+    pub updated_at_unix_ms: u64,
+}
+#[derive(Debug,Clone,Deserialize,PartialEq,Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct ReplayClip {pub id:String,pub name:String,pub start:f64,pub end:f64,pub notes:String,pub updated_at_unix_ms:u64}
+pub fn validate_replay_clips(clips:&[ReplayClip],duration:Option<f64>)->Result<(),String>{
+    if clips.len()>100{return Err("每次演奏最多收藏 100 个回放片段".into());}
+    let mut ids=std::collections::BTreeSet::new();
+    for c in clips{if c.id.is_empty() || c.id.len()>160 || c.id.chars().any(char::is_control) || !ids.insert(&c.id) || c.name.trim().is_empty() || c.name.len()>320 || c.name.chars().any(char::is_control) || c.notes.len()>8192 || !c.start.is_finite() || !c.end.is_finite() || c.start<0. || c.end-c.start<0.1 || duration.is_some_and(|d|c.end>d+0.001){return Err("回放片段名称、身份或范围无效".into());}}
+    Ok(())
+}
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub struct PracticeSession {
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub replay_clips:Vec<ReplayClip>,
+    /// Wall time with practice transport running; excludes pause and count-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playing_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotation: Option<PracticeAnnotation>,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub context: Option<PracticeSessionContext>,
     pub recorded_at_unix_ms: u64,
     pub kind: PracticeSessionKind,
     #[serde(default)]
     pub hands: PracticeHands,
     pub speed: f32,
     #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
     pub effective_tempo_bpm: Option<u16>,
     pub summary: AttemptSummary,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+pub struct PracticeLadderCondition {
+    pub plan_id:String,
+    pub plan_name:String,
+    pub stage:usize,
+    pub speed_percent:u16,
+    pub target_percent:u16,
+}
+
+#[derive(Debug,Clone,Default,Deserialize,PartialEq,Serialize)]
+pub struct PracticeExpressionCondition {pub velocity_difference:Option<u8>,pub contour_percent:Option<u8>,pub pedal_offset_ms:Option<u16>}
+
+#[derive(Debug,Clone,Deserialize,PartialEq,Serialize)]
+pub struct PracticeRoutineCondition {
+    #[serde(default,skip_serializing_if="Option::is_none")] pub expression:Option<PracticeExpressionCondition>,
+    #[serde(default)] pub item_notes:String,
+    #[serde(default)] pub consecutive:bool,
+    pub routine_id:String,pub routine_name:String,pub day:String,pub item_id:String,pub item_title:String,
+    pub passes_required:u16,pub accuracy_percent:u8,pub on_time_percent:Option<u8>,
+}
+
+/// Immutable conditions of a saved attempt. Absent in older histories.
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+pub struct PracticeSessionContext {
+    #[serde(default)]
+    pub routine:Option<PracticeRoutineCondition>,
+    #[serde(default)]
+    pub ladder: Option<PracticeLadderCondition>,
+    #[serde(default)]
+    pub target_notes: usize,
+    #[serde(default)]
+    pub judged_notes: usize,
+    pub tracks: Vec<PracticeTrackSetup>,
+    pub parts: BTreeMap<usize, PracticePart>,
+    pub hands: String,
+    pub count_in: u8,
+    pub metronome: bool,
+    pub latency: i32,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub pedal_latency_ms:Option<i32>,
+    pub rounds: usize,
+    pub adaptive: bool,
+    pub grid: String,
+    pub source_path: Option<PathBuf>,
+    pub exercise_spec: Option<ExerciseSpec>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
@@ -79,6 +157,18 @@ pub struct SongLibraryState {
 }
 
 impl PracticeSession {
+    pub fn stable_id(&self) -> String {
+        self.id.clone().unwrap_or_else(|| {
+            let mut original=self.clone();original.annotation=None;original.replay_clips.clear();
+            format!("legacy-{}",blake3::hash(&serde_json::to_vec(&original).unwrap_or_default()))
+        })
+    }
+    pub fn same_performance(&self, other:&Self)->bool {
+        let mut a=self.clone();let mut b=other.clone();
+        a.annotation=None;b.annotation=None;a.replay_clips.clear();b.replay_clips.clear();a.id=None;b.id=None;
+        if a.playing_ms.is_some() && b.playing_ms.is_some() && a.playing_ms!=b.playing_ms {return false;}
+        a.playing_ms=None;b.playing_ms=None;a==b
+    }
     pub fn new(
         kind: PracticeSessionKind,
         hands: PracticeHands,
@@ -86,15 +176,39 @@ impl PracticeSession {
         summary: AttemptSummary,
     ) -> Self {
         Self {
+            replay_clips:Vec::new(),
+            playing_ms: None,
+            annotation: None,
+            id: Some(format!("attempt-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos())),
+            context: None,
             recorded_at_unix_ms: unix_time_ms(),
             kind,
             hands,
             speed,
+            mode: None,
+            scope: None,
             effective_tempo_bpm: None,
             summary,
         }
     }
 
+    pub fn with_playing_ms(mut self, millis: u64) -> Self {
+        self.playing_ms = Some(millis);
+        self
+    }
+
+    pub fn with_context(mut self, context: PracticeSessionContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+    pub fn with_scope(mut self, scope: String) -> Self {
+        self.scope = Some(scope);
+        self
+    }
+    pub fn with_mode(mut self, mode: &str) -> Self {
+        self.mode = Some(mode.into());
+        self
+    }
     pub fn with_effective_tempo_bpm(mut self, tempo_bpm: Option<u16>) -> Self {
         self.effective_tempo_bpm = tempo_bpm;
         self
@@ -210,12 +324,24 @@ pub struct ReviewStatus {
 impl SongPracticeHistory {
     pub fn review_status(&self, now_unix_ms: u64) -> Option<ReviewStatus> {
         let latest = self.sessions.last()?;
-        let scope = (latest.kind, latest.hands);
+        let scope = (
+            latest.kind,
+            latest.hands,
+            latest.mode.as_deref(),
+            latest.scope.as_deref(),
+        );
         let mastery_streak = self
             .sessions
             .iter()
             .rev()
-            .filter(|session| (session.kind, session.hands) == scope)
+            .filter(|session| {
+                (
+                    session.kind,
+                    session.hands,
+                    session.mode.as_deref(),
+                    session.scope.as_deref(),
+                ) == scope
+            })
             .take_while(|session| session_is_mastered(session))
             .count();
         let latest_accuracy = latest.summary.overall.accuracy();
@@ -260,12 +386,14 @@ impl SongPracticeHistory {
         hands: Option<PracticeHands>,
         limit: usize,
     ) -> Vec<WeakMeasure> {
+        let scope_mode = self.sessions.last().and_then(|s| s.mode.as_deref());
+        let scope_revision = self.sessions.last().and_then(|s| s.scope.as_deref());
         let mut measures = BTreeMap::<usize, (PracticeBreakdown, usize)>::new();
-        for session in self
-            .sessions
-            .iter()
-            .filter(|session| hands.is_none_or(|hands| session.hands == hands))
-        {
+        for session in self.sessions.iter().filter(|session| {
+            hands.is_none_or(|hands| session.hands == hands)
+                && session.mode.as_deref() == scope_mode
+                && session.scope.as_deref() == scope_revision
+        }) {
             for item in &session.summary.measures {
                 let (total, attempts) = measures.entry(item.measure).or_default();
                 total.target_notes += item.breakdown.target_notes;
@@ -322,19 +450,25 @@ impl SongPracticeHistory {
     }
 
     pub fn rhythm_measures(&self, limit: usize) -> Vec<RhythmMeasure> {
-        let Some(scope) = self
-            .sessions
-            .last()
-            .map(|session| (session.kind, session.hands))
-        else {
+        let Some(scope) = self.sessions.last().map(|session| {
+            (
+                session.kind,
+                session.hands,
+                session.mode.as_deref(),
+                session.scope.as_deref(),
+            )
+        }) else {
             return Vec::new();
         };
         let mut measures = BTreeMap::<usize, (Vec<i32>, Vec<u32>, usize)>::new();
-        for session in self
-            .sessions
-            .iter()
-            .filter(|session| (session.kind, session.hands) == scope)
-        {
+        for session in self.sessions.iter().filter(|session| {
+            (
+                session.kind,
+                session.hands,
+                session.mode.as_deref(),
+                session.scope.as_deref(),
+            ) == scope
+        }) {
             for item in &session.summary.measures {
                 if item.timing.matched_samples < 4 {
                     continue;
@@ -421,15 +555,26 @@ impl SongPracticeHistory {
             .collect();
         recent.reverse();
 
-        let trend_scope = self
-            .sessions
-            .last()
-            .map(|session| (session.kind, session.hands));
+        let trend_scope = self.sessions.last().map(|session| {
+            (
+                session.kind,
+                session.hands,
+                session.mode.as_deref(),
+                session.scope.as_deref(),
+            )
+        });
         let mut comparable: Vec<_> = self
             .sessions
             .iter()
             .rev()
-            .filter(|session| Some((session.kind, session.hands)) == trend_scope)
+            .filter(|session| {
+                Some((
+                    session.kind,
+                    session.hands,
+                    session.mode.as_deref(),
+                    session.scope.as_deref(),
+                )) == trend_scope
+            })
             .take(recent_limit)
             .collect();
         comparable.reverse();
@@ -455,14 +600,14 @@ impl SongPracticeHistory {
         PracticeHistoryOverview {
             total_sessions: self.sessions.len(),
             recent,
-            trend_kind: trend_scope.map(|(kind, _)| kind),
-            trend_hands: trend_scope.map(|(_, hands)| hands),
+            trend_kind: trend_scope.map(|(kind, _, _, _)| kind),
+            trend_hands: trend_scope.map(|(_, hands, _, _)| hands),
             trend_attempts: comparable.len(),
             accuracy_delta,
             speed_delta,
             tempo_bpm_delta,
             weak_measures: self
-                .weak_measures_for_scope(trend_scope.map(|(_, hands)| hands), usize::MAX)
+                .weak_measures_for_scope(trend_scope.map(|(_, hands, _, _)| hands), usize::MAX)
                 .into_iter()
                 .filter(is_reliable_weakness)
                 .take(weak_measure_limit)
@@ -476,6 +621,12 @@ fn is_reliable_weakness(measure: &WeakMeasure) -> bool {
 }
 
 fn session_is_mastered(session: &PracticeSession) -> bool {
+    if session.context.as_ref().and_then(|c|c.ladder.as_ref()).is_some_and(|l|l.speed_percent<l.target_percent) {
+        return false;
+    }
+    if session.context.as_ref().is_some_and(|c|c.target_notes==0 || c.judged_notes<c.target_notes) {
+        return false;
+    }
     let snapshot = session.summary.overall;
     let Some(accuracy) = snapshot.accuracy() else {
         return false;
@@ -485,7 +636,7 @@ fn session_is_mastered(session: &PracticeSession) -> bool {
     } else {
         0.0
     };
-    accuracy >= 0.9 && on_time_ratio >= 0.7
+    accuracy >= 0.9 && (session.mode.as_deref() == Some("wait") || on_time_ratio >= 0.7)
 }
 
 fn first_last_delta(mut values: impl Iterator<Item = f32>) -> Option<f32> {
@@ -537,7 +688,7 @@ impl Default for PracticeHistoryFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PracticeHistoryStore {
     path: PathBuf,
     file: PracticeHistoryFile,
@@ -565,6 +716,25 @@ impl PracticeHistoryStore {
         Self { path, file }
     }
 
+    pub fn set_replay_clips(&mut self,song_id:&str,id:&str,expected:Vec<ReplayClip>,clips:Vec<ReplayClip>)->Result<(),String>{
+        validate_replay_clips(&clips,None)?;
+        let mut candidate=self.clone();let song=candidate.songs_mut().get_mut(song_id).ok_or("曲目记录不存在")?;
+        let session=song.sessions.iter_mut().find(|s|s.stable_id()==id).ok_or("这条记录已不在历史中")?;
+        if session.replay_clips!=expected{return Err("回放片段已被其他操作更新，请重新读取后再保存".into());}
+        if session.id.is_none(){session.id=Some(id.into());}session.replay_clips=clips;
+        candidate.save().map_err(|e|e.to_string())?;*self=candidate;Ok(())
+    }
+    pub fn annotate_session(&mut self, song_id:&str, id:&str, expected:Option<PracticeAnnotation>, annotation:PracticeAnnotation) -> Result<(),String> {
+        if [&annotation.note,&annotation.teacher,&annotation.next].iter().any(|v|v.len()>8192) {return Err("每项评语最多 8192 字节".into());}
+        let mut candidate=self.clone();
+        let song=candidate.songs_mut().get_mut(song_id).ok_or("曲目记录不存在")?;
+        let session=song.sessions.iter_mut().find(|s|s.stable_id()==id).ok_or("这条记录已不在历史中")?;
+        if session.annotation!=expected {return Err("评语已被其他操作更新，请放弃本地修改并重新打开记录".into());}
+        if session.id.is_none(){session.id=Some(id.to_owned());}
+        session.annotation=Some(annotation);
+        candidate.save().map_err(|e|e.to_string())?;
+        *self=candidate;Ok(())
+    }
     pub fn record_session(
         &mut self,
         song_id: &str,
@@ -741,6 +911,9 @@ impl PracticeHistoryStore {
         Ok(true)
     }
 
+    pub fn snapshot(&self) -> BTreeMap<String, SongPracticeHistory> {self.songs().clone()}
+    pub fn replace_snapshot(&mut self, songs:BTreeMap<String,SongPracticeHistory>) { *self.songs_mut()=songs; self.normalize_queue(); }
+    pub fn snapshot_bytes(&self) -> Result<Vec<u8>,PracticeHistoryError> {Ok(ron_options().to_string_pretty(&self.file,ron::ser::PrettyConfig::default().struct_names(true))?.into_bytes())}
     pub fn song(&self, song_id: &str) -> Option<&SongPracticeHistory> {
         self.songs().get(song_id)
     }
@@ -922,6 +1095,13 @@ mod tests {
 
     fn session(measure: usize, matched: usize, missed: usize) -> PracticeSession {
         PracticeSession {
+            replay_clips:Vec::new(),
+            playing_ms: None,
+            annotation: None,
+            id: None,
+            context: None,
+            scope: None,
+            mode: None,
             recorded_at_unix_ms: 1,
             kind: PracticeSessionKind::WholeSong,
             hands: PracticeHands::Both,
@@ -1555,5 +1735,23 @@ mod tests {
         assert_eq!(song.sessions.first().unwrap().recorded_at_unix_ms, 3);
 
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn grid_and_target_scope_changes_are_not_mixed_in_trends_or_weak_measures() {
+        let a = session(2, 2, 8).with_scope("old-grid".into());
+        let b = session(2, 8, 2).with_scope("new-grid".into());
+        let history = SongPracticeHistory {
+            display_name: "Scoped".into(),
+            setup: None,
+            library: SongLibraryState::default(),
+            sessions: vec![a, b],
+        };
+        let overview = history.overview(20, 5);
+        assert_eq!(overview.trend_attempts, 1);
+        assert!(overview.accuracy_delta.is_none());
+        let weak = history.weak_measures(5);
+        assert_eq!(weak.len(), 1);
+        assert_eq!(weak[0].attempts, 1);
+        assert!((weak[0].accuracy - 0.8).abs() < 0.0001);
     }
 }

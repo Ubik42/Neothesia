@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "本地钢琴练习主窗口",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

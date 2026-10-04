@@ -1,0 +1,15 @@
+import {test,expect} from "@playwright/test";
+test("双手键盘示范、暂停续播、小节定位与修改接管",async({page,request})=>{
+ const cmd=async(data:unknown)=>{const r=await request.post("http://127.0.0.1:32124/api/command",{headers:{"X-Neothesia-Client":"web"},data});expect(r.ok(),await r.text()).toBeTruthy();return r.json()};
+ await cmd({type:"generate",spec:{tonic:4,tonality:"Major",minor_form:"Natural",pattern:"Scale",direction:"UpAndDown",hands:"Both",octaves:1,repetitions:1,tempo_bpm:120}});
+ const before=await cmd({type:"currentSong"});await page.goto("/");await page.getByRole("button",{name:"指法建议",exact:true}).click();await page.getByRole("button",{name:"双手一起审阅",exact:true}).click();const d=page.getByRole("dialog",{name:"双手指法审阅",exact:true});await d.getByLabel("双手终点小节").fill("2");await d.getByRole("button",{name:"生成双手建议",exact:true}).click();await d.getByRole("button",{name:"核对双手保存结果",exact:true}).click();await expect(d.locator(".finger-pair-review")).toContainText("检查通过");
+
+ const demo=d.getByRole("region",{name:"双手同步示范"});await demo.getByLabel("双手示范速度").selectOption("0.25");await demo.getByRole("button",{name:"示范双手审阅结果",exact:true}).click();await expect(demo.getByRole("status")).toHaveText("正在示范");await expect(demo.locator(".finger-pair-live")).toContainText("指");
+ const state=await cmd({type:"fingerDemoState"});expect(state.active).toBeTruthy();expect(state.fingerNotes.some((n:any)=>n.part==="left")).toBeTruthy();expect(state.fingerNotes.some((n:any)=>n.part==="right")).toBeTruthy();expect((await cmd({type:"currentSong"})).fingerUndoAvailable).toBe(before.fingerUndoAvailable);
+ await demo.getByRole("button",{name:"暂停示范",exact:true}).click();await expect(demo.getByRole("status")).toHaveText("示范已暂停");const paused=await cmd({type:"fingerDemoState"});expect(paused.paused).toBeTruthy();expect(paused.active).toBeFalsy();
+ await demo.getByLabel("双手示范定位小节").selectOption("2");await expect(demo.getByRole("status")).toHaveText("示范已暂停");const located=await cmd({type:"fingerDemoState"});expect(located.position).toBe(before.measures[1].start);expect(located.fingerNotes.some((n:any)=>n.part==="left")).toBeTruthy();await expect(demo.getByRole("img",{name:/双手示范键盘/})).toBeVisible();
+ await demo.scrollIntoViewIfNeeded();await page.screenshot({path:"../outputs/Neothesia-双手键盘与小节定位.png"});await page.setViewportSize({width:700,height:900});await demo.scrollIntoViewIfNeeded();await page.screenshot({path:"../outputs/Neothesia-双手键盘与小节定位-窄窗.png"});
+ await demo.getByRole("button",{name:"继续示范",exact:true}).click();await expect(demo.getByRole("status")).toHaveText("正在示范");
+ await demo.getByRole("button",{name:"停止指法示范",exact:true}).click();await expect(demo.getByRole("status")).toHaveText("示范已停止");expect((await cmd({type:"fingerDemoState"})).active).toBeFalsy();
+ await demo.getByRole("button",{name:"示范双手审阅结果",exact:true}).click();await expect(demo.getByRole("status")).toHaveText("正在示范");await d.getByLabel("双手终点小节").fill("1");await expect(demo).toHaveCount(0);await expect.poll(async()=> (await cmd({type:"fingerDemoState"})).active).toBeFalsy();
+});

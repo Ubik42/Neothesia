@@ -8,7 +8,8 @@ second.
 
 - Product context (`PRODUCT.md` at the repository root) — audience, purpose,
   product register, design principles and anti-references
-- [Product roadmap](roadmap.md) — product direction, architecture and milestones
+- [Current product roadmap](product-roadmap.md) — current Web/desktop feature coverage and remaining implementation
+- [Original roadmap](roadmap.md) — earlier fork direction, architecture and milestones
 - [Backlog](backlog.md) — ordered, testable work items
 - [Progress](progress.md) — current release, active cycle and product status
 - [Development log](development-log.md) — append-only record of completed cycles
@@ -23,6 +24,8 @@ second.
   license-aware local MIDI corpus
 - [Verovio renderer benchmark](verovio-benchmark.md) — pinned fidelity,
   performance, size and interaction evidence
+
+- [Piece packages](../pages/piece-packages.md) — portable MIDI, scores, annotations and practice passages
 
 ## Working agreement
 
@@ -64,3 +67,12 @@ recovery, persistence, tests and documentation are part of the feature.
 - `RESEARCH` — requires a prototype or product decision
 - `DONE` — acceptance criteria passed and the result was logged
 - `BLOCKED` — has a named external or technical blocker
+
+- [Practice history](../pages/practice-history.md) — filters, saved conditions, fair comparisons and reopening attempts (Cycle 116).
+
+- [Speed ladders](../pages/speed-ladders.md) — saved progression rules, real round grading, checkpoints and continuation (Cycle 117).
+
+- [Practice routines](../pages/practice-routines.md) — reusable plans, dated snapshots, real completion evidence and resuming work (Cycle 118).
+
+- [Practice routines](../pages/practice-routines.md) — daily snapshots, grading and weekly recurrence
+- [Practice backups](../pages/practice-backups.md) — plans, dates, records and conflict-aware restoration

@@ -58,6 +58,21 @@ pub struct FingerHint {
     pub note_index: usize,
     pub finger: u8,
 }
+#[derive(Debug,Clone,Deserialize,Eq,PartialEq,Serialize)]
+pub struct FingerAction { pub track_id:usize,pub note_index:usize,pub before_track:usize,pub before_index:usize,pub at_tick:u64,pub from:u8,pub to:u8,pub hand:crate::practice::PracticePart, #[serde(default="default_action_rate")] pub rate_milli:u16 }
+fn default_action_rate()->u16{1000}
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NoteHandHint {
+    pub track_id: usize,
+    pub note_index: usize,
+    pub part: crate::practice::PracticePart,
+}
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MeterCorrection {
+    pub numerator: u8,
+    pub denominator: u16,
+    pub pickup_ticks: u64,
+}
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScoreAssociation {
@@ -82,6 +97,10 @@ pub struct ScoreAnalysisSnapshot {
 pub struct SongSidecar {
     pub metadata: SongMetadata,
     pub fingerings: Vec<FingerHint>,
+    pub finger_actions:Vec<FingerAction>,
+    pub hands: Vec<NoteHandHint>,
+    pub track_parts: BTreeMap<usize, crate::practice::PracticePart>,
+    pub meter: Option<MeterCorrection>,
     pub score: Option<ScoreAssociation>,
     pub score_analysis: Option<ScoreAnalysisSnapshot>,
 }
@@ -93,6 +112,14 @@ struct MetadataSidecar {
     metadata: SongMetadata,
     #[serde(default)]
     fingerings: Vec<FingerHint>,
+    #[serde(default)]
+    finger_actions:Vec<FingerAction>,
+    #[serde(default)]
+    hands: Vec<NoteHandHint>,
+    #[serde(default)]
+    track_parts: BTreeMap<usize, crate::practice::PracticePart>,
+    #[serde(default)]
+    meter: Option<MeterCorrection>,
     #[serde(default)]
     score: Option<ScoreAssociation>,
     #[serde(default)]
@@ -120,6 +147,8 @@ pub enum MetadataError {
     },
     #[error("paired score is not usable MusicXML: {0}")]
     InvalidScore(#[source] crate::musicxml::ImportError),
+    #[error("invalid finger action schedule: {0}")]
+    InvalidFingerActions(String),
     #[error("could not serialize metadata sidecar: {0}")]
     Serialize(#[source] ron::Error),
     #[error("could not save metadata sidecar: {0}")]
@@ -260,7 +289,7 @@ impl LibraryIndex {
 }
 
 impl SongMetadata {
-    fn normalized(mut self) -> Self {
+    pub fn normalized(mut self) -> Self {
         self.title = normalized_text(self.title);
         self.artist = normalized_text(self.artist);
         self.composer = normalized_text(self.composer);
@@ -342,6 +371,10 @@ pub fn load_song_sidecar(
     Ok(SongSidecar {
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
+        finger_actions:normalize_finger_actions(sidecar.finger_actions)?,
+        hands: normalize_hands(sidecar.hands),
+        track_parts: sidecar.track_parts,
+        meter: sidecar.meter,
         score: sidecar.score,
         score_analysis: sidecar.score_analysis,
     })
@@ -365,6 +398,31 @@ pub fn save_song_fingerings(
     let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
     sidecar.fingerings = fingerings;
     save_song_sidecar(midi_path, content_id, sidecar)
+}
+pub fn save_song_hands(
+    midi_path: &Path,
+    content_id: &str,
+    hands: Vec<NoteHandHint>,
+) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.hands = hands;
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+pub fn save_song_meter(
+    midi_path: &Path,
+    content_id: &str,
+    meter: Option<MeterCorrection>,
+) -> Result<PathBuf, MetadataError> {
+    let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
+    sidecar.meter = meter;
+    save_song_sidecar(midi_path, content_id, sidecar)
+}
+fn normalize_hands(hands: Vec<NoteHandHint>) -> Vec<NoteHandHint> {
+    let mut by_note = BTreeMap::new();
+    for hint in hands {
+        by_note.insert((hint.track_id, hint.note_index), hint);
+    }
+    by_note.into_values().collect()
 }
 
 pub fn save_score_association(
@@ -446,7 +504,7 @@ fn existing_sidecar_or_default(
     }
 }
 
-fn save_song_sidecar(
+pub fn save_song_sidecar(
     midi_path: &Path,
     content_id: &str,
     sidecar: SongSidecar,
@@ -457,6 +515,10 @@ fn save_song_sidecar(
         content_id: content_id.to_owned(),
         metadata: sidecar.metadata.normalized(),
         fingerings: normalize_fingerings(sidecar.fingerings)?,
+        finger_actions:normalize_finger_actions(sidecar.finger_actions)?,
+        hands: normalize_hands(sidecar.hands),
+        track_parts: sidecar.track_parts,
+        meter: sidecar.meter,
         score: sidecar.score,
         score_analysis: sidecar.score_analysis,
     };
@@ -1244,4 +1306,11 @@ mod tests {
         assert!(!metadata_sidecar_path(&midi_path).exists());
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+pub fn normalize_finger_actions(mut actions:Vec<FingerAction>)->Result<Vec<FingerAction>,MetadataError>{
+ if actions.len()>4096{return Err(MetadataError::InvalidFingerActions("too many actions".into()));}
+ let mut seen=std::collections::BTreeSet::new();
+ for a in &actions{if !(1..=5).contains(&a.from)||!(1..=5).contains(&a.to)||a.from==a.to||a.at_tick==0||!(250..=2000).contains(&a.rate_milli)||a.hand==crate::practice::PracticePart::Other||!seen.insert((a.track_id,a.note_index,a.at_tick)){return Err(MetadataError::InvalidFingerActions("invalid or repeated action".into()));}}
+ actions.sort_by_key(|a|(a.at_tick,a.track_id,a.note_index));Ok(actions)
 }

@@ -2,7 +2,51 @@
 
 Items are ordered within each horizon. IDs remain stable after completion.
 
+Active long-running product goal (2026-10-02): see [the detailed product roadmap](product-roadmap.md). Cycle 111 closes the missing fingering review/save path and adds repertoire management, named passages and saved exercise configurations. Full product work continues beyond migration.
+
 ## NOW — M0 trustworthy practice baseline
+
+### Web＋Tauri migration — owner-approved 2026-10-01
+
+**Priority reset — 2026-10-02:** The owner rejected reduced feature scope and
+seconds-based practice navigation. The completed WEB-001–006 items below are
+limited implementations, not feature parity. Product and migration baseline:
+[practice-product-design.md](practice-product-design.md).
+
+Cycle 110 completed MIG-001–003. MIG-004–006 are substantially connected: score rendering/following, manual fingers, generator, recording, structured feedback, review, metadata, folder import, relocation and device calibration. These remain open for the precise parity gaps recorded in progress, rather than claiming full native feature inheritance.
+
+- [x] `MIG-001` Build meter/tempo-aware tick, beat and measure positions, including
+  3/4, 6/8, meter changes and explicit missing/untrusted meter information.
+- [x] `MIG-002` Extract/reuse native song/track and practice-session orchestration;
+  restore track roles, actual hand assignments and per-song configuration.
+- [x] `MIG-003` Complete distinct note-learning, timed-practice and listening
+  modes, musical range selection, count-in, loops and tempo progression.
+- [x] `MIG-004` Migrate existing score pairing/following, finger guidance,
+  configurable exercise generation and free-play recording.
+- [ ] `MIG-005` Connect structured technique evidence, passage recommendations,
+  comparable attempts, trends and spaced review back to musical navigation.
+- [ ] `MIG-006` Close the full audited parity checklist for library management,
+  metadata, missing files, device calibration, safety controls and audio paths;
+  preserve the existing VST3 and physical-validation limitations.
+
+- [x] `WEB-001` Create Chinese React/TypeScript practice room and Tauri shell.
+- [x] `WEB-002` Move the new frontend's playback/score clock into an independent
+  Rust worker using the existing MIDI parser, matcher and history store.
+- [x] `WEB-003` Complete catalogue selection, audio/MIDI playback, guided waiting
+  and result persistence against the actual Rust backend.
+- [x] `WEB-004` Verify the first loop in headless browsers and distribute a
+  runnable embedded-frontend development build with SoundFont.
+- [x] `WEB-005` Persist selected devices/preferences and last-opened song across
+  application restarts; expose practice history in the new interface.
+- [x] `WEB-006` Migrate favourites, recent songs, ordered practice queues and
+  passage looping with per-round results (Cycles 108–109).
+- [x] `WEB-007` Migrate notation/fingering and direct VST3 hosting after the
+  basic new practice flow is dependable.
+- [ ] `WEB-008` Validate real keyboard playing, output interruption, reconnect
+  and sustained sessions; refine event/sample scheduling from those results.
+
+The native checkpoints below remain historical evidence and legacy backlog,
+not a requirement to finish every native feature before shipping the new UI.
 
 - [x] `PRA-001` Start playback after the MIDI picker returns.
 - [x] `PRA-002` Make wait-for-notes the default with an obvious in-player toggle.

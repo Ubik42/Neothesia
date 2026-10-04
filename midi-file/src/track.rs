@@ -33,6 +33,7 @@ pub struct MidiNote {
 
 #[derive(Debug, Clone)]
 pub struct MidiTrack {
+    pub name: Option<String>,
     // Translated notes with calculated timings
     pub notes: Arc<[MidiNote]>,
 
@@ -64,7 +65,29 @@ impl MidiTrack {
             },
         ) = build(track_id, track_color_id, tempo_track, track_events);
 
+        let text = |bytes: &[u8]| {
+            let value: String = String::from_utf8_lossy(bytes)
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(120)
+                .collect();
+            let value = value.trim().to_string();
+            (!value.is_empty()).then_some(value)
+        };
+        let name = track_events
+            .iter()
+            .find_map(|e| match e.kind {
+                TrackEventKind::Meta(midly::MetaMessage::TrackName(bytes)) => text(bytes),
+                _ => None,
+            })
+            .or_else(|| {
+                track_events.iter().find_map(|e| match e.kind {
+                    TrackEventKind::Meta(midly::MetaMessage::InstrumentName(bytes)) => text(bytes),
+                    _ => None,
+                })
+            });
         Self {
+            name,
             track_id,
             track_color_id,
             notes: notes.into(),
@@ -88,7 +111,7 @@ struct EventsBuilder {
     has_drums: bool,
     has_other_than_drums: bool,
 
-    active_notes: HashMap<u8, NoteInfo>,
+    active_notes: HashMap<(u8, u8), NoteInfo>,
     notes: Vec<MidiNote>,
 }
 
@@ -109,7 +132,8 @@ impl EventsBuilder {
             }
         };
 
-        if let Some(active) = self.active_notes.remove(&key) {
+        let voice = (channel.as_int(), key);
+        if let Some(active) = self.active_notes.remove(&voice) {
             let start = active.timestamp;
             let end = timestamp;
             let duration = end - start;
@@ -134,7 +158,7 @@ impl EventsBuilder {
                 velocity,
                 timestamp,
             };
-            self.active_notes.insert(key, note);
+            self.active_notes.insert(voice, note);
         }
     }
 
@@ -211,4 +235,46 @@ fn build(
         .collect();
 
     (events, builder)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn overlapping_pitch_is_independent_per_channel() {
+        let mut b = EventsBuilder::default();
+        let on = |v: u8| MidiMessage::NoteOn {
+            key: 60.into(),
+            vel: v.into(),
+        };
+        let off = MidiMessage::NoteOff {
+            key: 60.into(),
+            vel: 0.into(),
+        };
+        b.on_event(0.into(), on(80u8), Duration::ZERO, 0, 0);
+        b.on_event(1.into(), on(100u8), Duration::from_millis(100), 0, 0);
+        // An unrelated channel's NoteOff must never shorten either held note.
+        b.on_event(2.into(), off, Duration::from_millis(200), 0, 0);
+        b.on_event(0.into(), off, Duration::from_millis(500), 0, 0);
+        b.on_event(
+            1.into(),
+            MidiMessage::NoteOn {
+                key: 60.into(),
+                vel: 0.into(),
+            },
+            Duration::from_millis(800),
+            0,
+            0,
+        );
+        assert_eq!(b.notes.len(), 2);
+        assert_eq!(
+            (b.notes[0].channel, b.notes[0].velocity, b.notes[0].duration),
+            (0, 80, Duration::from_millis(500))
+        );
+        assert_eq!(
+            (b.notes[1].channel, b.notes[1].velocity, b.notes[1].duration),
+            (1, 100, Duration::from_millis(700))
+        );
+        assert!(b.active_notes.is_empty());
+    }
 }

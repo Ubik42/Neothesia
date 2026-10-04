@@ -19,6 +19,8 @@ pub struct MidiFile {
     pub tempo_track: TempoTrack,
     pub measures: Arc<[std::time::Duration]>,
     pub beats: Arc<[std::time::Duration]>,
+    pub duration: std::time::Duration,
+    pub musical_time: crate::musical_time::MusicalTime,
 }
 
 impl MidiFile {
@@ -66,6 +68,10 @@ impl MidiFile {
             return Err(String::from("Midi File Has No Tracks"));
         }
 
+        if u_per_quarter_note == 0 {
+            return Err("MIDI 每拍分辨率不能为零".into());
+        }
+        if smf.tracks.iter().flatten().any(|e|matches!(e.kind,midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(t)) if t.as_int()==0)){return Err("MIDI 速度不能为零".into())}
         let tempo_track = TempoTrack::build(&smf.tracks, u_per_quarter_note);
 
         let mut track_color_id = 0;
@@ -84,51 +90,34 @@ impl MidiFile {
             })
             .collect();
 
-        let measures = {
-            let last_note_end = tracks
+        let last_tick = smf
+            .tracks
+            .iter()
+            .map(|track| {
+                track
+                    .iter()
+                    .map(|event| u64::from(event.delta.as_int()))
+                    .sum()
+            })
+            .max()
+            .unwrap_or(0);
+        let duration = tempo_track.pulses_to_duration(last_tick);
+        let musical_time = crate::musical_time::MusicalTime::build(
+            &smf.tracks,
+            u_per_quarter_note,
+            smf.tracks
                 .iter()
-                .fold(std::time::Duration::ZERO, |last, track| {
-                    if let Some(note) = track.notes.last() {
-                        last.max(note.start + note.duration)
-                    } else {
-                        last
-                    }
-                });
-
-            let mut masures = Vec::new();
-            let mut time = std::time::Duration::ZERO;
-            let mut id = 0;
-            while time <= last_note_end {
-                time = tempo_track.pulses_to_duration(id * u_per_quarter_note as u64 * 4);
-                masures.push(time);
-                id += 1;
-            }
-
-            masures
-        };
-
-        let beats = {
-            let last_note_end = tracks
-                .iter()
-                .fold(std::time::Duration::ZERO, |last, track| {
-                    if let Some(note) = track.notes.last() {
-                        last.max(note.start + note.duration)
-                    } else {
-                        last
-                    }
-                });
-
-            let mut beats = Vec::new();
-            let mut time = std::time::Duration::ZERO;
-            let mut id = 0;
-            while time <= last_note_end {
-                time = tempo_track.pulses_to_duration(id * u_per_quarter_note as u64);
-                beats.push(time);
-                id += 1;
-            }
-            beats
-        };
-
+                .map(|track| {
+                    track
+                        .iter()
+                        .map(|event| u64::from(event.delta.as_int()))
+                        .sum()
+                })
+                .max()
+                .unwrap_or(0),
+        )?;
+        let measures = musical_time.bar_times(&tempo_track);
+        let beats = musical_time.beat_times(&tempo_track);
         let program_track = ProgramTrack::new(&tracks);
 
         Ok(Self {
@@ -141,6 +130,8 @@ impl MidiFile {
             tempo_track,
             measures: measures.into(),
             beats: beats.into(),
+            musical_time,
+            duration,
         })
     }
 }

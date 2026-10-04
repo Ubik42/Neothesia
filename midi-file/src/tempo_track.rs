@@ -23,6 +23,35 @@ pub struct TempoProjection {
 }
 
 impl TempoTrack {
+    pub fn events(&self) -> &[TempoEvent] {
+        &self.events
+    }
+    pub fn ppq(&self) -> u16 {
+        self.pulses_per_quarter_note
+    }
+    pub fn seconds_to_pulses(&self, seconds: f64) -> f64 {
+        let index = self
+            .events
+            .partition_point(|e| e.timestamp.as_secs_f64() <= seconds);
+        let (start, tick, tempo) = index
+            .checked_sub(1)
+            .and_then(|i| self.events.get(i))
+            .map_or((0., 0., 500_000), |e| {
+                (e.timestamp.as_secs_f64(), e.absolute_pulses as f64, e.tempo)
+            });
+        tick + (seconds - start).max(0.) * 1_000_000. / f64::from(tempo)
+            * f64::from(self.pulses_per_quarter_note)
+    }
+    pub fn bpm_at_seconds(&self, seconds: f64) -> f64 {
+        let index = self
+            .events
+            .partition_point(|e| e.timestamp.as_secs_f64() <= seconds);
+        let tempo = index
+            .checked_sub(1)
+            .and_then(|i| self.events.get(i))
+            .map_or(500_000, |e| e.tempo);
+        60_000_000. / f64::from(tempo)
+    }
     pub fn build(track_events: &[Vec<TrackEvent>], pulses_per_quarter_note: u16) -> TempoTrack {
         // This map will help us get rid of duplicate events if
         // the tempo is specified in every track (as is common).

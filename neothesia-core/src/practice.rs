@@ -116,6 +116,10 @@ pub enum PracticeJudgement {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct PracticeResult {
+    /// Opaque caller IDs carried through the actual matching queues.
+    /// They identify occurrences and never influence the matching rules.
+    pub reference: Option<usize>,
+    pub input: Option<usize>,
     pub target: Option<PracticeTarget>,
     pub judgement: PracticeJudgement,
     pub timing_offset_ms: Option<i32>,
@@ -586,6 +590,7 @@ fn round_speed(speed: f32) -> f32 {
 
 #[derive(Debug, Clone, Copy)]
 struct NotePress {
+    input: Option<usize>,
     timestamp: Duration,
     note: NoteId,
     velocity: u8,
@@ -594,6 +599,7 @@ struct NotePress {
 
 #[derive(Debug, Clone, Copy)]
 struct TargetPress {
+    reference: Option<usize>,
     timestamp: Duration,
     target: PracticeTarget,
 }
@@ -900,6 +906,8 @@ impl PracticeMatcher {
         self.snapshot.wrong_notes += expired.len();
         self.results
             .extend(expired.into_iter().map(|press| PracticeResult {
+                reference: None,
+                input: press.input,
                 target: context,
                 judgement: PracticeJudgement::Wrong {
                     played_note: press.note,
@@ -917,6 +925,8 @@ impl PracticeMatcher {
         self.snapshot.missed_notes += expired.len();
         self.results
             .extend(expired.into_iter().map(|press| PracticeResult {
+                reference: press.reference,
+                input: None,
                 target: Some(press.target),
                 judgement: PracticeJudgement::Missed,
                 timing_offset_ms: None,
@@ -934,6 +944,16 @@ impl PracticeMatcher {
         note: NoteId,
         active: bool,
         velocity: u8,
+    ) -> Option<MatchedNote> {
+        self.user_note_with_input(now, note, active, velocity, None)
+    }
+    pub fn user_note_with_input(
+        &mut self,
+        now: Duration,
+        note: NoteId,
+        active: bool,
+        velocity: u8,
+        input: Option<usize>,
     ) -> Option<MatchedNote> {
         if !self.user_keyboard_range.contains(note) {
             return None;
@@ -955,10 +975,12 @@ impl PracticeMatcher {
             self.update_required_count();
             return Some(self.record_match(
                 required.target,
-                TimingGrade::Late(now.saturating_sub(required.timestamp)),
+                if now < required.timestamp {TimingGrade::Early(required.timestamp-now)} else {TimingGrade::Late(now-required.timestamp)},
                 velocity,
                 now,
                 None,
+                required.reference,
+                input,
             ));
         }
 
@@ -966,6 +988,7 @@ impl PracticeMatcher {
             .entry(note)
             .or_default()
             .push_back(NotePress {
+                input,
                 timestamp: now,
                 note,
                 velocity,
@@ -985,6 +1008,15 @@ impl PracticeMatcher {
         target: PracticeTarget,
         active: bool,
     ) -> Option<MatchedNote> {
+        self.score_target_with_reference(now, target, active, None)
+    }
+    pub fn score_target_with_reference(
+        &mut self,
+        now: Duration,
+        target: PracticeTarget,
+        active: bool,
+        reference: Option<usize>,
+    ) -> Option<MatchedNote> {
         let note = target.note;
         if !self.user_keyboard_range.contains(note) {
             return None;
@@ -999,10 +1031,12 @@ impl PracticeMatcher {
         if let Some(press) = pop_front(&mut self.user_pressed_recently, note) {
             return Some(self.record_match(
                 target,
-                TimingGrade::Early(now.saturating_sub(press.timestamp)),
+                if press.timestamp < now {TimingGrade::Early(now-press.timestamp)} else {TimingGrade::Late(press.timestamp-now)},
                 press.velocity,
                 press.timestamp,
                 press.released_at,
+                reference,
+                press.input,
             ));
         }
 
@@ -1010,6 +1044,7 @@ impl PracticeMatcher {
             .entry(note)
             .or_default()
             .push_back(TargetPress {
+                reference,
                 timestamp: now,
                 target,
             });
@@ -1039,6 +1074,8 @@ impl PracticeMatcher {
             for press in queue {
                 self.snapshot.wrong_notes += 1;
                 self.results.push(PracticeResult {
+                    reference: None,
+                    input: press.input,
                     target: context,
                     judgement: PracticeJudgement::Wrong {
                         played_note: press.note,
@@ -1052,6 +1089,8 @@ impl PracticeMatcher {
             for press in queue {
                 self.snapshot.missed_notes += 1;
                 self.results.push(PracticeResult {
+                    reference: press.reference,
+                    input: None,
                     target: Some(press.target),
                     judgement: PracticeJudgement::Missed,
                     timing_offset_ms: None,
@@ -1180,6 +1219,8 @@ impl PracticeMatcher {
         played_velocity: u8,
         played_at: Duration,
         released_at: Option<Duration>,
+        reference: Option<usize>,
+        input: Option<usize>,
     ) -> MatchedNote {
         let timing_offset_ms = match timing {
             TimingGrade::Early(delta) => -duration_millis_i32(delta),
@@ -1201,6 +1242,8 @@ impl PracticeMatcher {
         }
 
         self.results.push(PracticeResult {
+            reference,
+            input,
             target: Some(target),
             judgement: PracticeJudgement::Matched(timing),
             timing_offset_ms: Some(timing_offset_ms),
@@ -1398,6 +1441,19 @@ mod tests {
     }
 
     #[test]
+    fn calibrated_timestamp_order_keeps_signed_offsets_and_caller_ids() {
+        let mut early=matcher();
+        early.score_target_with_reference(Duration::from_millis(250),PracticeTarget::unknown(60),true,Some(4));
+        let result=early.user_note_with_input(Duration::from_millis(160),60,true,90,Some(9)).unwrap();
+        assert_eq!(result.timing,TimingGrade::Early(Duration::from_millis(90)));
+        assert_eq!(early.results[0].timing_offset_ms,Some(-90));assert_eq!((early.results[0].reference,early.results[0].input),(Some(4),Some(9)));
+        let mut late=matcher();late.user_note_with_input(Duration::from_millis(340),60,true,90,Some(3));
+        let result=late.score_target_with_reference(Duration::from_millis(250),PracticeTarget::unknown(60),true,Some(7)).unwrap();
+        assert_eq!(result.timing,TimingGrade::Late(Duration::from_millis(90)));
+        assert_eq!(late.results[0].timing_offset_ms,Some(90));assert_eq!((late.results[0].reference,late.results[0].input),(Some(7),Some(3)));
+    }
+
+    #[test]
     fn matches_early_on_time_and_late_notes_deterministically() {
         let mut matcher = matcher();
 
@@ -1532,6 +1588,52 @@ mod tests {
     }
 
     #[test]
+    fn matcher_keeps_exact_ids_for_repeated_notes_early_late_and_wrong() {
+        let mut m = PracticeMatcher::new(KeyboardRange::new(21..=108));
+        m.user_note_with_input(Duration::from_millis(100), 60, true, 80, Some(10));
+        m.user_note_with_input(Duration::from_millis(200), 60, true, 90, Some(11));
+        m.score_target_with_reference(
+            Duration::from_millis(300),
+            PracticeTarget::unknown(60),
+            true,
+            Some(20),
+        );
+        m.score_target_with_reference(
+            Duration::from_millis(400),
+            PracticeTarget::unknown(60),
+            true,
+            Some(21),
+        );
+        assert_eq!(
+            (m.results()[0].reference, m.results()[0].input),
+            (Some(20), Some(10))
+        );
+        assert_eq!(
+            (m.results()[1].reference, m.results()[1].input),
+            (Some(21), Some(11))
+        );
+        m.score_target_with_reference(
+            Duration::from_millis(500),
+            PracticeTarget::unknown(62),
+            true,
+            Some(22),
+        );
+        m.user_note_with_input(Duration::from_secs(2), 62, true, 100, Some(12));
+        assert_eq!(
+            (m.results()[2].reference, m.results()[2].input),
+            (Some(22), Some(12))
+        );
+        m.user_note_with_input(Duration::from_secs(2), 65, true, 99, Some(13));
+        m.tick(Duration::from_secs(3));
+        let wrong = m.results().last().unwrap();
+        assert_eq!(wrong.reference, None);
+        assert_eq!(wrong.input, Some(13));
+        assert!(matches!(
+            wrong.judgement,
+            PracticeJudgement::Wrong { played_note: 65 }
+        ));
+    }
+    #[test]
     fn flow_practice_finalizes_late_targets_as_missed() {
         let mut matcher = matcher();
         matcher.score_note(Duration::from_secs(1), 60, true);
@@ -1620,11 +1722,15 @@ mod tests {
             part: PracticePart::RightHand,
         };
         let matched = |score_time, offset| PracticeResult {
+            reference: None,
+            input: None,
             target: Some(target(score_time)),
             judgement: PracticeJudgement::Matched(TimingGrade::OnTime),
             timing_offset_ms: Some(offset),
         };
         let missed = |score_time| PracticeResult {
+            reference: None,
+            input: None,
             target: Some(target(score_time)),
             judgement: PracticeJudgement::Missed,
             timing_offset_ms: None,

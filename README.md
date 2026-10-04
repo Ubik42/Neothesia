@@ -4,9 +4,19 @@
 
 # Neothesia
 
-面向本地钢琴练习的跨平台 MIDI 可视化与训练工具。本仓库是在开源项目 [PolyMeilex/Neothesia](https://github.com/PolyMeilex/Neothesia) 基础上长期维护的个人分支，重点不只是播放“瀑布流”，而是把选曲、分段练习、演奏反馈、乐谱跟随和 Pianoteq 音源连接成一套稳定的日常练琴流程。
+面向本地钢琴练习的跨平台 MIDI 可视化与训练工具。本仓库是在开源项目 [PolyMeilex/Neothesia](https://github.com/PolyMeilex/Neothesia) 基础上长期维护的个人分支，把选曲、分段练习、演奏反馈、乐谱跟随和 Pianoteq 音源连接成一套稳定的日常练琴流程。
 
-> **当前状态：暂停开发。** 功能停留在 2026-08-15 的 Cycle 105 检查点。现有练习功能可以从源码运行；Pianoteq VST3 直连仍属于进行中的 Windows 实现，不应视为已经打包完成的正式版本。
+> **当前开发版：Cycle 203（2026-10-03）。** React＋Tauri 中文练习室与共享 Rust 引擎已接入本地曲库整理、多版本 MusicXML/PDF/图片谱面、指法推荐与逐音审阅、双手交接检查、练习段落与计划、演奏记录和备份迁移。最近新增谱面区域/笔迹批注、批量配对的文件副本与重启恢复、指法方案局部比较采用，以及 `.neoscorebatch` 整理批次导出/导入。具体完成范围、验证和未完成项见 [开发进度](docs/development/progress.md) 与 [产品路线](docs/development/product-roadmap.md)。这是持续开发的源码快照，尚未完成全部 Synthesia 功能。
+
+## 新练习室入口
+
+双击根目录 **`Open-Desktop.cmd`** 启动新版 Tauri 桌面开发版；
+**`Open-Web.cmd`** 启动浏览器开发版和后台音乐引擎。
+新版使用 React＋TypeScript 中文界面，Rust 独立线程负责播放、设备和评分，
+并已支持无界面浏览器操作真实后端进行自动验证。
+迁移范围、构建、数据目录和当前边界见 [Web＋Tauri 练习室](neothesia-web/README.md)。
+
+下文“已实现能力”主要描述旧原生分支，不能视为所有能力均已迁入新版。
 
 ![Neothesia playback interface](https://github.com/PolyMeilex/Neothesia/assets/20758186/65483bab-0b74-4fd4-90b1-fdd00508b676)
 
@@ -39,15 +49,21 @@
 
 ## 从源码运行
 
-需要 Rust 工具链以及各平台对应的音频/MIDI 运行环境。
+新版桌面入口需要 Rust 和 Node.js/npm，以及平台对应的音频/MIDI 运行环境；Windows 使用 WebView2。
 
 ```powershell
 git clone https://github.com/Ubik42/Neothesia.git
 cd Neothesia
-cargo run --release
+cd neothesia-web
+npm ci
+npm run desktop:build:dev
+cd ..
+.\Open-Desktop.cmd
 ```
 
-常用验证：
+旧原生界面仍可从仓库根目录运行 `cargo run --release`。新版浏览器开发、桌面打包与针对性验证见 [练习室开发说明](neothesia-web/README.md)。
+
+核心验证：
 
 ```powershell
 cargo test
@@ -68,19 +84,21 @@ cargo clippy --all-targets
 .\scripts\sync-practice-library.ps1
 ```
 
-脚本可以建立带来源和许可证记录的本地曲库。当前流程覆盖 MAESTRO、Mutopia 与受控数量的 Pop-K 条目；这些来源的许可条件并不相同，尤其部分数据集包含非商业限制。具体说明见[公开练习曲库](docs/pages/practice-library.md)。
+脚本可以建立带来源和许可证记录的本地曲库。当前流程覆盖 MAESTRO、Mutopia、受控数量的 Pop-K 条目，以及独立导入的 GiantMIDI-Piano v1.2（10,855 首）。GiantMIDI 是自动转录的演奏数据，归入待校对分区；这些来源的许可条件并不相同，尤其部分数据集包含非商业限制。完整下载、导入与来源说明见[公开练习曲库](docs/pages/practice-library.md)。
 
 ## 当前边界
 
-- 项目尚未提供本分支的正式安装包或自动更新流程。
-- 刻谱渲染默认关闭，并依赖 Node/Verovio worker。
+- 当前为开发版；正式安装器、自动更新和完整跨平台验收仍未完成。
+- 新版使用随源码提供的 Verovio WASM；旧原生刻谱仍采用可选的 Node/Verovio worker。
 - Pianoteq VST3 已验证加载、实时 MIDI、音频和状态往返，但完整 UI、重启恢复、长时间稳定性和广泛插件兼容性仍需人工验收。
-- 物理 MIDI 设备掉线重连、无障碍细节和大曲库渐进索引仍在路线图中。
+- MIDI 重连和后台曲库索引已接入；复杂乐谱解释、专家指法校准、跨演奏身份资料迁移及完整产品验收继续推进，具体边界以产品路线为准。
 
 ## 工程结构
 
 | 目录 | 职责 |
 | --- | --- |
+| `neothesia-web/` | 新版 React 中文界面与 Tauri 桌面壳 |
+| `neothesia-engine/` | 独立播放线程、设备、音频、评分和浏览器开发服务 |
 | `neothesia/` | 桌面应用、场景与交互 |
 | `neothesia-core/` | 练习、曲库、乐谱、反馈与渲染核心 |
 | `midi-file/` / `midi-io/` | MIDI 文件播放与设备输入输出 |

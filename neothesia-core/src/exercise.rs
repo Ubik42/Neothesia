@@ -364,6 +364,9 @@ impl ExercisePlan {
     }
 
     pub fn to_midi_file(&self) -> Result<MidiFile, String> {
+        MidiFile::from_smf(self.display_name(), &self.to_smf()?)
+    }
+    pub fn to_smf(&self) -> Result<Smf<'static>, String> {
         let total_ticks = self
             .moments
             .iter()
@@ -385,18 +388,9 @@ impl ExercisePlan {
             },
         ];
         let mut tracks = vec![conductor];
-        match self.spec.hands {
-            ExerciseHands::Right => {
-                tracks.push(self.midi_track(PracticePart::RightHand, 0, RIGHT_TRACK_NAME));
-            }
-            ExerciseHands::Left => {
-                tracks.push(self.midi_track(PracticePart::LeftHand, 1, LEFT_TRACK_NAME));
-            }
-            ExerciseHands::Both => {
-                tracks.push(self.midi_track(PracticePart::RightHand, 0, RIGHT_TRACK_NAME));
-                tracks.push(self.midi_track(PracticePart::LeftHand, 1, LEFT_TRACK_NAME));
-            }
-        }
+        // Stable IDs prevent a left-only track from inheriting right-hand settings.
+        tracks.push(self.midi_track(PracticePart::RightHand, 0, RIGHT_TRACK_NAME));
+        tracks.push(self.midi_track(PracticePart::LeftHand, 1, LEFT_TRACK_NAME));
         let smf = Smf {
             header: Header {
                 format: Format::Parallel,
@@ -404,7 +398,7 @@ impl ExercisePlan {
             },
             tracks,
         };
-        MidiFile::from_smf(self.display_name(), &smf)
+        Ok(smf)
     }
 
     fn midi_track(

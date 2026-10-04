@@ -11,6 +11,8 @@ members = [
   "midi-file",
   "midi-io",
   "nuon",
+  "neothesia-engine",
+  "neothesia-web/src-tauri",
 ]
 
 default-members = ["neothesia"]

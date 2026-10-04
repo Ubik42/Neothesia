@@ -1,5 +1,5 @@
 param(
-    [string]$TestRoot = "D:\cs\_test\neothesia-verovio"
+    [string]$TestRoot = "D:\Music\_tools\_test\neothesia-verovio"
 )
 
 $ErrorActionPreference = "Stop"

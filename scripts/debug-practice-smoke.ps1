@@ -16,7 +16,7 @@ param(
 
     [string]$Executable = "target\debug\neothesia.exe",
 
-    [string]$VerovioPackageRoot = "D:\cs\_test\neothesia-verovio\node_modules\verovio",
+    [string]$VerovioPackageRoot = "D:\Music\_tools\_test\neothesia-verovio\node_modules\verovio",
 
     [string]$ScreenshotPath,
 

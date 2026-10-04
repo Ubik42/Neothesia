@@ -5,7 +5,7 @@
 //! depending on MusicXML's document structure.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     io::{Cursor, Read},
     path::{Component, Path},
@@ -65,6 +65,7 @@ pub struct RepeatMark {
     pub direction: RepeatDirection,
     pub times: Option<u16>,
     pub winged: Option<String>,
+    pub after_jump: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +122,16 @@ pub struct Direction {
     pub dynamics: Vec<String>,
     pub words: Vec<String>,
     pub tempo_bpm: Option<String>,
+    pub navigation: Vec<SoundNavigation>,
     pub pedals: Vec<PedalMark>,
+}
+
+/// Playback instructions from one MusicXML sound element. Its own offset
+/// overrides the surrounding direction offset, independently of visual layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SoundNavigation {
+    pub onset: ScoreTime,
+    pub attributes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -375,6 +385,55 @@ fn import_mxl(source: &[u8]) -> Result<Score, ImportError> {
         return Err(ImportError::TooManyArchiveEntries(archive.len()));
     }
 
+    let score_xml = extract_mxl_root(&mut archive)?;
+
+    let mut score = import_musicxml(&score_xml)?;
+    let mimetype_valid = match archive.by_name("mimetype") {
+        Ok(mut entry) => {
+            let mut value = Vec::new();
+            read_limited(&mut entry, &mut value, "MXL mimetype", 256)?;
+            value == MXL_MEDIA_TYPE.as_bytes()
+        }
+        Err(zip::result::ZipError::FileNotFound) => false,
+        Err(error) => return Err(ImportError::Zip(error)),
+    };
+    if !mimetype_valid {
+        warn_once(
+            &mut score.warnings,
+            "MXL container".into(),
+            format!("missing or invalid {MXL_MEDIA_TYPE} mimetype marker"),
+        );
+    }
+    Ok(score)
+}
+
+/// Returns the original XML root, retaining notation and engraving fields that
+/// the learning model does not represent. MXL extraction uses the importer limits.
+pub fn musicxml_source(source: &[u8]) -> Result<Vec<u8>, ImportError> {
+    if source.starts_with(b"PK") {
+        if source.len() > MAX_ARCHIVE_BYTES {
+            return Err(ImportError::SizeLimit {
+                kind: "MXL archive",
+                limit: MAX_ARCHIVE_BYTES,
+            });
+        }
+        let mut archive = zip::ZipArchive::new(Cursor::new(source))?;
+        if archive.len() > MAX_ARCHIVE_ENTRIES {
+            return Err(ImportError::TooManyArchiveEntries(archive.len()));
+        }
+        extract_mxl_root(&mut archive)
+    } else {
+        if source.len() > MAX_SCORE_BYTES {
+            return Err(ImportError::SizeLimit {
+                kind: "MusicXML document",
+                limit: MAX_SCORE_BYTES,
+            });
+        }
+        Ok(source.to_vec())
+    }
+}
+
+fn extract_mxl_root(archive: &mut zip::ZipArchive<Cursor<&[u8]>>) -> Result<Vec<u8>, ImportError> {
     let mut container = Vec::new();
     {
         let mut entry = archive
@@ -420,24 +479,7 @@ fn import_mxl(source: &[u8]) -> Result<Score, ImportError> {
         )?;
     }
 
-    let mut score = import_musicxml(&score_xml)?;
-    let mimetype_valid = match archive.by_name("mimetype") {
-        Ok(mut entry) => {
-            let mut value = Vec::new();
-            read_limited(&mut entry, &mut value, "MXL mimetype", 256)?;
-            value == MXL_MEDIA_TYPE.as_bytes()
-        }
-        Err(zip::result::ZipError::FileNotFound) => false,
-        Err(error) => return Err(ImportError::Zip(error)),
-    };
-    if !mimetype_valid {
-        warn_once(
-            &mut score.warnings,
-            "MXL container".into(),
-            format!("missing or invalid {MXL_MEDIA_TYPE} mimetype marker"),
-        );
-    }
-    Ok(score)
+    Ok(score_xml)
 }
 
 fn read_limited(
@@ -518,7 +560,100 @@ struct DirectionBuilder {
     dynamics: Vec<String>,
     words: Vec<String>,
     tempo_bpm: Option<String>,
+    navigation: Vec<SoundBuilder>,
     pedals: Vec<PedalMark>,
+}
+
+#[derive(Default)]
+struct SoundBuilder {
+    tempo_bpm: Option<String>,
+    attributes: BTreeMap<String, String>,
+    offset: Option<i64>,
+}
+
+fn finish_direction(
+    built: DirectionBuilder,
+    measure: &mut Measure,
+    part_id: &str,
+    measure_ordinal: u32,
+    ordinal: &mut u32,
+    origin: ScoreTime,
+    divisions: u32,
+) {
+    let id = ScoreEventId {
+        part_id: part_id.into(),
+        measure_ordinal,
+        kind: ScoreEventKind::Direction,
+        ordinal: *ordinal,
+    };
+    *ordinal = ordinal.saturating_add(1);
+    let tempos: Vec<_> = built
+        .navigation
+        .iter()
+        .filter_map(|sound| {
+            sound.tempo_bpm.as_ref().map(|tempo| {
+                (
+                    origin.add(ScoreTime::new(
+                        sound.offset.unwrap_or(built.offset),
+                        divisions,
+                    )),
+                    tempo.clone(),
+                )
+            })
+        })
+        .collect();
+    let direction_onset = origin.add(ScoreTime::new(built.offset, divisions));
+    let primary_index = tempos
+        .iter()
+        .position(|(onset, _)| *onset == direction_onset);
+    let primary_tempo = primary_index.map(|i| tempos[i].1.clone()).or_else(|| {
+        if tempos.is_empty() {
+            built.tempo_bpm.clone()
+        } else {
+            None
+        }
+    });
+    let navigation = built
+        .navigation
+        .into_iter()
+        .filter(|s| !s.attributes.is_empty())
+        .map(|s| SoundNavigation {
+            onset: origin.add(ScoreTime::new(s.offset.unwrap_or(built.offset), divisions)),
+            attributes: s.attributes,
+        })
+        .collect();
+    measure.events.push(ScoreEvent::Direction(Direction {
+        id,
+        onset: origin.add(ScoreTime::new(built.offset, divisions)),
+        staff: built.staff,
+        dynamics: built.dynamics,
+        words: built.words,
+        tempo_bpm: primary_tempo,
+        navigation,
+        pedals: built.pedals,
+    }));
+    for (index, (onset, tempo)) in tempos.into_iter().enumerate() {
+        if Some(index) == primary_index {
+            continue;
+        }
+        let id = ScoreEventId {
+            part_id: part_id.into(),
+            measure_ordinal,
+            kind: ScoreEventKind::Direction,
+            ordinal: *ordinal,
+        };
+        *ordinal = ordinal.saturating_add(1);
+        measure.events.push(ScoreEvent::Direction(Direction {
+            id,
+            onset,
+            staff: built.staff,
+            dynamics: vec![],
+            words: vec![],
+            tempo_bpm: Some(tempo),
+            navigation: vec![],
+            pedals: vec![],
+        }));
+    }
 }
 
 #[derive(Default)]
@@ -567,6 +702,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut current_measure: Option<Measure> = None;
     let mut note: Option<NoteBuilder> = None;
     let mut direction: Option<DirectionBuilder> = None;
+    let mut standalone_sound = false;
     let mut attributes: Option<AttributesBuilder> = None;
     let mut barline: Option<BarlineBuilder> = None;
     let mut divisions = 1_u32;
@@ -578,6 +714,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut forward_duration: Option<i64> = None;
     let mut score_part_id: Option<String> = None;
     let mut creator_is_composer = false;
+    let mut non_onset_fingering = false;
     let mut measure_ordinal = 0_u32;
     let mut note_ordinal = 0_u32;
     let mut direction_ordinal = 0_u32;
@@ -640,6 +777,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             ..Default::default()
                         })
                     }
+                    b"fingering" if note.is_some() => {
+                        non_onset_fingering=attribute(&start,b"substitution")?.as_deref()==Some("yes") || attribute(&start,b"alternate")?.as_deref()==Some("yes");
+                    }
                     b"direction" => direction = Some(DirectionBuilder::default()),
                     b"attributes" => attributes = Some(AttributesBuilder::default()),
                     b"barline" => {
@@ -682,8 +822,16 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         let builder = note.as_mut().unwrap();
                         builder.tuplet_normal_dots = builder.tuplet_normal_dots.saturating_add(1);
                     }
-                    b"sound" if direction.is_some() => {
-                        direction.as_mut().unwrap().tempo_bpm = attribute(&start, b"tempo")?;
+                    b"sound" if current_measure.is_some() => {
+                        if direction.is_none() {
+                            direction = Some(DirectionBuilder::default());
+                            standalone_sound = true;
+                        }
+                        let built = direction.as_mut().unwrap();
+                        if let Some(tempo) = attribute(&start, b"tempo")? {
+                            built.tempo_bpm = Some(tempo);
+                        }
+                        built.navigation.push(sound_navigation(&start)?);
                     }
                     b"pedal" if direction.is_some() => {
                         direction
@@ -751,7 +899,24 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         str::from_utf8(name.as_ref())?,
                     );
                 }
-                handle_empty(&start, &path, &mut note, &mut direction, &mut barline)?;
+                if name.as_ref() == b"sound" && direction.is_none() && current_measure.is_some() {
+                    let built = DirectionBuilder {
+                        tempo_bpm: attribute(&start, b"tempo")?,
+                        navigation: vec![sound_navigation(&start)?],
+                        ..Default::default()
+                    };
+                    finish_direction(
+                        built,
+                        current_measure.as_mut().unwrap(),
+                        &current_part.as_ref().unwrap().id,
+                        measure_ordinal,
+                        &mut direction_ordinal,
+                        part_position.add(cursor),
+                        divisions,
+                    );
+                } else {
+                    handle_empty(&start, &path, &mut note, &mut direction, &mut barline)?;
+                }
             }
             Event::Text(text) => {
                 let decoded = str::from_utf8(text.as_ref())?;
@@ -834,7 +999,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .unwrap()
                             .attributes
                             .push(MeasureAttributes {
-                                onset: cursor,
+                                onset: part_position.add(cursor),
                                 divisions,
                                 key_fifths: built.key_fifths,
                                 time_signature: built
@@ -882,7 +1047,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             Some(parse_u8("direction staff", &value)?)
                     }
                     b"fingering" if note.is_some() => {
-                        note.as_mut().unwrap().fingering = nonempty(value)
+                        if !non_onset_fingering {note.as_mut().unwrap().fingering = nonempty(value);}
                     }
                     b"actual-notes" if note.is_some() => {
                         note.as_mut().unwrap().tuplet_actual =
@@ -901,7 +1066,26 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         }
                     }
                     b"offset" if direction.is_some() => {
-                        direction.as_mut().unwrap().offset = parse_i64("direction offset", &value)?
+                        let offset = parse_i64("sound/direction offset", &value)?;
+                        if parent_is(&path, 2, b"sound") {
+                            if let Some(sound) = direction.as_mut().unwrap().navigation.last_mut() {
+                                sound.offset = Some(offset);
+                            }
+                        } else {
+                            direction.as_mut().unwrap().offset = offset;
+                        }
+                    }
+                    b"sound" if standalone_sound => {
+                        standalone_sound = false;
+                        finish_direction(
+                            direction.take().unwrap(),
+                            current_measure.as_mut().unwrap(),
+                            &current_part.as_ref().unwrap().id,
+                            measure_ordinal,
+                            &mut direction_ordinal,
+                            part_position.add(cursor),
+                            divisions,
+                        );
                     }
                     b"note" => {
                         let built = note.take().unwrap();
@@ -988,31 +1172,15 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         }
                     }
                     b"direction" => {
-                        let built = direction.take().unwrap();
-                        let id = ScoreEventId {
-                            part_id: current_part
-                                .as_ref()
-                                .map(|part| part.id.clone())
-                                .unwrap_or_default(),
+                        finish_direction(
+                            direction.take().unwrap(),
+                            current_measure.as_mut().unwrap(),
+                            &current_part.as_ref().unwrap().id,
                             measure_ordinal,
-                            kind: ScoreEventKind::Direction,
-                            ordinal: direction_ordinal,
-                        };
-                        direction_ordinal = direction_ordinal.saturating_add(1);
-                        let onset = cursor.add(ScoreTime::new(built.offset, divisions));
-                        current_measure
-                            .as_mut()
-                            .unwrap()
-                            .events
-                            .push(ScoreEvent::Direction(Direction {
-                                id,
-                                onset: part_position.add(onset),
-                                staff: built.staff,
-                                dynamics: built.dynamics,
-                                words: built.words,
-                                tempo_bpm: built.tempo_bpm,
-                                pedals: built.pedals,
-                            }));
+                            &mut direction_ordinal,
+                            part_position.add(cursor),
+                            divisions,
+                        );
                     }
                     b"barline" => {
                         let built = barline.take().unwrap();
@@ -1106,7 +1274,11 @@ fn handle_empty(
                 .push(str::from_utf8(name)?.to_owned());
         }
         b"sound" if direction.is_some() => {
-            direction.as_mut().unwrap().tempo_bpm = attribute(start, b"tempo")?;
+            let built = direction.as_mut().unwrap();
+            if let Some(tempo) = attribute(start, b"tempo")? {
+                built.tempo_bpm = Some(tempo);
+            }
+            built.navigation.push(sound_navigation(start)?);
         }
         b"pedal" if direction.is_some() => {
             direction.as_mut().unwrap().pedals.push(parse_pedal(start)?);
@@ -1194,6 +1366,30 @@ fn parse_barline_location(value: Option<String>) -> BarlineLocation {
     }
 }
 
+fn sound_navigation(start: &BytesStart<'_>) -> Result<SoundBuilder, ImportError> {
+    let mut result = SoundBuilder {
+        tempo_bpm: attribute(start, b"tempo")?,
+        ..Default::default()
+    };
+    for name in [
+        "dacapo",
+        "dalsegno",
+        "tocoda",
+        "segno",
+        "coda",
+        "fine",
+        "time-only",
+        "forward-repeat",
+    ] {
+        if let Some(value) = attribute(start, name.as_bytes())? {
+            let value = value.trim().to_owned();
+            if value != "no" || !matches!(name, "dacapo" | "forward-repeat") {
+                result.attributes.insert(name.into(), value);
+            }
+        }
+    }
+    Ok(result)
+}
 fn parse_repeat(start: &BytesStart<'_>) -> Result<RepeatMark, ImportError> {
     let value = attribute(start, b"direction")?.unwrap_or_default();
     let direction = match value.as_str() {
@@ -1207,6 +1403,7 @@ fn parse_repeat(start: &BytesStart<'_>) -> Result<RepeatMark, ImportError> {
             .map(|value| parse_u16("repeat times", &value))
             .transpose()?,
         winged: attribute(start, b"winged")?,
+        after_jump: attribute(start, b"after-jump")?.map(|v| v == "yes"),
     })
 }
 
@@ -1482,6 +1679,11 @@ mod tests {
     #[test]
     fn imports_compressed_mxl_by_signature() {
         let source = mxl_with_container(&valid_container("scores/piano.musicxml"), true);
+        assert_eq!(musicxml_source(&source).unwrap(), PIANO_SCORE.as_bytes());
+        assert_eq!(
+            musicxml_source(PIANO_SCORE.as_bytes()).unwrap(),
+            PIANO_SCORE.as_bytes()
+        );
         let score = import_musicxml_document(&source).unwrap();
         assert_eq!(score.title.as_deref(), Some("Learning & Study"));
         assert_eq!(score.parts[0].measures.len(), 1);
@@ -1574,6 +1776,7 @@ mod tests {
                 direction: RepeatDirection::Forward,
                 times: None,
                 winged: Some("curved".into()),
+                after_jump: None,
             })
         );
         assert_eq!(measures[1].barlines[0].location, BarlineLocation::Right);
@@ -1583,6 +1786,7 @@ mod tests {
                 direction: RepeatDirection::Backward,
                 times: Some(4),
                 winged: Some("double-curved".into()),
+                after_jump: None,
             })
         );
         assert_eq!(

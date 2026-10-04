@@ -1,5 +1,7 @@
 # Product and engineering roadmap
 
+Current execution (2026-10-02): the owner requested a long-running full-product development goal. Follow [the detailed Chinese product roadmap](product-roadmap.md); native milestones below are the original product foundation, not proof that every feature has reached the new UI.
+
 ## Product vision
 
 Neothesia should help a pianist move from “I can see the notes” to “I can play
@@ -48,9 +50,9 @@ This roadmap borrows outcomes, not implementations:
 
 ## Architecture direction
 
-The application remains native Rust. A full React rewrite would duplicate the
-renderer and weaken the realtime path without improving piano-learning logic.
-New product logic should move out of scene code into explicit domains:
+The delivered desktop application uses a Tauri shell and a React interface. Rust retains the MIDI timeline, audio routing, matching/scoring, library identity, annotations and persistence. The native wgpu interface remains available as the original fork foundation; its capabilities do not automatically count as delivered Web capabilities. New interface work sends commands and reads shared engine state rather than reimplementing learning rules in React.
+
+The original domain boundary diagram below remains a guide for extracting logic, but its native UI box is now also served by the React/Tauri interface:
 
 ```text
                  Native UI / wgpu scenes
@@ -77,9 +79,7 @@ New product logic should move out of scene code into explicit domains:
   musical time; MusicXML parsers and engraving engines remain adapters.
 - `ui`: scenes render state and send actions; they do not own learning rules.
 
-An optional HTML/React surface may later be prototyped for a rich library or
-analytics dashboard, but it is not a prerequisite and must communicate through
-a narrow command/query API.
+The React/Tauri interface is the current product surface. Browser automation exercises user workflows against the same Rust command/query service; desktop checks verify the packaged interface, devices and embedded assets. Compatibility checks are release validation, not the development objective. The detailed Chinese roadmap records actual completed scope and remaining work.
 
 ## Execution priority — updated 2026-08-11
 

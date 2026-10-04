@@ -4,7 +4,7 @@ Cycle 089 measured Verovio outside the application before committing Neothesia
 to a web view, JavaScript runtime or notation-engine dependency. The upstream
 source is pinned at `version-6.1.0` / `682d60684450e780f0a1dcb7e394bda12eea4501`
 under the local reference tree. The runnable test shell and generated artifacts
-live under `D:\cs\_test\neothesia-verovio`.
+live under `D:\Music\_tools\_test\neothesia-verovio`.
 
 Run the benchmark from the repository root:
 

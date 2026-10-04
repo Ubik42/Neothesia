@@ -1,6 +1,9 @@
 param(
-    [string]$LibraryRoot = "D:\Music\MusicLib\MIDI",
+    [string]$LibraryRoot = "D:\Music\MIDI\PracticeLibrary",
     [int]$PopKCount = 256,
+    [switch]$IncludeGiantMidi,
+    [string]$GiantMidiRoot = "",
+    [string]$GiantMidiRepository = "D:\Music\_tools\_reference\GiantMIDI-Piano",
     [switch]$Force
 )
 
@@ -210,10 +213,30 @@ foreach ($midi in Get-ChildItem -LiteralPath $popRoot -File -Filter "popk_datase
 }
 
 $catalogPath = Join-Path $LibraryRoot "catalog.csv"
+# Preserve collections imported independently, including GiantMIDI. This sync
+# owns only these three source families, not every row in the local library.
+if ([System.IO.File]::Exists($catalogPath)) {
+    foreach ($row in Import-Csv -LiteralPath $catalogPath) {
+        if ($row.Source -notin @("Mutopia Project", "MAESTRO v3.0.0", "Pop-K v1.0 curated subset")) {
+            $catalog.Add($row)
+        }
+    }
+}
 $catalogRows = @($catalog | Sort-Object LocalPath -Unique)
-$catalogRows |
-    Sort-Object Category, Composer, Title, LocalPath |
-    Export-Csv -LiteralPath $catalogPath -NoTypeInformation -Encoding utf8BOM
+$temporaryCatalog = "$catalogPath.$([Guid]::NewGuid().ToString('N')).tmp"
+try {
+    $catalogRows |
+        Sort-Object Category, Composer, Title, LocalPath |
+        Export-Csv -LiteralPath $temporaryCatalog -NoTypeInformation -Encoding utf8BOM
+    [System.IO.File]::Move($temporaryCatalog, $catalogPath, $true)
+} finally {
+    if ([System.IO.File]::Exists($temporaryCatalog)) { Remove-Item -LiteralPath $temporaryCatalog }
+}
+
+if ($IncludeGiantMidi) {
+    & (Join-Path $PSScriptRoot "import-giantmidi-library.ps1") `
+        -LibraryRoot $LibraryRoot -RepositoryRoot $GiantMidiRepository -MidiRoot $GiantMidiRoot
+}
 
 [pscustomobject]@{
     LibraryRoot = $LibraryRoot
@@ -221,5 +244,5 @@ $catalogRows |
     MaestroMidi = (Get-ChildItem -LiteralPath $maestroRoot -Recurse -File -Include *.mid, *.midi).Count
     MutopiaMidi = (Get-ChildItem -LiteralPath $mutopiaRoot -Recurse -File -Include *.mid, *.midi).Count
     PopKMidi = (Get-ChildItem -LiteralPath $popRoot -File -Filter *.mid).Count
-    CatalogRows = $catalogRows.Count
+    CatalogRows = @(Import-Csv -LiteralPath $catalogPath).Count
 }

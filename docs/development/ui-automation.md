@@ -128,7 +128,7 @@ restored preference in `settings.ron`. It then starts at the 62% default,
 repeatedly increases to the 72% ceiling, proves another increase is harmless,
 returns to 62% and verifies active highlights and persistence throughout. The
 default package root is
-`D:\cs\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
+`D:\Music\_tools\_test\neothesia-verovio\node_modules\verovio` and can be overridden with
 `-VerovioPackageRoot`.
 
 The fixture contains two encoded score pages and two four-note piano events.
