@@ -6,10 +6,10 @@ import {
 } from "./HistoryProblemCut";
 import { useEffect, useRef, useState } from "react";
 import { api, pitchName } from "./api";
-import { historyGradeName, type HistoryReviewNote, type HistoryScoreReview } from "./historyScoreFocus";
+import { historyGradeName, historyProblemName, type HistoryReviewNote, type HistoryScoreReview } from "./historyScoreFocus";
 import type { RoutineGoal } from "./RoutineDialog";
 type ProblemPlanReview = Pick<HistoryScoreReview, "contentId" | "historyId" | "scoreRevision" | "recordedAt" | "title" | "exact"> & {
-  notes: (Pick<HistoryReviewNote, "reference" | "measure" | "pitch" | "kind"> & Pick<HistoryReviewNote, "sourceTitle" | "sourceContentId" | "sourceHistoryId" | "sourceReference">)[];
+  notes: (Pick<HistoryReviewNote, "reference" | "measure" | "pitch" | "kind"> & Pick<HistoryReviewNote, "sourceTitle" | "sourceContentId" | "sourceHistoryId" | "sourceReference" | "velocityDifference" | "velocityLimit" | "timingKind">)[];
 };
 type DraftEdit = { title: string; notes: string; cut?: ProblemCut | null };
 type Row = {
@@ -22,6 +22,7 @@ type Row = {
   start: number;
   end: number;
   references: number[];
+  noteVelocityDifference?: number | null;
   songTitle?: string;
   problems: {
     reference: number;
@@ -70,7 +71,7 @@ export function HistoryProblemPlan({
       }
     })(),
   );
-  const initialProblems = review.notes.filter((n) => ["early", "late", "missed"].includes(n.kind));
+  const initialProblems = review.notes.filter((n) => ["early", "late", "missed", "velocityHigh"].includes(n.kind));
   const [cutsChecked, setCutsChecked] = useState(true);
   const [open, setOpen] = useState(false),
     [chosen, setChosen] = useState<number[]>(
@@ -234,7 +235,7 @@ export function HistoryProblemPlan({
     };
   }, [open, onClose]);
   const problems = review.notes.filter((n) =>
-    ["early", "late", "missed"].includes(n.kind),
+    ["early", "late", "missed", "velocityHigh"].includes(n.kind),
   );
   useEffect(() => {
     alive.current = true;
@@ -599,7 +600,7 @@ export function HistoryProblemPlan({
                           {n.sourceTitle && <span>{n.sourceTitle} · </span>}第{" "}
                           {n.measure} 小节 · {pitchName(n.pitch)}
                         </td>
-                        <td>{historyGradeName(n.kind)}</td>
+                        <td>{historyProblemName(n)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -630,7 +631,7 @@ export function HistoryProblemPlan({
                         <span>
                           {n.sourceTitle && <span>{n.sourceTitle} · </span>}第{" "}
                           {n.measure} 小节 · {pitchName(n.pitch)} ·{" "}
-                          {historyGradeName(n.kind)}
+                          {historyProblemName(n)}
                         </span>
                         <button
                           aria-label={`问题音${ref}上移`}
@@ -907,6 +908,7 @@ export function HistoryProblemPlan({
                           {index + 1}. 第 {row.start}–{row.end} 小节 ·{" "}
                           {row.references.length} 个所选问题
                         </strong>
+                        {row.noteVelocityDifference != null && <p className="parameter-help">本项目保留原轮逐音力度目标：每音差 ≤ {row.noteVelocityDifference} / 127。重练时仍会逐音判定。</p>}
                         <HistoryProblemCut
                           index={index + 1}
                           bounds={row.cutBounds}

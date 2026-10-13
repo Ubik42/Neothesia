@@ -282,6 +282,32 @@ pub(crate) fn read(data: &Path, cid: &str, id: &str) -> Result<Archive, String> 
     a.validate(cid, id)?;
     Ok(a)
 }
+pub(crate) fn frozen_note_velocity_limit(session:&neothesia_core::practice_history::PracticeSession)->Option<u8>{
+    session.context.as_ref()
+        .and_then(|ctx|ctx.expression.as_ref().and_then(|goal|goal.note_velocity_difference)
+            .or_else(||ctx.routine.as_ref().and_then(|routine|routine.expression.as_ref()).and_then(|goal|goal.note_velocity_difference)))
+}
+pub(crate) fn exact_velocity_difference(archive:&Archive,decision:&Decision,reference:usize)->Option<u8>{
+    if decision.reference!=Some(reference)||!matches!(decision.kind.as_str(),"onTime"|"early"|"late"){return None}
+    let target=archive.references.get(reference)?;
+    let input=archive.inputs.get(decision.input?)?;
+    if target.velocity==0||input.synthetic||input.bytes[0]!=144||input.bytes[2]==0||input.bytes[1]!=target.pitch{return None}
+    Some(target.velocity.abs_diff(input.bytes[2]))
+}
+pub(crate) fn historical_problem(archive:&Archive,decision:&Decision,reference:usize,limit:Option<u8>)->Option<Value>{
+    let target=archive.references.get(reference)?;
+    let difference=limit.and_then(|_|exact_velocity_difference(archive,decision,reference));
+    if let (Some(limit),Some(difference))=(limit,difference){
+        if difference>limit {
+            let input=&archive.inputs[decision.input?];
+            return Some(serde_json::json!({"reference":reference,"measure":target.measure,"pitch":target.pitch,
+                "kind":"velocityHigh","timingKind":decision.kind,"velocityDifference":difference,"velocityLimit":limit,
+                "referenceVelocity":target.velocity,"actualVelocity":input.bytes[2]}));
+        }
+    }
+    matches!(decision.kind.as_str(),"early"|"late"|"missed")
+        .then(||serde_json::json!({"reference":reference,"measure":target.measure,"pitch":target.pitch,"kind":decision.kind}))
+}
 fn pedal_events(inputs: &[Input]) -> Vec<(f64, bool)> {
     let mut events: Vec<_> = inputs.iter()
         .filter(|input| !input.synthetic && input.bytes[0] == 176 && input.bytes[1] == 64)
@@ -581,10 +607,12 @@ impl Player {
             .flatten()
             .filter_map(|d| d.reference.map(|r| (r, d)))
             .collect();
+        let velocity_limit=self.history.song(cid).and_then(|h|h.sessions.iter().find(|s|s.stable_id()==id)).and_then(frozen_note_velocity_limit);
         let notes:Vec<_>=a.references.iter().enumerate().map(|(reference,n)|{
             let candidates=identities.get(&(n.track,n.pitch,(n.song_time*1000000.).round() as u64));
             let index=candidates.filter(|v|v.len()==1).map(|v|v[0]);let decision=decisions.get(&reference);
-            serde_json::json!({"reference":reference,"track":n.track,"index":index,"pitch":n.pitch,"measure":n.measure,"songTime":n.song_time,"at":n.at,"end":n.end,"kind":if a.judgments.is_some(){decision.map(|d|d.kind.as_str()).unwrap_or("pending")}else{"approximate"},"offsetMs":decision.and_then(|d|d.offset_ms),"referenceVelocity":n.velocity,"actualVelocity":decision.and_then(|d|d.input).and_then(|i|a.inputs.get(i)).map(|i|i.bytes[2])})
+            let problem=decision.and_then(|d|historical_problem(&a,d,reference,velocity_limit));
+            serde_json::json!({"reference":reference,"track":n.track,"index":index,"pitch":n.pitch,"measure":n.measure,"songTime":n.song_time,"at":n.at,"end":n.end,"kind":if a.judgments.is_some(){problem.as_ref().and_then(|p|p["kind"].as_str()).or_else(||decision.map(|d|d.kind.as_str())).unwrap_or("pending")}else{"approximate"},"timingKind":problem.as_ref().and_then(|p|p["timingKind"].as_str()),"velocityDifference":problem.as_ref().and_then(|p|p["velocityDifference"].as_u64()),"velocityLimit":problem.as_ref().and_then(|p|p["velocityLimit"].as_u64()),"offsetMs":decision.and_then(|d|d.offset_ms),"referenceVelocity":n.velocity,"actualVelocity":decision.and_then(|d|d.input).and_then(|i|a.inputs.get(i)).map(|i|i.bytes[2])})
         }).collect();
         let mut result = self.command(Command::CurrentSong)?;
         result["scoreReview"] = serde_json::json!({"contentId":cid,"historyId":id,"scoreRevision":self.score_revision,"recordedAt":detail["recordedAt"],"title":self.title,"truncated":a.truncated,"exact":a.judgments.is_some(),"wrongNotes":a.judgments.as_ref().map(|rows|rows.iter().filter(|r|r.kind=="wrong").count()),"notes":notes,"measures":a.measures});

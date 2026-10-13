@@ -136,3 +136,44 @@ test("原谱更新：自动发现、预览防变、新版本和独立演奏身�
   await expect(dialog).toContainText("已取消原文件关联");
   expect((await cmd({ type: "currentSong" })).hasScore).toBeTruthy();
 });
+
+test("原谱编辑后保存并使用新谱面，重开仍使用该版本", async ({ page, request }) => {
+  test.setTimeout(45000);
+  const cmd = async (data: unknown) => {
+    const response = await request.post("http://127.0.0.1:32124/api/command", {
+      headers: { "X-Neothesia-Client": "web" }, data,
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const folder = path.resolve("../work/cycle222-source-fixture");
+  await mkdir(folder, { recursive: true });
+  const original = path.join(folder, `原谱直接启用-${Date.now()}.musicxml`);
+  const first = xml("F");
+  await writeFile(original, first);
+  await cmd({ type: "stopRoutine" });
+  await cmd({ type: "pause" });
+  const song = await cmd({ type: "importScoreOriginal", path: original, default_bpm: 60 });
+  const before = await cmd({ type: "scoreVersions" });
+  const firstVersion = before.versions.find((v: any) => v.active);
+  await page.goto("/");
+  await page.getByRole("button", { name: "谱面管理", exact: true }).click();
+  await page.getByRole("button", { name: "检查原谱更新", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "原谱文件", exact: true });
+  await writeFile(original, xml("F", "<!-- MuseScore saved layout -->"));
+  const row = dialog.locator(`[data-source-id]`).filter({ hasText: path.basename(original) }).first();
+  await expect(row).toContainText("原文件有更新", { timeout: 12000 });
+  await row.getByRole("button", { name: "预览更新", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "保存并使用新谱面" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "保存并使用新谱面" }).click();
+  await expect(dialog).toContainText("已保存并启用新谱面");
+  const updated = await cmd({ type: "scoreVersions" });
+  const active = updated.versions.find((v: any) => v.active);
+  expect(active.id).not.toBe(firstVersion.id);
+  expect((await cmd({ type: "currentSong" })).contentId).toBe(song.contentId);
+  await cmd({ type: "load", path: song.sourcePath, title: song.title });
+  const reopened = await cmd({ type: "scoreVersions" });
+  expect(reopened.versions.find((v: any) => v.active).id).toBe(active.id);
+  expect((await cmd({ type: "currentSong" })).hasScore).toBeTruthy();
+  expect(await readFile(firstVersion.path, "utf8")).toBe(first);
+});

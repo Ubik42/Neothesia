@@ -101,6 +101,7 @@ impl Player {
             .judgments
             .as_ref()
             .ok_or("旧演奏没有逐音判定，不能自动当作问题音")?;
+        let velocity_limit=crate::performance_archive::frozen_note_velocity_limit(session);
         let settings = SessionSettings {
             tracks: ctx.tracks.clone(),
             parts: ctx.parts.clone(),
@@ -123,8 +124,10 @@ impl Player {
             let grade = decisions
                 .iter()
                 .find(|d| d.reference == Some(*reference))
-                .filter(|d| matches!(d.kind.as_str(), "early" | "late" | "missed"))
-                .ok_or("所选音没有偏早、偏晚或漏音判定")?;
+                .ok_or("所选参考音没有逐音判定")?;
+            let problem=crate::performance_archive::historical_problem(&archive,grade,*reference,velocity_limit)
+                .ok_or("所选音没有偏早、偏晚、漏音或确切配对的力度超标判定")?;
+            let problem_limit=if problem["kind"]=="velocityHigh"{json!(velocity_limit)}else{Value::Null};
             let matching = notes
                 .iter()
                 .filter(|note| {
@@ -151,7 +154,8 @@ impl Player {
                     .as_array_mut()
                     .unwrap()
                     .push(json!(reference));
-                row["problems"].as_array_mut().unwrap().push(json!({"reference":reference,"measure":measure,"pitch":n.pitch,"kind":grade.kind}));
+                row["problems"].as_array_mut().unwrap().push(problem);
+                if !problem_limit.is_null(){row["noteVelocityDifference"]=problem_limit;}
                 continue;
             }
             ranges.insert((start, end), rows.len());
@@ -161,7 +165,7 @@ impl Player {
             } else {
                 format!("第 {start}–{end} 小节重练")
             };
-            rows.push(json!({"key":key,"title":title,"notes":"","start":start,"end":end,"references":[reference],"problems":[{"reference":reference,"measure":measure,"pitch":n.pitch,"kind":grade.kind}]}));
+            rows.push(json!({"key":key,"title":title,"notes":"","start":start,"end":end,"references":[reference],"problems":[problem],"noteVelocityDifference":problem_limit}));
             items.push(RoutineItem {
                 id: key,
                 title,
@@ -189,6 +193,13 @@ impl Player {
             });
         }
         for (index, item) in items.iter_mut().enumerate() {
+            if let Some(limit)=rows[index]["noteVelocityDifference"].as_u64(){
+                let start=rows[index]["start"].as_u64().unwrap() as usize;
+                let end=rows[index]["end"].as_u64().unwrap() as usize;
+                let reference_count=archive.references.iter().filter(|n|n.measure>=start&&n.measure<=end&&n.velocity>0).count();
+                if reference_count<4{return Err("逐音力度练习至少需要 4 个参考音，请增加前后小节范围".into())}
+                item.goal.expression=Some(crate::expression_goal::ExpressionGoal{note_velocity_difference:Some(limit as u8),..Default::default()});
+            }
             let issues = rows[index]["problems"]
                 .as_array()
                 .unwrap()
@@ -200,6 +211,7 @@ impl Player {
                         match p["kind"].as_str().unwrap() {
                             "early" => "偏早",
                             "late" => "偏晚",
+                            "velocityHigh" => "逐音力度差超标",
                             _ => "漏音",
                         }
                     )
@@ -325,7 +337,9 @@ impl Player {
             }
             item.title = edit.title.trim().into();
             item.notes = format!("{}\n{}", item.notes, edit.notes).trim().into();
+            let frozen_expression=item.goal.expression.clone();
             item.goal = goal.clone();
+            item.goal.expression=frozen_expression;
             if item.notes.len() > 8192 {
                 return Err("项目要求和来源说明合计超过 8192 字节，请缩短要求".into());
             }
@@ -517,6 +531,44 @@ mod tests {
             consecutive: false,
             attempt_limit: 3,
         }
+    }
+    #[test]
+    fn exact_velocity_problem_is_selectable_and_plan_keeps_frozen_limit(){
+        let (mut p,mut spec)=source();
+        let mut snapshot=p.history.snapshot();
+        let session=&mut snapshot.get_mut(&spec.content_id).unwrap().sessions[0];
+        session.context.as_mut().unwrap().expression=Some(neothesia_core::practice_history::PracticeExpressionCondition{
+            velocity_difference:None,note_velocity_difference:Some(8),contour_percent:None,pedal_offset_ms:None,
+        });
+        p.history.replace_snapshot(snapshot);
+        p.history.save().unwrap();
+        let mut archive=crate::performance_archive::read(&p.data,&spec.content_id,&spec.id).unwrap();
+        let target=archive.references[0].clone();
+        let played=if target.velocity<=100{target.velocity+20}else{target.velocity-20};
+        archive.inputs.push(crate::performance_archive::Input{
+            at:target.at,judged_at:target.at,song_time:target.song_time,
+            bytes:[144,target.pitch,played],synthetic:false,
+        });
+        let input=archive.inputs.len()-1;
+        let decision=archive.judgments.as_mut().unwrap().iter_mut().find(|d|d.reference==Some(0)).unwrap();
+        decision.kind="onTime".into();decision.input=Some(input);decision.offset_ms=Some(0);
+        let exact=decision.clone();
+        assert!(crate::performance_archive::historical_problem(&archive,&exact,0,None).is_none());
+        let mut unpaired=exact.clone();unpaired.input=None;
+        assert!(crate::performance_archive::historical_problem(&archive,&unpaired,0,Some(8)).is_none());
+        std::fs::write(crate::performance_archive::path(&p.data,&spec.content_id,&spec.id),serde_json::to_vec(&archive).unwrap()).unwrap();
+        let listed=p.history_problem_notes(&spec.content_id,&spec.id,0).unwrap();
+        assert_eq!(listed["notes"].as_array().unwrap().iter().find(|n|n["reference"]==0).unwrap()["kind"],"velocityHigh");
+        let review=p.history_score_review(&spec.content_id,&spec.id).unwrap();
+        assert_eq!(review["scoreReview"]["notes"][0]["kind"],"velocityHigh");
+        spec.references=vec![0];spec.score_revision=p.score_revision;spec.after=3;
+        let built=p.build_history_problem_plan(&spec).unwrap();
+        assert_eq!(built.rows[0]["noteVelocityDifference"],8);
+        assert_eq!(built.rows[0]["problems"][0]["velocityDifference"],20);
+        let saved=p.save_history_problem_plan(&spec,&built.revision,"力度重练","",&goal(),&edits(&built)).unwrap();
+        assert_eq!(saved["added"],1);
+        let stored=p.preferences.routines.iter().find(|r|r.id==saved["id"].as_str().unwrap()).unwrap();
+        assert_eq!(stored.items[0].goal.expression.as_ref().unwrap().note_velocity_difference,Some(8));
     }
     #[test]
     fn ordered_problem_ranges_save_retry_reopen_backup_and_real_daily_progress() {

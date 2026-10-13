@@ -2637,6 +2637,7 @@ fieldset.paper-controls {border:0;padding:0;margin:0;min-width:0;}
 .score-paper .history-score-note .notehead {filter:drop-shadow(0 0 4px #b07912);}
 .score-paper .history-score-note {outline:2px solid #b07912;outline-offset:5px;}
 .score-paper .history-score-note[data-history-grade="missed"] {outline-color:#bc4242;}
+.score-paper .history-score-note[data-history-grade="velocityHigh"] {outline-color:#9b4d72;}
 .score-paper .history-score-note[data-history-grade="late"], .score-paper .history-score-note[data-history-grade="early"] {outline-color:#b07912;}
 .history-performance-table td:last-child button + button {margin-top:4px;}
 

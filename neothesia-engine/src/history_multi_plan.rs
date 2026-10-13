@@ -43,7 +43,8 @@ impl Player {
             .judgments
             .as_ref()
             .ok_or("旧演奏没有逐音判定，不能自动当作问题音")?;
-        let problems=judgments.iter().filter_map(|d|d.reference.filter(|_|matches!(d.kind.as_str(),"early"|"late"|"missed")).and_then(|reference|a.references.get(reference).map(|n|json!({"reference":reference,"measure":n.measure,"pitch":n.pitch,"kind":d.kind})))).collect::<Vec<_>>();
+        let limit=crate::performance_archive::frozen_note_velocity_limit(session);
+        let problems=judgments.iter().filter_map(|d|d.reference.and_then(|reference|crate::performance_archive::historical_problem(&a,d,reference,limit))).collect::<Vec<_>>();
         Ok(
             json!({"contentId":cid,"id":id,"title":history.display_name,"recordedAt":session.recorded_at_unix_ms,"total":problems.len(),"offset":offset,"notes":problems.into_iter().skip(offset).take(200).collect::<Vec<_>>()}),
         )

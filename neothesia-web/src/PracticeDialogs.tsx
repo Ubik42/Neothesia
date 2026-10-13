@@ -294,7 +294,7 @@ export type FeedbackPlanSource = {
   title: string;
   recordedAt: number;
   total: number;
-  notes: { reference: number; measure: number; pitch: number; kind: string }[];
+  notes: { reference: number; measure: number; pitch: number; kind: string; velocityDifference?: number; velocityLimit?: number; referenceVelocity?: number; actualVelocity?: number; timingKind?: string | null }[];
 };
 export type MeasurePartFeedback = NonNullable<Feedback["measure_parts"]>[number];
 const feedbackPartName = (part: MeasurePartFeedback["part"]) =>
@@ -523,7 +523,7 @@ export function FeedbackDialog({
             )}
             {planSource && state.saved && state.currentHistoryId === planSource.id && (
               <div className="feedback-next-practice">
-                <p>本轮保存的演奏记录发现 {planSource.total} 个偏早、偏晚或漏音。这是单次练习证据，不代表长期弱项。</p>
+                <p>本轮保存的演奏记录发现 {planSource.total} 个偏早、偏晚、漏音或逐音力度超限。这是单次练习证据，不代表长期弱项。</p>
                 <button className="primary" disabled={planLoading} onClick={() => arrangeNext(planSource)}>
                   预览并安排下次练习
                 </button>

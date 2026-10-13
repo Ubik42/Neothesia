@@ -151,9 +151,17 @@ export function ScoreSourcesDialog({
     source.fingerprint === preview.fingerprint
       ? preview
       : null;
-  const apply = (mode: "notation" | "performance") =>
+  const apply = (mode: "notation" | "performance" | "notationAndUse") =>
     void work(async () => {
       if (!currentPreview) return;
+      if (mode === "notationAndUse" && (
+        !contentId || source?.contentId !== contentId ||
+        !currentPreview.oldAvailable ||
+        currentPreview.pairing?.readiness !== "Ready" ||
+        currentPreview.routePreview?.route?.complete !== true
+      )) {
+        throw new Error("当前原谱与正在练习的曲目尚未可靠对应。请先核对演奏顺序与谱音，再决定是否启用。");
+      }
       if (
         mode === "performance" &&
         (!currentPreview.performanceReady ||
@@ -174,18 +182,42 @@ export function ScoreSourcesDialog({
       const result = await api.command<{
         mode: string;
         contentId: string;
+        versionId: string;
         warnings: string[];
       }>({
         type: "applyScoreSource",
         id: currentPreview.id,
         fingerprint: currentPreview.fingerprint,
-        mode,
+        mode: mode === "notationAndUse" ? "notation" : mode,
       });
+      let activation = "";
+      if (mode === "notationAndUse") {
+        const versionId = result.versionId;
+        if (!versionId) {
+          activation = "新谱面已保存，但版本编号未返回，因此尚未启用。请在谱面版本中检查。";
+        } else {
+          try {
+            const route = await api.command<ScoreRouteEvidence>({
+              type: "previewScoreVersionRoute",
+              id: versionId,
+              content_id: contentId,
+            });
+            if (route.route?.complete !== true || route.readiness !== "Ready")
+              throw new Error("新版本与当前曲目的演奏顺序或音符对应需重新核对");
+            await api.command({ type: "activateScore", id: versionId, content_id: contentId });
+            activation = "已保存并启用新谱面。当前曲目可以按更新后的小节练习。";
+          } catch (cause) {
+            activation = `新谱面已保存为版本 ${versionId}，但尚未启用：${cause instanceof Error ? cause.message : String(cause)}。请在谱面版本中核对后启用。`;
+          }
+        }
+      }
       if (alive.current) {
         setPreview(null);
         setMessage(
           [
-            mode === "notation"
+            mode === "notationAndUse"
+              ? activation
+              : mode === "notation"
               ? "已添加新的谱面版本。原版本和演奏保持；需要时再选择使用新谱面。"
               : "已生成并打开新谱演奏，旧曲目和成绩仍保留。",
             ...result.warnings,
@@ -511,6 +543,13 @@ export function ScoreSourcesDialog({
             <div className="dialog-actions">
               <button disabled={busy} onClick={() => apply("notation")}>
                 添加为新谱面版本
+              </button>
+              <button
+                disabled={busy || !contentId || source?.contentId !== contentId || !currentPreview.oldAvailable || currentPreview.pairing?.readiness !== "Ready" || currentPreview.routePreview?.route?.complete !== true}
+                title={currentPreview.pairing?.readiness !== "Ready" ? "谱音与当前演奏尚未可靠对应，请先核对" : undefined}
+                onClick={() => apply("notationAndUse")}
+              >
+                保存并使用新谱面
               </button>
               <button
                 className="primary-button"

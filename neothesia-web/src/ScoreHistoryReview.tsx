@@ -5,6 +5,7 @@ import { pitchName } from "./api";
 import type { ScoreMapping } from "./ScoreNoteEditor";
 import {
   historyGradeName,
+  historyProblemName,
   type HistoryScoreReview,
   type HistoryReviewNote,
 } from "./historyScoreFocus";
@@ -164,7 +165,7 @@ export function ScoreHistoryReview({
   const matches = (n: HistoryReviewNote) =>
     filter === "all" ||
     (filter === "problems"
-      ? ["early", "late", "missed"].includes(n.kind)
+      ? ["early", "late", "missed", "velocityHigh"].includes(n.kind)
       : n.kind === filter);
   const rows = chosen
     .filter(({ n }) => matches(n))
@@ -173,7 +174,7 @@ export function ScoreHistoryReview({
     );
   const problems = review.notes.filter(
     (n) =>
-      ["early", "late", "missed"].includes(n.kind) &&
+      ["early", "late", "missed", "velocityHigh"].includes(n.kind) &&
       !!mappingByKey.get(noteKey(n)),
   );
   const unmatched = review.notes.filter(
@@ -256,6 +257,8 @@ export function ScoreHistoryReview({
       rect.style.stroke =
         n.kind === "missed"
           ? "#bc4242"
+          : n.kind === "velocityHigh"
+            ? "#9b4d72"
           : ["early", "late"].includes(n.kind)
             ? "#b07912"
             : n.kind === "onTime"
@@ -271,7 +274,7 @@ export function ScoreHistoryReview({
         "http://www.w3.org/2000/svg",
         "title",
       );
-      title.textContent = `各书面音第 ${occurrence} 次 · 演奏第 ${n.measure} 小节 · ${pitchName(n.pitch)} · ${historyGradeName(n.kind)}`;
+      title.textContent = `各书面音第 ${occurrence} 次 · 演奏第 ${n.measure} 小节 · ${pitchName(n.pitch)} · ${historyProblemName(n)}`;
       rect.append(title);
       svg.append(rect);
       if (replayReferences.has(n.reference)) {
@@ -376,7 +379,7 @@ export function ScoreHistoryReview({
             : "整轮："
           : "已保留参考音："}
         {review.exact
-          ? ["onTime", "early", "late", "missed", "pending"]
+          ? ["onTime", "early", "late", "missed", "velocityHigh", "pending"]
               .map(
                 (k) =>
                   `${historyGradeName(k)} ${review.notes.filter((n) => n.kind === k).length}`,
@@ -430,7 +433,8 @@ export function ScoreHistoryReview({
         >
           {[
             ["all", "全部参考音"],
-            ["problems", "偏早、偏晚与漏音"],
+            ["problems", "全部问题音"],
+            ["velocityHigh", "逐音力度超限"],
             ["missed", "漏音"],
             ["early", "偏早"],
             ["late", "偏晚"],
@@ -518,7 +522,7 @@ export function ScoreHistoryReview({
                     第 {n.measure} 小节 · {pitchName(n.pitch)}
                   </td>
                   <td>
-                    {historyGradeName(n.kind)}
+                    {historyProblemName(n)}
                     {n.offsetMs != null
                       ? ` · ${n.offsetMs > 0 ? "晚" : n.offsetMs < 0 ? "早" : "一致"} ${Math.abs(n.offsetMs)} ms`
                       : ""}

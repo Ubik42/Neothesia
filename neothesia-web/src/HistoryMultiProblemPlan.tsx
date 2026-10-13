@@ -14,6 +14,9 @@ type Notes = {
   measure: number;
   pitch: number;
   kind: string;
+  velocityDifference?: number;
+  velocityLimit?: number;
+  timingKind?: string | null;
 };
 export function HistoryMultiProblemPlan({
   sources,

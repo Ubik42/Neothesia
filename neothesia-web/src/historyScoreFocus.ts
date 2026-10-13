@@ -38,6 +38,9 @@ export type HistoryReviewNote = {
   offsetMs: number | null;
   referenceVelocity: number;
   actualVelocity: number | null;
+  velocityDifference?: number | null;
+  velocityLimit?: number | null;
+  timingKind?: string | null;
 };
 export type HistoryScoreReview = {
   contentId: string;
@@ -58,7 +61,13 @@ export const historyGradeName = (kind: string) =>
       early: "偏早",
       late: "偏晚",
       missed: "漏音",
+      velocityHigh: "逐音力度超限",
       pending: "未计分",
       approximate: "近似对照",
     }) as Record<string, string>
   )[kind] ?? kind;
+
+export const historyProblemName = (note: Pick<HistoryReviewNote, "kind" | "timingKind" | "velocityDifference" | "velocityLimit">) =>
+  note.kind === "velocityHigh"
+    ? `逐音力度超限${note.velocityDifference != null ? `（差 ${note.velocityDifference}，上限 ${note.velocityLimit}）` : ""}${note.timingKind && ["early", "late"].includes(note.timingKind) ? ` · 同时${historyGradeName(note.timingKind)}` : ""}`
+    : historyGradeName(note.kind);
