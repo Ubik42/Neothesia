@@ -1,7 +1,7 @@
 use midi_file::MidiFile;
 use neothesia_core::{
     fingering::{
-        FingeringHand, FingeringNote, FingeringReason, HandSpanProfile,
+        FingeringExpression, FingeringHand, FingeringNote, FingeringReason, HandSpanProfile,
         suggest_fingerings_with_profile,
     },
     practice::PracticePart,
@@ -201,9 +201,38 @@ pub struct Prepared {
     pub positions: Vec<Position>,
     pub focus: (usize, usize),
     pub fingerprint: String,
+    #[serde(default)]
+    pub expression: Vec<FingeringExpression>,
+    #[serde(default)]
+    pub score_fingerprint: Option<String>,
+}
+
+fn expression_reason(
+    expression: &[FingeringExpression],
+    suggestions: &[neothesia_core::fingering::FingerSuggestion],
+    index: usize,
+) -> Option<&'static str> {
+    let mark = expression.get(index)?;
+    if let Some(from) = mark.slur_from {
+        if suggestions.get(from)?.finger == suggestions.get(index)?.finger {
+            return Some("谱面连线：同指换音会中断衔接，建议检查此处");
+        }
+        if suggestions[index].reason == FingeringReason::PositionShift {
+            return Some("谱面连线：此处换手位可能中断衔接，建议放慢检查");
+        }
+        return Some("谱面连线：换指连接前后两音");
+    }
+    if mark.staccato_from.is_some() && suggestions[index].reason == FingeringReason::PositionShift {
+        return Some("前音为谱面断奏：离键后可以重新安排手位");
+    }
+    if mark.staccato {
+        return Some("谱面断奏：此音短促离键，为后续手位留空间");
+    }
+    None
 }
 pub fn prepare(
     file: &MidiFile,
+    score: Option<&crate::notation::ScoreAsset>,
     config: &SongConfig,
     saved: &HashMap<(usize, Duration, u8), u8>,
     assigned: &HashMap<(usize, usize), PracticePart>,
@@ -282,10 +311,25 @@ pub fn prepare(
             saved:existing,target:is_target,onset:n.start.as_secs_f64(),end:n.end.as_secs_f64()});
     }
     let focus=(positions.iter().position(|p|p.target).unwrap(),positions.iter().rposition(|p|p.target).unwrap()+1);
+    let trusted_score = score.filter(|score| score.content_id == file.content_id);
+    let marks = trusted_score.map(|score| score.fingering_marks(file)).unwrap_or_default();
+    let by_midi: HashMap<_, _> = positions.iter().enumerate()
+        .map(|(i, position)| ((position.track, position.index), i)).collect();
+    let expression: Vec<_> = positions.iter().enumerate().map(|(i, position)| {
+        let mark = marks.get(&(position.track, position.index)).copied().unwrap_or_default();
+        let linked = |id: Option<(usize, usize)>| id.and_then(|id| by_midi.get(&id).copied())
+            .filter(|from| *from < i && positions[*from].onset < position.onset);
+        FingeringExpression {
+            slur_from: linked(mark.slur_from),
+            staccato: mark.staccato,
+            staccato_from: linked(mark.staccato_from),
+        }
+    }).collect();
+    let score_fingerprint = trusted_score.map(|score| score.source_fingerprint.clone());
     let baseline:Vec<_>=domain.iter().filter(|(track,_,_)|target_tracks.contains(track)).map(|(track,i,n)|
         (*track,*i,n.note,n.start,n.end,saved.get(&(*track,n.start,n.note)).copied())).collect();
     let fingerprint = blake3::hash(
-        &serde_json::to_vec(&(&request, &notes, &positions, &baseline))
+        &serde_json::to_vec(&(&request, &notes, &positions, &baseline, &expression, &score_fingerprint))
             .map_err(|e| e.to_string())?,
     )
     .to_hex()
@@ -296,6 +340,8 @@ pub fn prepare(
         positions,
         focus,
         fingerprint,
+        expression,
+        score_fingerprint,
     })
 }
 pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
@@ -305,13 +351,15 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
         FingeringHand::Right
     };
     let targets:Vec<_>=p.positions.iter().enumerate().filter_map(|(i,n)|n.target.then_some(i)).collect();
-    let solutions = neothesia_core::fingering::suggest_fingering_plans_for_indices(
+    let solutions = neothesia_core::fingering::suggest_fingering_plans_with_expression(
         &p.notes,
         hand,
         p.request.profile,
         &targets,
         3,
         p.request.practice_rate,
+        false,
+        &p.expression,
     )
     .map_err(|e| {
         let n = &p.positions[e.index.min(p.positions.len() - 1)];
@@ -328,9 +376,10 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
         )
     })?;
     let result: Vec<_> = solutions.iter().enumerate().map(|(rank, s)| {
-        let proposals: Vec<_> = p.positions.iter().zip(&s.suggestions).filter(|(n, _)| n.target)
-            .map(|(n, f)| Proposal { track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,
-                finger:f.finger,saved:n.saved,confidence:f.confidence_percent,reason:explanation(f.reason) }).collect();
+        let proposals: Vec<_> = p.positions.iter().zip(&s.suggestions).enumerate().filter(|(_, (n, _))| n.target)
+            .map(|(i, (n, f))| Proposal { track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,
+                finger:f.finger,saved:n.saved,confidence:f.confidence_percent,
+                reason:expression_reason(&p.expression, &s.suggestions, i).unwrap_or_else(|| explanation(f.reason)) }).collect();
         let count = |r| p.positions.iter().zip(&s.suggestions).filter(|(n,f)| n.target && f.reason==r).count();
         let fingers: Vec<_> = s.suggestions.iter().map(|s| s.finger).collect();
         let review: Vec<_> = neothesia_core::fingering::review_fingering_plan(
@@ -352,7 +401,9 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
     let mut context_tracks:Vec<_>=p.positions.iter().filter(|n|!target_tracks.contains(&n.track)).map(|n|n.track).collect();
     context_tracks.sort_unstable();context_tracks.dedup();
     Ok(
-        serde_json::json!({"targetTracks":target_tracks,"contextTracks":context_tracks,"contentId":p.request.content_id,"fingerprint":p.fingerprint,"request":p.request,"plans":result,"context":p.positions}),
+        serde_json::json!({"targetTracks":target_tracks,"contextTracks":context_tracks,"contentId":p.request.content_id,"fingerprint":p.fingerprint,"request":p.request,"plans":result,"context":p.positions,
+            "scoreArticulations":{"paired":p.score_fingerprint.is_some(),"slurLinks":p.expression.iter().filter(|mark|mark.slur_from.is_some()).count(),
+                "staccatoNotes":p.expression.iter().filter(|mark|mark.staccato).count()}}),
     )
 }
 
@@ -482,7 +533,8 @@ mod acceptance_tests {
         let positions=notes.iter().enumerate().map(|(i,n)|Position{track:2,index:i,pitch:n.pitch,measure:1,
             saved:saved[i],target:i>0,onset:n.onset.as_secs_f64(),end:n.end.as_secs_f64()}).collect();
         Prepared{request:PlanRequest{content_id:"test".into(),track:2,index:1,hand,profile:HandSpanProfile::Standard,
-            range:Some((1,1)),keep_saved:false,practice_rate:1.0,pins:vec![],target_tracks:vec![]},notes,positions,focus:(1,3),fingerprint:"test".into()}
+            range:Some((1,1)),keep_saved:false,practice_rate:1.0,pins:vec![],target_tracks:vec![]},notes,positions,focus:(1,3),fingerprint:"test".into(),
+            expression:vec![],score_fingerprint:None}
     }
     #[test]
     fn selective_acceptance_uses_retained_marks_and_held_context_not_unaccepted_proposals() {

@@ -11,7 +11,7 @@ pub struct PracticeRange {
 impl Player {
     pub(crate) fn save_finger_practice(&mut self, request: fingerings::PlanRequest, fingerprint: String, ranges: Vec<PracticeRange>) -> Result<serde_json::Value,String> {
         let file = self.file.as_ref().ok_or("请先选择曲目")?;
-        let prepared = fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,request.clone())?;
+        let prepared = fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,request.clone())?;
         if prepared.fingerprint != fingerprint {return Err("音符、分手或指法已变化，请重新生成方案后建立练习段".into());}
         if ranges.is_empty() || ranges.len()>32 {return Err("每次请选择 1～32 个练习段".into());}
         for range in &ranges {

@@ -14,7 +14,7 @@ impl Player {
  }
  pub(crate) fn accept_held_plan(&mut self,request:fingerings::PlanRequest,fingerprint:String,edits:Vec<fingerings::Edit>,actions:Vec<ActionInput>)->Result<serde_json::Value,String>{
   let f=self.file.as_ref().ok_or("请先选择曲目")?;
-  let p=fingerings::prepare(f,&self.config,&self.fingers,&self.note_hands,request.clone())?;
+  let p=fingerings::prepare(f,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,request.clone())?;
   if p.fingerprint!=fingerprint{return Err("音符、分手或已有指法已变化，请重新生成持音换指方案".into());}
   if actions.is_empty()||actions.len()>4096{return Err("请选择含持音换指的完整方案".into());}
   let mut map=std::collections::BTreeMap::new();

@@ -2862,9 +2862,9 @@ impl Player {
               if actions.len()!=before{self.write_schedule(self.saved_hints()?,actions,true)?;}
             },
             Command::SuggestHeldFingerPlans{..}=>return Err("持音换指搜索应由独立调用线程执行".into()),
-            Command::FingerPlanContext{request}=>{let file=self.file.as_ref().ok_or("请先选择曲目")?;return serde_json::to_value(fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,request)?).map_err(|e|e.to_string());}
+            Command::FingerPlanContext{request}=>{let file=self.file.as_ref().ok_or("请先选择曲目")?;return serde_json::to_value(fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,request)?).map_err(|e|e.to_string());}
             Command::AcceptFingerPlan{request,fingerprint,edits}=>{
-              let file=self.file.as_ref().ok_or("请先选择曲目")?;let prepared=fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,request.clone())?;
+              let file=self.file.as_ref().ok_or("请先选择曲目")?;let prepared=fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,request.clone())?;
               if prepared.fingerprint!=fingerprint{return Err("音符、分手或已有指法已变化，请重新生成方案".into());}
               let review=fingerings::review_acceptance(&prepared,&edits)?;
               if !review["valid"].as_bool().unwrap_or(false){return Err("勾选建议与保留指法存在同时按键冲突，请先审阅保存结果、调整选择或固定已有指法重新推荐".into());}
@@ -2881,7 +2881,7 @@ impl Player {
             Command::FingerPair{parts,proof,acknowledged}=>return self.finger_pair(&parts,proof.as_deref(),acknowledged),
             Command::ReviewFingerAcceptance{request,fingerprint,edits}=>{
               let file=self.file.as_ref().ok_or("请先选择曲目")?;
-              let prepared=fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,request)?;
+              let prepared=fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,request)?;
               if prepared.fingerprint!=fingerprint{return Err("音符、分手或已有指法已变化，请重新生成方案".into());}
               return fingerings::review_acceptance(&prepared,&edits);
             }

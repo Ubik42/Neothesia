@@ -96,7 +96,11 @@ fn forward_boundaries(
             .filter(|repeat| repeat.direction == RepeatDirection::Backward)
             .count();
         if backward_count > 1 {
-            diagnose(plan, Some(index), "同一小节有多个反向反复记号，无法确定结束位置".into());
+            diagnose(
+                plan,
+                Some(index),
+                "同一小节有多个反向反复记号，无法确定结束位置".into(),
+            );
         }
         for barline in &measure.barlines {
             if !matches!(
@@ -109,7 +113,11 @@ fn forward_boundaries(
                 BarlineLocation::Left => index,
                 BarlineLocation::Right => index + 1,
                 BarlineLocation::Middle | BarlineLocation::Other(_) => {
-                    diagnose(plan, Some(index), "正向反复记号位于小节中间，但谱面没有给出准确拍位".into());
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "正向反复记号位于小节中间，但谱面没有给出准确拍位".into(),
+                    );
                     continue;
                 }
             };
@@ -154,11 +162,34 @@ fn navigation(
 ) {
     let mut marks = vec![vec![]; part.measures.len()];
     let mut targets = BTreeMap::new();
+    let mut text_fines = Vec::new();
+    let mut text_da_capos = Vec::new();
     for (index, m) in part.measures.iter().enumerate() {
         for e in &m.events {
             let ScoreEvent::Direction(d) = e else {
                 continue;
             };
+            let offset = d.onset.subtract(m.start);
+            let printed_line = d.words.join(" ");
+            let printed_command: String = printed_line
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect();
+            for word in &d.words {
+                let plain: String = word
+                    .chars()
+                    .filter(|character| character.is_ascii_alphanumeric())
+                    .flat_map(char::to_lowercase)
+                    .collect();
+                if plain == "fine" {
+                    text_fines.push((index, offset));
+                }
+            }
+            let recognized_dc = printed_command == "dcalfine" || printed_command == "dacapoalfine";
+            if recognized_dc {
+                text_da_capos.push((index, offset));
+            }
             let has_command = d.navigation.iter().any(|s| {
                 ["dacapo", "dalsegno", "tocoda", "fine"]
                     .iter()
@@ -181,6 +212,7 @@ fn navigation(
                             .any(|k| s.attributes.contains_key(*k))
                 });
             if !has_command
+                && !recognized_dc
                 && d.words.iter().any(|w| {
                     let w = w.to_lowercase().replace(' ', "");
                     w.contains("d.c.")
@@ -280,6 +312,106 @@ fn navigation(
                 .then(a.attributes.cmp(&b.attributes))
         });
         marks[index].dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
+    }
+    // A printed Fine is a musical destination only when a single backward
+    // return makes its meaning unambiguous. Its direction onset is the exact
+    // cut point; the word alone is not a duration instruction.
+    let mut fine_positions: BTreeSet<(usize, ScoreTime)> = text_fines.iter().copied().collect();
+    let mut dc_positions = BTreeSet::new();
+    let mut has_other_jump = false;
+    for (index, local) in marks.iter().enumerate() {
+        for mark in local {
+            if mark.attributes.contains_key("fine") {
+                fine_positions.insert((index, mark.offset));
+            }
+            if mark.attributes.contains_key("dacapo") {
+                dc_positions.insert((index, mark.offset));
+            }
+            has_other_jump |= ["dalsegno", "tocoda"]
+                .iter()
+                .any(|kind| mark.attributes.contains_key(*kind));
+        }
+    }
+    if !text_fines.is_empty() && text_da_capos.is_empty() && dc_positions.is_empty() {
+        diagnose(
+            plan,
+            text_fines.first().map(|point| point.0),
+            "文字 Fine 没有明确的 D.C. al Fine 返回指令，无法确定终点".into(),
+        );
+    }
+    if !text_da_capos.is_empty() || !text_fines.is_empty() && !dc_positions.is_empty() {
+        if fine_positions.len() != 1 {
+            diagnose(
+                plan,
+                text_da_capos.first().or(text_fines.first()).map(|p| p.0),
+                "D.C. al Fine 需要唯一且位置明确的 Fine 终点".into(),
+            );
+        }
+        if text_da_capos.len() > 1 || dc_positions.len() > 1 || has_other_jump {
+            diagnose(
+                plan,
+                text_da_capos.first().or(text_fines.first()).map(|p| p.0),
+                "文字 D.C. al Fine 与其他跳转冲突，无法确定演奏顺序".into(),
+            );
+        }
+        for &(index, offset) in &text_da_capos {
+            if offset < ScoreTime::default() || offset > part.measures[index].duration {
+                diagnose(
+                    plan,
+                    Some(index),
+                    "文字 D.C. al Fine 的位置超出本小节".into(),
+                );
+                continue;
+            }
+            if !dc_positions.contains(&(index, offset)) {
+                if !dc_positions.is_empty() {
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "文字 D.C. al Fine 与 sound dacapo 不在同一位置".into(),
+                    );
+                } else {
+                    marks[index].push(Navigation {
+                        offset,
+                        attributes: BTreeMap::from([("dacapo".into(), "yes".into())]),
+                        passes: None,
+                    });
+                    dc_positions.insert((index, offset));
+                }
+            }
+        }
+        if let Some(&fine) = fine_positions.iter().next() {
+            if dc_positions.iter().any(|&dc| fine >= dc) {
+                diagnose(plan, Some(fine.0), "Fine 必须位于 D.C. 返回位置之前".into());
+            }
+        }
+        for &(index, offset) in &text_fines {
+            if offset < ScoreTime::default() || offset > part.measures[index].duration {
+                diagnose(plan, Some(index), "文字 Fine 的位置超出本小节".into());
+                continue;
+            }
+            if !marks[index].iter().any(|mark| {
+                mark.offset == offset
+                    && mark
+                        .attributes
+                        .get("fine")
+                        .is_some_and(|value| value == "yes")
+            }) {
+                marks[index].push(Navigation {
+                    offset,
+                    attributes: BTreeMap::from([("fine".into(), "yes".into())]),
+                    passes: None,
+                });
+            }
+        }
+        for local in &mut marks {
+            local.sort_by(|a, b| {
+                a.offset
+                    .cmp(&b.offset)
+                    .then(a.attributes.cmp(&b.attributes))
+            });
+            local.dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
+        }
     }
     for (index, local) in marks.iter().enumerate() {
         for n in local {
@@ -576,7 +708,10 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
             diagnose(
                 &mut plan,
                 Some(cursor),
-                format!("无法识别反复记号方向 {:?}，这一段尚未展开", repeat.direction),
+                format!(
+                    "无法识别反复记号方向 {:?}，这一段尚未展开",
+                    repeat.direction
+                ),
             );
         }
         cursor += 1;
@@ -663,7 +798,10 @@ fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16
                 diagnose(
                     plan,
                     Some(measure_index),
-                    format!("结尾标记 {:?} 没有可识别的演奏遍次，无法筛选这一小节", ending.number),
+                    format!(
+                        "结尾标记 {:?} 没有可识别的演奏遍次，无法筛选这一小节",
+                        ending.number
+                    ),
                 );
                 active = None;
             } else {
@@ -791,10 +929,26 @@ mod tests {
     #[test]
     fn nested_repeats_restart_the_inner_pass_on_each_outer_pass() {
         let source = [
-            measure(1, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
-            measure(2, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
-            measure(3, "", r#"<barline><repeat direction="backward"/></barline>"#),
-            measure(4, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(
+                1,
+                r#"<barline location="left"><repeat direction="forward"/></barline>"#,
+                "",
+            ),
+            measure(
+                2,
+                r#"<barline location="left"><repeat direction="forward"/></barline>"#,
+                "",
+            ),
+            measure(
+                3,
+                "",
+                r#"<barline><repeat direction="backward"/></barline>"#,
+            ),
+            measure(
+                4,
+                "",
+                r#"<barline><repeat direction="backward"/></barline>"#,
+            ),
             measure(5, "", ""),
         ]
         .join("");
@@ -802,7 +956,10 @@ mod tests {
         assert!(plan.complete, "{:?}", plan.diagnostics);
         assert_eq!(ordinals(&plan), [0, 1, 2, 1, 2, 3, 0, 1, 2, 1, 2, 3, 4]);
         assert_eq!(
-            plan.visits.iter().map(|visit| visit.repeat_pass).collect::<Vec<_>>(),
+            plan.visits
+                .iter()
+                .map(|visit| visit.repeat_pass)
+                .collect::<Vec<_>>(),
             [1, 1, 1, 2, 2, 1, 2, 1, 1, 2, 2, 2, 2]
         );
     }
@@ -829,7 +986,11 @@ mod tests {
     fn a_backward_repeat_without_a_forward_mark_starts_at_the_first_measure() {
         let source = [
             measure(1, "", ""),
-            measure(2, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(
+                2,
+                "",
+                r#"<barline><repeat direction="backward"/></barline>"#,
+            ),
             measure(3, "", ""),
         ]
         .join("");
@@ -849,7 +1010,10 @@ mod tests {
         assert!(plan.complete, "{:?}", plan.diagnostics);
         assert_eq!(ordinals(&plan), [0, 0, 1, 0, 1]);
         assert_eq!(
-            plan.visits.iter().map(|v| (v.source_start, v.source_end)).collect::<Vec<_>>(),
+            plan.visits
+                .iter()
+                .map(|v| (v.source_start, v.source_end))
+                .collect::<Vec<_>>(),
             [
                 (ScoreTime::new(0, 1), ScoreTime::new(1, 1)),
                 (ScoreTime::new(1, 1), ScoreTime::new(2, 1)),
@@ -863,15 +1027,31 @@ mod tests {
     #[test]
     fn unclosed_outer_repeat_remains_incomplete_after_an_inner_backward() {
         let source = [
-            measure(1, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
-            measure(2, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
-            measure(3, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(
+                1,
+                r#"<barline location="left"><repeat direction="forward"/></barline>"#,
+                "",
+            ),
+            measure(
+                2,
+                r#"<barline location="left"><repeat direction="forward"/></barline>"#,
+                "",
+            ),
+            measure(
+                3,
+                "",
+                r#"<barline><repeat direction="backward"/></barline>"#,
+            ),
         ]
         .join("");
         let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
         assert_eq!(ordinals(&plan), [0, 1, 2, 1, 2]);
         assert!(!plan.complete);
-        assert!(plan.diagnostics.iter().any(|d| d.measure_ordinal == Some(0)));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.measure_ordinal == Some(0))
+        );
     }
 
     #[test]
@@ -883,7 +1063,11 @@ mod tests {
         );
         let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
         assert!(!plan.complete);
-        assert!(plan.diagnostics.iter().any(|d| d.message.contains("多个反向反复")));
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("多个反向反复"))
+        );
     }
 
     #[test]
@@ -1003,6 +1187,60 @@ mod tests {
         let plan = build_playback_plan(&part(&ds), PlaybackLimits::default());
         assert!(plan.complete, "{:?}", plan.diagnostics);
         assert_eq!(ordinals(&plan), [0, 1, 2, 3, 4, 1, 2, 5, 6]);
+    }
+
+    #[test]
+    fn printed_fine_closes_a_unique_da_capo_return_at_the_actual_note() {
+        for dc in [
+            r#"<direction><direction-type><words>D.C. al Fine</words></direction-type></direction>"#,
+            r#"<direction><direction-type><words>D.C. al Fine</words></direction-type><sound dacapo="yes"/></direction>"#,
+            r#"<sound dacapo="yes"/>"#,
+        ] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, "", r#"<direction><direction-type><words>Fine</words></direction-type></direction>"#),
+                measure(3, "", dc),
+            ].join("");
+            let part = part(&source);
+            let plan = build_playback_plan(&part, PlaybackLimits::default());
+            assert!(plan.complete, "{dc}: {:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1]);
+            let notes: Vec<_> = expand_event_occurrences(&part, &plan)
+                .into_iter()
+                .filter(|event| event.duration.is_some())
+                .collect();
+            assert_eq!(notes.len(), 5);
+            assert_eq!(notes.last().unwrap().id.source_id.measure_ordinal, 1);
+            assert_eq!(notes.last().unwrap().onset, ScoreTime::new(4, 1));
+        }
+    }
+
+    #[test]
+    fn printed_da_capo_requires_one_unambiguous_fine_before_its_position() {
+        let text_dc = r#"<direction><direction-type><words>D.C. al Fine</words></direction-type></direction>"#;
+        let fine = r#"<direction><direction-type><words>Fine</words></direction-type></direction>"#;
+        for source in [
+            [measure(1, "", ""), measure(2, "", text_dc)].join(""),
+            [measure(1, "", fine), measure(2, "", fine), measure(3, "", text_dc)].join(""),
+            [measure(1, "", ""), measure(2, "", text_dc), measure(3, "", fine)].join(""),
+            [measure(1, "", fine), measure(2, "", r#"<sound dalsegno="S"/>"#), measure(3, "", text_dc)].join(""),
+            [measure(1, "", fine), measure(2, "", r#"<sound dacapo="yes"/>"#), measure(3, "", text_dc)].join(""),
+            [measure(1, "", r#"<sound fine="960"/>"#), measure(2, "", text_dc)].join(""),
+            [measure(1, "", fine), measure(2, "", "")].join(""),
+            [measure(1, "", r#"<direction><direction-type><words>D.S. al Fine</words></direction-type></direction>"#), measure(2, "", fine)].join(""),
+        ] {
+            let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+            assert!(!plan.complete, "{source}");
+            assert!(!plan.diagnostics.is_empty());
+        }
+        let split_words = [
+            measure(1, "", ""),
+            measure(2, "", fine),
+            measure(3, "", r#"<direction><direction-type><words>D.C.</words><words>al Fine</words></direction-type></direction>"#),
+        ].join("");
+        let plan = build_playback_plan(&part(&split_words), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1]);
     }
 
     #[test]

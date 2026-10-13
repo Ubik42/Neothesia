@@ -8,7 +8,7 @@ impl Player {
   let file=self.file.as_ref().ok_or("请先打开曲目")?;
   let mut reviews=vec![];let mut prepared=vec![];let mut identities=std::collections::HashSet::new();let mut edits=vec![];
   for part in parts {
-   let context=crate::fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,part.request.clone())?;
+   let context=crate::fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,part.request.clone())?;
    if context.fingerprint!=part.fingerprint{return Err("音符、分手或已有指法已变化，请重新生成双手方案".into());}
    let review=crate::fingerings::review_acceptance(&context,&part.edits)?;
    for e in &part.edits {if !identities.insert((e.track_id,e.note_index)){return Err("双手方案包含重复音符，未保存".into());}edits.push(e.clone());}
@@ -50,7 +50,7 @@ impl Player {
   let end=file.tempo_track.pulses_to_duration(file.musical_time.measures[last-1].end_tick).as_secs_f64();
   let mut notes=vec![];let mut events=vec![];let mut ids=std::collections::HashSet::new();
   for part in parts {
-   let prepared=crate::fingerings::prepare(file,&self.config,&self.fingers,&self.note_hands,part.request.clone())?;
+   let prepared=crate::fingerings::prepare(file,self.notation.as_ref(),&self.config,&self.fingers,&self.note_hands,part.request.clone())?;
    for p in prepared.positions.iter().filter(|p|p.onset<end&&p.end>start){
     if !ids.insert((p.track,p.index)){continue;}
     let finger=part.edits.iter().find(|e|e.track_id==p.track&&e.note_index==p.index).map(|e|e.finger).unwrap_or(p.saved);
@@ -109,7 +109,7 @@ mod tests {
   for hand in [PracticePart::LeftHand,PracticePart::RightHand] {
    let note=p.notes.iter().find(|n|hands::part(&p.config,&p.note_hands,n.track_id,n.index)==hand).unwrap();
    let request=PlanRequest{content_id:cid.clone(),track:note.track_id,index:note.index,profile:neothesia_core::fingering::HandSpanProfile::Standard,hand,range:Some((1,1)),keep_saved:true,practice_rate:1.,pins:vec![],target_tracks:vec![]};
-   let prepared=crate::fingerings::prepare(file,&p.config,&p.fingers,&p.note_hands,request.clone()).unwrap();let fingerprint=prepared.fingerprint.clone();let generated=crate::fingerings::plans(prepared).unwrap();
+   let prepared=crate::fingerings::prepare(file,p.notation.as_ref(),&p.config,&p.fingers,&p.note_hands,request.clone()).unwrap();let fingerprint=prepared.fingerprint.clone();let generated=crate::fingerings::plans(prepared).unwrap();
    let edits=generated["plans"][0]["proposals"].as_array().unwrap().iter().map(|n|Edit{track_id:n["track"].as_u64().unwrap() as usize,note_index:n["index"].as_u64().unwrap() as usize,finger:Some(n["finger"].as_u64().unwrap() as u8)}).collect();parts.push(PairPart{request,fingerprint,edits});
   }
   let before=p.saved_hints().unwrap();let review=p.finger_pair(&parts,None,false).unwrap();assert_eq!(review["valid"],true);assert_eq!(p.saved_hints().unwrap(),before);let proof=review["proof"].as_str().unwrap().to_owned();

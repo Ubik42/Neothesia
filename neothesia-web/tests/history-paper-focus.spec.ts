@@ -45,7 +45,7 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   const practice = await command({ type: "paperPracticeContext" });
   await command({
     type: "setPaperMapping", content_id: song.contentId, id: paper.active,
-    mapping: { grid: practice.grid, enabled: false, anchors: [{ measure: 1, page: 1 }, { measure: 2, page: 2 }] },
+    mapping: { grid: practice.grid, enabled: false, anchors: [{ measure: 1, page: 1 }, { measure: 2, page: 2, region: { x: 0.2, y: 0.3, width: 0.25, height: 0.12 } }] },
   });
   await command({ type: "restart" });
   await command({ type: "track", id: song.notes[0].track, mode: "human", part: "right", visible: true });
@@ -63,7 +63,7 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await performance.locator("summary").click();
   await performance.getByRole("button", { name: "查看这次演奏", exact: true }).click();
   await expect(performance.locator(".history-performance-table tbody tr")).toHaveCount(3);
-  await performance.getByLabel("重练前置小节").selectOption("0");
+  await performance.getByLabel("重练前置小节").selectOption("1");
   await performance.getByLabel("重练后置小节").selectOption("0");
   await performance.getByRole("button", { name: "在纸谱中重练演奏第 2 小节参考音 2", exact: true }).click();
 
@@ -71,8 +71,10 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await expect(reader).toBeVisible();
   await expect(reader.getByLabel("谱页页码")).toHaveValue("2");
   await expect(reader.getByLabel("纸谱自动翻页")).not.toBeChecked();
-  await expect(reader.locator(".paper-history-result")).toContainText("已定位第 2 小节：第 2 页");
-  await expect(reader.locator(".paper-history-location")).toContainText("本次重练从第 2 小节开始");
+  await expect(reader.locator(".paper-history-result")).toContainText("已定位第 2 小节的参考音 D4：第 2 页");
+  await expect(reader.locator(".paper-history-result")).toContainText("不是单个音符的精确位置");
+  await expect(reader.getByRole("button", { name: "历史参考音 D4 所在第 2 小节区域" })).toHaveClass(/history-target/);
+  await expect(reader.locator(".paper-history-location")).toContainText("目标音在第 2 小节；本次重练第 1–2 小节");
   const resumed = await state();
   expect(resumed.mode).toBe("flow");
   expect(resumed.passage).toBeTruthy();
@@ -97,6 +99,17 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await relaunch();
   await expect(reader.getByLabel("谱页页码")).toHaveValue("1");
   await expect(reader.locator(".paper-history-result")).toContainText("第 3 页不可用，纸谱没有自动定位");
+  await expect(reader.locator(".paper-measure-region.history-target")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "键盘", exact: true }).click();
+  await command({
+    type: "setPaperMapping", content_id: song.contentId, id: paper.active,
+    mapping: { grid: practice.grid, enabled: false, anchors: [{ measure: 1, page: 1, region: { x: 0.1, y: 0.1, width: 0.3, height: 0.1 } }] },
+  });
+  await relaunch();
+  await expect(reader.getByLabel("谱页页码")).toHaveValue("1");
+  await expect(reader.locator(".paper-history-result")).toContainText("目标小节没有独立的页内区域");
+  await expect(reader.locator(".paper-measure-region.history-target")).toHaveCount(0);
 
   await page.getByRole("button", { name: "键盘", exact: true }).click();
   await command({
@@ -107,4 +120,5 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await expect(reader.getByLabel("谱页页码")).toHaveValue("1");
   await expect(reader.locator(".paper-history-location")).toContainText("第 2 小节之前没有纸谱对应点");
   await expect(reader.locator(".paper-history-result")).toHaveCount(0);
+  await expect(reader.locator(".paper-measure-region.history-target")).toHaveCount(0);
 });

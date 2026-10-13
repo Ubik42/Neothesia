@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, pitchName } from "./api";
 import { annotatedPagePng } from "./PaperPageExport";
 import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
 import { PaperSources } from "./PaperSources";
@@ -68,6 +68,11 @@ type HistoryPaperFocus = {
   measure: number;
   historyId: string;
   reference: number;
+  pitch: number;
+  track: number;
+  songTime: number;
+  startMeasure: number;
+  endMeasure: number;
   request: string;
 };
 function historyMappingIssue(
@@ -315,7 +320,7 @@ export function PaperScore({
                 : eligible.length > 1 && !preferred
                   ? "多份纸谱都能定位这一小节，请选择要使用的纸谱。"
                   : preferred
-                    ? `本次重练从第 ${focus.measure} 小节开始。${preferred.name} 将定位到对应的谱页。`
+                    ? `目标音在第 ${focus.measure} 小节；本次重练第 ${focus.startMeasure}–${focus.endMeasure} 小节。${preferred.name} 将定位到目标小节对应的谱页。`
                     : "练习段已准备好，但还没有可定位这一小节的纸谱。请在谱面管理中核对对应点。"}
           {practice && !preferred && !!data?.attachments.length && (
             <ul>
@@ -514,6 +519,9 @@ export function PaperReader({
   const pendingAnnotation=useRef<{page:number;region:PaperRegion}|null>(null);
   const handledHistoryFocus = useRef("");
   const [historyNotice, setHistoryNotice] = useState("");
+  const [historyTarget, setHistoryTarget] = useState<{
+    request: string; measure: number; page: number; region: PaperRegion;
+  } | null>(null);
   const scrollRegion=(region:PaperRegion)=>{
     const viewport=frame.current, sheet=viewport?.querySelector<HTMLElement>(".paper-annotation-sheet");
     if(!viewport||!sheet)return;
@@ -559,11 +567,37 @@ export function PaperReader({
   },[loading,renderedPage,view.page,view.rotation,sheetSize]);
   const invalidPages =
     count > 0 && !!mapping?.anchors.some((a) => a.page > count);
+  const highlightedHistory = historyFocus && historyTarget?.request === historyFocus.request &&
+    practice?.contentId === contentId && !stale && view.page === historyTarget.page &&
+    mapping?.anchors.some((anchor) => anchor.measure === historyTarget.measure &&
+      anchor.page === historyTarget.page && anchor.region &&
+      anchor.region.x === historyTarget.region.x && anchor.region.y === historyTarget.region.y &&
+      anchor.region.width === historyTarget.region.width && anchor.region.height === historyTarget.region.height)
+      ? historyTarget : null;
+  useEffect(() => {
+    pendingAnnotation.current = null;
+    setHistoryTarget(null);
+    setHistoryNotice("");
+  }, [historyFocus?.request]);
+  useEffect(() => {
+    if (!historyTarget || !historyFocus || historyTarget.request !== historyFocus.request) return;
+    const stillMapped = !stale && practice?.contentId === contentId && mapping?.anchors.some((anchor) =>
+      anchor.measure === historyTarget.measure && anchor.page === historyTarget.page &&
+      anchor.region?.x === historyTarget.region.x && anchor.region?.y === historyTarget.region.y &&
+      anchor.region?.width === historyTarget.region.width && anchor.region?.height === historyTarget.region.height);
+    if (!stillMapped) {
+      pendingAnnotation.current = null;
+      setHistoryTarget(null);
+      setHistoryNotice("纸谱小节区域已经改变，历史高亮已清除。请重新从历史成绩定位。");
+    }
+  }, [historyTarget, historyFocus?.request, stale, practice?.contentId, contentId, mapping]);
   useEffect(() => {
     if (!historyFocus || handledHistoryFocus.current === historyFocus.request || !practice)
       return;
     const fail = (message: string) => {
       handledHistoryFocus.current = historyFocus.request;
+      pendingAnnotation.current = null;
+      setHistoryTarget(null);
       setHistoryNotice(message);
     };
     if (historyFocus.contentId !== contentId || practice.contentId !== contentId) {
@@ -591,6 +625,11 @@ export function PaperReader({
     setSuspended(true);
     setView((previous) => previous.page === anchor.page ? previous : { ...previous, page: anchor.page });
     frame.current?.scrollTo({ top: 0, left: 0 });
+    const exactRegion = anchor.measure === historyFocus.measure ? anchor.region : undefined;
+    setHistoryTarget(exactRegion ? {
+      request: historyFocus.request, measure: historyFocus.measure,
+      page: anchor.page, region: exactRegion,
+    } : null);
     if (anchor.region) {
       pendingAnnotation.current = { page: anchor.page, region: anchor.region };
       if (!loading && renderedPage === anchor.page && latest.current.page === anchor.page) {
@@ -598,7 +637,12 @@ export function PaperReader({
         pendingAnnotation.current = null;
       }
     }
-    setHistoryNotice(`已定位第 ${historyFocus.measure} 小节：第 ${anchor.page} 页${anchor.region ? "的对应谱行" : ""}。自动翻页已暂停，练习段已准备好。`);
+    const location = exactRegion
+      ? "已标出目标小节区域；这个区域不是单个音符的精确位置"
+      : anchor.region
+        ? `按第 ${anchor.measure} 小节的区域定位谱行；目标小节没有独立的页内区域`
+        : "只定位到谱页；目标小节没有独立的页内区域";
+    setHistoryNotice(`已定位第 ${historyFocus.measure} 小节的参考音 ${pitchName(historyFocus.pitch)}：第 ${anchor.page} 页。${location}。自动翻页已暂停，练习段已准备好。`);
   }, [historyFocus?.request, practice, attachment, mapping, count, loading, renderedPage, contentId]);
   useEffect(() => {
     if (!annotationEditing) setAnnotationNotice("");
@@ -1431,8 +1475,8 @@ export function PaperReader({
             hidden={!!error || needsPassword}
           />
           {mapping?.anchors.filter(a=>a.page===view.page&&a.region).map(a=>{
-            const r=paperAnnotationBox(a.region!,view.rotation),active=!stale&&mapping.anchors.slice().reverse().find(n=>n.measure<=measured)?.measure===a.measure;
-            return <button key={`anchor-${a.measure}`} className={`paper-measure-region ${active?"active":""}`} style={{left:`${r.x*100}%`,top:`${r.y*100}%`,width:`${r.width*100}%`,height:`${r.height*100}%`}} aria-label={`谱页第 ${a.measure} 小节位置`} title={`定位第 ${a.measure} 小节`} disabled={disabled||readOnly||!practice||stale||annotationEditing||selectingRegion||a.measure>practice.measures} onClick={e=>{e.stopPropagation();void jumpAnchor(a);}}><span>{a.measure}</span></button>;
+            const r=paperAnnotationBox(a.region!,view.rotation),historical=!!highlightedHistory&&a.measure===highlightedHistory.measure&&a.page===highlightedHistory.page,active=!stale&&!historyFocus&&mapping.anchors.slice().reverse().find(n=>n.measure<=measured)?.measure===a.measure;
+            return <button key={`anchor-${a.measure}`} className={`paper-measure-region ${historical?"history-target":""} ${active?"active":""}`} style={{left:`${r.x*100}%`,top:`${r.y*100}%`,width:`${r.width*100}%`,height:`${r.height*100}%`}} aria-label={historical?`历史参考音 ${pitchName(historyFocus!.pitch)} 所在第 ${a.measure} 小节区域`:`谱页第 ${a.measure} 小节位置`} title={historical?"历史问题音所在小节区域，不代表音符精确位置":`定位第 ${a.measure} 小节`} disabled={disabled||readOnly||!practice||stale||annotationEditing||selectingRegion||a.measure>practice.measures} onClick={e=>{e.stopPropagation();void jumpAnchor(a);}}><span>{a.measure}</span></button>;
           })}
           {anchorRegion&&anchorRegionPage===view.page&&(()=>{const r=paperAnnotationBox(anchorRegion,view.rotation);return <span className="paper-measure-region draft" style={{left:`${r.x*100}%`,top:`${r.y*100}%`,width:`${r.width*100}%`,height:`${r.height*100}%`}}>第 {anchorMeasure} 小节位置</span>})()}
         </PaperAnnotations>

@@ -59,6 +59,11 @@ type Result = {
   undoAvailable: boolean;
   contextTracks: number[];
   targetTracks: number[];
+  scoreArticulations?: {
+    paired: boolean;
+    slurLinks: number;
+    staccatoNotes: number;
+  };
 };
 type AcceptanceReview = {
   key: string;
@@ -635,6 +640,15 @@ export function FingeringDialog({
         )}
         {result ? (
           <>
+            {result.scoreArticulations && (
+              <p className="fingering-help" role="status">
+                {result.scoreArticulations.slurLinks + result.scoreArticulations.staccatoNotes > 0
+                  ? `已核对配对乐谱：${result.scoreArticulations.slurLinks} 处连线衔接、${result.scoreArticulations.staccatoNotes} 个断奏音符参与本次指法比较。逐音原因会标出谱面依据。`
+                  : result.scoreArticulations.paired
+                    ? "当前配对乐谱没有可可靠对应到这些音符的连线或断奏标记，已按 MIDI 指法生成。"
+                    : "当前没有可信的配对乐谱，已按 MIDI 指法生成。"}
+              </p>
+            )}
             <div
               className="finger-plan-options"
               role="group"

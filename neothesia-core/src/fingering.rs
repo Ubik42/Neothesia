@@ -1,6 +1,6 @@
 use std::time::Duration;
 mod alternatives;
-pub use alternatives::{validate_substitution_plan,FingerSubstitution,suggest_fingering_plans_with_substitutions,FingeringPlan, FingeringSearchFailure, suggest_fingering_plans, suggest_fingering_plans_at_rate, suggest_fingering_plans_for_indices};
+pub use alternatives::{validate_substitution_plan,FingerSubstitution,suggest_fingering_plans_with_substitutions,suggest_fingering_plans_with_expression,FingeringPlan, FingeringSearchFailure, suggest_fingering_plans, suggest_fingering_plans_at_rate, suggest_fingering_plans_for_indices};
 mod review;
 pub use review::{FingeringReview, FingeringReviewKind, review_fingering_plan};
 use review::timed_movement_cost;
@@ -61,6 +61,15 @@ pub struct FingeringNote {
     pub onset: Duration,
     pub end: Duration,
     pub anchored_finger: Option<u8>,
+}
+
+/// Score hints are indexed by MIDI fingering input. A slur link names the actual
+/// preceding note in the same performed voice, never an inferred nearby pitch.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FingeringExpression {
+    pub slur_from: Option<usize>,
+    pub staccato: bool,
+    pub staccato_from: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

@@ -135,6 +135,7 @@ impl Player {
         let file = self.file.as_ref().ok_or("请先选择曲目")?;
         let prepared = fingerings::prepare(
             file,
+            self.notation.as_ref(),
             &self.config,
             &self.fingers,
             &self.note_hands,
@@ -317,7 +318,7 @@ mod tests {
         let edits:Vec<_>=track.notes.iter().enumerate().map(|(i,n)|fingerings::Edit{track_id,note_index:i,finger:Some(if n.note==65{4}else{3})}).collect();
         p.command(Command::EditFingersFor{content_id:content_id.clone(),edits}).unwrap();
         let request=fingerings::PlanRequest{content_id:content_id.clone(),track:track_id,index:source,hand:PracticePart::RightHand,profile:HandSpanProfile::Standard,range:Some((1,1)),keep_saved:true,practice_rate:1.,pins:vec![],target_tracks:vec![]};
-        let prepared=fingerings::prepare(p.file.as_ref().unwrap(),&p.config,&p.fingers,&p.note_hands,request.clone()).unwrap();let plans=fingerings::held_plans(prepared).unwrap();let plan=&plans["plans"][0];
+        let prepared=fingerings::prepare(p.file.as_ref().unwrap(),p.notation.as_ref(),&p.config,&p.fingers,&p.note_hands,request.clone()).unwrap();let plans=fingerings::held_plans(prepared).unwrap();let plan=&plans["plans"][0];
         let edits:Vec<_>=plan["proposals"].as_array().unwrap().iter().map(|n|json!({"track_id":n["track"],"note_index":n["index"],"finger":n["finger"]})).collect();
         p.command(serde_json::from_value(json!({"type":"acceptHeldFingerPlan","request":request,"fingerprint":plans["fingerprint"],"edits":edits,"actions":plan["substitutions"]})).unwrap()).unwrap();
         let fingers=p.saved_hints().unwrap();let actions=p.saved_actions().unwrap();let before=p.snapshot();let expected=actions[0].to;
@@ -344,7 +345,7 @@ mod tests {
         let bass=file.tracks.iter().find(|t|t.notes.iter().any(|n|n.note==60)).unwrap().track_id;
         let request=fingerings::PlanRequest{content_id:file.content_id.clone(),track:melody,index:0,
             hand:PracticePart::RightHand,profile:HandSpanProfile::Standard,range:Some((1,1)),keep_saved:false,practice_rate:1.0,pins:vec![],target_tracks:vec![]};
-        let prepared=fingerings::prepare(file,&player.config,&player.fingers,&player.note_hands,request.clone()).unwrap();
+        let prepared=fingerings::prepare(file,player.notation.as_ref(),&player.config,&player.fingers,&player.note_hands,request.clone()).unwrap();
         player.start_finger_demo(request,prepared.fingerprint,0.5).unwrap();
         let events=&player.finger_demo.as_ref().unwrap().events;
         assert!(events.iter().any(|(_,track,bytes)|*track==bass && bytes[0]&240==144 && bytes[1]==60));
@@ -397,6 +398,7 @@ mod tests {
         };
         let prepared = fingerings::prepare(
             file,
+            player.notation.as_ref(),
             &player.config,
             &player.fingers,
             &player.note_hands,

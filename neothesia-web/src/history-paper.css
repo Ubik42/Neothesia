@@ -30,3 +30,14 @@
   font-size: 13px;
   line-height: 1.5;
 }
+.paper-measure-region.history-target {
+  border: 2px solid #c98234 !important;
+  background: #d5963f35 !important;
+  box-shadow: 0 0 0 3px #2c241b99, inset 0 0 0 1px #ffe2a0;
+  color: #54320f;
+}
+.paper-measure-region.history-target span {
+  background: #fff0c9;
+  color: #54320f;
+  font-weight: 700;
+}

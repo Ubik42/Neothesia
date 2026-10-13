@@ -829,8 +829,16 @@ mod tests {
         assert_eq!(performance.tracks[0].notes.len(), 13);
         assert_eq!(performance.tracks[1].notes.len(), 13);
         assert_eq!(
-            performance.tracks[0].notes.iter().map(|note| note.start).collect::<Vec<_>>(),
-            performance.tracks[1].notes.iter().map(|note| note.start).collect::<Vec<_>>()
+            performance.tracks[0]
+                .notes
+                .iter()
+                .map(|note| note.start)
+                .collect::<Vec<_>>(),
+            performance.tracks[1]
+                .notes
+                .iter()
+                .map(|note| note.start)
+                .collect::<Vec<_>>()
         );
     }
     #[test]
@@ -866,6 +874,36 @@ mod tests {
             );
         let score = import_musicxml_document(xml.as_bytes()).unwrap();
         assert!(generate(&score, 120).err().unwrap().contains("D.C."));
+    }
+    #[test]
+    fn printed_fine_stops_the_generated_practice_file_after_the_return() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>Fine</words></direction-type></direction></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>D.C. al Fine</words></direction-type><sound dacapo="yes"/></direction></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(
+            notes.iter().map(|note| note.pitch).collect::<Vec<_>>(),
+            [60, 62, 64, 60, 62]
+        );
+        assert_eq!(
+            notes.iter().map(|note| note.start).collect::<Vec<_>>(),
+            [0, 960, 1920, 2880, 3840]
+        );
+        assert_eq!(notes.last().unwrap().end, 4800);
+        let file = midi_file::MidiFile::from_smf("printed-fine", &performance.smf).unwrap();
+        assert_eq!(
+            file.tracks
+                .iter()
+                .flat_map(|track| track.notes.iter())
+                .last()
+                .unwrap()
+                .note,
+            62
+        );
     }
     #[test]
     fn partial_bar_return_clips_sound_and_alignment_and_propagates_to_other_parts() {

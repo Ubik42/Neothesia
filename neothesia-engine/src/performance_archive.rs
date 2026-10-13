@@ -581,7 +581,11 @@ impl Player {
         self.persist()?;
         let mut result = self.command(Command::CurrentSong)?;
         result["practiceRange"] = serde_json::json!({"start":start,"end":end,"measure":measure,"reference":reference,"songTime":target.song_time});
-        result["paperFocus"] = serde_json::json!({"contentId":cid,"measure":measure,"historyId":id,"reference":reference});
+        result["paperFocus"] = serde_json::json!({
+            "contentId":cid,"measure":measure,"historyId":id,"reference":reference,
+            "pitch":target.pitch,"track":target.track,"songTime":target.song_time,
+            "startMeasure":start,"endMeasure":end,
+        });
         let candidates: Vec<_> = self
             .notes
             .iter()
@@ -889,6 +893,10 @@ mod tests {
         assert_eq!(result["scoreFocus"]["contentId"], cid);
         assert_eq!(result["paperFocus"]["contentId"], cid);
         assert_eq!(result["paperFocus"]["measure"], 3);
+        assert_eq!(result["paperFocus"]["pitch"], archive.references[index].pitch);
+        assert_eq!(result["paperFocus"]["track"], archive.references[index].track);
+        assert_eq!(result["paperFocus"]["startMeasure"], 3);
+        assert_eq!(result["paperFocus"]["endMeasure"], 4);
         assert_eq!(result["scoreFocus"]["measure"], 3);
         assert_eq!(result["scoreFocus"]["pitch"], 60);
         assert_eq!(result["scoreFocus"]["kind"], "missed");

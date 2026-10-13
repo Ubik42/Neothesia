@@ -87,6 +87,23 @@ pub fn suggest_fingering_plans_for_indices(
 pub fn suggest_fingering_plans_with_substitutions(
     notes:&[FingeringNote],hand:FingeringHand,profile:HandSpanProfile,focus:&[usize],limit:usize,rate:f64,allow:bool,
 )->Result<Vec<FingeringPlan>,FingeringSearchFailure>{
+    suggest_fingering_plans_with_expression(notes, hand, profile, focus, limit, rate, allow, &[])
+}
+fn finger_at(mut node: Option<usize>, arena: &[Node], index: usize) -> Option<u8> {
+    while let Some(position) = node {
+        let current = &arena[position];
+        if index >= current.start && index < current.start + current.fingers.len() {
+            return current.fingers.get(index - current.start).copied();
+        }
+        node = current.parent;
+    }
+    None
+}
+
+pub fn suggest_fingering_plans_with_expression(
+    notes:&[FingeringNote],hand:FingeringHand,profile:HandSpanProfile,focus:&[usize],limit:usize,rate:f64,allow:bool,
+    expression:&[FingeringExpression],
+)->Result<Vec<FingeringPlan>,FingeringSearchFailure>{
     let error = |index, kind| FingeringSearchFailure { index, kind };
     if !rate.is_finite() || !(0.25..=2.0).contains(&rate) {
         return Err(error(0, "rate"));
@@ -94,6 +111,11 @@ pub fn suggest_fingering_plans_with_substitutions(
     if notes.is_empty() || notes.len() > 4608 || focus.is_empty()
         || focus.last().is_some_and(|i| *i>=notes.len()) || focus.windows(2).any(|w|w[0]>=w[1]) {
         return Err(error(0, "range"));
+    }
+    if !expression.is_empty() && (expression.len() != notes.len()
+        || expression.iter().enumerate().any(|(i, hint)| hint.slur_from.is_some_and(|j| j >= i)
+            || hint.staccato_from.is_some_and(|j| j >= i))) {
+        return Err(error(0, "expression"));
     }
     if notes.windows(2).any(|n| n[0].onset > n[1].onset) {
         return Err(error(0, "order"));
@@ -226,6 +248,34 @@ pub fn suggest_fingering_plans_with_substitutions(
                                 .max(0)
                                 * 8,
                         );
+                    }
+                }
+                if !expression.is_empty() {
+                    for (offset, &finger) in candidate.fingers.iter().enumerate() {
+                        let index = start + offset;
+                        if let Some(from) = expression[index].slur_from {
+                            if let Some(old_finger) = finger_at(prior.node, &arena, from) {
+                                let old = notes[from];
+                                let now = notes[index];
+                                if old.pitch != now.pitch && old_finger == finger {
+                                    addition += 32;
+                                }
+                                if transition_reason(old.pitch, old_finger, now.pitch, finger, hand)
+                                    == FingeringReason::PositionShift {
+                                    addition += 18;
+                                }
+                            }
+                        } else if let Some(from) = expression[index].staccato_from {
+                            if notes[from].onset < notes[index].onset && expression[from].staccato {
+                                if let Some(old_finger) = finger_at(prior.node, &arena, from) {
+                                    if transition_reason(notes[from].pitch, old_finger,
+                                        notes[index].pitch, finger, hand)
+                                        == FingeringReason::PositionShift {
+                                        addition -= 12;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 let mut next_held = held.clone();
@@ -450,6 +500,27 @@ mod tests {
             end: Duration::from_millis(end),
             anchored_finger: anchor,
         }
+    }
+    #[test]
+    fn trusted_slur_penalizes_a_break_and_staccato_allows_release_shift() {
+        let slur_notes = [n(60, 0, 180, Some(1)), n(62, 400, 570, Some(1))];
+        let baseline = suggest_fingering_plans_for_indices(&slur_notes, FingeringHand::Right,
+            HandSpanProfile::Standard, &[0, 1], 1, 1.0).unwrap()[0].cost;
+        let expression = [FingeringExpression::default(), FingeringExpression {
+            slur_from: Some(0), ..Default::default()
+        }];
+        let connected = suggest_fingering_plans_with_expression(&slur_notes, FingeringHand::Right,
+            HandSpanProfile::Standard, &[0, 1], 1, 1.0, false, &expression).unwrap()[0].cost;
+        assert!(connected >= baseline + 32);
+
+        let shift_notes = [n(60, 0, 150, Some(1)), n(72, 400, 550, Some(1))];
+        let baseline = suggest_fingering_plans_for_indices(&shift_notes, FingeringHand::Right,
+            HandSpanProfile::Standard, &[0, 1], 1, 1.0).unwrap()[0].cost;
+        let expression = [FingeringExpression { staccato: true, ..Default::default() },
+            FingeringExpression { staccato_from: Some(0), ..Default::default() }];
+        let released = suggest_fingering_plans_with_expression(&shift_notes, FingeringHand::Right,
+            HandSpanProfile::Standard, &[0, 1], 1, 1.0, false, &expression).unwrap()[0].cost;
+        assert!(released < baseline);
     }
     #[test]
     fn rest_reset_uses_practice_time_and_the_same_search_cost() {

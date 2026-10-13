@@ -12,6 +12,11 @@ export type HistoryPaperTarget = {
   measure: number;
   historyId: string;
   reference: number;
+  pitch: number;
+  track: number;
+  songTime: number;
+  startMeasure: number;
+  endMeasure: number;
 };
 import { practiceDuration } from "./practiceTime";
 import { PracticeCalendar } from "./PracticeCalendar";
@@ -390,7 +395,18 @@ export function HistoryDialog({
             result.paperFocus.historyId !== detail.id ||
             result.paperFocus.reference !== reference ||
             !Number.isSafeInteger(result.paperFocus.measure) ||
-            result.paperFocus.measure < 1) {
+            result.paperFocus.measure < 1 ||
+            !Number.isSafeInteger(result.paperFocus.pitch) ||
+            result.paperFocus.pitch < 0 || result.paperFocus.pitch > 127 ||
+            !Number.isSafeInteger(result.paperFocus.track) ||
+            result.paperFocus.track < 0 ||
+            !Number.isFinite(result.paperFocus.songTime) ||
+            result.paperFocus.songTime < 0 ||
+            !Number.isSafeInteger(result.paperFocus.startMeasure) ||
+            !Number.isSafeInteger(result.paperFocus.endMeasure) ||
+            result.paperFocus.startMeasure < 1 ||
+            result.paperFocus.startMeasure > result.paperFocus.measure ||
+            result.paperFocus.endMeasure < result.paperFocus.measure) {
           setError("选段已准备好，但当前历史参考音无法对应到练习小节。请核对曲目后再从纸谱定位。");
           return;
         }
