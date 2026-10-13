@@ -6,7 +6,7 @@
 
 面向本地钢琴练习的跨平台 MIDI 可视化与训练工具。本仓库是在开源项目 [PolyMeilex/Neothesia](https://github.com/PolyMeilex/Neothesia) 基础上长期维护的个人分支，把选曲、分段练习、演奏反馈、乐谱跟随和 Pianoteq 音源连接成一套稳定的日常练琴流程。
 
-> **当前开发版：Cycle 203（2026-10-03）。** React＋Tauri 中文练习室与共享 Rust 引擎已接入本地曲库整理、多版本 MusicXML/PDF/图片谱面、指法推荐与逐音审阅、双手交接检查、练习段落与计划、演奏记录和备份迁移。最近新增谱面区域/笔迹批注、批量配对的文件副本与重启恢复、指法方案局部比较采用，以及 `.neoscorebatch` 整理批次导出/导入。具体完成范围、验证和未完成项见 [开发进度](docs/development/progress.md) 与 [产品路线](docs/development/product-roadmap.md)。这是持续开发的源码快照，尚未完成全部 Synthesia 功能。
+> **当前开发版：Cycle 206（2026-10-12）。** React＋Tauri 中文练习室与共享 Rust 引擎已接入本地曲库整理、多版本 MusicXML/PDF/图片谱面、指法推荐与逐音审阅、双手交接检查、练习段落与计划、演奏记录和备份迁移。本轮加入练习资料与已保存整理批次的组合备份、批次原文件核验及恢复，以及纸谱批注页内查找定位。具体完成范围、验证和未完成项见 [开发进度](docs/development/progress.md) 与 [产品路线](docs/development/product-roadmap.md)。这是持续开发的源码快照，尚未完成全部 Synthesia 功能。
 
 ## 新练习室入口
 

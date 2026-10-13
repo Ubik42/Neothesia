@@ -1,0 +1,104 @@
+.settings-dialog.meter-map-dialog {
+  width: min(940px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+.meter-map-editor {
+  border: 0;
+  padding: 0;
+  margin: 16px 0;
+  min-width: 0;
+}
+.meter-map-editor legend {
+  font-weight: 650;
+  padding: 0 0 10px;
+}
+.meter-table-wrap {
+  overflow-x: auto;
+}
+.meter-map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.meter-map-table th {
+  text-align: left;
+  font-weight: 600;
+}
+.meter-map-table th,
+.meter-map-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--border, #394049);
+  white-space: nowrap;
+}
+.meter-map-table input {
+  width: 112px;
+  min-width: 70px;
+}
+.meter-map-table select {
+  min-width: 104px;
+}
+.meter-map-table button,
+.meter-map-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.meter-map-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+.meter-map-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meter-map-toolbar input {
+  width: 85px;
+}
+.meter-map-dialog .dialog-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 650px) {
+  .settings-dialog.meter-map-dialog {
+    padding: 18px;
+  }
+  .meter-map-table th,
+  .meter-map-table td {
+    padding: 8px 5px;
+  }
+  .meter-map-table input {
+    width: 88px;
+  }
+  .meter-map-toolbar {
+    gap: 8px;
+  }
+}
+
+.bar-cell .bar-written-number {
+  display: inline-block;
+  margin-left: 5px;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.meter-map-dialog section[aria-label="小节网格预览"] .meter-table-wrap {
+  max-height: 32dvh;
+}
+.meter-map-dialog .meter-map-table thead th {
+  position: sticky;
+  top: 0;
+  background: #242a33;
+  z-index: 1;
+}
+.meter-map-dialog .dialog-actions {
+  position: sticky;
+  bottom: -24px;
+  padding: 14px 0;
+  background: #242a33;
+  z-index: 2;
+}

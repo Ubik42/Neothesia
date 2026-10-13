@@ -1,3 +1,16 @@
+import {
+  encodeWorkspaceBackup,
+  decodeWorkspaceBackup,
+} from "./workspaceBackup";
+import { downloadWorkspaceBackup } from "./workspaceDownload";
+import {
+  listBatches,
+  loadBatch,
+  saveImportedBatches,
+  type BatchData,
+  type BatchSummary,
+} from "./batchImportStore";
+import "./workspaceBackupDialog.css";
 import { templateFields, modes, type Rules } from "./metadataTemplates";
 import { useRef, useState, useEffect } from "react";
 import { X, Download, FolderOpen } from "lucide-react";
@@ -64,11 +77,29 @@ export function PracticeBackupDialog({
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [policy, setPolicy] = useState("keep");
+  const [localBatches, setLocalBatches] = useState<BatchSummary[]>([]);
+  const [batchError, setBatchError] = useState("");
+  const [progress, setProgress] = useState("");
+  const [workspace, setWorkspace] = useState<{
+    practice: File;
+    batches: BatchData[];
+    selected: string[];
+    saved: number;
+  } | null>(null);
+  const batchSaved = useRef(false);
+  const workspaceInput = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLInputElement>(null),
     working = useRef(false);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
+    void listBatches()
+      .then((rows) => {
+        if (alive.current) setLocalBatches(rows);
+      })
+      .catch((e) => {
+        if (alive.current) setBatchError(String(e));
+      });
     return () => {
       alive.current = false;
     };
@@ -79,6 +110,7 @@ export function PracticeBackupDialog({
     setBusy(true);
     setError("");
     setMessage("");
+    setProgress("");
     try {
       await job();
     } catch (e) {
@@ -91,6 +123,8 @@ export function PracticeBackupDialog({
   const pick = () => {
     if (api.desktop)
       void work(async () => {
+        setWorkspace(null);
+        batchSaved.current = false;
         setSummary(null);
         const data = await api.pickPracticeBackup();
         if (data) setSummary(data as Summary);
@@ -113,30 +147,119 @@ export function PracticeBackupDialog({
         setMessage("练习资料备份已导出");
       }
     });
+  const reportProgress = (text: string) => {
+    if (alive.current) setProgress(text);
+  };
+  const exportWorkspace = () =>
+    void work(async () => {
+      reportProgress("正在读取已保存整理批次…");
+      const listed = await listBatches();
+      const batches: BatchData[] = [];
+      for (const [index, row] of listed.entries()) {
+        reportProgress(
+          `正在读取批次 ${index + 1}/${listed.length}：${row.name}`,
+        );
+        const value = await loadBatch(row.id);
+        if (value.revision !== row.revision)
+          throw new Error("整理批次在导出期间发生了变化，请重新导出。");
+        batches.push(value);
+      }
+      const after = await listBatches();
+      if (
+        JSON.stringify(after.map((b) => [b.id, b.revision]).sort()) !==
+        JSON.stringify(listed.map((b) => [b.id, b.revision]).sort())
+      )
+        throw new Error("整理批次在导出期间发生了变化，请重新导出。");
+      setLocalBatches(after);
+      setBatchError("");
+      reportProgress("正在导出所选练习资料…");
+      const practice = await api.downloadPracticeBackup(selection);
+      const file = await encodeWorkspaceBackup(
+        practice,
+        batches,
+        reportProgress,
+      );
+      const path = await downloadWorkspaceBackup(
+        file,
+        `Neothesia-完整资料-${new Date().toISOString().slice(0, 10)}.neoworkspace`,
+        reportProgress,
+      );
+      setMessage(
+        path === null
+          ? "本次完整资料备份未保存。"
+          : `完整资料备份已导出：${batches.length} 个整理批次、${batches.reduce((n, b) => n + b.items.length, 0)} 个文件。${path ? `保存位置：${path}` : ""}`,
+      );
+    });
   const importFile = () =>
     void work(async () => {
       if (!summary) return;
-      const result = await api.command<{
-        importedPerformances: number;
-        replacedPerformances: number;
-        keptPerformances: number;
-        duplicatePerformances: number;
-        trimmedPerformances: number;
-        addedRecords: number;
-        duplicateRecords: number;
-        renamedRecords: number;
-        trimmedRecords: number;
-      }>({
-        type: "importStagedPracticeBackup",
-        token: summary.token,
-        selection: { ...selection, days: 0 },
-        policy,
-      });
-      await changed();
-      setMessage(
-        `导入完成：新增记录 ${result.addedRecords}，跳过重复 ${result.duplicateRecords}，区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。本机导入前副本已保留。`,
-      );
-      setSummary(null);
+      let savedCount = workspace?.saved ?? 0;
+      if (workspace && !batchSaved.current) {
+        const batches = workspace.batches.filter((b) =>
+          workspace.selected.includes(b.id),
+        );
+        if (batches.length) {
+          reportProgress(`正在保存 ${batches.length} 个整理批次及原始文件…`);
+          await saveImportedBatches(batches);
+          savedCount = batches.length;
+          batchSaved.current = true;
+          setWorkspace({ ...workspace, saved: savedCount });
+          // The committed batch flag is recorded before importing practice data so retries cannot duplicate files.
+          void listBatches()
+            .then((rows) => {
+              if (alive.current) setLocalBatches(rows);
+            })
+            .catch(() => {});
+        }
+      }
+      try {
+        if (available) {
+          reportProgress("正在合并所选练习资料…");
+          const result = await api.command<{
+            importedPerformances: number;
+            replacedPerformances: number;
+            keptPerformances: number;
+            duplicatePerformances: number;
+            trimmedPerformances: number;
+            addedRecords: number;
+            duplicateRecords: number;
+            renamedRecords: number;
+            trimmedRecords: number;
+          }>({
+            type: "importStagedPracticeBackup",
+            token: summary.token,
+            selection: { ...selection, days: 0 },
+            policy,
+          });
+          // A refresh failure must not invite importing already-committed data again.
+          setSummary(null);
+          setWorkspace(null);
+          batchSaved.current = false;
+          setMessage(
+            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：新增记录 ${result.addedRecords}，跳过重复 ${result.duplicateRecords}，区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。本机导入前副本已保留。`,
+          );
+          try {
+            await changed();
+          } catch (e) {
+            setError(
+              `资料已导入，但页面刷新失败：${String(e)}。请关闭此窗口后重新打开。`,
+            );
+          }
+        } else {
+          setSummary(null);
+          setWorkspace(null);
+          batchSaved.current = false;
+          setMessage(
+            `导入完成：已保存 ${savedCount} 个整理批次及其原始文件。您可以从“导入曲目 → 批量配对谱面”继续整理。`,
+          );
+        }
+      } catch (e) {
+        if (savedCount)
+          throw new Error(
+            `整理批次已保存 ${savedCount} 个，现有批次保留。练习资料未完成导入：${e instanceof Error ? e.message : String(e)}。您可以排除原因后重试练习资料，系统会跳过已保存的批次。`,
+          );
+        throw e;
+      }
     });
   const any = selection.plans || selection.records || selection.presets;
   const available =
@@ -224,6 +347,84 @@ export function PracticeBackupDialog({
             导出练习备份
           </button>
         </div>
+        <section className="workspace-backup-section" aria-label="完整资料备份">
+          <h3>完整资料备份</h3>
+          <p>
+            完整资料文件会合并上方勾选的练习资料，以及全部已保存整理批次。每个整理批次携带原始文件、配对选择、图片页序和整理进度。
+          </p>
+          <p>
+            这份文件覆盖所选练习资料和已保存整理批次的原文件副本。曲库内其他
+            MIDI、谱面原件及各曲的指法和批注，需要保留原文件路径或另行导出曲目包。
+          </p>
+          <p>
+            本机已保存 {localBatches.length} 个整理批次，共{" "}
+            {localBatches.reduce((n, b) => n + b.total, 0)} 个文件，
+            {(
+              localBatches.reduce((n, b) => n + b.bytes, 0) /
+              1024 /
+              1024
+            ).toFixed(1)}{" "}
+            MB。
+            {!localBatches.length &&
+              "您尚未保存整理批次，完整资料备份将只包含所选练习资料。"}
+          </p>
+          {batchError && (
+            <p role="alert">
+              整理批次目录读取失败：{batchError}
+              。您可以重试导出，系统会重新读取目录。
+            </p>
+          )}
+          {!any && (
+            <p>导出需要至少勾选一类练习资料。导入时，您可以只恢复整理批次。</p>
+          )}
+          <div className="workspace-backup-actions">
+            <button disabled={busy || !any} onClick={exportWorkspace}>
+              <Download size={14} />
+              导出完整资料备份
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => workspaceInput.current?.click()}
+            >
+              <FolderOpen size={14} />
+              导入完整资料备份
+            </button>
+          </div>
+          <input
+            hidden
+            ref={workspaceInput}
+            type="file"
+            accept=".neoworkspace"
+            aria-label="完整资料备份文件"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file)
+                void work(async () => {
+                  setSummary(null);
+                  setWorkspace(null);
+                  batchSaved.current = false;
+                  const decoded = await decodeWorkspaceBackup(
+                    file,
+                    reportProgress,
+                  );
+                  reportProgress("文件校验完成，正在核对练习资料…");
+                  const staged = (await api.stagePracticeBackup(
+                    decoded.practice,
+                  )) as Summary;
+                  setWorkspace({
+                    ...decoded,
+                    selected: decoded.batches.map((b) => b.id),
+                    saved: 0,
+                  });
+                  setSummary(staged);
+                  setMessage(
+                    "备份已校验。请核对下方练习资料和整理批次，然后执行导入。",
+                  );
+                });
+            }}
+          />
+        </section>
         <div className="practice-backup-import">
           <h3>导入已有备份</h3>
           <button disabled={busy} onClick={pick}>
@@ -242,12 +443,93 @@ export function PracticeBackupDialog({
               if (file)
                 void work(async () => {
                   setSummary(null);
+                  setWorkspace(null);
+                  batchSaved.current = false;
                   setSummary((await api.stagePracticeBackup(file)) as Summary);
                 });
             }}
           />
           {summary && (
             <>
+              {workspace && (
+                <section
+                  className="workspace-backup-preview"
+                  aria-label="整理批次恢复预览"
+                >
+                  <h3>整理批次 · {workspace.batches.length} 个</h3>
+                  <p>
+                    恢复的批次会成为新的本机待核对版本，现有批次保留。同一份完整备份已经恢复过的批次会被拒绝重复保存；您可以取消勾选批次，只导入练习资料。
+                  </p>
+                  {!workspace.batches.length && <p>这份备份没有整理批次。</p>}
+                  {!!workspace.saved && (
+                    <p className="backup-message">
+                      本次已保存 {workspace.saved}{" "}
+                      个整理批次。后续重试只处理练习资料。
+                    </p>
+                  )}
+                  <div className="workspace-batch-list">
+                    {workspace.batches.map((batch) => (
+                      <label key={batch.id}>
+                        <input
+                          type="checkbox"
+                          aria-label={`恢复整理批次 ${batch.name}`}
+                          checked={workspace.selected.includes(batch.id)}
+                          disabled={busy || !!workspace.saved}
+                          onChange={(e) =>
+                            setWorkspace({
+                              ...workspace,
+                              selected: e.target.checked
+                                ? [...workspace.selected, batch.id]
+                                : workspace.selected.filter(
+                                    (id) => id !== batch.id,
+                                  ),
+                            })
+                          }
+                        />
+                        <span>
+                          <strong>{batch.name}</strong>
+                          <small>
+                            {batch.items.length} 个文件 ·{" "}
+                            {(
+                              batch.items.reduce(
+                                (n, item) => n + item.file.size,
+                                0,
+                              ) /
+                              1024 /
+                              1024
+                            ).toFixed(1)}{" "}
+                            MB · 需要核对{" "}
+                            {
+                              batch.items.filter((i) => i.state === "done")
+                                .length
+                            }{" "}
+                            项
+                          </small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {!!workspace.saved && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void work(async () => {
+                          setSummary(
+                            (await api.stagePracticeBackup(
+                              workspace.practice,
+                            )) as Summary,
+                          );
+                          setMessage(
+                            "练习资料已重新核对，已保存的整理批次保留。请核对后重试导入。",
+                          );
+                        })
+                      }
+                    >
+                      重新核对练习资料
+                    </button>
+                  )}
+                </section>
+              )}
               <p>
                 备份日期：{new Date(summary.createdAt).toLocaleString("zh-CN")}
               </p>
@@ -460,15 +742,27 @@ export function PracticeBackupDialog({
               </p>
               <button
                 className="primary-button"
-                disabled={busy || !available}
+                disabled={
+                  busy ||
+                  (!available &&
+                    !(
+                      workspace &&
+                      !workspace.saved &&
+                      workspace.selected.length
+                    ))
+                }
                 onClick={importFile}
               >
-                按所选范围导入
+                {workspace
+                  ? workspace.saved
+                    ? "重试练习资料导入"
+                    : "导入所选完整资料"
+                  : "按所选范围导入"}
               </button>
             </>
           )}
         </div>
-        {busy && <p role="status">正在处理练习资料…</p>}
+        {busy && !message && <p role="status">{progress || "正在处理练习资料…"}</p>}
         {error && (
           <p className="dialog-error" role="alert">
             {error}

@@ -1499,7 +1499,7 @@ export default function App() {
                 contentId={song.contentId}
                 revision={paperRevision}
                 playback={{ measure: state.measure }}
-                contextKey={JSON.stringify(song.meterCorrection)}
+                contextKey={JSON.stringify(song.meterMap ?? song.meterCorrection)}
               />
             )}
             {selectedNote && view !== "score" && state.mode !== "memory" && (

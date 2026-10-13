@@ -8,6 +8,7 @@ use std::{collections::HashMap, time::Duration};
 #[serde(rename_all = "camelCase")]
 pub struct Bar {
     pub number: usize,
+    pub display_number:i32,
     pub start: f64,
     pub end: f64,
     pub start_tick: u64,
@@ -87,6 +88,7 @@ pub fn build(
         })
         .map(|m| Bar {
             number: m.number,
+            display_number:m.display_number,
             start: file
                 .tempo_track
                 .pulses_to_duration(m.start_tick)

@@ -179,7 +179,7 @@ impl Player {
         }
         let manifest = Manifest {
             format: "neothesia-piece".into(),
-            version: if papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some()||n.width.is_some())||p.mapping.as_ref().is_some_and(|m|m.anchors.iter().any(|a|a.region.is_some()))){9}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.as_ref().is_some_and(|r|r.start_trim>0||r.end_trim>0))){8}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.precise_range.is_some())){7}else if !self.saved_actions()?.is_empty(){6}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.is_some())){5}else if papers.iter().any(|p|!p.annotations.is_empty()){4}else if papers.iter().any(|p|p.mapping.is_some()){3}else{2},
+            version: if self.meter_map.is_some(){10}else if papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some()||n.width.is_some())||p.mapping.as_ref().is_some_and(|m|m.anchors.iter().any(|a|a.region.is_some()))){9}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.as_ref().is_some_and(|r|r.start_trim>0||r.end_trim>0))){8}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.precise_range.is_some())){7}else if !self.saved_actions()?.is_empty(){6}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.is_some())){5}else if papers.iter().any(|p|!p.annotations.is_empty()){4}else if papers.iter().any(|p|p.mapping.is_some()){3}else{2},
             content_id: blake3::hash(&midi).to_hex().to_string(),
             title: self.title.clone(),
             metadata,
@@ -206,6 +206,7 @@ impl Player {
             track_sounds:self.track_sound_settings(),
             track_appearances:self.track_appearances(),
             meter: self.meter_correction,
+            meter_map:self.meter_map.clone(),
             passages: self
                 .preferences
                 .passages
@@ -287,6 +288,7 @@ impl Player {
             hands: m.hands.clone(),
             track_parts: m.track_parts.clone(),
             meter: m.meter,
+            meter_map:m.meter_map.clone(),
             ..Default::default()
         };
         if let Some(index) = m.active_score {
@@ -337,7 +339,7 @@ impl Player {
                 for (track, part) in &imported.track_parts {
                     local.track_parts.entry(*track).or_insert(*part);
                 }
-                local.meter = local.meter.or(imported.meter);
+                if local.meter.is_none() && local.meter_map.is_none(){local.meter=imported.meter;local.meter_map=imported.meter_map;}
                 if local.score.is_none() {
                     local.score = imported.score.clone();
                 }

@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod score_batch_export;
+mod practice_backup_bridge;
 use neothesia_engine::{Command, Engine, library};
 use std::path::PathBuf;
 use tauri::{Manager,Emitter};
@@ -522,6 +523,7 @@ fn main() {
             let songs=std::sync::Arc::new(std::sync::Mutex::new(songs));
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
+            app.manage(practice_backup_bridge::Sessions::default());
             app.manage(State { engine, songs,monitor,data, font, score_imports:Default::default(), _data_lock: data_lock });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
@@ -531,7 +533,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            score_batch_export::begin_score_batch_export,score_batch_export::write_score_batch_export,score_batch_export::finish_score_batch_export,score_batch_export::cancel_score_batch_export,
+            score_batch_export::begin_score_batch_export,score_batch_export::begin_workspace_export,score_batch_export::write_score_batch_export,score_batch_export::finish_score_batch_export,score_batch_export::cancel_score_batch_export,
             reveal_library_file,
             library_list,
             engine_state,
@@ -552,6 +554,13 @@ fn main() {
             import_score_attachments,
             pick_paper_source,
             import_library_scores,
+            practice_backup_bridge::begin_practice_backup_read,
+            practice_backup_bridge::read_practice_backup_chunk,
+            practice_backup_bridge::finish_practice_backup_read,
+            practice_backup_bridge::begin_practice_backup_stage,
+            practice_backup_bridge::write_practice_backup_chunk,
+            practice_backup_bridge::finish_practice_backup_stage,
+            practice_backup_bridge::cancel_practice_backup_transfer,
             pick_practice_backup,
             export_practice_backup,
             export_interface_settings,

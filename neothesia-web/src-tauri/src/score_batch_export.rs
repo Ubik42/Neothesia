@@ -57,9 +57,34 @@ pub async fn begin_score_batch_export(
     name: String,
     size: u64,
 ) -> Result<Option<String>, String> {
-    if size < 12 || size > 514_000_012 {
-        return Err("批次大小无效".into());
+    begin_export(state, sessions, name, size, false).await
+}
+#[tauri::command]
+pub async fn begin_workspace_export(
+    state: tauri::State<'_, crate::State>,
+    sessions: tauri::State<'_, Sessions>,
+    name: String,
+    size: u64,
+) -> Result<Option<String>, String> {
+    begin_export(state, sessions, name, size, true).await
+}
+fn valid_size(size: u64, workspace: bool) -> bool {
+    (12..=if workspace { 1_073_741_824 } else { 514_000_012 }).contains(&size)
+}
+async fn begin_export(
+    state: tauri::State<'_, crate::State>,
+    sessions: tauri::State<'_, Sessions>,
+    name: String,
+    size: u64,
+    workspace: bool,
+) -> Result<Option<String>, String> {
+    if !valid_size(size, workspace) {
+        return Err(if workspace { "资料备份大小无效，最大支持 1 GiB" } else { "批次大小无效" }.into());
     }
+    let location = if workspace { "workspaceExport" } else { "scoreBatchExport" };
+    let title = if workspace { "导出完整资料备份" } else { "导出曲谱整理批次" };
+    let label = if workspace { "Neothesia 资料备份" } else { "曲谱整理批次" };
+    let extension = if workspace { "neoworkspace" } else { "neoscorebatch" };
     if sessions.0.lock().map_err(|e| e.to_string())?.len() >= 2 {
         return Err("请等待正在导出的批次完成".into());
     }
@@ -73,9 +98,9 @@ pub async fn begin_score_batch_export(
             }
         })
         .collect::<String>();
-    let Some(file) = crate::file_dialog(&state.data, "scoreBatchExport")
-        .set_title("导出曲谱整理批次")
-        .add_filter("曲谱整理批次", &["neoscorebatch"])
+    let Some(file) = crate::file_dialog(&state.data, location)
+        .set_title(title)
+        .add_filter(label, &[extension])
         .set_file_name(name)
         .save_file()
         .await
@@ -83,7 +108,7 @@ pub async fn begin_score_batch_export(
         return Ok(None);
     };
     let path = file.path().to_path_buf();
-    crate::remember_location(&state.data, "scoreBatchExport", &path, false);
+    crate::remember_location(&state.data, location, &path, false);
     let token = blake3::hash(
         format!(
             "{}:{:?}:{}",
@@ -155,6 +180,15 @@ pub fn cancel_score_batch_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn workspace_limit_does_not_change_batch_limit() {
+        assert!(!valid_size(11, true));
+        assert!(valid_size(12, true));
+        assert!(valid_size(1_073_741_824, true));
+        assert!(!valid_size(1_073_741_825, true));
+        assert!(valid_size(514_000_012, false));
+        assert!(!valid_size(514_000_013, false));
+    }
     #[test]
     fn chunk_order_finish_and_cancel_preserve_existing_file() {
         let root = std::env::temp_dir().join(format!(

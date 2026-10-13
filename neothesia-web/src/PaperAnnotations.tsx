@@ -167,7 +167,9 @@ export function PaperAnnotations({
   };
   return (
     <>
-      <div className="paper-annotation-tools">
+      <div
+        className={`paper-annotation-tools ${ink.active ? "ink-editing" : ""}`}
+      >
         {ink.tools}
         <button
           disabled={
@@ -286,10 +288,21 @@ export function PaperAnnotations({
         <details className="paper-annotation-list">
           <summary>本页批注 · {current.length}</summary>
           {current.map((n, i) => (
-            <button key={n.id} disabled={disabled} onClick={() => choose(n)}>
-              {i + 1}. {n.ink ? "笔迹 · " : n.width ? "高亮 · " : ""}
-              {n.text || (n.ink ? "手写标记" : "未填写说明")}
-            </button>
+            <span key={n.id}>
+              <button disabled={disabled} onClick={() => choose(n)}>
+                {i + 1}. {n.ink ? "笔迹 · " : n.width ? "高亮 · " : ""}
+                {n.text || (n.ink ? "手写标记" : "未填写说明")}
+              </button>
+              {n.ink && (
+                <button
+                  disabled={disabled || !!edit || !!placing || regionSelection}
+                  onClick={() => ink.selectStroke(n.id)}
+                  aria-label={`选择笔迹 ${i + 1}`}
+                >
+                  选择笔迹
+                </button>
+              )}
+            </span>
           ))}
         </details>
       )}

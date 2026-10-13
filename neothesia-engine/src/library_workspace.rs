@@ -22,6 +22,33 @@ pub struct Workspace {
 mod tests {
     use super::*;
     #[test]
+    fn index_refreshes_segmented_meter_from_sidecar() {
+        let root = std::env::temp_dir().join(format!("neothesia-meter-index-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("study.mid");
+        std::fs::write(&path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let file = MidiFile::new(&path).unwrap();
+        let mut workspace = Workspace::default();
+        workspace.inspect(path.clone(), false).unwrap();
+        let sidecar = neothesia_core::library::SongSidecar {
+            meter_map: Some(neothesia_core::library::MeterMap {
+                pickup_ticks: u64::from(file.musical_time.ppq) / 2,
+                segments: vec![
+                    neothesia_core::library::MeterSegment { measure: 1, numerator: 4, denominator: 4, display_start: Some(0) },
+                    neothesia_core::library::MeterSegment { measure: 2, numerator: 3, denominator: 4, display_start: Some(20) },
+                ],
+            }),
+            ..Default::default()
+        };
+        let expected = crate::Player::sidecar_grid(&file, &sidecar).unwrap();
+        neothesia_core::library::save_song_sidecar(&path, &file.content_id, sidecar).unwrap();
+        let indexed = workspace.inspect(path, false).unwrap();
+        assert!(indexed.error.is_none());
+        assert_eq!(indexed.measures, expected.measures.len());
+        assert_eq!(indexed.meter, "4/4 → 3/4 手动 · 弱起");
+    }
+    #[test]
     fn duplicates_keep_groups_and_replaced_content_does_not_inherit_them() {
         let root = std::env::temp_dir().join(format!(
             "neothesia-library-{}",
@@ -238,28 +265,21 @@ impl Workspace {
                 entry.meter = meters.join(" → ");
                 match load_song_sidecar(&path, &file.content_id) {
                     Ok(s) => {
-                        if let Some(meter) = s.meter {
-                            let end =
-                                file.tempo_track.seconds_to_pulses(entry.duration).round() as u64;
-                            match midi_file::musical_time::MusicalTime::corrected(
-                                file.musical_time.ppq,
-                                end,
-                                meter.numerator,
-                                meter.denominator,
-                                meter.pickup_ticks,
-                            ) {
+                        if s.meter.is_some() || s.meter_map.is_some() {
+                            match crate::Player::sidecar_grid(&file, &s) {
                                 Ok(grid) => {
                                     entry.measures = grid.measures.len();
-                                    entry.meter = format!(
-                                        "{}/{} 手动{}",
-                                        meter.numerator,
-                                        meter.denominator,
-                                        if meter.pickup_ticks > 0 {
-                                            " · 弱起"
-                                        } else {
-                                            ""
+                                    let mut signatures = Vec::new();
+                                    for m in &grid.measures {
+                                        let signature = format!("{}/{}", m.numerator, m.denominator);
+                                        if signatures.last() != Some(&signature) {
+                                            signatures.push(signature);
                                         }
-                                    );
+                                    }
+                                    let pickup = s.meter_map.as_ref().map(|m| m.pickup_ticks)
+                                        .or_else(|| s.meter.map(|m| m.pickup_ticks)).unwrap_or(0);
+                                    entry.meter = format!("{} 手动{}", signatures.join(" → "),
+                                        if pickup > 0 { " · 弱起" } else { "" });
                                 }
                                 Err(e) => entry.error = Some(format!("小节网格：{e}")),
                             }

@@ -75,6 +75,11 @@ pub struct MeterCorrection {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MeterSegment { pub measure:usize,pub numerator:u8,pub denominator:u16,#[serde(default)] pub display_start:Option<i32> }
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MeterMap { pub pickup_ticks:u64,pub segments:Vec<MeterSegment> }
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScoreAssociation {
     pub path: PathBuf,
     pub content_id: String,
@@ -101,6 +106,7 @@ pub struct SongSidecar {
     pub hands: Vec<NoteHandHint>,
     pub track_parts: BTreeMap<usize, crate::practice::PracticePart>,
     pub meter: Option<MeterCorrection>,
+    pub meter_map:Option<MeterMap>,
     pub score: Option<ScoreAssociation>,
     pub score_analysis: Option<ScoreAnalysisSnapshot>,
 }
@@ -120,6 +126,8 @@ struct MetadataSidecar {
     track_parts: BTreeMap<usize, crate::practice::PracticePart>,
     #[serde(default)]
     meter: Option<MeterCorrection>,
+    #[serde(default)]
+    meter_map:Option<MeterMap>,
     #[serde(default)]
     score: Option<ScoreAssociation>,
     #[serde(default)]
@@ -375,6 +383,7 @@ pub fn load_song_sidecar(
         hands: normalize_hands(sidecar.hands),
         track_parts: sidecar.track_parts,
         meter: sidecar.meter,
+        meter_map:sidecar.meter_map,
         score: sidecar.score,
         score_analysis: sidecar.score_analysis,
     })
@@ -415,6 +424,7 @@ pub fn save_song_meter(
 ) -> Result<PathBuf, MetadataError> {
     let mut sidecar = existing_sidecar_or_default(midi_path, content_id)?;
     sidecar.meter = meter;
+    sidecar.meter_map = None;
     save_song_sidecar(midi_path, content_id, sidecar)
 }
 fn normalize_hands(hands: Vec<NoteHandHint>) -> Vec<NoteHandHint> {
@@ -519,6 +529,7 @@ pub fn save_song_sidecar(
         hands: normalize_hands(sidecar.hands),
         track_parts: sidecar.track_parts,
         meter: sidecar.meter,
+        meter_map:sidecar.meter_map,
         score: sidecar.score,
         score_analysis: sidecar.score_analysis,
     };

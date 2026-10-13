@@ -1,0 +1,92 @@
+/* Keep the current stroke tools beside the working page while its own panel scrolls. */
+.paper-annotation-tools.ink-editing {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  display: block;
+  padding: 6px 8px;
+  margin: -2px 0 8px;
+  background: #20262e;
+  border-bottom: 1px solid #455366;
+  box-shadow: 0 3px 8px #0003;
+}
+.paper-annotation-tools.ink-editing > button {
+  display: none;
+}
+.paper-ink-main,
+.paper-ink-secondary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.paper-ink-main {
+  flex-wrap: wrap;
+}
+.paper-ink-secondary {
+  overflow-x: auto;
+  white-space: nowrap;
+  margin-top: 5px;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.paper-ink-main button,
+.paper-ink-secondary button {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 4px 7px;
+}
+.paper-ink-main label {
+  flex-shrink: 0;
+}
+.paper-ink-main select {
+  min-height: 28px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.paper-ink-main button[aria-pressed="true"] {
+  border-color: #659cd7;
+  background: #324c67;
+}
+.paper-ink-help {
+  color: #bdc8d5;
+}
+.paper-annotation-tools.ink-editing > [role="status"] {
+  display: block;
+  font-size: 12px;
+  margin-top: 3px;
+}
+.paper-sheet-scroll:has(.ink-editing) {
+  scroll-padding-top: 104px;
+}
+.paper-ink-layer.active:focus-visible {
+  outline: 2px solid #3679b9;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .paper-ink-main {
+    gap: 4px;
+  }
+  .paper-ink-main button,
+  .paper-ink-main label,
+  .paper-ink-secondary {
+    font-size: 12px;
+  }
+  .paper-sheet-scroll:has(.ink-editing) {
+    scroll-padding-top: 136px;
+  }
+}
+
+.paper-score:has(.ink-editing),
+.paper-reader:has(.ink-editing),
+.paper-sheet-scroll:has(.ink-editing) {
+  min-width: 0;
+}
+.paper-annotation-tools.ink-editing {
+  width: 100%;
+  box-sizing: border-box;
+}
+.paper-ink-secondary {
+  min-width: 0;
+  max-width: 100%;
+}

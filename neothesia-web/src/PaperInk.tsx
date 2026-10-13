@@ -3,6 +3,8 @@ import { InkMergeReview } from "./InkMergeReview";
 import { reviewInkMerge, type InkReview } from "./paperInkMerge";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { PaperAnnotation } from "./PaperAnnotations";
+import { moveInk, eraseInk } from "./paperInkEditing";
+import "./paperInkEditing.css";
 import { paperPoint } from "./PaperGeometry";
 const colors: Record<string, string> = {
   yellow: "#c69a20",
@@ -144,7 +146,7 @@ export function usePaperInk({
     [active, setActive] = useState(!!initial),
     [expected, setExpected] = useState(initial?.expected ?? current),
     [rows, setRows] = useState(initial?.strokes ?? current),
-    [tool, setTool] = useState<"pen" | "eraser">("pen"),
+    [tool, setTool] = useState<"pen" | "eraser" | "select">("pen"),
     [color, setColor] = useState("red"),
     [thickness, setThickness] = useState(0.0022),
     [message, setMessage] = useState(""),
@@ -164,10 +166,41 @@ export function usePaperInk({
     points = useRef<Point[] | null>(null),
     surface = useRef<SVGSVGElement>(null),
     drawing = useRef(false);
+  const [eraserMode, setEraserMode] = useState<"whole" | "partial">("whole");
+  const [eraserRadius, setEraserRadius] = useState(8);
+  const [eraserCursor, setEraserCursor] = useState<Point | null>(null);
+  const eraseGesture = useRef<{
+    next: PaperAnnotation[];
+    last: Point;
+    failed: boolean;
+  } | null>(null);
+  const gesturePointer = useRef<number | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [moving, setMoving] = useState<PaperAnnotation[] | null>(null);
+  const move = useRef<{
+    start: Point;
+    rows: PaperAnnotation[];
+    ids: string[];
+    next: PaperAnnotation[];
+  } | null>(null);
+  const selectedRows = rows.filter((n) => selected.includes(n.id));
+  useEffect(() => {
+    if (!drawing.current) return;
+    points.current = null;
+    drawing.current = false;
+    gesturePointer.current = null;
+    move.current = null;
+    eraseGesture.current = null;
+    setMoving(null);
+    setLivePoints(null);
+    setMessage("谱页尺寸已改变，当前操作已取消。其他笔迹保留。");
+  }, [width, height, rotation]);
   const [merge, setMerge] = useState<InkReview | null>(null);
   const changed = JSON.stringify(rows) !== JSON.stringify(expected),
     locked = disabled || busy || blocked || !!merge || !save;
   const push = (next: PaperAnnotation[]) => {
+    if (JSON.stringify(next) === JSON.stringify(rows)) return;
+    setMessage("");
     setHistory((h) => [...h, rows].slice(-100));
     setFuture([]);
     setRows(next);
@@ -189,6 +222,7 @@ export function usePaperInk({
     }
   }, [active, changed, rows, expected, key]);
   const begin = () => {
+    setSelected([]);
     const restored = readDraft(key);
     setExpected(restored?.expected ?? current);
     setRows(restored?.strokes ?? current);
@@ -198,6 +232,7 @@ export function usePaperInk({
     setActive(true);
   };
   const discard = () => {
+    setSelected([]);
     try {
       localStorage.removeItem(key);
     } catch {}
@@ -216,7 +251,7 @@ export function usePaperInk({
     }
   };
   const commit = async () => {
-    if (locked || !save || points.current) return;
+    if (locked || !save || points.current || move.current) return;
     setBusy(true);
     try {
       if (await save(expected, rows)) {
@@ -290,21 +325,88 @@ export function usePaperInk({
       .join(" ");
   const baseWidth = rotation % 180 === 0 ? width : height;
   const erase = (p: Point) => {
-    const point = pixel(p),
-      removed = rows.find((n) => {
-        const ps = n.ink!.points.map((p) =>
-          pixel([n.x + p[0] * n.width!, n.y + p[1] * n.height!]),
-        );
-        return ps.some(
-          (v, i) =>
-            i > 0 &&
-            segmentDistance(point, ps[i - 1], v) <=
-              Math.max(7, (n.ink!.thickness * baseWidth) / 2 + 4),
-        );
-      });
-    if (removed) push(rows.filter((n) => n.id !== removed.id));
+    const gesture = eraseGesture.current;
+    if (!gesture || gesture.failed) return;
+    try {
+      const rendered = surface.current?.getBoundingClientRect();
+      const displayedWidth = rendered?.width || width;
+      const displayedHeight = rendered?.height || height;
+      const eraseWidth =
+        rotation % 180 === 0 ? displayedWidth : displayedHeight;
+      const baseHeight =
+        rotation % 180 === 0 ? displayedHeight : displayedWidth;
+      gesture.next = eraseInk(
+        gesture.next,
+        gesture.last,
+        p,
+        eraseWidth,
+        baseHeight,
+        eraserRadius,
+        eraserMode,
+        200000 -
+          notes
+            .filter((n) => n.assetId !== assetId || n.page !== page)
+            .reduce((sum, n) => sum + (n.ink?.points.length ?? 0), 0),
+        2000 -
+          notes.filter(
+            (n) => n.assetId !== assetId || n.page !== page || !n.ink,
+          ).length,
+      );
+      gesture.last = p;
+      setMoving(gesture.next);
+    } catch (e) {
+      gesture.failed = true;
+      gesture.next = rows;
+      setMoving(rows);
+      setMessage(String(e instanceof Error ? e.message : e));
+    }
+  };
+  const selectStroke = (id: string) => {
+    if (locked || move.current || points.current) return;
+    if (!active) begin();
+    setTool("select");
+    setSelected([id]);
+    requestAnimationFrame(() => {
+      surface.current?.focus({ preventScroll: true });
+      surface.current?.scrollIntoView({ block: "nearest" });
+    });
+  };
+  const changeSelected = (color?: string, thickness?: number) => {
+    if (locked || move.current || !selectedRows.length) return;
+    push(
+      rows.map((n) =>
+        selected.includes(n.id)
+          ? {
+              ...n,
+              color: color ?? n.color,
+              ink: { ...n.ink!, thickness: thickness ?? n.ink!.thickness },
+            }
+          : n,
+      ),
+    );
+  };
+  const deleteSelected = () => {
+    if (locked || move.current || !selectedRows.length) return;
+    push(rows.filter((n) => !selected.includes(n.id)));
+    setSelected([]);
+    setMessage("所选笔迹已从草稿删除。您可以撤销这次修改。");
+  };
+  const cancelMove = () => {
+    gesturePointer.current = null;
+    move.current = null;
+    eraseGesture.current = null;
+    setMoving(null);
+    drawing.current = false;
   };
   const finish = () => {
+    if (eraseGesture.current) {
+      if (!eraseGesture.current.failed) push(eraseGesture.current.next);
+      cancelMove();
+    }
+    if (move.current) {
+      push(move.current.next);
+      cancelMove();
+    }
     if (points.current) {
       const ps = points.current;
       if (ps.length === 1) ps.push([...ps[0]]);
@@ -329,104 +431,244 @@ export function usePaperInk({
         </>
       ) : (
         <>
-          <button
-            disabled={locked}
-            aria-pressed={tool === "pen"}
-            onClick={() => setTool("pen")}
+          <div
+            className="paper-ink-main"
+            role="toolbar"
+            aria-label="笔迹常用工具"
           >
-            画笔
-          </button>
-          <button
-            disabled={locked}
-            aria-pressed={tool === "eraser"}
-            onClick={() => setTool("eraser")}
-          >
-            橡皮
-          </button>
-          <label>
-            颜色
-            <select
-              aria-label="笔迹颜色"
-              disabled={locked}
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              aria-pressed={tool === "pen"}
+              onClick={() => setTool("pen")}
             >
-              {Object.keys(colors).map((c) => (
-                <option key={c} value={c}>
-                  {
-                    {
-                      yellow: "黄色",
-                      blue: "蓝色",
-                      green: "绿色",
-                      red: "红色",
-                    }[c]
-                  }
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            粗细
-            <select
-              aria-label="笔迹粗细"
-              disabled={locked}
-              value={thickness}
-              onChange={(e) => setThickness(Number(e.target.value))}
+              画笔
+            </button>
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              aria-pressed={tool === "eraser"}
+              onClick={() => setTool("eraser")}
             >
-              <option value={0.001}>细</option>
-              <option value={0.0022}>中</option>
-              <option value={0.004}>粗</option>
-              <option value={0.007}>加粗</option>
-            </select>
-          </label>
-          <button
-            disabled={locked || !history.length}
-            onClick={() => {
-              setFuture((f) => [rows, ...f]);
-              setRows(history.at(-1)!);
-              setHistory((h) => h.slice(0, -1));
-            }}
+              橡皮
+            </button>
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              aria-pressed={tool === "select"}
+              onClick={() => {
+                setTool("select");
+                setSelected([]);
+              }}
+            >
+              选择笔迹
+            </button>
+            {tool === "eraser" && (
+              <>
+                <label>
+                  擦除
+                  <select
+                    aria-label="笔迹擦除方式"
+                    value={eraserMode}
+                    disabled={locked || !!moving}
+                    onChange={(e) =>
+                      setEraserMode(e.target.value as "whole" | "partial")
+                    }
+                  >
+                    <option value="whole">整笔</option>
+                    <option value="partial">局部</option>
+                  </select>
+                </label>
+                <label>
+                  大小
+                  <select
+                    aria-label="橡皮大小"
+                    value={eraserRadius}
+                    disabled={locked || !!moving}
+                    onChange={(e) => setEraserRadius(Number(e.target.value))}
+                  >
+                    <option value={4}>小</option>
+                    <option value={8}>中</option>
+                    <option value={16}>大</option>
+                  </select>
+                </label>
+              </>
+            )}
+            {tool === "select" ? (
+              <>
+                <label>
+                  颜色
+                  <select
+                    aria-label="所选笔迹颜色"
+                    disabled={locked || !!moving || !selectedRows.length}
+                    value={
+                      selectedRows.length &&
+                      selectedRows.every(
+                        (n) => n.color === selectedRows[0].color,
+                      )
+                        ? selectedRows[0].color
+                        : ""
+                    }
+                    onChange={(e) => changeSelected(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      {selectedRows.length ? "多种颜色" : "未选择"}
+                    </option>
+                    <option value="yellow">黄色</option>
+                    <option value="blue">蓝色</option>
+                    <option value="green">绿色</option>
+                    <option value="red">红色</option>
+                  </select>
+                </label>
+                <label>
+                  粗细
+                  <select
+                    aria-label="所选笔迹粗细"
+                    disabled={locked || !!moving || !selectedRows.length}
+                    value={
+                      selectedRows.length &&
+                      selectedRows.every(
+                        (n) =>
+                          n.ink!.thickness === selectedRows[0].ink!.thickness,
+                      )
+                        ? selectedRows[0].ink!.thickness
+                        : ""
+                    }
+                    onChange={(e) =>
+                      changeSelected(undefined, Number(e.target.value))
+                    }
+                  >
+                    <option value="" disabled>
+                      {selectedRows.length ? "多种粗细" : "未选择"}
+                    </option>
+                    <option value={0.001}>细</option>
+                    <option value={0.0022}>中</option>
+                    <option value={0.004}>粗</option>
+                    <option value={0.007}>加粗</option>
+                  </select>
+                </label>
+              </>
+            ) : tool === "pen" ? (
+              <>
+                <label>
+                  颜色
+                  <select
+                    aria-label="笔迹颜色"
+                    disabled={locked || !!livePoints}
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                  >
+                    <option value="yellow">黄色</option>
+                    <option value="blue">蓝色</option>
+                    <option value="green">绿色</option>
+                    <option value="red">红色</option>
+                  </select>
+                </label>
+                <label>
+                  粗细
+                  <select
+                    aria-label="笔迹粗细"
+                    disabled={locked || !!livePoints}
+                    value={thickness}
+                    onChange={(e) => setThickness(Number(e.target.value))}
+                  >
+                    <option value={0.001}>细</option>
+                    <option value={0.0022}>中</option>
+                    <option value={0.004}>粗</option>
+                    <option value={0.007}>加粗</option>
+                  </select>
+                </label>
+              </>
+            ) : null}
+            <button
+              disabled={locked || !!moving || !!livePoints || !history.length}
+              onClick={() => {
+                setMessage("");
+                setFuture((f) => [rows, ...f]);
+                setRows(history.at(-1)!);
+                setHistory((h) => h.slice(0, -1));
+              }}
+            >
+              撤销笔画
+            </button>
+            <button
+              disabled={locked || !changed || !!moving || !!livePoints}
+              onClick={() => void commit()}
+            >
+              保存笔迹
+            </button>
+          </div>
+          <div
+            className="paper-ink-secondary"
+            role="toolbar"
+            aria-label="笔迹其他操作"
           >
-            撤销笔画
-          </button>
-          <button
-            disabled={locked || !future.length}
-            onClick={() => {
-              setHistory((h) => [...h, rows]);
-              setRows(future[0]);
-              setFuture((f) => f.slice(1));
-            }}
-          >
-            重做笔画
-          </button>
-          <button
-            disabled={locked || !changed || !!livePoints}
-            onClick={() => void commit()}
-          >
-            保存笔迹
-          </button>
-          <button
-            disabled={locked || !!livePoints}
-            onClick={() => void recheck()}
-          >
-            核对已保存笔迹
-          </button>
-          <button
-            disabled={locked || !!livePoints}
-            onClick={() => {
-              setActive(false);
-              setMessage(changed ? "手写草稿已暂存。" : "已退出手写。");
-            }}
-          >
-            暂存并退出手写
-          </button>
-          <button disabled={locked || !!livePoints} onClick={discard}>
-            放弃笔迹修改
-          </button>
-          <span>
-            {rows.length} 笔 ·{" "}
-            {tool === "pen" ? "在谱页上书写" : "点击或划过整笔擦除"}
-          </span>
+            {tool === "select" && (
+              <>
+                <span role="status">已选 {selectedRows.length} 笔</span>
+                <button
+                  disabled={locked || !!moving || !rows.length}
+                  onClick={() => setSelected(rows.map((n) => n.id))}
+                >
+                  全选本页笔迹
+                </button>
+                <button
+                  disabled={locked || !!moving || !selectedRows.length}
+                  onClick={() => setSelected([])}
+                >
+                  取消选择
+                </button>
+                <button
+                  disabled={locked || !!moving || !selectedRows.length}
+                  onClick={deleteSelected}
+                >
+                  删除所选笔迹
+                </button>
+              </>
+            )}
+            <button
+              disabled={locked || !!moving || !!livePoints || !future.length}
+              onClick={() => {
+                setMessage("");
+                setHistory((h) => [...h, rows]);
+                setRows(future[0]);
+                setFuture((f) => f.slice(1));
+              }}
+            >
+              重做笔画
+            </button>
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              onClick={() => void recheck()}
+            >
+              核对已保存笔迹
+            </button>
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              onClick={() => {
+                setActive(false);
+                setMessage(changed ? "手写草稿已暂存。" : "已退出手写。");
+              }}
+            >
+              暂存并退出手写
+            </button>
+            <button
+              disabled={locked || !!moving || !!livePoints}
+              onClick={discard}
+            >
+              放弃笔迹修改
+            </button>
+            <span
+              className="paper-ink-help"
+              title="您可以拖动所选笔迹。Shift 点击可多选，方向键可微调，Delete 可删除，Esc 可取消。Ctrl+Z 可撤销，Ctrl+Y 可重做。"
+            >
+              {rows.length} 笔 ·{" "}
+              {tool === "pen"
+                ? "在谱页上书写"
+                : tool === "select"
+                  ? "拖动可移动 · Shift 可多选"
+                  : eraserMode === "whole"
+                    ? "点击或划过整笔擦除"
+                    : "拖动橡皮擦除经过的部分"}
+            </span>
+          </div>
         </>
       )}
       {message && <span role="status">{message}</span>}
@@ -452,14 +694,140 @@ export function usePaperInk({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       aria-label="谱页手写笔迹"
+      tabIndex={active ? 0 : undefined}
+      style={{
+        cursor:
+          active && tool === "select"
+            ? moving
+              ? "grabbing"
+              : "default"
+            : undefined,
+      }}
+      onKeyDown={(e) => {
+        if (!active || locked) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          if (
+            move.current ||
+            eraseGesture.current ||
+            points.current ||
+            drawing.current
+          ) {
+            cancelMove();
+            points.current = null;
+            setLivePoints(null);
+            setMessage("当前操作已取消。其他笔迹保留。");
+          } else setSelected([]);
+          return;
+        }
+        if (move.current || points.current) return;
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          ["z", "y"].includes(e.key.toLowerCase())
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          if ((e.key.toLowerCase() === "y" || e.shiftKey) && future.length) {
+            setHistory((h) => [...h, rows]);
+            setRows(future[0]);
+            setFuture((f) => f.slice(1));
+          } else if (
+            !e.shiftKey &&
+            e.key.toLowerCase() === "z" &&
+            history.length
+          ) {
+            setFuture((f) => [rows, ...f]);
+            setRows(history.at(-1)!);
+            setHistory((h) => h.slice(0, -1));
+          }
+          return;
+        }
+        if (tool !== "select") return;
+        const directions: Record<string, Point> = {
+          ArrowLeft: [-1, 0],
+          ArrowRight: [1, 0],
+          ArrowUp: [0, -1],
+          ArrowDown: [0, 1],
+        };
+        if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          e.stopPropagation();
+          deleteSelected();
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelected(rows.map((n) => n.id));
+        } else if (directions[e.key] && selectedRows.length) {
+          e.preventDefault();
+          e.stopPropagation();
+          const d = directions[e.key],
+            step = e.shiftKey ? 10 : 1;
+          const a = paperPoint(0.5, 0.5, (360 - rotation) % 360);
+          const b = paperPoint(
+            0.5 + (d[0] * step) / width,
+            0.5 + (d[1] * step) / height,
+            (360 - rotation) % 360,
+          );
+          push(moveInk(rows, selected, b[0] - a[0], b[1] - a[1]));
+        }
+      }}
       onPointerDown={(e) => {
-        if (!active || locked || e.button !== 0) return;
+        if (
+          !active ||
+          locked ||
+          e.button !== 0 ||
+          gesturePointer.current !== null
+        )
+          return;
+        gesturePointer.current = e.pointerId;
         e.preventDefault();
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
         drawing.current = true;
+        e.currentTarget.focus({ preventScroll: true });
         const p = position(e);
+        if (tool === "select") {
+          const point = pixel(p);
+          const hit = [...rows].reverse().find((n) => {
+            const ps = n.ink!.points.map((v) =>
+              pixel([n.x + v[0] * n.width!, n.y + v[1] * n.height!]),
+            );
+            return ps.some(
+              (v, i) =>
+                i > 0 &&
+                segmentDistance(point, ps[i - 1], v) <=
+                  Math.max(8, (n.ink!.thickness * baseWidth) / 2 + 4),
+            );
+          });
+          if (!hit) {
+            if (!e.shiftKey) setSelected([]);
+            drawing.current = false;
+            gesturePointer.current = null;
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            return;
+          }
+          const ids = e.shiftKey
+            ? selected.includes(hit.id)
+              ? selected.filter((id) => id !== hit.id)
+              : [...selected, hit.id]
+            : selected.includes(hit.id)
+              ? selected
+              : [hit.id];
+          setSelected(ids);
+          if (ids.includes(hit.id)) {
+            move.current = { start: p, rows, ids, next: rows };
+            setMoving(rows);
+          } else {
+            drawing.current = false;
+            gesturePointer.current = null;
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+          return;
+        }
         if (tool === "eraser") {
+          setEraserCursor(p);
+          eraseGesture.current = { next: rows, last: p, failed: false };
           erase(p);
           return;
         }
@@ -470,11 +838,32 @@ export function usePaperInk({
         points.current = [p];
         setLivePoints([p]);
       }}
+      onPointerLeave={() => setEraserCursor(null)}
       onPointerMove={(e) => {
-        if (!active || locked || !drawing.current) return;
+        if (active && !locked && tool === "eraser")
+          setEraserCursor(position(e));
+        if (
+          !active ||
+          locked ||
+          !drawing.current ||
+          gesturePointer.current !== e.pointerId
+        )
+          return;
         e.preventDefault();
         e.stopPropagation();
         const p = position(e);
+        if (tool === "select") {
+          if (move.current) {
+            move.current.next = moveInk(
+              move.current.rows,
+              move.current.ids,
+              p[0] - move.current.start[0],
+              p[1] - move.current.start[1],
+            );
+            setMoving(move.current.next);
+          }
+          return;
+        }
         if (tool === "eraser") {
           erase(p);
           return;
@@ -494,14 +883,25 @@ export function usePaperInk({
         setLivePoints([...ps]);
       }}
       onPointerUp={(e) => {
-        if (!drawing.current) return;
+        if (!drawing.current || gesturePointer.current !== e.pointerId) return;
+        gesturePointer.current = null;
         e.preventDefault();
         e.stopPropagation();
+        if (tool === "eraser") erase(position(e));
         finish();
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
       }}
+      onLostPointerCapture={() => {
+        if (drawing.current) {
+          cancelMove();
+          points.current = null;
+          setLivePoints(null);
+          setMessage("当前操作已取消。其他笔迹保留。");
+        }
+      }}
       onPointerCancel={() => {
+        cancelMove();
         points.current = null;
         drawing.current = false;
         setLivePoints(null);
@@ -512,7 +912,7 @@ export function usePaperInk({
       }}
     >
       {(active
-        ? rows
+        ? (moving ?? rows)
         : current.map((n) => (preview?.id === n.id ? preview : n))
       ).map((n) => (
         <path
@@ -526,6 +926,43 @@ export function usePaperInk({
           strokeLinejoin="round"
         />
       ))}
+      {active &&
+        tool === "select" &&
+        (moving ?? rows)
+          .filter((n) => selected.includes(n.id))
+          .map((n) => {
+            const a = pixel([n.x, n.y]),
+              b = pixel([n.x + n.width!, n.y + n.height!]);
+            return (
+              <rect
+                key={`selected-${n.id}`}
+                data-selected-ink-id={n.id}
+                x={Math.min(a[0], b[0]) - 5}
+                y={Math.min(a[1], b[1]) - 5}
+                width={Math.abs(a[0] - b[0]) + 10}
+                height={Math.abs(a[1] - b[1]) + 10}
+                fill="none"
+                stroke="#1674cf"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                pointerEvents="none"
+              />
+            );
+          })}
+      {active && tool === "eraser" && eraserCursor && (
+        <circle
+          cx={pixel(eraserCursor)[0]}
+          cy={pixel(eraserCursor)[1]}
+          r={
+            (eraserRadius * width) /
+            (surface.current?.getBoundingClientRect().width || width)
+          }
+          fill="#ffffff70"
+          stroke="#52677b"
+          strokeWidth={1}
+          pointerEvents="none"
+        />
+      )}
       {livePoints && (
         <path
           d={livePoints
@@ -543,5 +980,5 @@ export function usePaperInk({
       )}
     </svg>
   );
-  return { tools, overlay, active };
+  return { tools, overlay, active, selectStroke };
 }

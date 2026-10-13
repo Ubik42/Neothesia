@@ -1,3 +1,4 @@
+mod meter_map;
 mod finger_pair;
 mod finger_pair_interactions;
 mod performance_archive;
@@ -282,6 +283,9 @@ pub enum Command {
     InspectPaperSources{content_id:String,book:String},
     PreviewPaperSource{content_id:String,book:String,asset:String,fingerprint:String},
     ApplyPaperSource{content_id:String,book:String,asset:String,fingerprint:String,baseline:String,action:String},
+    PaperTransferSources{content_id:String},
+    PreviewCrossPaperTransfer{content_id:String,source_content_id:String,source:String,target:String},
+    ApplyCrossPaperTransfer{content_id:String,request:score_attachments::cross_transfer::Request},
     PreviewPaperTransfer{content_id:String,source:String,target:String},
     ApplyPaperTransfer{content_id:String,request:score_attachments::PaperTransfer},
     PaperPracticeContext,
@@ -384,6 +388,8 @@ pub enum Command {
         part: Option<PracticePart>,
     },
     UndoHands,
+    PreviewMeterMap {content_id:String,value:Option<neothesia_core::library::MeterMap>},
+    SaveMeterMap {content_id:String,value:Option<neothesia_core::library::MeterMap>,proof:String},
     Meter {
         value: Option<neothesia_core::library::MeterCorrection>,
     },
@@ -840,6 +846,7 @@ struct Player {
     hand_undo: Vec<Vec<neothesia_core::library::NoteHandHint>>,
     event_notes: HashMap<(usize, u8, u8, Duration, bool), usize>,
     original_grid: Option<midi_file::musical_time::MusicalTime>,
+    meter_map:Option<neothesia_core::library::MeterMap>,
     meter_correction: Option<neothesia_core::library::MeterCorrection>,
     note_cursor: usize,
     events: Vec<midi_file::MidiEvent>,
@@ -897,6 +904,7 @@ impl Player {
             hand_undo: vec![],
             event_notes: HashMap::new(),
             original_grid: None,
+            meter_map:None,
             meter_correction: None,
             note_cursor: 0,
             events: vec![],
@@ -1069,6 +1077,7 @@ impl Player {
         self.panic();
         self.original_grid = Some(file.musical_time.clone());
         self.meter_correction = None;
+        self.meter_map = None;
         self.config = SongConfig::new(&file.tracks);
         self.state.mode = "wait".into();
         self.state.wait = true;
@@ -1120,15 +1129,10 @@ impl Player {
             let path = self.annotation_path(&file)?;
             match neothesia_core::library::load_song_sidecar(&path, &file.content_id) {
                 Ok(sidecar) => {
-                    if let Some(meter) = sidecar.meter {
-                        match Self::corrected_grid(&file, meter) {
-                            Ok(grid) => {
-                                file.measures = grid.bar_times(&file.tempo_track).into();
-                                file.beats = grid.beat_times(&file.tempo_track).into();
-                                file.musical_time = grid;
-                                self.meter_correction = Some(meter);
-                            }
-                            Err(e) => self.state.error = Some(format!("小节修正无法恢复：{e}")),
+                    if sidecar.meter_map.is_some() || sidecar.meter.is_some() {
+                        match Self::sidecar_grid(&file,&sidecar) {
+                            Ok(grid)=>{file.measures=grid.bar_times(&file.tempo_track).into();file.beats=grid.beat_times(&file.tempo_track).into();file.musical_time=grid;self.meter_correction=sidecar.meter;self.meter_map=sidecar.meter_map.clone();},
+                            Err(e)=>self.state.error=Some(format!("小节设置无法恢复：{e}")),
                         }
                     }
                     for (track, part) in sidecar.track_parts {
@@ -1782,7 +1786,7 @@ impl Player {
         }
         if self.routine.is_some() && matches!(command,
             Command::Mode{..}|Command::Wait{..}|Command::Speed{..}|Command::Hands{..}|Command::Track{..}
-            |Command::Meter{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
+            |Command::Meter{..}|Command::SaveMeterMap{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
             |Command::MeasureLoop{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
             |Command::Seek{..}|Command::SeekMeasure{..}|Command::SeekBeat{..}|Command::StepBeat{..}
             |Command::CountIn{..}|Command::Metronome{..}|Command::Latency{..}|Command::Save|Command::Recording{active:true}) {
@@ -1811,7 +1815,7 @@ impl Player {
         }
         if self.ladder.as_ref().is_some_and(|r|r.active) && matches!(command,
             Command::Mode{..}|Command::Wait{..}|Command::Speed{..}|Command::Hands{..}|Command::Track{..}
-            |Command::Meter{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
+            |Command::Meter{..}|Command::SaveMeterMap{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
             |Command::MeasureLoop{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
             |Command::OpenPassage{..}|Command::Seek{..}|Command::SeekMeasure{..}|Command::SeekBeat{..}|Command::StepBeat{..}
             |Command::CountIn{..}|Command::Metronome{..}|Command::Latency{..}|Command::Save|Command::Recording{active:true}) {
@@ -1866,7 +1870,7 @@ impl Player {
                     | Command::Track { .. }
                     | Command::ApplyHands { .. }
                     | Command::NoteHand { .. }
-                    | Command::Meter { .. }
+                    | Command::Meter { .. } | Command::SaveMeterMap { .. }
                     | Command::UndoHands
                     | Command::Hands { .. }
             )
@@ -1895,7 +1899,7 @@ impl Player {
                         | Command::StepBeat { .. }
                         | Command::Track { .. }
                         | Command::Hands { .. }
-                        | Command::Meter { .. }
+                        | Command::Meter { .. } | Command::SaveMeterMap { .. }
                         | Command::NoteHand { .. }
                         | Command::ApplyHands { .. }
                         | Command::UndoHands
@@ -2016,7 +2020,7 @@ impl Player {
                     self.notation.is_some(),
                     self.score_revision,
                 ))
-                .map_err(|e| e.to_string()).map(|mut v|{v["fingerUndoAvailable"]=serde_json::json!(!self.finger_undo.is_empty());v["trackSounds"]=serde_json::json!(self.track_sound_settings());v["soundPresets"]=serde_json::json!(track_sound::presets(&self.soundfont));self.decorate_tracks(&mut v);self.decorate_finger_actions(&mut v);v}),
+                .map_err(|e| e.to_string()).map(|mut v|{v["meterMap"]=serde_json::json!(self.current_meter_map());v["fingerUndoAvailable"]=serde_json::json!(!self.finger_undo.is_empty());v["trackSounds"]=serde_json::json!(self.track_sound_settings());v["soundPresets"]=serde_json::json!(track_sound::presets(&self.soundfont));self.decorate_tracks(&mut v);self.decorate_finger_actions(&mut v);v}),
                 None => Ok(serde_json::Value::Null),
             };
         }
@@ -2174,6 +2178,8 @@ impl Player {
                 result["importWarnings"] = serde_json::json!(warnings);
                 return Ok(result);
             }
+            Command::PreviewMeterMap{content_id,value} => return self.preview_meter_map(&content_id,value.as_ref()),
+            Command::SaveMeterMap{content_id,value,proof} => return self.save_meter_map(&content_id,value,&proof),
             Command::Meter { value } => {
                 let file = self.file.as_ref().ok_or("请先选择曲目")?;
                 let grid = match value {
@@ -2196,6 +2202,7 @@ impl Player {
                 file.beats = grid.beat_times(&file.tempo_track).into();
                 file.musical_time = grid;
                 self.meter_correction = value;
+                self.meter_map=None;
                 if let Some(asset) = self.notation.take() {
                     self.notation = Some(notation::ScoreAsset::new(asset.bytes, asset.name, file)?);
                 }
@@ -2470,6 +2477,9 @@ impl Player {
                 if mapping.grid!=self.grid_signature()||!mapping.anchors.iter().any(|a|a.measure==measure){return Err("小节对应已改变，请重新确认谱页位置".into());}
                 return self.command(Command::SeekMeasure{measure});
             }
+            Command::PaperTransferSources{content_id}=>{self.score_content_guard(&content_id)?;let mut result=score_attachments::cross_transfer::sources(&self.data,&content_id)?;for item in result["sources"].as_array_mut().unwrap(){if item["path"].is_null(){if let Some(h)=item["contentId"].as_str().and_then(|id|self.history.song(id)){if !h.display_name.trim().is_empty(){item["title"]=serde_json::json!(h.display_name);}item["path"]=serde_json::json!(h.library.source_path);}}}return Ok(result);},
+            Command::PreviewCrossPaperTransfer{content_id,source_content_id,source,target}=>return self.preview_cross_paper(&content_id,&source_content_id,&source,&target),
+            Command::ApplyCrossPaperTransfer{content_id,request}=>return self.apply_cross_paper(&content_id,request),
             Command::SetPaperMapping{content_id,id,mapping}=>{
                 let file=self.file.as_ref().filter(|f|f.content_id==content_id).ok_or("曲目已切换，请重新打开谱页小节对应")?;
                 if let Some(m)=&mapping{if m.grid!=self.grid_signature()||m.anchors.iter().any(|a|a.measure>file.musical_time.measures.len()){return Err("小节网格或范围已改变，请重新确认对应".into());}}
@@ -4478,6 +4488,36 @@ mod tests {
             .is_err()
         );
         assert_eq!(hands::hints(&p.note_hands), before);
+    }
+    #[test]
+    fn cross_paper_transfer_preserves_identities_and_target_grid(){
+        use score_attachments::{AnnotationDraft,Mapping,PageAnchor};use score_attachments::cross_transfer::{Request,Anchor};
+        let mut p=player();let cid=p.file.as_ref().unwrap().content_id.clone();let source_cid="other-performance-with-missing-midi";let data=p.data.clone();
+        let source=score_attachments::add(&data,source_cid,"旧演奏谱",b"\x89PNG\r\n\x1a\nsource".to_vec(),None).unwrap();let sb=source["active"].as_str().unwrap().to_owned();let sa=source["attachments"][0]["pages"][0]["id"].as_str().unwrap().to_owned();
+        score_attachments::edit_annotation(&data,source_cid,&sb,None,Some(AnnotationDraft{asset_id:sa,page:1,x:0.1,y:0.2,text:"换指 3→1".into(),color:"yellow".into(),width:None,height:None,ink:None}),None).unwrap();score_attachments::set_mapping(&data,source_cid,&sb,Some(Mapping{grid:"source-grid-must-not-copy".into(),enabled:true,anchors:vec![PageAnchor{measure:12,page:1,region:None}]})).unwrap();
+        let original=score_attachments::list(&data,source_cid).unwrap();let note=original["attachments"][0]["annotations"][0]["id"].as_str().unwrap().to_owned();
+        let target=score_attachments::add(&data,&cid,"新演奏谱",b"\x89PNG\r\n\x1a\ntarget".to_vec(),None).unwrap();let tb=target["active"].as_str().unwrap().to_owned();let ta=target["attachments"][0]["pages"][0]["id"].as_str().unwrap().to_owned();
+        score_attachments::edit_annotation(&data,&cid,&tb,None,Some(AnnotationDraft{asset_id:ta.clone(),page:1,x:0.7,y:0.6,text:"保留目标批注".into(),color:"blue".into(),width:None,height:None,ink:None}),None).unwrap();
+        score_attachments::set_mapping(&data,&cid,&tb,Some(Mapping{grid:p.grid_signature(),enabled:true,anchors:vec![PageAnchor{measure:1,page:1,region:None}]})).unwrap();
+        let request=|baseline:String|Request{source_content_id:source_cid.into(),source:sb.clone(),target:tb.clone(),baseline,annotations:vec![score_attachments::TransferAnnotation{id:note.clone(),asset_id:ta.clone(),page:1,x:0.3,y:0.4}],anchors:vec![Anchor{source_measure:12,measure:2,page:1,region:None}]};
+        let listed=p.command(Command::PaperTransferSources{content_id:cid.clone()}).unwrap();assert_eq!(listed["sources"][0]["contentId"],source_cid);
+        let preview=p.preview_cross_paper(&cid,source_cid,&sb,&tb).unwrap();let proof=preview["baseline"].as_str().unwrap().to_owned();let result=p.apply_cross_paper(&cid,request(proof.clone())).unwrap();assert_eq!(result["added"],1);assert!(p.apply_cross_paper(&cid,request(proof)).is_err());
+        let read=score_attachments::list(&data,&cid).unwrap();assert_eq!(read["attachments"][0]["annotations"].as_array().unwrap().len(),2);assert_eq!(read["attachments"][0]["mapping"]["grid"],p.grid_signature());assert_eq!(read["attachments"][0]["mapping"]["anchors"][1]["measure"],2);assert_eq!(read["attachments"][0]["mapping"]["enabled"],false);assert_eq!(score_attachments::list(&data,source_cid).unwrap(),original);
+        let preview=p.preview_cross_paper(&cid,source_cid,&sb,&tb).unwrap();assert_eq!(preview["imported"][0],note);assert_eq!(p.apply_cross_paper(&cid,request(preview["baseline"].as_str().unwrap().into())).unwrap()["added"],0);
+        score_attachments::set_mapping(&data,&cid,&tb,Some(Mapping{grid:"expired-target-grid".into(),enabled:true,anchors:vec![PageAnchor{measure:1,page:1,region:None}]})).unwrap();let preview=p.preview_cross_paper(&cid,source_cid,&sb,&tb).unwrap();assert!(p.apply_cross_paper(&cid,request(preview["baseline"].as_str().unwrap().into())).is_err());assert_eq!(score_attachments::list(&data,&cid).unwrap()["attachments"][0]["mapping"]["grid"],"expired-target-grid");
+        let mut reopened=Player::new(data.clone(),PathBuf::new(),true);reopened.command(Command::Load{path:p.file.as_ref().unwrap().source_path.clone().unwrap(),title:"重开目标".into()}).unwrap();assert_eq!(score_attachments::list(&data,&cid).unwrap()["attachments"][0]["annotations"].as_array().unwrap().len(),2);
+    }
+    #[test]
+    fn segmented_meter_preview_save_reopen_and_stale_guard(){
+        use neothesia_core::library::{MeterMap,MeterSegment};
+        let mut p=player();let file=p.file.as_ref().unwrap();let id=file.content_id.clone();let path=file.source_path.clone().unwrap();let ppq=u64::from(file.musical_time.ppq);let original=p.grid_signature();let notes:Vec<_>=p.notes.iter().map(|n|(n.start,n.end)).collect();
+        let value=Some(MeterMap{pickup_ticks:ppq,segments:vec![MeterSegment{measure:1,numerator:3,denominator:4,display_start:Some(0)},MeterSegment{measure:3,numerator:6,denominator:8,display_start:Some(20)}]});
+        let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:value.clone()}).unwrap();assert_eq!(preview["measures"][0]["displayNumber"],0);assert_eq!(preview["measures"][2]["displayNumber"],20);assert_eq!(preview["measures"][2]["startTick"],ppq*4);assert_eq!(p.grid_signature(),original);
+        let proof=preview["proof"].as_str().unwrap().to_string();p.command(Command::SaveMeterMap{content_id:id.clone(),value:value.clone(),proof:proof.clone()}).unwrap();assert!(p.command(Command::SaveMeterMap{content_id:id.clone(),value:value.clone(),proof}).is_err());
+        p.command(Command::Load{path:path.clone(),title:"reopened".into()}).unwrap();assert_eq!(p.meter_map,value);assert_eq!(p.file.as_ref().unwrap().musical_time.measures[2].display_number,20);assert_eq!(notes,p.notes.iter().map(|n|(n.start,n.end)).collect::<Vec<_>>());
+        let exported=p.command(Command::ExportPackage).unwrap();let bytes:Vec<u8>=serde_json::from_value(exported["bytes"].clone()).unwrap();let package=piece_package::Package::decode(&bytes).unwrap();assert_eq!(package.manifest.meter_map,value);assert_eq!(package.manifest.version,10);
+        let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:None}).unwrap();p.command(Command::SaveMeterMap{content_id:id.clone(),value:None,proof:preview["proof"].as_str().unwrap().into()}).unwrap();assert_eq!(p.grid_signature(),original);
+        let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:value.clone()}).unwrap();std::fs::write(path,include_bytes!("../assets/basic-chords.mid")).unwrap();assert!(p.command(Command::SaveMeterMap{content_id:id,value,proof:preview["proof"].as_str().unwrap().into()}).is_err());
     }
     #[test]
     fn corrected_meter_preserves_notes_changes_scope_and_restores_original() {

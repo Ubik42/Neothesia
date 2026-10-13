@@ -39,6 +39,15 @@ struct Pending {
     fingers: Vec<u8>,
     substitutions: Vec<FingerSubstitution>,
 }
+/// A fresh hand position is available after more than 600 ms of actual silence.
+/// `latest_end` includes every earlier onset group, including long held notes.
+/// Callers validate the practice rate before evaluating this source-time gap.
+fn reset_hand_after_rest(latest_end: Option<Duration>, onset: Duration, rate: f64) -> bool {
+    latest_end.map_or(true, |end| {
+        onset.checked_sub(end).is_some_and(|gap| gap.as_secs_f64() / rate > 0.6)
+    })
+}
+
 /// Bounded k-best path search. Adjacent chords and all still-held notes share
 /// the same state; target-prefix diversity survives context-only differences.
 pub fn suggest_fingering_plans(
@@ -113,6 +122,15 @@ pub fn suggest_fingering_plans_with_substitutions(
         }
         groups.push((start, cursor));
     }
+    // Compute this once per onset, independently of candidate fingers. Search and
+    // explanations must agree about whether an earlier long note fills the rest.
+    let mut latest_end: Option<Duration> = None;
+    let resets: Vec<bool> = groups.iter().map(|&(start, end)| {
+        let reset = reset_hand_after_rest(latest_end, notes[start].onset, rate);
+        let group_end = notes[start..end].iter().map(|n| n.end).max().unwrap();
+        latest_end = Some(latest_end.map_or(group_end, |old| old.max(group_end)));
+        reset
+    }).collect();
     for (g, &(start, end)) in groups.iter().enumerate() {
         let current = &notes[start..end];
         let candidates = if current.len() == 1 {
@@ -143,16 +161,7 @@ pub fn suggest_fingering_plans_with_substitutions(
                 let held_notes:Vec<_>=held.iter().map(|(i,_)|notes[*i]).collect();
                 let held_fingers:Vec<_>=held.iter().map(|(_,f)|*f).collect();
                 let mut addition = i64::from(candidate.shape_cost)+substitutions.iter().map(|s|48+i64::from(static_key_cost(notes[s.note].pitch,s.to))).sum::<i64>();
-                if g == 0
-                    || (held.is_empty()
-                        && groups[g - 1].0 < start
-                        && notes[groups[g - 1].0..groups[g - 1].1]
-                            .iter()
-                            .map(|n| n.end)
-                            .max()
-                            .unwrap()
-                            + Duration::from_millis(600)
-                            < current[0].onset)
+                if resets[g]
                 {
                     if current.len() == 1 {
                         addition =
@@ -326,14 +335,7 @@ pub fn suggest_fingering_plans_with_substitutions(
                     } else {
                         FingeringReason::ChordShape
                     }
-                } else if g == 0
-                    || notes[groups[g - 1].0..groups[g - 1].1]
-                        .iter()
-                        .map(|n| n.end)
-                        .max()
-                        .unwrap()
-                        + Duration::from_millis(600)
-                        < notes[i].onset
+                } else if resets[g]
                 {
                     FingeringReason::PhraseStart
                 } else if g > 0
@@ -449,6 +451,67 @@ mod tests {
             anchored_finger: anchor,
         }
     }
+    #[test]
+    fn rest_reset_uses_practice_time_and_the_same_search_cost() {
+        for (rate, gap, reset) in [
+            (0.5, 300, false), (0.5, 301, true),
+            (1.0, 600, false), (1.0, 601, true),
+            (2.0, 1200, false), (2.0, 1201, true),
+        ] {
+            assert_eq!(reset_hand_after_rest(Some(Duration::from_millis(100)),
+                Duration::from_millis(100 + gap), rate), reset);
+        }
+        let notes = [n(60, 0, 100, Some(1)), n(67, 500, 700, None)];
+        for (rate, reset) in [(0.5, true), (2.0, false)] {
+            let plans = suggest_fingering_plans_at_rate(&notes, FingeringHand::Right,
+                HandSpanProfile::Standard, 0..2, 5, rate).unwrap();
+            for plan in plans {
+                assert_eq!(plan.suggestions[1].reason == FingeringReason::PhraseStart, reset);
+                if reset {
+                    // Each half starts a hand position; no connecting movement is charged.
+                    let independent = i64::from(start_cost(&notes, FingeringHand::Right, 1))
+                        + i64::from(start_cost(&notes[1..], FingeringHand::Right, plan.suggestions[1].finger));
+                    assert_eq!(plan.cost, independent);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rest_reset_waits_for_earlier_long_notes_to_release() {
+        // The immediately previous note finishes at 300 ms, but the first note
+        // remains down until 1500 ms. At 1800 ms the hand has only 300 ms free.
+        for (onset, expected) in [(1400, Some(FingeringReason::HeldChordPosition)),
+            (1800, None), (2300, Some(FingeringReason::PhraseStart))] {
+            let notes = [n(60, 0, 1500, Some(1)), n(64, 200, 300, Some(3)),
+                n(67, onset, onset + 100, None)];
+            let plans = suggest_fingering_plans_at_rate(&notes, FingeringHand::Right,
+                HandSpanProfile::Standard, 0..3, 3, 1.0).unwrap();
+            for plan in plans {
+                if let Some(reason) = expected {
+                    assert_eq!(plan.suggestions[2].reason, reason);
+                } else {
+                    assert_ne!(plan.suggestions[2].reason, FingeringReason::PhraseStart);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn first_onset_starts_a_position_without_a_prior_rest() {
+        for rate in [0.25, 1.0, 2.0] {
+            let notes = [n(64, 0, 100, None)];
+            let plans = suggest_fingering_plans_at_rate(&notes, FingeringHand::Right,
+                HandSpanProfile::Standard, 0..1, 5, rate).unwrap();
+            assert_eq!(plans.len(), 5);
+            for plan in plans {
+                assert_eq!(plan.suggestions[0].reason, FingeringReason::PhraseStart);
+                assert_eq!(plan.cost, i64::from(start_cost(&notes, FingeringHand::Right,
+                    plan.suggestions[0].finger)));
+            }
+        }
+    }
+
     #[test]
     fn interleaved_targets_are_distinct_and_shared_key_anchors_agree() {
         let notes=vec![n(60,0,100,Some(1)),n(64,200,300,None),n(67,400,500,Some(5)),n(65,600,700,None)];

@@ -6,6 +6,7 @@ use std::{collections::BTreeMap, time::Duration};
 #[derive(Clone, Debug)]
 pub struct Measure {
     pub number: usize,
+    pub display_number: i32,
     pub start_tick: u64,
     pub end_tick: u64,
     pub numerator: u8,
@@ -19,6 +20,75 @@ pub struct MusicalTime {
     pub measures: Vec<Measure>,
 }
 impl MusicalTime {
+    /// Segments use resulting performance-bar ordinals, never source-file bar numbers.
+    pub fn segmented(
+        ppq: u16,
+        last_tick: u64,
+        pickup_ticks: u64,
+        segments: &[(usize, u8, u16, Option<i32>)],
+    ) -> Result<Self, String> {
+        if segments.is_empty()
+            || segments.len() > 1024
+            || segments[0].0 != 1
+            || segments.windows(2).any(|w| w[0].0 >= w[1].0)
+        {
+            return Err("拍号变化点必须从第 1 小节开始，并按小节递增".into());
+        }
+        for &(_, n, d, label) in segments {
+            if ppq == 0
+                || n == 0
+                || n > 32
+                || ![1, 2, 4, 8, 16, 32, 64, 128].contains(&d)
+                || u64::from(ppq) * 4 % u64::from(d) != 0
+                || label.is_some_and(|x| !(-9999..=999999).contains(&x))
+            {
+                return Err("拍号或书面小节编号无效，当前 MIDI 精度必须能表达每一拍".into());
+            }
+        }
+        let mut measures = Vec::new();
+        let mut tick = 0u64;
+        let mut segment = 0;
+        let mut display = segments[0].3.unwrap_or(1);
+        while tick < last_tick.max(1) {
+            let number = measures.len() + 1;
+            if number > 1_000_000 {
+                return Err("小节数量过大".into());
+            }
+            if segment + 1 < segments.len() && segments[segment + 1].0 == number {
+                segment += 1;
+                if let Some(label) = segments[segment].3 {
+                    display = label;
+                }
+            }
+            let (_, n, d, _) = segments[segment];
+            let length = u64::from(ppq) * 4 * u64::from(n) / u64::from(d);
+            if number == 1 && pickup_ticks >= length {
+                return Err("弱起必须短于第一个完整小节".into());
+            }
+            let size = if number == 1 && pickup_ticks > 0 {
+                pickup_ticks
+            } else {
+                length
+            };
+            let end = tick.checked_add(size).ok_or("小节时间超出范围")?;
+            measures.push(Measure {
+                number,
+                display_number: display,
+                start_tick: tick,
+                end_tick: end,
+                numerator: n,
+                denominator: d,
+                explicit_meter: true,
+                partial: size < length,
+            });
+            display = display.checked_add(1).ok_or("书面小节编号超出范围")?;
+            tick = end;
+        }
+        if segment + 1 != segments.len() {
+            return Err("拍号变化点超出曲目结尾，请先调整前面的拍号".into());
+        }
+        Ok(Self { ppq, measures })
+    }
     pub fn corrected(
         ppq: u16,
         last_tick: u64,
@@ -48,6 +118,7 @@ impl MusicalTime {
             let end = tick.checked_add(size).ok_or("小节时间超出范围")?;
             measures.push(Measure {
                 number: measures.len() + 1,
+                display_number: (measures.len() + 1) as i32,
                 start_tick: tick,
                 end_tick: end,
                 numerator,
@@ -103,6 +174,7 @@ impl MusicalTime {
                 let end = tick.saturating_add(length).min(limit);
                 measures.push(Measure {
                     number: measures.len() + 1,
+                    display_number: (measures.len() + 1) as i32,
                     start_tick: tick,
                     end_tick: end,
                     numerator: n,

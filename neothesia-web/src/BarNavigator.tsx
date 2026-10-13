@@ -211,7 +211,7 @@ export function BarNavigator({
             <button
               key={bar.number}
               data-bar={bar.number}
-              aria-label={`第 ${bar.number} 小节，${bar.numerator}/${bar.denominator}${bar.partial ? "，不完整小节" : ""}`}
+              aria-label={`第 ${bar.number} 小节${bar.displayNumber != null && bar.displayNumber !== bar.number ? `，谱面编号 ${bar.displayNumber}` : ""}，${bar.numerator}/${bar.denominator}${bar.partial ? "，不完整小节" : ""}`}
               aria-current={
                 state.measure === bar.number ? "location" : undefined
               }
@@ -242,9 +242,9 @@ export function BarNavigator({
                   }
                 }
               }}
-              title={`${bar.numerator}/${bar.denominator} · ${bar.partial ? "弱起或变拍截断 · " : ""}拖动选段，Shift 点击扩展`}
+              title={`导航第 ${bar.number} 小节 · 谱面编号 ${bar.displayNumber ?? bar.number} · ${bar.numerator}/${bar.denominator} · ${bar.partial ? "弱起或变拍截断 · " : ""}拖动选段，Shift 点击扩展`}
             >
-              <span>{bar.number}</span>
+              <span>{bar.number}{bar.displayNumber != null && bar.displayNumber !== bar.number && <small className="bar-written-number">谱 {bar.displayNumber}</small>}</span>
               <div className="bar-beats">
                 {Array.from({ length: beats }, (_, i) => (
                   <i

@@ -57,6 +57,8 @@ pub struct Manifest {
     #[serde(default)]
     pub track_sounds: BTreeMap<usize, crate::track_sound::TrackSound>,
     pub meter: Option<MeterCorrection>,
+    #[serde(default)]
+    pub meter_map:Option<neothesia_core::library::MeterMap>,
     pub passages: Vec<PassagePreset>,
     pub settings: SessionSettings,
     pub speed: f64,
@@ -151,9 +153,10 @@ impl Package {
                 .as_slice(),
         )
         .map_err(|e| format!("曲目包清单无效：{e}"))?;
-        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&manifest.version) {
+        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&manifest.version) {
             return Err("曲目包版本暂不支持".into());
         }
+        if manifest.version<10 && manifest.meter_map.is_some(){return Err("分段拍号需要第 10 版曲目包，请使用新版软件重新导出".into());}
         if manifest.version<9&&manifest.papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some())){return Err("手写笔迹需要第 9 版曲目包，请使用新版软件重新导出".into());}
         if manifest.version<3&&manifest.papers.iter().any(|p|p.mapping.is_some()){return Err("谱页小节对应需要第 3 版曲目包".into());}
         if manifest.version<4&&manifest.papers.iter().any(|p|!p.annotations.is_empty()){return Err("谱页批注需要第 4 版曲目包".into());}
@@ -235,14 +238,7 @@ impl Package {
         for (id,a) in &manifest.track_appearances{a.validate()?;if !file.tracks.iter().any(|t|t.track_id==*id&&!t.notes.is_empty()){return Err("曲目包音轨名称或颜色的音轨不存在".into())}}
         if manifest.track_sounds.iter().any(|(id,s)| !file.tracks.iter().any(|t|t.track_id==*id&&!t.notes.is_empty())||s.volume>100||s.pan.is_some_and(|p|p>127)||s.program.is_some_and(|p|p>127)){return Err("曲目包音轨声音设置无效".into())}
         if !manifest.track_sounds.is_empty(){let events:Vec<_>=file.tracks.iter().flat_map(|t|t.events.iter().cloned()).collect();crate::track_sound::Routing::build(&events)?;}
-        if let Some(m) = manifest.meter {
-            crate::Player::corrected_grid(&file, m)?;
-        }
-        let bars = if let Some(m) = manifest.meter {
-            crate::Player::corrected_grid(&file, m)?.measures.len()
-        } else {
-            file.musical_time.measures.len()
-        };
+        let bars = crate::Player::sidecar_grid(&file,&neothesia_core::library::SongSidecar{meter:manifest.meter,meter_map:manifest.meter_map.clone(),..Default::default()})?.measures.len();
         if manifest
             .settings
             .mode

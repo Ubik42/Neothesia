@@ -4,6 +4,7 @@ import { annotatedPagePng } from "./PaperPageExport";
 import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
 import { PaperSources } from "./PaperSources";
 import { PaperTransferReview } from "./PaperTransferReview";
+import "./paper-navigation.css";
 import type {
   PDFDocumentProxy,
   PDFDocumentLoadingTask,
@@ -411,6 +412,7 @@ export function PaperReader({
   }, []);
   const [annotationEditing, setAnnotationEditing] = useState(false),
     [annotationNotice, setAnnotationNotice] = useState(""),
+    [annotationQuery, setAnnotationQuery] = useState(""),
     [sheetSize, setSheetSize] = useState({ width: 1, height: 1 });
   const [suspended, setSuspended] = useState(false),
     [followPending, setFollowPending] = useState<boolean | null>(null),
@@ -418,6 +420,7 @@ export function PaperReader({
   const [anchorRegion,setAnchorRegion]=useState<PaperRegion|null>(null),[anchorRegionPage,setAnchorRegionPage]=useState(attachment.view.page),[selectingRegion,setSelectingRegion]=useState(false);
   const [practiceAnchor,setPracticeAnchor]=useState<number|null>(null);
   const followedRegion=useRef("");
+  const pendingAnnotation=useRef<{page:number;region:PaperRegion}|null>(null);
   const scrollRegion=(region:PaperRegion)=>{
     const viewport=frame.current, sheet=viewport?.querySelector<HTMLElement>(".paper-annotation-sheet");
     if(!viewport||!sheet)return;
@@ -447,6 +450,20 @@ export function PaperReader({
     latest = useRef(view);
   useEffect(()=>{if(count>0)onPageCount?.(count);},[count,onPageCount]);
   latest.current = view;
+  const annotationLocations=(attachment.annotations??[])
+    .filter(note=>!note.ink && (note.text.trim() || note.width || note.height))
+    .map(note=>({note,page:attachment.format==="pdf"?note.page:attachment.pages.findIndex(asset=>asset.id===note.assetId)+1}))
+    .filter(entry=>entry.page>0 && entry.page<=count)
+    .sort((left,right)=>left.page-right.page || left.note.y-right.note.y || left.note.x-right.note.x);
+  const matchingAnnotations=annotationLocations.filter(({note,page})=>
+    !annotationQuery.trim() || note.text.toLocaleLowerCase("zh-CN").includes(annotationQuery.trim().toLocaleLowerCase("zh-CN")) || String(page)===annotationQuery.trim(),
+  );
+  useEffect(()=>{
+    const pending=pendingAnnotation.current;
+    if(!pending || loading || view.page!==pending.page)return;
+    pendingAnnotation.current=null;
+    scrollRegion(pending.region);
+  },[loading,view.page,view.rotation,sheetSize]);
   const invalidPages =
     count > 0 && !!mapping?.anchors.some((a) => a.page > count);
   useEffect(() => {
@@ -732,6 +749,16 @@ export function PaperReader({
     setView((v) => ({ ...v, page: Math.max(1, Math.min(count, n)) }));
     frame.current?.scrollTo({ top: 0, left: 0 });
   };
+  const locateAnnotation=(note:PaperAnnotation,pageNumber:number)=>{
+    if(annotationEditing || selectingRegion || exportLock.current || disabled || !count)return;
+    pendingAnnotation.current={page:pageNumber,region:{x:note.x,y:note.y,width:Math.max(note.width??0,0.035),height:Math.max(note.height??0,0.035)}};
+    page(pageNumber);
+    if(pageNumber===view.page && !loading){
+      const pending=pendingAnnotation.current;
+      pendingAnnotation.current=null;
+      if(pending)scrollRegion(pending.region);
+    }
+  };
   const exportPage = async () => {
     if (
       exportLock.current ||
@@ -989,6 +1016,24 @@ export function PaperReader({
           </>
         )}
       </fieldset>
+      {!!annotationLocations.length && !previewKind && (
+        <details className="paper-annotation-navigation">
+          <summary>批注位置 · {annotationLocations.length} 处</summary>
+          <label>
+            查找批注或页码
+            <input aria-label="查找纸谱批注或页码" value={annotationQuery} onChange={event=>setAnnotationQuery(event.target.value)} placeholder="文字或页码" />
+          </label>
+          <div className="paper-annotation-navigation-list">
+            {matchingAnnotations.map(({note,page:pageNumber})=>(
+              <button key={note.id} type="button" disabled={disabled || annotationEditing || selectingRegion || exportBusy} onClick={()=>locateAnnotation(note,pageNumber)} title={note.text || "高亮位置"}>
+                <span>第 {pageNumber} 页</span>
+                <span>{note.text.trim().slice(0,80) || "高亮位置"}</span>
+              </button>
+            ))}
+            {!matchingAnnotations.length && <p>没有找到对应的批注。</p>}
+          </div>
+        </details>
+      )}
       {!readOnly && !previewKind && (practice || mapping) && (
         <div className="paper-follow-controls">
           <label>

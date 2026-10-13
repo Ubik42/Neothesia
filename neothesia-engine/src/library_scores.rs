@@ -317,9 +317,7 @@ impl Player {
                     return Err("请结束录音后切换关联谱面".into());
                 }
                 let mut file = file.ok_or("MIDI 文件缺失，请先重新定位；仍可修改版本名称")?;
-                if let Some(m) = sidecar(&path, &cid)?.meter {
-                    file.musical_time = Self::corrected_grid(&file, m)?;
-                }
+                file.musical_time = Self::sidecar_grid(&file, &sidecar(&path, &cid)?)?;
                 let bytes = read_score(&v.path)?;
                 if blake3::hash(&bytes).to_hex().as_str() != v.content_id {
                     return Err("谱面内容已改变，请重新导入确认".into());
@@ -398,9 +396,7 @@ impl Player {
         }
         let (path, file) = location(&self.data, &path, &cid)?;
         let mut file = file.ok_or("曲目文件缺失，请先重新定位 MIDI")?;
-        if let Some(m) = sidecar(&path, &cid)?.meter {
-            file.musical_time = Self::corrected_grid(&file, m)?;
-        }
+        file.musical_time = Self::sidecar_grid(&file, &sidecar(&path, &cid)?)?;
         if kind == "notation" {
             let (rows, _) = versions(&self.preferences, &path, &cid)?;
             if rows.len() > 100 {

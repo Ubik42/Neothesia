@@ -1,0 +1,54 @@
+.paper-annotation-navigation {
+  flex: none;
+  border-bottom: 1px solid #363e48;
+  background: #202730;
+  padding: 6px 12px;
+}
+.paper-annotation-navigation > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #e7eaf0;
+  font-weight: 600;
+}
+.paper-annotation-navigation > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  color: #bdc6d2;
+  font-size: 12px;
+}
+.paper-annotation-navigation input {
+  min-width: 0;
+  width: min(260px, 60vw);
+}
+.paper-annotation-navigation-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 5px;
+  max-height: 140px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.paper-annotation-navigation-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+.paper-annotation-navigation-list button span:first-child {
+  flex: none;
+  color: #b5c8dd;
+  font-size: 11px;
+}
+.paper-annotation-navigation-list button span:last-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.paper-annotation-navigation-list p {
+  margin: 0;
+  color: #aeb8c5;
+}

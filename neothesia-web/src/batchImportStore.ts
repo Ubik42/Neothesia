@@ -231,3 +231,111 @@ export async function removeBatch(id: string, revision: number) {
     db.close();
   }
 }
+
+/** Restores a selected set of portable batches together, or writes none of them. */
+export async function saveImportedBatches(values: BatchData[]): Promise<void> {
+  if (!Array.isArray(values) || values.length > 200)
+    throw new Error("一次最多恢复 200 个整理批次");
+  if (!values.length) return;
+  const ids = new Set<string>();
+  let total = 0;
+  for (const value of values) {
+    if (
+      !value ||
+      typeof value.id !== "string" ||
+      !value.id.trim() ||
+      value.id.length > 100 ||
+      ids.has(value.id)
+    )
+      throw new Error("恢复批次的标识无效或重复，所有批次均未写入");
+    ids.add(value.id);
+    if (
+      typeof value.name !== "string" ||
+      !value.name.trim() ||
+      value.name.trim().length > 120 ||
+      /[\u0000-\u001f]/.test(value.name)
+    )
+      throw new Error("批次名称需为 1 至 120 字，且不能包含控制字符");
+    if (
+      !Array.isArray(value.items) ||
+      !value.items.length ||
+      value.items.length > 200
+    )
+      throw new Error("一个恢复批次需包含 1 至 200 项文件");
+    const itemIds = new Set<string>();
+    let bytes = 0;
+    for (const item of value.items) {
+      if (
+        !item ||
+        typeof item.id !== "string" ||
+        !item.id.trim() ||
+        item.id.length > 100 ||
+        itemIds.has(item.id) ||
+        !(item.file instanceof File) ||
+        !item.file.name.trim() ||
+        item.file.name.length > 255 ||
+        /[\/\\\u0000-\u001f]/.test(item.file.name) ||
+        !Number.isSafeInteger(item.file.lastModified) ||
+        item.file.lastModified < 0
+      )
+        throw new Error("恢复批次的文件说明无效或重复，所有批次均未写入");
+      itemIds.add(item.id);
+      bytes += item.file.size;
+    }
+    total += bytes;
+    if (bytes > 512_000_000 || total > 1_024_000_000)
+      throw new Error("恢复批次的文件大小超过限制，请减少本次选择");
+  }
+  const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(["batches", "files"], "readwrite");
+      const batches = tx.objectStore("batches"),
+        files = tx.objectStore("files");
+      let reason = "";
+      tx.oncomplete = () => resolve();
+      tx.onabort = () =>
+        reject(
+          new Error(
+            reason ||
+              (tx.error?.name === "QuotaExceededError"
+                ? "本机存储空间不足，本次所有批次均未写入。请移除不需要的整理批次后重试"
+                : tx.error?.name === "ConstraintError"
+                  ? "这份备份中的批次已恢复到本机，本次所有批次均未写入"
+                  : tx.error?.message || "批次恢复失败，本次所有批次均未写入"),
+          ),
+        );
+      tx.onerror = () => {};
+      try {
+        for (const value of values) {
+          // add, rather than put, also rejects an unexpected orphan file collision.
+          batches.add({
+            ...value,
+            name: value.name.trim(),
+            revision: 1,
+            updated: Date.now(),
+            items: value.items.map(({ file, ...item }) => ({
+              ...item,
+              filename: file.name,
+              mime: file.type,
+              modified: file.lastModified,
+              size: file.size,
+            })),
+          });
+          for (const item of value.items)
+            files.add(item.file, [value.id, item.id]);
+        }
+      } catch (error) {
+        reason =
+          error instanceof DOMException && error.name === "QuotaExceededError"
+            ? "本机存储空间不足，本次所有批次均未写入。请移除不需要的整理批次后重试"
+            : error instanceof Error
+              ? error.message
+              : "批次恢复失败，本次所有批次均未写入";
+        tx.abort();
+      }
+    });
+  } finally {
+    db.close();
+  }
+}

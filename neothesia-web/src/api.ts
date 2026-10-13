@@ -62,7 +62,23 @@ export interface TrackSound {
   pan: number | null;
   program: number | null;
 }
+export interface MeterMapSegment {
+  measure: number;
+  numerator: number;
+  denominator: number;
+  display_start: number | null;
+}
+export interface MeterMap {
+  pickup_ticks: number;
+  segments: MeterMapSegment[];
+}
+export interface MeterMapPreview {
+  proof: string;
+  value: MeterMap | null;
+  measures: LoadedSong["measures"];
+}
 export interface LoadedSong {
+  meterMap?: MeterMap | null;
   fingerActionRevision?: string;
   fingerActions?: {
     track: number;
@@ -96,6 +112,7 @@ export interface LoadedSong {
   fingerUndoAvailable?: boolean;
   scoreRevision: number;
   measures: {
+    displayNumber?: number;
     number: number;
     start: number;
     end: number;
@@ -504,6 +521,24 @@ export const api = {
     presets: boolean;
     days: number;
   }) => {
+    if (isTauri()) {
+      const {session, size} = await invoke<{session: string; size: number}>("begin_practice_backup_read", {selection});
+      try {
+        if (!Number.isSafeInteger(size) || size <= 0 || size > 256_000_000) throw new Error("练习备份大小无效，最大支持 256 MB");
+        const chunks: BlobPart[] = [];
+        for (let offset = 0; offset < size; offset += 1_048_576) {
+          const length = Math.min(1_048_576, size - offset);
+          const bytes = await invoke<number[]>("read_practice_backup_chunk", {session, offset, length});
+          if (bytes.length !== length) throw new Error("练习备份分块不完整");
+          chunks.push(new Uint8Array(bytes));
+        }
+        await invoke("finish_practice_backup_read", {session});
+        return new Blob(chunks, {type: "application/octet-stream"});
+      } catch (error) {
+        await invoke("cancel_practice_backup_transfer", {session}).catch(() => {});
+        throw error;
+      }
+    }
     const r = await fetch(service + "/api/practice-backup/export", {
       method: "POST",
       headers: {
@@ -521,6 +556,19 @@ export const api = {
   },
   stagePracticeBackup: async (file: File) => {
     if (file.size > 256_000_000) throw new Error("练习备份超过 256 MB");
+    if (isTauri()) {
+      const session = await invoke<string>("begin_practice_backup_stage", {size: file.size});
+      try {
+        for (let offset = 0; offset < file.size; offset += 1_048_576) {
+          const bytes = Array.from(new Uint8Array(await file.slice(offset, offset + 1_048_576).arrayBuffer()));
+          await invoke("write_practice_backup_chunk", {session, offset, bytes});
+        }
+        return await invoke<Record<string, unknown>>("finish_practice_backup_stage", {session});
+      } catch (error) {
+        await invoke("cancel_practice_backup_transfer", {session}).catch(() => {});
+        throw error;
+      }
+    }
     const r = await fetch(service + "/api/practice-backup/stage", {
       method: "POST",
       headers: { "X-Neothesia-Client": "web" },

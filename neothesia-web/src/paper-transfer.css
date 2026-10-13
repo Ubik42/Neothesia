@@ -1,0 +1,47 @@
+.paper-transfer-review > .parameter-help {
+  overflow-wrap: anywhere;
+}
+.paper-transfer-review .paper-source-actions label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+.paper-transfer-review .paper-source-actions select {
+  max-width: min(440px, 100%);
+  min-width: 0;
+}
+.paper-transfer-review .paper-transfer-anchor input[placeholder] {
+  width: 150px;
+}
+.paper-transfer-review .paper-transfer-anchor small {
+  flex-basis: 100%;
+}
+@media (max-width: 700px) {
+  .paper-transfer-review .paper-source-actions select {
+    width: 100%;
+  }
+}
+
+.paper-transfer-review .paper-transfer-compare {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.paper-transfer-review .paper-transfer-compare .paper-sheet-scroll {
+  max-height: 270px;
+}
+.paper-transfer-review .paper-transfer-compare .paper-annotation-tools button:disabled {
+  display: none;
+}
+.paper-transfer-review .paper-transfer-compare .paper-reader-toolbar {
+  gap: 4px;
+}
+.paper-transfer-review .paper-transfer-compare .paper-reader-toolbar button,
+.paper-transfer-review .paper-transfer-compare .paper-reader-toolbar select {
+  font-size: 11px;
+}
+@media (max-width: 560px) {
+  .paper-transfer-review .paper-transfer-compare {
+    grid-template-columns: 1fr;
+  }
+}

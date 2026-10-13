@@ -93,12 +93,10 @@ impl Player {
             }
             Err(e) => return Err(e.to_string()),
         };
-        if let Some(m) = sidecar.meter {
-            let grid = Self::corrected_grid(&file, m)?;
-            file.measures = grid.bar_times(&file.tempo_track).into();
-            file.beats = grid.beat_times(&file.tempo_track).into();
-            file.musical_time = grid;
-        }
+        let grid = Self::sidecar_grid(&file, &sidecar)?;
+        file.measures = grid.bar_times(&file.tempo_track).into();
+        file.beats = grid.beat_times(&file.tempo_track).into();
+        file.musical_time = grid;
         let mut config = SongConfig::new(&file.tracks);
         config.apply_practice_setup(&SongPracticeSetup {
             tracks: ctx.tracks.clone(),
@@ -137,7 +135,7 @@ impl Player {
         let grid = crate::practice_conditions::grid(&file);
         let scope =
             crate::practice_conditions::scope(Some(&file), &notes, &config, &assigned, &ctx.hands);
-        let proof = json!([file.content_id, sidecar.hands, sidecar.meter, sidecar.score]);
+        let proof = json!([file.content_id, sidecar.hands, sidecar.meter, sidecar.meter_map, sidecar.score]);
         Ok((file, notes, grid, scope, proof))
     }
     pub(super) fn build_multi_problem_plan(&self, spec: &MultiProblemSpec) -> Result<Built, String> {

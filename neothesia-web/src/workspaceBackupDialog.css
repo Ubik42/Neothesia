@@ -1,0 +1,51 @@
+.workspace-backup-section {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #4c6274;
+  background: #202a34;
+}
+.workspace-backup-section p,
+.workspace-backup-preview p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+.workspace-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspace-backup-preview {
+  padding: 12px;
+  margin-top: 12px;
+  border: 1px solid #455362;
+}
+.workspace-batch-list {
+  max-height: 220px;
+  overflow: auto;
+}
+.workspace-batch-list label {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+  padding: 8px 0;
+  border-bottom: 1px solid #364450;
+}
+.workspace-batch-list input {
+  margin-top: 3px;
+}
+.workspace-batch-list span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-batch-list small {
+  color: #b4c0cd;
+}
+
+.settings-dialog.practice-backup-dialog {
+  width: min(940px, 94vw);
+  max-width: 94vw;
+}

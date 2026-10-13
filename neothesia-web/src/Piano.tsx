@@ -142,7 +142,7 @@ export function Piano({
             ctx.fillStyle = "#aab8cc";
             ctx.font = "11px sans-serif";
             ctx.fillText(
-              `第 ${m.number} 小节${m.partial ? " · 不完整" : ""}  ${m.numerator}/${m.denominator}${m.explicit ? "" : "*"}`,
+              `第 ${m.number} 小节${m.displayNumber != null && m.displayNumber !== m.number ? ` · 谱面 ${m.displayNumber}` : ""}${m.partial ? " · 不完整" : ""}  ${m.numerator}/${m.denominator}${m.explicit ? "" : "*"}`,
               8,
               y - 6,
             );
