@@ -5,7 +5,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::musicxml::{EndingType, Part, RepeatDirection, ScoreEvent, ScoreEventId, ScoreTime};
+use crate::musicxml::{
+    BarlineLocation, EndingType, Part, RepeatDirection, ScoreEvent, ScoreEventId, ScoreTime,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlaybackLimits {
@@ -72,6 +74,75 @@ struct Navigation {
     offset: ScoreTime,
     attributes: BTreeMap<String, String>,
     passes: Option<Vec<u16>>,
+}
+
+#[derive(Clone, Debug)]
+struct RepeatFrame {
+    start: (usize, ScoreTime),
+    pass: u16,
+}
+
+fn forward_boundaries(
+    part: &Part,
+    navigation: &[Vec<Navigation>],
+    plan: &mut PlaybackPlan,
+) -> Vec<Vec<ScoreTime>> {
+    let mut boundaries = vec![Vec::new(); part.measures.len()];
+    for (index, measure) in part.measures.iter().enumerate() {
+        let backward_count = measure
+            .barlines
+            .iter()
+            .filter_map(|barline| barline.repeat.as_ref())
+            .filter(|repeat| repeat.direction == RepeatDirection::Backward)
+            .count();
+        if backward_count > 1 {
+            diagnose(plan, Some(index), "同一小节有多个反向反复记号，无法确定结束位置".into());
+        }
+        for barline in &measure.barlines {
+            if !matches!(
+                barline.repeat.as_ref().map(|repeat| &repeat.direction),
+                Some(RepeatDirection::Forward)
+            ) {
+                continue;
+            }
+            let target = match barline.location {
+                BarlineLocation::Left => index,
+                BarlineLocation::Right => index + 1,
+                BarlineLocation::Middle | BarlineLocation::Other(_) => {
+                    diagnose(plan, Some(index), "正向反复记号位于小节中间，但谱面没有给出准确拍位".into());
+                    continue;
+                }
+            };
+            if let Some(local) = boundaries.get_mut(target) {
+                local.push(ScoreTime::default());
+            } else {
+                diagnose(plan, Some(index), "正向反复记号位于乐曲结束之后".into());
+            }
+        }
+        for mark in &navigation[index] {
+            if !mark
+                .attributes
+                .get("forward-repeat")
+                .is_some_and(|value| value == "yes")
+            {
+                continue;
+            }
+            if mark.offset == measure.duration {
+                if let Some(local) = boundaries.get_mut(index + 1) {
+                    local.push(ScoreTime::default());
+                } else {
+                    diagnose(plan, Some(index), "正向反复记号位于乐曲结束之后".into());
+                }
+            } else {
+                boundaries[index].push(mark.offset);
+            }
+        }
+    }
+    for local in &mut boundaries {
+        local.sort();
+        local.dedup();
+    }
+    boundaries
 }
 
 fn navigation(
@@ -196,14 +267,6 @@ fn navigation(
                         }
                     }
                 }
-                if sound
-                    .attributes
-                    .get("forward-repeat")
-                    .is_some_and(|v| v == "yes")
-                    && offset != ScoreTime::default()
-                {
-                    diagnose(plan, Some(index), "小节内的隐式正向反复尚未支持".into());
-                }
                 marks[index].push(Navigation {
                     offset,
                     attributes: sound.attributes.clone(),
@@ -266,6 +329,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
 
     let endings = ending_membership(part, &mut plan);
     let (navigation, targets) = navigation(part, &mut plan);
+    let forward = forward_boundaries(part, &navigation, &mut plan);
     if !plan.complete
         && !plan.diagnostics.is_empty()
         && navigation.iter().flatten().next().is_some()
@@ -277,8 +341,9 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
     let mut used = BTreeSet::new();
     let mut steps = 0usize;
     let mut cursor = 0_usize;
-    let mut active_repeat_start = None;
-    let mut repeat_pass = 1_u16;
+    let mut repeat_frames: Vec<RepeatFrame> = Vec::new();
+    let mut last_repeat_pass = 1_u16;
+    let mut ending_pass = None;
     let mut performed_cursor = ScoreTime::default();
 
     while cursor < part.measures.len() {
@@ -292,7 +357,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                 &mut plan,
                 Some(cursor),
                 format!(
-                    "playback plan stopped at the configured {}-visit limit",
+                    "演奏顺序达到设置的 {} 次小节经过上限，后续小节尚未展开",
                     limits.max_visits
                 ),
             );
@@ -300,47 +365,35 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
         }
 
         let measure = &part.measures[cursor];
-        for repeat in measure
-            .barlines
-            .iter()
-            .filter_map(|barline| barline.repeat.as_ref())
-            .filter(|repeat| {
-                repeat.direction == RepeatDirection::Forward && source_start == ScoreTime::default()
-            })
+        if forward[cursor].contains(&source_start)
+            && repeat_frames
+                .last()
+                .is_none_or(|frame| frame.start != (cursor, source_start))
         {
-            let _ = repeat;
-            if let Some(start) = active_repeat_start {
-                if start != cursor {
-                    diagnose(
-                        &mut plan,
-                        Some(cursor),
-                        "nested forward repeats are not expanded yet".into(),
-                    );
-                }
-            } else {
-                active_repeat_start = Some(cursor);
-                repeat_pass = if jump_pass > 1 {
-                    return_repeat_pass(part, cursor)
-                } else {
-                    1
-                };
-            }
-        }
-
-        if navigation[cursor].iter().any(|n| {
-            n.offset == ScoreTime::default()
-                && n.attributes
-                    .get("forward-repeat")
-                    .is_some_and(|v| v == "yes")
-        }) && active_repeat_start.is_none()
-        {
-            active_repeat_start = Some(cursor);
-            repeat_pass = if jump_pass > 1 {
+            let pass = if jump_pass > 1 {
                 return_repeat_pass(part, cursor)
             } else {
                 1
             };
+            repeat_frames.push(RepeatFrame {
+                start: (cursor, source_start),
+                pass,
+            });
+            ending_pass = None;
         }
+        let frame_pass = repeat_frames
+            .last()
+            .map_or(last_repeat_pass, |frame| frame.pass);
+        let repeat_pass = if endings[cursor].is_some() {
+            ending_pass.unwrap_or(frame_pass)
+        } else {
+            ending_pass = None;
+            frame_pass
+        };
+        let next_forward = forward[cursor]
+            .iter()
+            .copied()
+            .find(|offset| *offset > source_start);
         let included = endings[cursor]
             .as_ref()
             .is_none_or(|passes| passes.contains(&repeat_pass));
@@ -348,7 +401,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
         // Numbered endings use their final pass on a return without repeats.
         let included = if jump_pass > 1 {
             endings[cursor].as_ref().is_none_or(|passes| {
-                passes.contains(&if active_repeat_start.is_some() {
+                passes.contains(&if !repeat_frames.is_empty() {
                     repeat_pass
                 } else {
                     repeat_pass.max(2)
@@ -360,7 +413,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
         let mut action = None;
         if included {
             for (mark_index, n) in navigation[cursor].iter().enumerate() {
-                if n.offset < source_start {
+                if n.offset < source_start || next_forward.is_some_and(|end| n.offset >= end) {
                     continue;
                 }
                 let pass = repeat_pass.max(jump_pass);
@@ -412,13 +465,14 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
             }
             let source_end = action
                 .as_ref()
-                .map_or(measure.duration, |(_, offset, _, _, _)| *offset);
+                .map_or(measure.duration, |(_, offset, _, _, _)| *offset)
+                .min(next_forward.unwrap_or(measure.duration));
             if source_end > source_start {
                 let Ok(occurrence_ordinal) = u32::try_from(plan.visits.len()) else {
                     diagnose(
                         &mut plan,
                         Some(cursor),
-                        "playback occurrence identity exceeded u32".into(),
+                        "演奏经过次数超过可记录的上限".into(),
                     );
                     break;
                 };
@@ -432,6 +486,12 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                     source_end,
                 });
                 performed_cursor = performed_cursor.add(source_end.subtract(source_start));
+            }
+        }
+        if let Some(next_forward) = next_forward {
+            if action.is_none() {
+                source_start = next_forward;
+                continue;
             }
         }
         if let Some((kind, offset, label, key, _)) = action {
@@ -457,8 +517,9 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
             if kind != "tocoda" {
                 jump_pass = jump_pass.saturating_add(1);
             }
-            active_repeat_start = None;
-            repeat_pass = if jump_pass > 1 && target.0 < part.measures.len() {
+            repeat_frames.clear();
+            ending_pass = None;
+            last_repeat_pass = if jump_pass > 1 && target.0 < part.measures.len() {
                 return_repeat_pass(part, target.0)
             } else {
                 1
@@ -475,22 +536,35 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
             .filter_map(|barline| barline.repeat.as_ref())
             .find(|repeat| repeat.direction == RepeatDirection::Backward);
         if let Some(backward) = backward.filter(|r| jump_pass == 1 || r.after_jump == Some(true)) {
-            let repeat_start = active_repeat_start.unwrap_or(0);
+            if repeat_frames.is_empty() {
+                repeat_frames.push(RepeatFrame {
+                    start: (0, ScoreTime::default()),
+                    pass: if jump_pass > 1 { 1 } else { last_repeat_pass },
+                });
+            }
             let requested_passes = backward.times.unwrap_or(2).max(1);
             let total_passes = requested_passes.min(limits.max_repeat_passes.max(1));
             if requested_passes > total_passes {
                 diagnose(
                     &mut plan,
                     Some(cursor),
-                    format!("repeat count {requested_passes} was capped at {total_passes} passes"),
+                    format!("反复记号要求演奏 {requested_passes} 遍，当前上限为 {total_passes} 遍"),
                 );
             }
-            if repeat_pass < total_passes {
-                repeat_pass += 1;
-                cursor = repeat_start;
+            let frame = repeat_frames.last_mut().expect("implicit repeat frame");
+            if frame.pass < total_passes {
+                frame.pass += 1;
+                cursor = frame.start.0;
+                source_start = frame.start.1;
                 continue;
             }
-            active_repeat_start = None;
+            last_repeat_pass = frame.pass;
+            ending_pass = Some(frame.pass);
+            repeat_frames.pop();
+        } else if backward.is_some() && jump_pass > 1 {
+            repeat_frames.clear();
+            ending_pass = None;
+            last_repeat_pass = return_repeat_pass(part, cursor);
         }
 
         for repeat in measure
@@ -502,13 +576,20 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
             diagnose(
                 &mut plan,
                 Some(cursor),
-                format!(
-                    "unknown repeat direction {:?} was not expanded",
-                    repeat.direction
-                ),
+                format!("无法识别反复记号方向 {:?}，这一段尚未展开", repeat.direction),
             );
         }
         cursor += 1;
+    }
+
+    if cursor >= part.measures.len() && !repeat_frames.is_empty() {
+        for frame in &repeat_frames {
+            diagnose(
+                &mut plan,
+                Some(frame.start.0),
+                "正向反复记号没有对应的反向反复结束位置".into(),
+            );
+        }
     }
 
     plan
@@ -575,17 +656,14 @@ fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16
                 diagnose(
                     plan,
                     Some(measure_index),
-                    "overlapping numbered endings are not expanded yet".into(),
+                    "两个不同遍次的结尾范围发生重叠，无法确定演奏顺序".into(),
                 );
             }
             if ending.passes.is_empty() {
                 diagnose(
                     plan,
                     Some(measure_index),
-                    format!(
-                        "ending {:?} has no usable numeric pass and remains unfiltered",
-                        ending.number
-                    ),
+                    format!("结尾标记 {:?} 没有可识别的演奏遍次，无法筛选这一小节", ending.number),
                 );
                 active = None;
             } else {
@@ -602,7 +680,7 @@ fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16
                         diagnose(
                             plan,
                             Some(measure_index),
-                            "numbered-ending stop has no active start".into(),
+                            "结尾结束记号缺少对应的起始记号".into(),
                         );
                     }
                     active = None;
@@ -610,7 +688,7 @@ fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16
                 EndingType::Other(ref value) => diagnose(
                     plan,
                     Some(measure_index),
-                    format!("unknown ending type {value:?} was not expanded"),
+                    format!("无法识别结尾记号类型 {value:?}，这一段尚未展开"),
                 ),
                 EndingType::Start => {}
             }
@@ -621,7 +699,7 @@ fn ending_membership(part: &Part, plan: &mut PlaybackPlan) -> Vec<Option<Vec<u16
         diagnose(
             plan,
             part.measures.len().checked_sub(1),
-            "numbered ending reaches end of part without stop or discontinue".into(),
+            "结尾范围延伸到曲目末尾，却没有结束记号".into(),
         );
     }
     result
@@ -711,6 +789,104 @@ mod tests {
     }
 
     #[test]
+    fn nested_repeats_restart_the_inner_pass_on_each_outer_pass() {
+        let source = [
+            measure(1, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(2, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(3, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(4, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(5, "", ""),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 2, 1, 2, 3, 0, 1, 2, 1, 2, 3, 4]);
+        assert_eq!(
+            plan.visits.iter().map(|visit| visit.repeat_pass).collect::<Vec<_>>(),
+            [1, 1, 1, 2, 2, 1, 2, 1, 1, 2, 2, 2, 2]
+        );
+    }
+
+    #[test]
+    fn nested_repeats_apply_the_inner_numbered_endings_before_resuming_outer_pass() {
+        let source = [
+            measure(1, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(2, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(3, r#"<barline location="left"><ending number="1" type="start"/></barline>"#,
+                r#"<barline><ending number="1" type="stop"/><repeat direction="backward"/></barline>"#),
+            measure(4, r#"<barline location="left"><ending number="2" type="start"/></barline>"#,
+                r#"<barline><ending number="2" type="stop"/></barline>"#),
+            measure(5, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(6, "", ""),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 2, 1, 3, 4, 0, 1, 2, 1, 3, 4, 5]);
+    }
+
+    #[test]
+    fn a_backward_repeat_without_a_forward_mark_starts_at_the_first_measure() {
+        let source = [
+            measure(1, "", ""),
+            measure(2, "", r#"<barline><repeat direction="backward"/></barline>"#),
+            measure(3, "", ""),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 0, 1, 2]);
+    }
+
+    #[test]
+    fn an_in_measure_forward_repeat_restarts_at_its_actual_offset() {
+        let source = [
+            r#"<measure number="1"><note><rest/><duration>1</duration></note><sound forward-repeat="yes"/><note><rest/><duration>1</duration></note></measure>"#.to_string(),
+            measure(2, "", r#"<barline><repeat direction="backward"/></barline>"#),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 0, 1, 0, 1]);
+        assert_eq!(
+            plan.visits.iter().map(|v| (v.source_start, v.source_end)).collect::<Vec<_>>(),
+            [
+                (ScoreTime::new(0, 1), ScoreTime::new(1, 1)),
+                (ScoreTime::new(1, 1), ScoreTime::new(2, 1)),
+                (ScoreTime::new(0, 1), ScoreTime::new(1, 1)),
+                (ScoreTime::new(1, 1), ScoreTime::new(2, 1)),
+                (ScoreTime::new(0, 1), ScoreTime::new(1, 1)),
+            ]
+        );
+    }
+
+    #[test]
+    fn unclosed_outer_repeat_remains_incomplete_after_an_inner_backward() {
+        let source = [
+            measure(1, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(2, r#"<barline location="left"><repeat direction="forward"/></barline>"#, ""),
+            measure(3, "", r#"<barline><repeat direction="backward"/></barline>"#),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert_eq!(ordinals(&plan), [0, 1, 2, 1, 2]);
+        assert!(!plan.complete);
+        assert!(plan.diagnostics.iter().any(|d| d.measure_ordinal == Some(0)));
+    }
+
+    #[test]
+    fn multiple_backward_marks_in_one_measure_are_diagnosed_as_ambiguous() {
+        let source = measure(
+            1,
+            "",
+            r#"<barline><repeat direction="backward"/></barline><barline><repeat direction="backward"/></barline>"#,
+        );
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(!plan.complete);
+        assert!(plan.diagnostics.iter().any(|d| d.message.contains("多个反向反复")));
+    }
+
+    #[test]
     fn selects_first_and_second_endings_without_losing_repeat_control() {
         let source = [
             measure(
@@ -759,12 +935,12 @@ mod tests {
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|item| item.message.contains("capped at 4"))
+                .any(|item| item.message.contains("上限为 4 遍"))
         );
         assert!(
             plan.diagnostics
                 .iter()
-                .any(|item| item.message.contains("3-visit limit"))
+                .any(|item| item.message.contains("3 次小节经过上限"))
         );
     }
 

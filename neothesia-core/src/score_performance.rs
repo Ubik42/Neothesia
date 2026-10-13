@@ -801,6 +801,39 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
 mod tests {
     use super::*;
     #[test]
+    fn nested_repeat_route_is_shared_by_parts_without_duplicate_barlines() {
+        let mut xml = String::from(
+            r#"<score-partwise><part-list><score-part id="P1"><part-name>Upper</part-name></score-part><score-part id="P2"><part-name>Lower</part-name></score-part></part-list>"#,
+        );
+        for (part_id, step, octave) in [("P1", "C", 4), ("P2", "G", 3)] {
+            xml.push_str(&format!(r#"<part id="{part_id}">"#));
+            for number in 1..=5 {
+                let left = if part_id == "P1" && (number == 1 || number == 2) {
+                    r#"<barline location="left"><repeat direction="forward"/></barline>"#
+                } else {
+                    ""
+                };
+                let right = if part_id == "P1" && (number == 3 || number == 4) {
+                    r#"<barline><repeat direction="backward"/></barline>"#
+                } else {
+                    ""
+                };
+                xml.push_str(&format!(r#"<measure number="{number}"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>{left}<note><pitch><step>{step}</step><octave>{octave}</octave></pitch><duration>1</duration></note>{right}</measure>"#));
+            }
+            xml.push_str("</part>");
+        }
+        xml.push_str("</score-partwise>");
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(performance.tracks.len(), 2);
+        assert_eq!(performance.tracks[0].notes.len(), 13);
+        assert_eq!(performance.tracks[1].notes.len(), 13);
+        assert_eq!(
+            performance.tracks[0].notes.iter().map(|note| note.start).collect::<Vec<_>>(),
+            performance.tracks[1].notes.iter().map(|note| note.start).collect::<Vec<_>>()
+        );
+    }
+    #[test]
     fn pickup_repeat_ties_tempo_staffs_and_pedals_have_performed_semantics() {
         let score =
             import_musicxml_document(include_bytes!("score_performance_test.musicxml")).unwrap();

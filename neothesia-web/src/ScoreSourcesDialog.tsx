@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { X, RefreshCw } from "lucide-react";
 import { api } from "./api";
 import { ScoreSourceBatch } from "./ScoreSourceBatch";
+import {
+  ScoreRoutePreview,
+  type ScoreRouteEvidence,
+} from "./ScoreRoutePreview";
 
 export type Source = {
   id: string;
@@ -37,6 +41,7 @@ export type Preview = {
     diagnostics: string[];
   } | null;
   warnings: string[];
+  routePreview: ScoreRouteEvidence | null;
 };
 const states: Record<string, string> = {
   ready: "原文件与保存版本一致",
@@ -130,10 +135,31 @@ export function ScoreSourcesDialog({
   }, [close]);
   const source = entries.find((s) => s.id === selected);
   const currentPreview =
-    preview && source?.fingerprint === preview.fingerprint ? preview : null;
+    preview &&
+    source?.id === preview.id &&
+    source.fingerprint === preview.fingerprint
+      ? preview
+      : null;
   const apply = (mode: "notation" | "performance") =>
     void work(async () => {
       if (!currentPreview) return;
+      if (
+        mode === "performance" &&
+        (!currentPreview.performanceReady ||
+          currentPreview.routePreview?.route?.complete !== true)
+      ) {
+        throw new Error(
+          "更新后谱面的演奏顺序尚未确认。请先保存谱面版本并校对。",
+        );
+      }
+      const fresh = await api.command<Preview>({
+        type: "previewScoreSource",
+        id: currentPreview.id,
+        fingerprint: currentPreview.fingerprint,
+      });
+      if (JSON.stringify(fresh) !== JSON.stringify(currentPreview)) {
+        throw new Error("原谱内容或演奏顺序已变化。请重新预览后再应用。");
+      }
       const result = await api.command<{
         mode: string;
         contentId: string;
@@ -341,6 +367,7 @@ export function ScoreSourcesDialog({
                   onClick={() =>
                     void work(async () => {
                       setSelected(s.id);
+                      setPreview(null);
                       const value = await api.command<Preview>({
                         type: "previewScoreSource",
                         id: s.id,
@@ -453,6 +480,10 @@ export function ScoreSourcesDialog({
                 ? `与旧演奏对应 ${currentPreview.pairing.coverage}%${currentPreview.pairing.readiness === "Blocked" ? "，反复导航尚未通过" : ""}。添加谱面后仍需选择版本并核对跟随。`
                 : "旧演奏文件不可用，仍可保存新谱面或生成新的演奏曲目。"}
             </p>
+            <ScoreRoutePreview
+              evidence={currentPreview.routePreview}
+              title="更新后谱面的实际演奏顺序"
+            />
             {currentPreview.performanceError && (
               <p className="dialog-error">{currentPreview.performanceError}</p>
             )}
@@ -472,14 +503,20 @@ export function ScoreSourcesDialog({
               </button>
               <button
                 className="primary-button"
-                disabled={busy || !currentPreview.performanceReady}
+                disabled={
+                  busy ||
+                  !currentPreview.performanceReady ||
+                  currentPreview.routePreview?.route?.complete !== true
+                }
                 onClick={() => apply("performance")}
               >
                 {!currentPreview.performanceReady
                   ? "演奏生成不可用"
-                  : currentPreview.samePerformance
-                    ? "更新谱面并打开演奏"
-                    : "建立并打开新演奏曲目"}
+                  : currentPreview.routePreview?.route?.complete !== true
+                    ? "演奏顺序需校对"
+                    : currentPreview.samePerformance
+                      ? "更新谱面并打开演奏"
+                      : "建立并打开新演奏曲目"}
               </button>
               <button disabled={busy} onClick={() => setPreview(null)}>
                 收起预览

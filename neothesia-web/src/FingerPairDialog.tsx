@@ -9,6 +9,7 @@ import {
   type PairInteraction,
 } from "./FingerPairInteractions";
 import { FingerDemoControls } from "./FingerDemoControls";
+import { FingerCoverageReview, type FingerCoverageNote } from "./FingerCoverageReview";
 import {
   FingerPracticeBuilder,
   type FingerDifficulty,
@@ -41,6 +42,11 @@ type Review = {
     retained: number;
     unmarked: number;
     contextUnmarked: number;
+    markedSubsetValid: boolean;
+    fullPassageValidated: boolean;
+    coverage: FingerCoverageNote[];
+    coverageTotal: number;
+    coverageTruncated: boolean;
     conflicts: { measure: number; reason: string }[];
     review: FingerDifficulty[];
   }[];
@@ -75,6 +81,8 @@ export function FingerPairDialog({
     root = useRef<HTMLElement>(null);
   const hands = ["left", "right"] as const;
   const key = (p: Proposal) => `${p.track}:${p.index}`;
+  const trackName = (track: number) =>
+    song.tracks.find((t) => t.id === track)?.name || `音轨 ${track + 1}`;
   const profileTouched = useRef(false);
   useEffect(() => {
     let disposed = false;
@@ -576,6 +584,48 @@ export function FingerPairDialog({
                   {r.retained} · 未标记 {r.unmarked} · 上下文未标记{" "}
                   {r.contextUnmarked} · 待复核 {r.review.length} 处
                 </p>
+                <p>
+                  {r.markedSubsetValid ? "已标记部分的同时按键检查通过。" : "已标记部分存在同时按键冲突。"}{" "}
+                  {r.fullPassageValidated ? "该手选段的指法覆盖与衔接检查通过。" : "该手选段仍有未标记音、衔接难点或冲突。"}
+                </p>
+                {r.coverageTotal > 0 && (
+                  <FingerCoverageReview
+                    key={`${review.proof}:${i}`}
+                    notes={r.coverage}
+                    total={r.coverageTotal}
+                    truncated={r.coverageTruncated}
+                    trackName={trackName}
+                    disabled={busy}
+                    locate={(n) => {
+                      const position = song.notes.find((note) => note.track === n.track && note.index === n.index);
+                      if (position) void api.command({ type: "seek", position: position.start }).catch((e) => setError(String(e)));
+                      const index = results[i].plans[ranks[i]].proposals.findIndex((p) => p.track === n.track && p.index === n.index);
+                      if (index >= 0) {
+                        setPages((current) => current.map((value, hand) => hand === i ? Math.floor(index / 30) : value));
+                        requestAnimationFrame(() => {
+                          const input = root.current?.querySelector<HTMLInputElement>(`input[aria-label="${i === 0 ? "左" : "右"}手指法 ${n.track}:${n.index}"]`);
+                          input?.focus();
+                          input?.scrollIntoView({ block: "center" });
+                        });
+                      }
+                    }}
+                    adopt={(n) => {
+                      const identity = `${n.track}:${n.index}`;
+                      const proposals = results[i].plans[ranks[i]].proposals;
+                      const index = proposals.findIndex((p) => key(p) === identity);
+                      if (index < 0) return;
+                      void work(async () => {
+                        const updated = parts();
+                        updated[i].edits.push({ track_id: n.track, note_index: n.index, finger: edits[i][identity] ?? proposals[index].finger });
+                        const nextReview = await api.command<Review>({ type: "fingerPair", parts: updated, proof: null, acknowledged: false });
+                        setSelected((current) => current.map((part, hand) => hand === i ? new Set([...part, identity]) : part));
+                        setPages((current) => current.map((value, hand) => hand === i ? Math.floor(index / 30) : value));
+                        setAck(false);
+                        setReview(nextReview);
+                      });
+                    }}
+                  />
+                )}
                 {r.conflicts.map((c, j) => (
                   <p key={j}>
                     第 {c.measure} 小节：{c.reason}

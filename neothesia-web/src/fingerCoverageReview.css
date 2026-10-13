@@ -1,0 +1,10 @@
+.finger-coverage { margin: 12px 0; padding: 12px; border: 1px solid #47545b; border-radius: 8px; background: #1b252a; }
+.finger-coverage > p { margin: 6px 0 10px; color: #b7c4c9; }
+.finger-coverage-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid #39464d; }
+.finger-coverage-row > div:first-child { min-width: 0; }
+.finger-coverage-row strong, .finger-coverage-row small { display: block; }
+.finger-coverage-row small { margin-top: 4px; color: #b7c4c9; line-height: 1.5; }
+.finger-coverage-actions, .finger-coverage-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.finger-coverage-actions { flex-shrink: 0; }
+.finger-coverage-pages { justify-content: flex-end; margin-top: 10px; }
+@media (max-width: 740px) { .finger-coverage-row { align-items: flex-start; flex-direction: column; } }

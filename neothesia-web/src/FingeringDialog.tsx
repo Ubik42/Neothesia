@@ -5,6 +5,7 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { FingerDemoControls } from "./FingerDemoControls";
 import { FingerPracticeBuilder } from "./FingerPracticeBuilder";
 import { HeldFingerPlans } from "./HeldFingerPlans";
+import { FingerCoverageReview, type FingerCoverageNote } from "./FingerCoverageReview";
 import { api, pitchName, type LoadedSong, type Note } from "./api";
 type Proposal = {
   track: number;
@@ -65,6 +66,11 @@ type AcceptanceReview = {
   selected: number;
   retained: number;
   unmarked: number;
+  markedSubsetValid: boolean;
+  fullPassageValidated: boolean;
+  coverage: FingerCoverageNote[];
+  coverageTotal: number;
+  coverageTruncated: boolean;
   contextUnmarked: number;
   total: number;
   truncated: boolean;
@@ -908,6 +914,48 @@ export function FingeringDialog({
                     {currentAcceptance.retained} 个 · 未标记{" "}
                     {currentAcceptance.unmarked} 个
                   </p>
+                  <p>
+                    {currentAcceptance.markedSubsetValid
+                      ? "已标记部分的同时按键检查通过。"
+                      : "已标记部分存在同时按键冲突。"}{" "}
+                    {currentAcceptance.fullPassageValidated
+                      ? "整个选段的指法覆盖与衔接检查通过。"
+                      : "整个选段仍有未标记音、衔接难点或冲突，不能视为完整通过。"}
+                  </p>
+                  {currentAcceptance.coverageTotal > 0 && (
+                    <FingerCoverageReview
+                      key={currentAcceptance.key}
+                      notes={currentAcceptance.coverage}
+                      total={currentAcceptance.coverageTotal}
+                      truncated={currentAcceptance.coverageTruncated}
+                      trackName={trackName}
+                      disabled={busy}
+                      locate={(n) => {
+                        void api.command({ type: "stopFingerDemo" }).catch((e) => setError(String(e)));
+                        setPreview(n.contextIndex);
+                        setPreviewSaved(true);
+                        const index = result.proposals.findIndex((p) => p.track === n.track && p.index === n.index);
+                        if (index >= 0) setPage(Math.floor(index / 40));
+                        requestAnimationFrame(() => {
+                          const selector = index >= 0
+                            ? `select[data-finger-position="${n.track}:${n.index}"]`
+                            : ".finger-position";
+                          const element = document.querySelector<HTMLElement>(`.fingering-dialog ${selector}`);
+                          element?.focus();
+                          element?.scrollIntoView({ block: "center", behavior: "smooth" });
+                        });
+                      }}
+                      adopt={(n) => {
+                        const index = result.proposals.findIndex((p) => p.track === n.track && p.index === n.index);
+                        if (index >= 0) {
+                          setAccepted((current) => new Set([...current, index]));
+                          setPreview(n.contextIndex);
+                          setPreviewSaved(true);
+                          setPage(Math.floor(index / 40));
+                        }
+                      }}
+                    />
+                  )}
                   {currentAcceptance.tracks.length > 1 && (
                     <div className="finger-batch-summary">
                       {currentAcceptance.tracks.map((summary) => (

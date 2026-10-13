@@ -59,7 +59,7 @@ impl ScoreAsset {
             }).collect();
             serde_json::json!({"complete":plan.complete && a.readiness == neothesia_core::score_alignment::AlignmentReadiness::Ready,"visits":visits})
         }));
-        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(|w|format!("{w:?}")).collect::<Vec<_>>()})
+        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>()})
     }
     pub fn map(
         &self,
@@ -152,6 +152,29 @@ impl ScoreAsset {
             serde_json::json!({"mapping":mapping,"ambiguities":correlation.ambiguities.len(),"unmapped":correlation.unmatched_native.len(),"following":self.alignment.navigation_complete && !correlation.elements.is_empty()}),
         )
     }
+}
+
+fn score_warning_label(warning: &neothesia_core::musicxml::ImportWarning) -> String {
+    let location = if let Some((part, measure)) = warning.location.split_once(" measure ") {
+        format!("{part} 第 {measure} 小节")
+    } else if warning.location == "score" {
+        "整份谱面".into()
+    } else if warning.location == "MXL container" {
+        "MXL 文件".into()
+    } else {
+        warning.location.clone()
+    };
+    let message = match warning.message.as_str() {
+        "No playable parts were found" => "没有找到可演奏的声部",
+        "incomplete or zero tuplet ratio was ignored" => "连音比例缺失或为零，已略过这一记号",
+        "ornament notation and playback are not represented yet" => "装饰音尚未进入谱面和演奏解释",
+        "written-to-sounding transposition is not represented yet" => "记谱音与实际发声音高的移调尚未解释",
+        "crescendo and diminuendo wedge spans are not represented yet" => "渐强和渐弱线段尚未解释",
+        "notation element is not represented yet" => "这个谱面记号尚未解释",
+        text if text.starts_with("missing or invalid ") && text.ends_with(" mimetype marker") => "MXL 文件类型标记缺失或无效",
+        text => text,
+    };
+    format!("{location}：{message}")
 }
 #[derive(Deserialize)]
 pub struct RenderNote {

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "./api";
 import type { Preview, Source } from "./ScoreSourcesDialog";
+import { ScoreRoutePreview } from "./ScoreRoutePreview";
 
 type Choice = "skip" | "notation" | "performance" | "keep";
 type Item = {
@@ -75,6 +76,19 @@ export function ScoreSourceBatch({
       )) {
         if (cancelled.current) break;
         try {
+          const fresh = await api.command<Preview>({
+            type: "previewScoreSource",
+            id: item.source.id,
+            fingerprint: item.preview!.fingerprint,
+          });
+          if (JSON.stringify(fresh) !== JSON.stringify(item.preview))
+            throw new Error("原谱内容或演奏顺序已变化，请重新预览本项");
+          if (
+            item.choice === "performance" &&
+            (!fresh.performanceReady ||
+              fresh.routePreview?.route?.complete !== true)
+          )
+            throw new Error("演奏顺序尚未确认，本项只能保存谱面版本");
           const result = await api.command<{ warnings?: string[] }>({
             type:
               item.choice === "keep"
@@ -186,6 +200,13 @@ export function ScoreSourceBatch({
                   {item.preview.performanceError}
                 </p>
               )}
+              {item.preview && (
+                <ScoreRoutePreview
+                  evidence={item.preview.routePreview}
+                  title="更新后谱面的实际演奏顺序"
+                  initialVisible={8}
+                />
+              )}
               {[
                 ...(item.preview?.warnings ?? []),
                 ...(item.preview?.pairing?.diagnostics ?? []),
@@ -216,7 +237,10 @@ export function ScoreSourceBatch({
               <option value="notation">添加新谱面版本</option>
               <option
                 value="performance"
-                disabled={!item.preview?.performanceReady}
+                disabled={
+                  !item.preview?.performanceReady ||
+                  item.preview.routePreview?.route?.complete !== true
+                }
               >
                 生成并打开演奏曲目
               </option>

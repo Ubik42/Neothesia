@@ -51,6 +51,16 @@ test("局部接受审阅保留指法、阻止冲突、完整接受恢复与撤�
   await d.getByRole("button",{name:"生成建议",exact:true}).click();
   await d.getByLabel(`接受音符 ${high.index+1} 指法`).uncheck();
   await expect(audit.getByText(/接受 1 个 · 保留已有 0 个 · 未标记 1 个/)).toBeVisible();
+  const coverage=audit.getByRole("region",{name:"未标记指法衔接清单"});
+  await expect(coverage.getByText(/未标记位置与衔接 · 1 个/)).toBeVisible();
+  await expect(coverage.getByText(new RegExp(`音符 ${high.index+1} · 前一个已标记`))).toBeVisible();
+  await coverage.getByRole("button",{name:"定位音符"}).click();
+  await expect(d.getByText(/保存结果手位/)).toBeVisible();
+  await coverage.getByRole("button",{name:"采用这条建议"}).click();
+  await expect(coverage).toHaveCount(0);
+  await expect(audit.getByText(/接受 2 个 · 保留已有 0 个 · 未标记 0 个/)).toBeVisible();
+  await d.getByLabel(`接受音符 ${high.index+1} 指法`).uncheck();
+  await expect(coverage).toBeVisible();
   await d.getByRole("group",{name:"手位预览内容"}).getByRole("button",{name:"保存后的实际指法",exact:true}).click();
   await expect(d.locator("svg[aria-label='当前和弦及仍按住的音符指法'] text")).toHaveText(["1","·"]);
   await expect(d.getByRole("button",{name:/接受并保存/})).toBeDisabled();

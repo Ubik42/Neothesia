@@ -435,6 +435,26 @@ pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Val
     let first=p.positions.iter().filter(|n|n.target).map(|n|n.onset).fold(f64::INFINITY,f64::min);
     let last=p.positions.iter().filter(|n|n.target).map(|n|n.end).fold(0.0,f64::max);
     let context_unmarked=p.positions.iter().filter(|n|!n.target && n.track!=p.request.track && n.saved.is_none() && n.onset<last && (n.end>first || n.onset==first)).count();
+    // Keep identities from the source notes. A recommendation is not a saved
+    // mark until its exact (track, index) edit is selected.
+    let marked=|i:usize|selected.get(&(p.positions[i].track,p.positions[i].index)).copied().or(p.positions[i].saved);
+    let mut coverage=Vec::new();
+    let mut coverage_total=0usize;
+    for (i,n) in p.positions.iter().enumerate() {
+        let relevant_context=!n.target && n.track!=p.request.track && n.onset<last && (n.end>first || n.onset==first);
+        if !(n.target || relevant_context) || marked(i).is_some() {continue;}
+        coverage_total+=1;
+        if coverage.len()>=256 {continue;}
+        let neighbor=|j:usize|{
+            let pos=&p.positions[j];
+            serde_json::json!({"track":pos.track,"index":pos.index,"measure":pos.measure,
+                "pitch":pos.pitch,"finger":marked(j),"contextIndex":j})
+        };
+        let before=(0..i).rev().find(|&j|marked(j).is_some()).map(&neighbor);
+        let after=(i+1..p.positions.len()).find(|&j|marked(j).is_some()).map(&neighbor);
+        coverage.push(serde_json::json!({"track":n.track,"index":n.index,"measure":n.measure,
+            "pitch":n.pitch,"contextIndex":i,"target":n.target,"before":before,"after":after}));
+    }
     let tracks:Vec<_>=target_tracks(&p.request).into_iter().map(|track|{
         let positions:Vec<_>=p.positions.iter().filter(|n|n.track==track && n.target).collect();
         let selected_count=positions.iter().filter(|n|selected.contains_key(&(n.track,n.index))).count();
@@ -444,7 +464,11 @@ pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Val
         serde_json::json!({"track":track,"total":positions.len(),"selected":selected_count,"retained":retained_count,
             "unmarked":positions.len()-selected_count-retained_count,"changed":changed,"new":new})
     }).collect();
-    Ok(serde_json::json!({"contextUnmarked":context_unmarked,"valid":conflicts.is_empty(),"conflicts":conflicts,"truncated":truncated,
+    let marked_subset_valid=conflicts.is_empty();
+    let full_passage_validated=marked_subset_valid && coverage_total==0 && review.is_empty() && !review_truncated && !truncated;
+    Ok(serde_json::json!({"contextUnmarked":context_unmarked,"valid":marked_subset_valid,"markedSubsetValid":marked_subset_valid,
+        "fullPassageValidated":full_passage_validated,"coverage":coverage,"coverageTotal":coverage_total,"coverageTruncated":coverage_total>256,
+        "conflicts":conflicts,"truncated":truncated,
         "review":review,"tracks":tracks,"contextFingers":context_fingers,"reviewTruncated":review_truncated,"selected":selected.len(),"retained":retained,"unmarked":unknown,
         "total":p.positions.iter().filter(|n|n.target).count()}))
 }
@@ -471,6 +495,13 @@ mod acceptance_tests {
         let unknown=fixture(PracticePart::RightHand,&[Some(1),None,None]);
         let r=review_acceptance(&unknown,&[Edit{track_id:2,note_index:1,finger:Some(3)}]).unwrap();
         assert_eq!(r["valid"],true);assert_eq!(r["unmarked"],1);assert_eq!(r["retained"],0);
+        assert_eq!(r["markedSubsetValid"],true);assert_eq!(r["fullPassageValidated"],false);
+        assert_eq!(r["coverageTotal"],1);assert_eq!(r["coverage"][0]["track"],2);
+        assert_eq!(r["coverage"][0]["index"],2);assert_eq!(r["coverage"][0]["measure"],1);
+        assert_eq!(r["coverage"][0]["target"],true);
+        assert_eq!(r["coverage"][0]["before"]["index"],1);
+        assert_eq!(r["coverage"][0]["before"]["finger"],3);
+        assert!(r["coverage"][0]["after"].is_null());
         assert!(review_acceptance(&p,&[Edit{track_id:2,note_index:0,finger:Some(1)}]).is_err());
         assert!(review_acceptance(&p,&[Edit{track_id:2,note_index:1,finger:Some(3)},Edit{track_id:2,note_index:1,finger:Some(3)}]).is_err());
         let left=fixture(PracticePart::LeftHand,&[Some(5),Some(3),None]);
@@ -486,6 +517,8 @@ mod acceptance_tests {
         p.positions[0].saved=None;
         let r=review_acceptance(&p,&[Edit{track_id:2,note_index:1,finger:Some(3)}]).unwrap();
         assert_eq!(r["contextUnmarked"],1);assert!(r["contextFingers"][0].is_null());
+        assert_eq!(r["coverageTotal"],2);assert_eq!(r["coverage"][0]["track"],7);
+        assert_eq!(r["coverage"][0]["index"],1);assert_eq!(r["coverage"][0]["target"],false);
         assert!(review_acceptance(&p,&[Edit{track_id:7,note_index:1,finger:Some(1)}]).is_err());
     }
     #[test]

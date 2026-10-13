@@ -271,6 +271,9 @@ pub enum Command {
     ApplyScoreSource {id:String,fingerprint:String,mode:String},
     ImportScoreOriginal {path:PathBuf,default_bpm:u16},
     ScoreVersions,
+    PreviewScoreVersionRoute {id:String,content_id:String},
+    PreviewScoreBytesRoute {bytes:Vec<u8>,name:String,content_id:String},
+    SaveScoreVersion {bytes:Vec<u8>,name:String,content_id:String},
     LibraryScores {path:PathBuf,content_id:String},
     CheckLibraryScoreImport {path:PathBuf,content_id:String,bytes:Vec<u8>,kind:String,#[serde(default)]target:Option<String>},
     UpdateLibraryPaper{path:PathBuf,content_id:String,id:String,action:String,page:usize,direction:i32},
@@ -2573,6 +2576,34 @@ impl Player {
                 let rows:Vec<_>=self.preferences.score_versions.get(&f.content_id).into_iter().flatten().map(|v|serde_json::json!({"id":v.id,"name":v.name,"path":v.path,"active":current.as_ref()==Some(&v.path),"available":v.path.is_file()})).collect();
                 return Ok(serde_json::json!({"versions":rows}));
             }
+            Command::PreviewScoreVersionRoute{id,content_id}=>{
+                self.score_content_guard(&content_id)?;
+                let version=self.preferences.score_versions.get(&content_id)
+                    .and_then(|rows|rows.iter().find(|v|v.id==id)).ok_or("谱面版本不存在")?;
+                let file=self.file.as_ref().ok_or("请先选择曲目")?;
+                let midi=self.annotation_path(file)?;
+                let assoc=neothesia_core::library::ScoreAssociation{path:version.path.clone(),content_id:version.content_id.clone()};
+                if !neothesia_core::library::verify_score_association(&midi,&assoc).map_err(|e|e.to_string())?{
+                    return Err("谱面文件已经改变，请重新导入并检查顺序".into());
+                }
+                let asset=notation::ScoreAsset::new(std::fs::read(&version.path).map_err(|e|e.to_string())?,version.name.clone(),file)?;
+                let mut result=asset.payload(Some(file));
+                result.as_object_mut().unwrap().remove("bytes");
+                result["versionId"]=serde_json::json!(id);
+                result["contentId"]=serde_json::json!(content_id);
+                return Ok(result);
+            }
+            Command::PreviewScoreBytesRoute{bytes,name,content_id}=>{
+                self.score_content_guard(&content_id)?;
+                let file=self.file.as_ref().ok_or("请先选择曲目")?;
+                let fingerprint=blake3::hash(&bytes).to_hex().to_string();
+                let asset=notation::ScoreAsset::new(bytes,name,file)?;
+                let mut result=asset.payload(Some(file));
+                result.as_object_mut().unwrap().remove("bytes");
+                result["fingerprint"]=serde_json::json!(fingerprint);
+                result["contentId"]=serde_json::json!(content_id);
+                return Ok(result);
+            }
             Command::ActivateScore { id, content_id } => {
                 self.score_content_guard(&content_id)?;
                 let v = self
@@ -2702,6 +2733,30 @@ impl Player {
                 self.score_revision = self.score_revision.wrapping_add(1);
                 self.remember_active_score()?;
                 return self.command(Command::Score);
+            }
+            Command::SaveScoreVersion{bytes,name,content_id}=>{
+                self.score_content_guard(&content_id)?;
+                self.remember_active_score()?;
+                let name=name.trim().to_owned();
+                if name.is_empty()||name.chars().count()>120{return Err("谱面名称需为 1 至 120 字".into())}
+                let hash=blake3::hash(&bytes).to_hex().to_string();
+                let existing=self.preferences.score_versions.get(&content_id).and_then(|rows|rows.iter().find(|v|v.name==name&&v.content_id==hash)).cloned();
+                if existing.is_none()&&self.preferences.score_versions.get(&content_id).is_some_and(|rows|rows.len()>=100){return Err("这首曲目已有 100 份谱面，请先移除不需要的版本".into())}
+                let file=self.file.as_ref().ok_or("请先选择曲目")?;
+                let score=notation::ScoreAsset::new(bytes,name.clone(),file)?;
+                let midi=self.annotation_path(file)?;
+                let path=self.store_score_version_file(&score,&content_id)?;
+                if let Some(version)=existing{
+                    let active=neothesia_core::library::load_song_sidecar(&midi,&content_id)
+                        .ok().and_then(|sidecar|sidecar.score)
+                        .is_some_and(|association|neothesia_core::library::resolve_score_path(&midi,&association)==version.path);
+                    return Ok(serde_json::json!({"versionId":version.id,"contentId":content_id,"active":active,"alreadySaved":true}));
+                }
+                let id=format!("score-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos());
+                let old=self.preferences.clone();
+                self.preferences.score_versions.entry(content_id.clone()).or_default().push(preferences::ScoreVersion{id:id.clone(),name,path:path.clone(),content_id:hash});
+                if let Err(error)=self.preferences.save(&self.preferences_path){self.preferences=old;let _=std::fs::remove_file(&path);return Err(error)}
+                return Ok(serde_json::json!({"versionId":id,"contentId":content_id,"active":false,"alreadySaved":false}));
             }
             Command::ExportAnnotatedScore {content_id,score_revision,options,download,fingerprint} => {
                 if self.file.as_ref().is_none_or(|f|f.content_id!=content_id) || self.score_revision!=score_revision {return Err("曲目或谱面版本已切换，请重新打开导出窗口".into());}
@@ -4606,6 +4661,11 @@ mod tests {
         let mut p = player();
         let id = p.file.as_ref().unwrap().content_id.clone();
         let xml=br#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure></part></score-partwise>"#;
+        let file_preview=p.command(Command::PreviewScoreBytesRoute{bytes:xml.to_vec(),name:"待添加谱面".into(),content_id:id.clone()}).unwrap();
+        assert_eq!(file_preview["route"]["visits"].as_array().unwrap().len(),1);
+        assert_eq!(file_preview["fingerprint"],blake3::hash(xml).to_hex().as_str());
+        assert!(file_preview.get("bytes").is_none());
+        assert!(p.command(Command::PreviewScoreBytesRoute{bytes:xml.to_vec(),name:"错误曲目".into(),content_id:"wrong".into()}).is_err());
         for name in ["原版谱面", "教学版谱面"] {
             p.command(Command::PairScore {
                 bytes: xml.to_vec(),
@@ -4618,6 +4678,10 @@ mod tests {
         assert_eq!(rows["versions"].as_array().unwrap().len(), 2);
         let first = rows["versions"][0]["id"].as_str().unwrap().to_owned();
         let file = PathBuf::from(rows["versions"][0]["path"].as_str().unwrap());
+        let preview=p.command(Command::PreviewScoreVersionRoute{id:first.clone(),content_id:id.clone()}).unwrap();
+        assert_eq!(preview["versionId"],first);
+        assert_eq!(preview["route"]["visits"].as_array().unwrap().len(),1);
+        assert!(preview.get("bytes").is_none());
         p.command(Command::ActivateScore {
             id: first.clone(),
             content_id: id.clone(),
@@ -4636,12 +4700,35 @@ mod tests {
         })
         .unwrap();
         assert!(p.notation.is_none());
+        std::fs::write(&file,b"changed source").unwrap();
+        assert!(p.command(Command::PreviewScoreVersionRoute{id:first.clone(),content_id:id.clone()}).is_err());
         p.command(Command::RemoveScoreVersion {
             id: first,
             content_id: id,
         })
         .unwrap();
         assert!(file.is_file());
+    }
+    #[test]
+    fn reviewed_score_can_be_saved_without_changing_current_practice() {
+        let mut p=player();
+        let cid=p.file.as_ref().unwrap().content_id.clone();
+        let xml=br#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure></part></score-partwise>"#;
+        let old_revision=p.score_revision;
+        let result=p.command(Command::SaveScoreVersion{bytes:xml.to_vec(),name:"待核对的谱面".into(),content_id:cid.clone()}).unwrap();
+        assert_eq!(result["active"],false);
+        assert_eq!(result["alreadySaved"],false);
+        assert_eq!(p.score_revision,old_revision);
+        assert!(p.notation.is_none());
+        let repeat=p.command(Command::SaveScoreVersion{bytes:xml.to_vec(),name:"待核对的谱面".into(),content_id:cid.clone()}).unwrap();
+        assert_eq!(repeat["alreadySaved"],true);
+        assert_eq!(repeat["versionId"],result["versionId"]);
+        let versions=p.command(Command::ScoreVersions).unwrap();
+        assert_eq!(versions["versions"].as_array().unwrap().len(),1);
+        assert_eq!(versions["versions"][0]["active"],false);
+        let root=p.data.clone();drop(p);
+        let reopened=Player::new(root,PathBuf::new(),true);
+        assert_eq!(reopened.preferences.score_versions[&cid][0].id,result["versionId"].as_str().unwrap());
     }
     #[test]
     fn direct_musicxml_import_persists_performance_score_hands_and_original_fingers() {

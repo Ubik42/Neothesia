@@ -69,12 +69,18 @@ test("跨曲目原谱批量预览：独立选择、陈旧失败继续、新演�
     .getByRole("button", { name: "生成逐项预览", exact: true })
     .click();
   await expect(batch).toContainText("预览完成");
-  for (const piece of pieces)
+  for (const piece of pieces) {
     await expect(
       batch
         .locator(`[data-batch-source-id="${piece.source.id}"]`)
         .getByRole("combobox"),
     ).toHaveValue("skip");
+    await expect(
+      batch
+        .locator(`[data-batch-source-id="${piece.source.id}"]`)
+        .getByRole("region", { name: "更新后谱面的实际演奏顺序" }),
+    ).toContainText("第 1 小节");
+  }
   await batch
     .getByRole("button", { name: "已预览项添加新谱面", exact: true })
     .click();

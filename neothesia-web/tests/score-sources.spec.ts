@@ -61,6 +61,9 @@ test("原谱更新：自动发现、预览防变、新版本和独立演奏身�
   await expect(
     dialog.getByRole("region", { name: "原谱更新预览" }),
   ).toContainText("演奏内容身份相同");
+  await expect(
+    dialog.getByRole("region", { name: "更新后谱面的实际演奏顺序" }),
+  ).toContainText("第 1 小节");
   const changed = await cmd({
     type: "scoreSources",
     content_id: song.contentId,
@@ -78,7 +81,16 @@ test("原谱更新：自动发现、预览防变、新版本和独立演奏身�
   });
   expect(stale.ok()).toBeFalsy();
   expect(await stale.text()).toContain("重新检查");
+  await expect(
+    dialog.getByText("原文件或关联已变化，请重新预览后应用。"),
+  ).toBeVisible({ timeout: 12000 });
+  await expect(
+    dialog.getByRole("button", { name: "添加为新谱面版本" }),
+  ).toHaveCount(0);
   await writeFile(original, xml("F", "<!-- layout version 2 -->"));
+  await expect(
+    dialog.getByRole("button", { name: "添加为新谱面版本" }),
+  ).toBeVisible({ timeout: 12000 });
   await dialog
     .getByRole("button", { name: "添加为新谱面版本", exact: true })
     .click();
@@ -90,7 +102,10 @@ test("原谱更新：自动发现、预览防变、新版本和独立演奏身�
     type: "scoreSources",
     content_id: song.contentId,
   });
-  const currentSource = updated.entries.find((s: any) => s.status === "ready" && s.path.endsWith(path.basename(original)));
+  const currentSource = updated.entries.find(
+    (s: any) =>
+      s.status === "ready" && s.path.endsWith(path.basename(original)),
+  );
   await writeFile(original, xml("G"));
   const currentRow = dialog.locator(`[data-source-id="${currentSource.id}"]`);
   await expect(currentRow).toContainText("原文件有更新", { timeout: 12000 });

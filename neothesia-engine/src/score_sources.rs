@@ -254,16 +254,22 @@ pub fn preview(data: &Path, id: &str, expected: &str) -> Result<Value, String> {
         .as_ref()
         .map(|f| ScoreAsset::new(bytes.clone(), name.clone(), f).map(|a|{let summary=neothesia_core::score_alignment::summarize_alignment(&a.alignment);json!({"coverage":summary.coverage_percent,"readiness":summary.readiness,"diagnostics":summary.navigation_diagnostics})}))
         .transpose()?;
-    let (new_cid, notes, duration, same, warnings, error) = match generated {
-        Ok((file, notes, warnings)) => (
-            Some(file.content_id.clone()),
-            Some(notes),
-            Some(file.duration.as_secs_f64()),
-            Some(file.content_id == source.content_id),
-            warnings,
-            None,
-        ),
-        Err(error) => (None, None, None, None, Vec::new(), Some(error)),
+    let (new_cid, notes, duration, same, warnings, error, route_preview) = match generated {
+        Ok((file, notes, warnings)) => {
+            let asset=ScoreAsset::new(bytes.clone(),name.clone(),&file)?;
+            let mut route=asset.payload(Some(&file));
+            route.as_object_mut().unwrap().remove("bytes");
+            (
+                Some(file.content_id.clone()),
+                Some(notes),
+                Some(file.duration.as_secs_f64()),
+                Some(file.content_id == source.content_id),
+                warnings,
+                None,
+                Some(route),
+            )
+        }
+        Err(error) => (None, None, None, None, Vec::new(), Some(error), None),
     };
     let written = score
         .parts
@@ -273,7 +279,7 @@ pub fn preview(data: &Path, id: &str, expected: &str) -> Result<Value, String> {
         .filter(|e| matches!(e,neothesia_core::musicxml::ScoreEvent::Note(n) if n.pitch.is_some()))
         .count();
     Ok(
-        json!({"id":id,"fingerprint":expected,"name":name,"title":score.title,"newContentId":new_cid,"performanceReady":error.is_none(),"performanceError":error,"writtenNotes":written,"samePerformance":same,"notes":notes,"duration":duration,"oldAvailable":old_file.is_some(),"pairing":pairing.map(|p|json!({"coverage":p["coverage"],"readiness":p["readiness"],"diagnostics":p["diagnostics"]})),"warnings":warnings}),
+        json!({"id":id,"fingerprint":expected,"name":name,"title":score.title,"newContentId":new_cid,"performanceReady":error.is_none(),"performanceError":error,"writtenNotes":written,"samePerformance":same,"notes":notes,"duration":duration,"oldAvailable":old_file.is_some(),"pairing":pairing.map(|p|json!({"coverage":p["coverage"],"readiness":p["readiness"],"diagnostics":p["diagnostics"]})),"warnings":warnings,"routePreview":route_preview}),
     )
 }
 pub(super) fn acknowledge(data: &Path, id: &str, expected: &str) -> Result<Value, String> {
@@ -565,6 +571,11 @@ mod tests {
             inspect(&data, Some(&cid)).unwrap()["entries"][0]["status"],
             "changed"
         );
+        let clean=inspect(&data,Some(&cid)).unwrap()["entries"][0].clone();
+        let clean_preview=preview(&data,clean["id"].as_str().unwrap(),clean["fingerprint"].as_str().unwrap()).unwrap();
+        assert_eq!(clean_preview["performanceReady"],true);
+        assert_eq!(clean_preview["routePreview"]["route"]["visits"].as_array().unwrap().len(),1);
+        assert!(clean_preview["routePreview"].get("bytes").is_none());
         std::fs::write(
             &version.path,
             xml("G", r#"<direction><sound dalsegno="missing"/></direction>"#),

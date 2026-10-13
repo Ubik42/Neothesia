@@ -113,6 +113,17 @@ mod tests {
    let edits=generated["plans"][0]["proposals"].as_array().unwrap().iter().map(|n|Edit{track_id:n["track"].as_u64().unwrap() as usize,note_index:n["index"].as_u64().unwrap() as usize,finger:Some(n["finger"].as_u64().unwrap() as u8)}).collect();parts.push(PairPart{request,fingerprint,edits});
   }
   let before=p.saved_hints().unwrap();let review=p.finger_pair(&parts,None,false).unwrap();assert_eq!(review["valid"],true);assert_eq!(p.saved_hints().unwrap(),before);let proof=review["proof"].as_str().unwrap().to_owned();
+  let omitted=parts[1].edits.pop().unwrap();
+  let partial=p.finger_pair(&parts,None,false).unwrap();
+  assert_eq!(partial["valid"],true);assert_eq!(partial["needsAck"],true);
+  assert_eq!(partial["reviews"][1]["markedSubsetValid"],true);
+  // The generated exercise already carries a mark for the omitted note.
+  // Deselecting it retains that mark; the review must not report a gap.
+  assert_eq!(partial["reviews"][1]["coverageTotal"],0);
+  assert!(partial["reviews"][1]["retained"].as_u64().unwrap()>0);
+  assert!(p.finger_pair(&parts,Some(&proof),true).is_err());
+  assert_eq!(p.saved_hints().unwrap(),before);
+  parts[1].edits.push(omitted);
   assert!(p.start_pair_demo(&parts,"stale",true,0.5).is_err());
   let state_before=p.snapshot();let undo_before=p.finger_undo.len();
   let demo=p.start_pair_demo(&parts,&proof,true,0.5).unwrap();assert_eq!(demo["active"],true);
