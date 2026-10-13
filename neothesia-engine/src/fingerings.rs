@@ -211,24 +211,49 @@ pub struct Prepared {
     pub opposite_positions: Vec<Position>,
 }
 
-fn cross_hand_reviews(p: &Prepared, fingers: &[Option<u8>], only_selected: bool) -> Vec<serde_json::Value> {
+fn cross_hand_reviews(p: &Prepared, fingers: &[Option<u8>], opposite_fingers: &[Option<u8>], only_selected: bool) -> Vec<serde_json::Value> {
     if fingers.len()!=p.notes.len() || p.opposite_notes.len()!=p.opposite_positions.len()
-        || p.opposite_notes.iter().any(|n|!n.anchored_finger.is_some_and(|f|(1..=5).contains(&f))) {return vec![];}
+        || opposite_fingers.len()!=p.opposite_notes.len() {return vec![];}
     let hand=if p.request.hand==PracticePart::LeftHand {FingeringHand::Left} else {FingeringHand::Right};
     let indexed:Vec<_>=p.notes.iter().enumerate().filter(|(i,_)| fingers[*i].is_some()
         && (!only_selected || p.positions[*i].target)).collect();
     let notes:Vec<_>=indexed.iter().map(|(_,n)|**n).collect();
     let own_fingers:Vec<_>=indexed.iter().map(|(i,_)|fingers[*i].unwrap()).collect();
-    let opposite_fingers:Vec<_>=p.opposite_notes.iter().map(|n|n.anchored_finger.unwrap()).collect();
-    neothesia_core::fingering::review_cross_hand(&notes,&own_fingers,hand,&p.opposite_notes,&opposite_fingers)
+    let opposite:Vec<_>=p.opposite_notes.iter().enumerate().filter(|(i,_)|opposite_fingers[*i].is_some()).collect();
+    let opposite_notes:Vec<_>=opposite.iter().map(|(_,n)|**n).collect();
+    let opposite_assigned:Vec<_>=opposite.iter().map(|(i,_)|opposite_fingers[*i].unwrap()).collect();
+    neothesia_core::fingering::review_cross_hand(&notes,&own_fingers,hand,&opposite_notes,&opposite_assigned)
         .into_iter().take(100).map(|r|{
-            let n=&p.positions[indexed[r.index].0];let other=&p.opposite_positions[r.opposite_index];
+            let n=&p.positions[indexed[r.index].0];let other=&p.opposite_positions[opposite[r.opposite_index].0];
             serde_json::json!({"contextIndex":indexed[r.index].0,"track":n.track,"index":n.index,
                 "measure":n.measure,"pitch":r.pitch,"finger":r.finger,
                 "oppositeTrack":other.track,"oppositeIndex":other.index,"oppositeMeasure":other.measure,
-                "oppositePitch":r.opposite_pitch,"oppositeFinger":r.opposite_finger,
+                "oppositePitch":r.opposite_pitch,"oppositeFinger":r.opposite_finger,"oppositeSaved":other.saved.is_some(),
                 "kind":r.kind,"overlapMs":r.overlap_ms})
         }).collect()
+}
+
+fn joint_cost(p:&Prepared, primary:&[u8], opposite:&[Option<u8>])->i64 {
+    let known:Vec<_>=p.opposite_notes.iter().zip(opposite).filter_map(|(n,f)|f.map(|f|(*n,f))).collect();
+    let (other_notes,other_fingers):(Vec<_>,Vec<_>)=known.into_iter().unzip();
+    if p.request.hand==PracticePart::LeftHand {
+        neothesia_core::fingering::cross_hand_plan_cost(&p.notes,primary,&other_notes,&other_fingers)
+    } else {
+        neothesia_core::fingering::cross_hand_plan_cost(&other_notes,&other_fingers,&p.notes,primary)
+    }
+}
+
+fn rank_joint_candidates(p:&Prepared, primary:&[(Vec<u8>,i64)], opposite:&[(Vec<Option<u8>>,i64)], limit:usize)
+    ->Vec<(usize,usize,i64,i64)> {
+    let mut pairs:Vec<_>=primary.iter().enumerate().flat_map(|(primary_index,(fingers,cost))|{
+        opposite.iter().enumerate().map(move |(opposite_index,(other,other_cost))|{
+            let cross_cost=joint_cost(p,fingers,other);
+            (primary_index,opposite_index,*cost+*other_cost+cross_cost,cross_cost)
+        })
+    }).collect();
+    pairs.sort_by_key(|(primary,opposite,total,_)|(*total,*primary,*opposite));
+    pairs.truncate(limit);
+    pairs
 }
 
 fn expression_reason(
@@ -342,13 +367,17 @@ pub fn prepare(
     for track in file.tracks.iter() {for (index,n) in track.notes.iter().enumerate() {
         if crate::hands::part(config,assigned,track.track_id,index)!=opposite_part
             || n.start.as_secs_f64()>=target_end || n.end.as_secs_f64()<=target_start {continue;}
-        let Some(finger)=saved.get(&(track.track_id,n.start,n.note)).copied().filter(|f|(1..=5).contains(f)) else {continue;};
+        let finger=saved.get(&(track.track_id,n.start,n.note)).copied().filter(|f|(1..=5).contains(f));
         let tick=file.tempo_track.seconds_to_pulses(n.start.as_secs_f64()).round() as u64;
-        opposite_notes.push(FingeringNote{pitch:n.note,onset:n.start,end:n.end,anchored_finger:Some(finger)});
+        opposite_notes.push(FingeringNote{pitch:n.note,onset:n.start,end:n.end,anchored_finger:finger});
         opposite_positions.push(Position{track:track.track_id,index,pitch:n.note,
-            measure:file.musical_time.measures.partition_point(|m|m.start_tick<=tick).max(1),saved:Some(finger),
+            measure:file.musical_time.measures.partition_point(|m|m.start_tick<=tick).max(1),saved:finger,
             target:false,onset:n.start.as_secs_f64(),end:n.end.as_secs_f64()});
     }}
+    if opposite_notes.len()>4608 {return Err("对侧手在选段中超过 4608 个音符，请缩小小节范围".into());}
+    let mut opposite_paired:Vec<_>=opposite_notes.into_iter().zip(opposite_positions).collect();
+    opposite_paired.sort_by_key(|(n,p)|(n.onset,n.pitch,p.track,p.index));
+    let (opposite_notes,opposite_positions):(Vec<_>,Vec<_>)=opposite_paired.into_iter().unzip();
     let trusted_score = score.filter(|score| score.content_id == file.content_id);
     let marks = trusted_score.map(|score| score.fingering_marks(file)).unwrap_or_default();
     let by_midi: HashMap<_, _> = positions.iter().enumerate()
@@ -415,14 +444,31 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
             }
         )
     })?;
-    let result: Vec<_> = solutions.iter().enumerate().map(|(rank, s)| {
+    let opposite_focus:Vec<_>=p.opposite_notes.iter().enumerate().filter_map(|(i,n)|n.anchored_finger.is_none().then_some(i)).collect();
+    let saved_opposite:Vec<_>=p.opposite_notes.iter().map(|n|n.anchored_finger).collect();
+    let opposite_hand=if hand==FingeringHand::Left {FingeringHand::Right} else {FingeringHand::Left};
+    let (opposite_plans,joint_status):(Vec<(Vec<Option<u8>>,i64)>,&'static str)=if opposite_focus.is_empty() {
+        (vec![(saved_opposite,0)],"对侧指法均已保存，按固定位置参与联合比较")
+    } else {
+        match neothesia_core::fingering::suggest_fingering_plans_for_indices(
+            &p.opposite_notes,opposite_hand,HandSpanProfile::Standard,&opposite_focus,3,p.request.practice_rate) {
+            Ok(plans)=>(plans.into_iter().map(|s|(s.suggestions.into_iter().map(|f|Some(f.finger)).collect(),s.cost)).collect(),
+                "对侧未保存音符使用标准跨度临时推荐；只有所选手的指法会保存"),
+            Err(_)=>(vec![(saved_opposite,0)],"对侧固定指法与持音位置无法组成完整候选；联合比较只使用已保存位置"),
+        }
+    };
+    let primary_candidates:Vec<_>=solutions.iter().map(|s|(s.suggestions.iter().map(|f|f.finger).collect(),s.cost)).collect();
+    let pairs=rank_joint_candidates(&p,&primary_candidates,&opposite_plans,3);
+    let result: Vec<_> = pairs.into_iter().enumerate().map(|(rank, (primary_index,opposite_index,total_cost,cross_cost))| {
+        let s=&solutions[primary_index];
+        let opposite_fingers=&opposite_plans[opposite_index].0;
         let proposals: Vec<_> = p.positions.iter().zip(&s.suggestions).enumerate().filter(|(_, (n, _))| n.target)
             .map(|(i, (n, f))| Proposal { track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,
                 finger:f.finger,saved:n.saved,confidence:f.confidence_percent,
                 reason:expression_reason(&p.expression, &s.suggestions, i).unwrap_or_else(|| explanation(f.reason)) }).collect();
         let count = |r| p.positions.iter().zip(&s.suggestions).filter(|(n,f)| n.target && f.reason==r).count();
         let fingers: Vec<_> = s.suggestions.iter().map(|s| s.finger).collect();
-        let cross_hand_review=cross_hand_reviews(&p,&fingers.iter().copied().map(Some).collect::<Vec<_>>(),true);
+        let cross_hand_review=cross_hand_reviews(&p,&fingers.iter().copied().map(Some).collect::<Vec<_>>(),opposite_fingers,true);
         let review: Vec<_> = neothesia_core::fingering::review_fingering_plan(
             &p.notes, &fingers, hand, p.request.profile, p.request.practice_rate,
         ).into_iter().filter(|r| p.positions[r.index].target).map(|r| {
@@ -432,8 +478,9 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
                 "semitones":r.semitones,"comfortableSemitones":r.comfortable_semitones,
                 "intervalMs":r.interval_ms})
         }).collect();
-        serde_json::json!({"rank":rank+1,"cost":s.cost,"proposals":proposals,
-            "contextFingers":fingers,"review":review,"crossHandReview":cross_hand_review,"practiceRate":p.request.practice_rate,
+        serde_json::json!({"rank":rank+1,"cost":total_cost,"primaryCost":s.cost,
+            "oppositeCost":opposite_plans[opposite_index].1,"jointCost":cross_cost,"proposals":proposals,
+            "contextFingers":fingers,"oppositeContextFingers":opposite_fingers,"review":review,"crossHandReview":cross_hand_review,"practiceRate":p.request.practice_rate,
             "crossings":count(FingeringReason::ThumbUnder)+count(FingeringReason::FingerOver),
             "shifts":count(FingeringReason::PositionShift),"wide":count(FingeringReason::WideChordShape),
             "changed":proposals.iter().filter(|n|n.saved.is_some_and(|f|f!=n.finger)).count()})
@@ -442,7 +489,7 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
     let mut context_tracks:Vec<_>=p.positions.iter().filter(|n|!target_tracks.contains(&n.track)).map(|n|n.track).collect();
     context_tracks.sort_unstable();context_tracks.dedup();
     Ok(
-        serde_json::json!({"targetTracks":target_tracks,"contextTracks":context_tracks,"contentId":p.request.content_id,"fingerprint":p.fingerprint,"request":p.request,"plans":result,"context":p.positions,"oppositeContext":p.opposite_positions,
+        serde_json::json!({"targetTracks":target_tracks,"contextTracks":context_tracks,"contentId":p.request.content_id,"fingerprint":p.fingerprint,"request":p.request,"plans":result,"context":p.positions,"oppositeContext":p.opposite_positions,"jointStatus":joint_status,
             "scoreArticulations":{"paired":p.score_fingerprint.is_some(),"slurLinks":p.expression.iter().filter(|mark|mark.slur_from.is_some()).count(),
                 "staccatoNotes":p.expression.iter().filter(|mark|mark.staccato).count()}}),
     )
@@ -557,7 +604,8 @@ pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Val
             "unmarked":positions.len()-selected_count-retained_count,"changed":changed,"new":new})
     }).collect();
     let marked_subset_valid=conflicts.is_empty();
-    let cross_hand_review=cross_hand_reviews(p,&context_fingers,true);
+    let saved_opposite:Vec<_>=p.opposite_notes.iter().map(|n|n.anchored_finger).collect();
+    let cross_hand_review=cross_hand_reviews(p,&context_fingers,&saved_opposite,true);
     let full_passage_validated=marked_subset_valid && coverage_total==0 && review.is_empty()
         && cross_hand_review.is_empty() && !review_truncated && !truncated;
     Ok(serde_json::json!({"contextUnmarked":context_unmarked,"valid":marked_subset_valid,"markedSubsetValid":marked_subset_valid,
@@ -645,5 +693,33 @@ mod acceptance_tests {
         assert_eq!(result["fullPassageValidated"],false);
         let preserved=review_acceptance(&p,&[Edit{track_id:2,note_index:1,finger:Some(3)}]).unwrap();
         assert!(preserved["crossHandReview"].as_array().unwrap().is_empty());
+    }
+    #[test]
+    fn joint_ranking_can_choose_higher_single_hand_cost_to_reduce_overlap() {
+        let mut p=fixture(PracticePart::RightHand,&[Some(1),None,None]);
+        p.opposite_notes.push(FingeringNote{pitch:66,onset:Duration::from_millis(500),
+            end:Duration::from_millis(800),anchored_finger:Some(5)});
+        p.opposite_positions.push(Position{track:7,index:4,pitch:66,measure:1,saved:Some(5),target:false,
+            onset:0.5,end:0.8});
+        let ranked=rank_joint_candidates(&p,&[(vec![1,3,5],0),(vec![1,3,1],2)],
+            &[(vec![Some(5)],0)],2);
+        assert_eq!(ranked[0].0,1);
+        assert!(ranked[0].2<ranked[1].2);
+        assert!(ranked[0].3<ranked[1].3);
+    }
+    #[test]
+    fn unsaved_opposite_hand_has_visible_temporary_plan() {
+        let mut p=fixture(PracticePart::RightHand,&[Some(1),None,None]);
+        p.opposite_notes.push(FingeringNote{pitch:66,onset:Duration::from_millis(500),
+            end:Duration::from_millis(800),anchored_finger:None});
+        p.opposite_positions.push(Position{track:7,index:4,pitch:66,measure:1,saved:None,target:false,
+            onset:0.5,end:0.8});
+        let result=plans(p).unwrap();
+        let candidate=&result["plans"][0];
+        assert!(candidate["oppositeContextFingers"][0].as_u64().is_some());
+        assert_eq!(candidate["crossHandReview"][0]["oppositeSaved"],false);
+        assert_eq!(candidate["cost"].as_i64().unwrap(),
+            candidate["primaryCost"].as_i64().unwrap()+candidate["oppositeCost"].as_i64().unwrap()
+                +candidate["jointCost"].as_i64().unwrap());
     }
 }

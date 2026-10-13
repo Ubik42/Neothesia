@@ -20,6 +20,15 @@ type Review = {
   firstLoadHistorySetup: boolean;
   conditionConflict: boolean;
 };
+type HistoryReview = {
+  contentId: string;
+  fingerprint: string;
+  sourcePath: string;
+  activePath: string;
+  currentId: string;
+  policy: string;
+  rows: { oldId: string; recordedAt: number; oldScope: string; currentId: string; currentScope: string; oldAccuracy: number | null; currentAccuracy: number | null; noteCount: number; eligible: boolean; reason: string | null; approved: boolean }[];
+};
 
 export function LegacyExerciseTracksDialog({
   contentId,
@@ -35,6 +44,17 @@ export function LegacyExerciseTracksDialog({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [restoreConditions, setRestoreConditions] = useState(false);
+  const [historyReview, setHistoryReview] = useState<HistoryReview | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const loadHistory = async () => {
+    setHistoryError("");
+    try {
+      setHistoryReview(await api.command<HistoryReview>({ type: "previewLegacyExerciseHistory", content_id: contentId }));
+    } catch (e) {
+      setHistoryReview(null);
+      setHistoryError(String(e instanceof Error ? e.message : e));
+    }
+  };
   const load = async () => {
     setBusy(true);
     setError("");
@@ -47,7 +67,7 @@ export function LegacyExerciseTracksDialog({
       setBusy(false);
     }
   };
-  useEffect(() => { void load(); }, [contentId]);
+  useEffect(() => { void load(); void loadHistory(); }, [contentId]);
   const apply = async () => {
     if (!review?.canApply) return;
     setBusy(true);
@@ -60,11 +80,29 @@ export function LegacyExerciseTracksDialog({
         restore_conditions: restoreConditions,
       });
       await changed();
+      await loadHistory();
       setNotice(`已迁移 ${result.migratedAnnotations} 项个人设置，并重新打开当前练习。原资料副本：${result.backupPath}`);
       setReview(null);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
       setReview(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const decideHistory = async (oldId: string, currentId: string, approve: boolean) => {
+    if (!historyReview) return;
+    setBusy(true);
+    setHistoryError("");
+    try {
+      setHistoryReview(await api.command<HistoryReview>({
+        type: "reviewLegacyExerciseHistory", content_id: contentId,
+        old_id: oldId, current_id: currentId, fingerprint: historyReview.fingerprint, approve,
+      }));
+      setNotice(approve ? "这条旧成绩已加入同条件比较。原成绩没有修改。" : "这条旧成绩的比较映射已撤销。原成绩没有修改。");
+    } catch (e) {
+      setHistoryError(String(e instanceof Error ? e.message : e));
+      setHistoryReview(null);
     } finally {
       setBusy(false);
     }
@@ -93,6 +131,21 @@ export function LegacyExerciseTracksDialog({
       {error && <p className="form-error" role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       <button disabled={busy} onClick={() => void load()}>重新检查</button>
+      <h3>旧成绩比较审阅</h3>
+      {historyReview && <>
+        <p>当前对照成绩：{historyReview.currentId}。{historyReview.policy}</p>
+        {historyReview.rows.length === 0 && <p>这首练习没有符合旧版单左手格式的成绩。</p>}
+        {historyReview.rows.map(row => <div key={row.oldId}>
+          <p>旧成绩 {row.oldId} · {new Date(row.recordedAt).toLocaleString("zh-CN")} · {row.approved ? "已确认比较" : row.eligible ? "可确认" : "无法证明等价"}</p>
+          <p>左手目标音 {row.noteCount} 个；旧成绩准确率 {row.oldAccuracy == null ? "无有效判定" : `${Math.round(row.oldAccuracy * 100)}%`}；当前对照成绩 {row.currentAccuracy == null ? "无有效判定" : `${Math.round(row.currentAccuracy * 100)}%`}。</p>
+          {row.eligible && <p>两条成绩的音符范围、练习变体、速度、音符覆盖、手别和其他条件已核对一致。你确认后，历史详情会把这条旧成绩计入同条件比较。</p>}
+          {row.reason && <p>{row.reason}</p>}
+          {row.approved ? <button disabled={busy} onClick={() => void decideHistory(row.oldId, row.currentId, false)}>撤销比较映射</button>
+            : <button disabled={busy || !row.eligible} onClick={() => void decideHistory(row.oldId, row.currentId, true)}>确认纳入同条件比较</button>}
+        </div>)}
+      </>}
+      {historyError && <p className="form-error" role="alert">{historyError}</p>}
+      <button disabled={busy} onClick={() => void loadHistory()}>刷新旧成绩审阅</button>
     </section>
   </div>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, pitchName, type LoadedSong, type Note } from "./api";
 import { annotatedPagePng } from "./PaperPageExport";
+import { annotatedBookPdf } from "./PaperBookExport";
 import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
 import { PaperSources } from "./PaperSources";
 import { PaperTransferReview } from "./PaperTransferReview";
@@ -555,8 +556,10 @@ export function PaperReader({
   ) => Promise<boolean>;
 }) {
   const [exportBusy, setExportBusy] = useState(false),
+    [bookBusy, setBookBusy] = useState(false),
     [exportNotice, setExportNotice] = useState("");
   const exportLock = useRef(false),
+    exportCancelled = useRef(false),
     readerAlive = useRef(true);
   useEffect(() => {
     readerAlive.current = true;
@@ -1067,6 +1070,48 @@ export function PaperReader({
       if(pending)scrollRegion(pending.region);
     }
   };
+  const renderForExport = async (pageNumber: number, rotation: number) => {
+    const asset = attachment.format === "pdf" ? attachment.pages[0] : attachment.pages[pageNumber - 1];
+    if (!asset?.available) throw new Error(`第 ${pageNumber} 页副本不可用，请先修复谱页`);
+    const source = document.createElement("canvas");
+    const context = source.getContext("2d");
+    if (!context) throw new Error("无法创建导出画布");
+    if (attachment.format === "pdf") {
+      if (!doc) throw new Error("PDF 尚未加载完成");
+      const pdfPage = await doc.getPage(pageNumber);
+      const base = pdfPage.getViewport({ scale: 1, rotation: (pdfPage.rotate + rotation) % 360 });
+      const scale = Math.min(1800 / base.width, Math.sqrt(12_000_000 / (base.width * base.height)));
+      const viewport = pdfPage.getViewport({ scale, rotation: (pdfPage.rotate + rotation) % 360 });
+      source.width = Math.max(1, Math.ceil(viewport.width));
+      source.height = Math.max(1, Math.ceil(viewport.height));
+      await pdfPage.render({ canvas: source, canvasContext: context, viewport }).promise;
+    } else {
+      const bytes = await api.readScoreAttachment(contentId, attachment.id, pageNumber - 1, previewKind);
+      const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: `image/${asset.kind}` }));
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        if (image.naturalWidth * image.naturalHeight > 64_000_000)
+          throw new Error(`第 ${pageNumber} 页图片过大，请缩小后导出`);
+        const swap = rotation % 180 !== 0;
+        const width = swap ? image.naturalHeight : image.naturalWidth;
+        const height = swap ? image.naturalWidth : image.naturalHeight;
+        const scale = Math.min(1800 / width, 1, Math.sqrt(12_000_000 / (width * height)));
+        source.width = Math.max(1, Math.ceil(width * scale));
+        source.height = Math.max(1, Math.ceil(height * scale));
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, source.width, source.height);
+        context.translate(source.width / 2, source.height / 2);
+        context.rotate((rotation * Math.PI) / 180);
+        context.scale(scale, scale);
+        context.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    return source;
+  };
   const exportPage = async () => {
     if (
       exportLock.current ||
@@ -1095,65 +1140,8 @@ export function PaperReader({
         n.assetId === asset?.id &&
         n.page === (attachment.format === "pdf" ? pageNumber : 1),
     );
-    let objectUrl: string | null = null;
     try {
-      const source = document.createElement("canvas"),
-        context = source.getContext("2d");
-      if (!context || !asset?.available)
-        throw new Error("谱页副本不可用，请重新添加或修复");
-      if (doc) {
-        const pdfPage = await doc.getPage(pageNumber);
-        const base = pdfPage.getViewport({
-          scale: 1,
-          rotation: (pdfPage.rotate + rotation) % 360,
-        });
-        const scale = Math.min(
-          1800 / base.width,
-          Math.sqrt(12_000_000 / (base.width * base.height)),
-        );
-        const viewport = pdfPage.getViewport({
-          scale,
-          rotation: (pdfPage.rotate + rotation) % 360,
-        });
-        source.width = Math.max(1, Math.ceil(viewport.width));
-        source.height = Math.max(1, Math.ceil(viewport.height));
-        await pdfPage.render({
-          canvas: source,
-          canvasContext: context,
-          viewport,
-        }).promise;
-      } else {
-        const bytes = await api.readScoreAttachment(
-          contentId,
-          attachment.id,
-          pageNumber - 1,
-          previewKind,
-        );
-        objectUrl = URL.createObjectURL(
-          new Blob([bytes.slice().buffer], { type: `image/${asset.kind}` }),
-        );
-        const image = new Image();
-        image.src = objectUrl;
-        await image.decode();
-        if (image.naturalWidth * image.naturalHeight > 64_000_000)
-          throw new Error("谱页图片过大，请缩小后导出");
-        const swap = rotation % 180 !== 0,
-          w = swap ? image.naturalHeight : image.naturalWidth,
-          h = swap ? image.naturalWidth : image.naturalHeight;
-        const scale = Math.min(1800 / w, 1, Math.sqrt(12_000_000 / (w * h)));
-        source.width = Math.max(1, Math.ceil(w * scale));
-        source.height = Math.max(1, Math.ceil(h * scale));
-        context.fillStyle = "#fff";
-        context.fillRect(0, 0, source.width, source.height);
-        context.translate(source.width / 2, source.height / 2);
-        context.rotate((rotation * Math.PI) / 180);
-        context.scale(scale, scale);
-        context.drawImage(
-          image,
-          -image.naturalWidth / 2,
-          -image.naturalHeight / 2,
-        );
-      }
+      const source = await renderForExport(pageNumber, rotation);
       const blob = await annotatedPagePng(
         source,
         notes,
@@ -1182,9 +1170,58 @@ export function PaperReader({
     } catch (e) {
       if (readerAlive.current) setExportNotice(`导出失败：${String(e)}`);
     } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
       exportLock.current = false;
       if (readerAlive.current) setExportBusy(false);
+    }
+  };
+  const exportBook = async () => {
+    if (exportLock.current || disabled || annotationEditing || selectingRegion ||
+        loading || error || needsPassword || !count) return;
+    exportLock.current = true;
+    exportCancelled.current = false;
+    setExportBusy(true);
+    setBookBusy(true);
+    setExportNotice("");
+    if (playback && mapping?.enabled) setSuspended(true);
+    const name = attachment.name;
+    const rotation = view.rotation;
+    try {
+      const bytes = await annotatedBookPdf({
+        name,
+        pages: count,
+        rotation,
+        render: async (pageNumber) => {
+          if (!readerAlive.current || exportCancelled.current) throw new Error("整本导出已停止");
+          return renderForExport(pageNumber, rotation);
+        },
+        cancelled: () => exportCancelled.current || !readerAlive.current,
+        annotations: (pageNumber) => {
+          const asset = attachment.format === "pdf" ? attachment.pages[0] : attachment.pages[pageNumber - 1];
+          return (attachment.annotations ?? []).filter((note) =>
+            note.assetId === asset?.id && note.page === (attachment.format === "pdf" ? pageNumber : 1));
+        },
+        progress: (pageNumber, total) => {
+          if (readerAlive.current) setExportNotice(`正在制作第 ${pageNumber} / ${total} 页批注 PDF…`);
+        },
+      });
+      const fileName = `${name.replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")}-整本批注.pdf`;
+      if (api.desktop) {
+        const path = await api.exportPaperBook(fileName, bytes);
+        if (readerAlive.current) setExportNotice(path ? `已保存：${path}` : "已取消保存");
+      } else {
+        const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: "application/pdf" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        if (readerAlive.current) setExportNotice(`已导出整本批注 PDF，共 ${count} 页原谱。`);
+      }
+    } catch (e) {
+      if (readerAlive.current) setExportNotice(exportCancelled.current ? "已取消整本导出" : `整本导出失败：${String(e)}`);
+    } finally {
+      exportLock.current = false;
+      if (readerAlive.current) { setExportBusy(false); setBookBusy(false); }
     }
   };
   return (
@@ -1285,6 +1322,13 @@ export function PaperReader({
           title="导出完整当前页、编号和批注说明，不受阅读缩放影响"
         >
           {exportBusy ? "正在导出…" : "导出本页批注"}
+        </button>
+        <button
+          disabled={disabled || loading || !!error || needsPassword || annotationEditing || selectingRegion || exportBusy || !count}
+          onClick={() => void exportBook()}
+          title="按当前旋转方向导出整份谱本和已保存的批注；长批注会自动续到下一张打印页"
+        >
+          导出整本批注 PDF
         </button>
         {manage && attachment.format === "images" && (
           <>
@@ -1610,6 +1654,7 @@ export function PaperReader({
           {exportNotice}
         </p>
       )}
+      {bookBusy && <button type="button" onClick={() => { exportCancelled.current = true; setExportNotice("正在停止整本导出…"); }}>取消整本导出</button>}
       {needsPassword && (
         <form
           className="paper-password"

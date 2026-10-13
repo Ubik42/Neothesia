@@ -216,9 +216,10 @@ impl Player {
             .position(|s| session_id(s) == id)
             .ok_or("这条记录已不在历史中")?;
         let session = &history.sessions[index];
+        let legacy_approvals=crate::legacy_exercise_history::active_approvals(&self.data,content_id);
         let peers = history.sessions[..index]
             .iter()
-            .filter(|s| practice_conditions::same_attempt_conditions(session, s))
+            .filter(|s| crate::legacy_exercise_history::same_reviewed(&legacy_approvals,session,s))
             .collect::<Vec<_>>();
         let best = peers
             .iter()
@@ -227,7 +228,7 @@ impl Player {
         let excluded_recent = history.sessions[..index]
             .iter()
             .rev()
-            .filter(|older| !practice_conditions::same_attempt_conditions(session, older))
+            .filter(|older| !crate::legacy_exercise_history::same_reviewed(&legacy_approvals,session,older))
             .take(12)
             .map(|older| json!({
                 "entry": entry(content_id, &history.display_name, None, older),
@@ -254,6 +255,7 @@ impl Player {
                 (Some("different-conditions"),Some("更早的记录在范围、模式、速度、音符覆盖、分手、设备校准或其他练习条件上不同。"))
             };
         row["comparison"] = json!({"count":peers.len(),"bestAccuracy":best,
+            "reviewedLegacyCount":peers.iter().filter(|s|!practice_conditions::same_attempt_conditions(session,s)).count(),
             "conditions":conditions,"reasonCode":reason_code,"reason":reason,
             "excludedRecent":excluded_recent,
             "previous":peers.last().map(|s|entry(content_id,&history.display_name,None,s)),

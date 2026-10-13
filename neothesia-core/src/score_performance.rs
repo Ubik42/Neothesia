@@ -2,7 +2,7 @@
 use crate::{
     musicxml::*,
     practice::PracticePart,
-    score_playback::{PlaybackLimits, build_playback_plan},
+    score_playback::{PlaybackLimits, build_playback_plan, grace_note_timing},
 };
 use midi_file::midly::{
     Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind,
@@ -323,6 +323,29 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
             }
         }
     }
+    let grace_timings: Vec<_> = score
+        .parts
+        .iter()
+        .map(grace_note_timing)
+        .collect::<Result<_, _>>()?;
+    for (part, timings) in score.parts.iter().zip(&grace_timings) {
+        for visit in &plan.visits {
+            let Some(tail) = visit.fine_tail else {
+                continue;
+            };
+            let measure = &part.measures[visit.source_measure_ordinal as usize];
+            if measure.events.iter().any(|event| {
+                matches!(event,
+                ScoreEvent::Note(note) if !note.grace && timings.contains_key(&note.id)
+                    && note.onset.subtract(measure.start) == tail.onset)
+            }) {
+                return Err(format!(
+                    "第 {} 小节的数值 Fine 与装饰音借时值相交，请校对实际终止时值",
+                    visit.source_measure_ordinal + 1
+                ));
+            }
+        }
+    }
     let mut ppq = 960u64;
     let gcd = |mut a: u64, mut b: u64| {
         while b > 0 {
@@ -339,7 +362,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
             .and_then(|v| v.checked_mul(d))
             .ok_or("乐谱时间精度超出范围")?;
         if ppq > 32767 {
-            return Err("谱面连音精度超出 MIDI 分辨率，请调整连音".into());
+            return Err("谱面时间精度超出 MIDI 分辨率，请调整装饰音或连音时值".into());
         }
         Ok(())
     };
@@ -361,6 +384,12 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                     }
                 }
             }
+        }
+    }
+    for spans in &grace_timings {
+        for span in spans.values() {
+            include(span.onset)?;
+            include(span.duration)?;
         }
     }
     for visit in &plan.visits {
@@ -475,7 +504,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
     let mut tracks = vec![];
     let mut total = 0;
     let mut generated_count = 0;
-    for part in &score.parts {
+    for (part, grace_spans) in score.parts.iter().zip(&grace_timings) {
         let staffs: std::collections::BTreeSet<_> = part
             .measures
             .iter()
@@ -558,6 +587,25 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                 let visit_end = tick(visit.performed_end())?;
                 let source = m.start.add(visit.source_start);
                 let source_end = m.start.add(visit.source_end);
+                for event in &m.events {
+                    let ScoreEvent::Note(note) = event else {
+                        continue;
+                    };
+                    let Some(span) = grace_spans.get(&note.id) else {
+                        continue;
+                    };
+                    if note.grace || span.onset <= note.onset {
+                        continue;
+                    }
+                    if source < span.onset && source > note.onset
+                        || source_end > note.onset && source_end <= span.onset
+                    {
+                        return Err(format!(
+                            "第 {} 小节的跳转切开了装饰音和主音，请调整跳转位置",
+                            index + 1
+                        ));
+                    }
+                }
                 total = total.max(visit_end);
                 let mut velocity = bases[index].0;
                 if previous_end != Some(source) {
@@ -633,24 +681,20 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                             }
                         }
                         ScoreEvent::Note(n) => {
+                            let grace_span = grace_spans.get(&n.id);
+                            let effective_onset = grace_span.map_or(n.onset, |span| span.onset);
+                            let effective_duration =
+                                grace_span.map_or(n.duration, |span| span.duration);
                             if n.staff != staff
-                                || n.onset >= source_end
-                                || n.onset.add(n.duration) <= source
+                                || effective_onset >= source_end
+                                || effective_onset.add(effective_duration) <= source
                             {
                                 continue;
                             }
                             let Some(written) = &n.pitch else {
                                 continue;
                             };
-                            if n.grace || n.duration.numerator <= 0 {
-                                if !warnings
-                                    .iter()
-                                    .any(|w| w == "装饰音保留在原谱中，当前练习演奏跳过其自由时值")
-                                {
-                                    warnings.push(
-                                        "装饰音保留在原谱中，当前练习演奏跳过其自由时值".into(),
-                                    );
-                                }
+                            if effective_duration.numerator <= 0 {
                                 continue;
                             }
                             generated_count += 1;
@@ -658,16 +702,19 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                                 return Err("演奏音符超过 20 万，请分段导入".into());
                             }
                             let pitch = pitch(written)?;
-                            let onset = start + tick(n.onset.max(source).subtract(source))?;
+                            let onset = start + tick(effective_onset.max(source).subtract(source))?;
                             let end = if let Some(tail) = visit.fine_tail.filter(|tail| {
-                                n.onset.subtract(m.start) == tail.onset
+                                effective_onset.subtract(m.start) == tail.onset
                                     && n.duration == tail.written_duration
                             }) {
                                 onset + tick(tail.actual_duration)?
                             } else {
                                 start
                                     + tick(
-                                        n.onset.add(n.duration).min(source_end).subtract(source),
+                                        effective_onset
+                                            .add(effective_duration)
+                                            .min(source_end)
+                                            .subtract(source),
                                     )?
                             };
                             let key = (pitch, n.voice.clone());
@@ -1020,6 +1067,116 @@ mod tests {
             7
         );
         assert!((file.duration.as_secs_f64() - 3.5).abs() < 0.00001);
+    }
+    #[test]
+    fn timed_grace_notes_borrow_from_following_notes_on_every_repeat() {
+        for (slash, share, grace_ticks) in [("yes", "25", 240_u64), ("no", "50", 480_u64)] {
+            let xml = format!(
+                r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+            <measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+            <measure number="2"><note><grace slash="{slash}" steal-time-following="{share}"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><barline location="right"><repeat direction="backward"/></barline></measure>
+            </part></score-partwise>"#
+            );
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let performance = generate(&score, 120).unwrap();
+            let notes = &performance.tracks[0].notes;
+            assert_eq!(
+                notes.iter().map(|note| note.pitch).collect::<Vec<_>>(),
+                [60, 62, 64, 60, 62, 64]
+            );
+            assert_eq!(
+                notes.iter().map(|note| note.start).collect::<Vec<_>>(),
+                [0, 960, 960 + grace_ticks, 1920, 2880, 2880 + grace_ticks]
+            );
+            assert_eq!(notes[1].end, 960 + grace_ticks);
+            assert_eq!(notes[4].end, 2880 + grace_ticks);
+            assert_eq!(notes.last().unwrap().end, 3840);
+            let plan =
+                crate::score_playback::build_playback_plan(&score.parts[0], Default::default());
+            let events = crate::score_playback::expand_event_occurrences(&score.parts[0], &plan);
+            let grace: Vec<_> = events
+                .iter()
+                .filter(|event| {
+                    event.id.source_id.measure_ordinal == 1 && event.id.source_id.ordinal == 0
+                })
+                .collect();
+            assert_eq!(grace.len(), 2);
+            assert_eq!(
+                grace[0].duration,
+                Some(ScoreTime::new(share.parse::<i64>().unwrap(), 100))
+            );
+            assert_eq!(grace[0].id.source_id, grace[1].id.source_id);
+            assert_ne!(grace[0].id, grace[1].id);
+            let file = midi_file::MidiFile::from_smf("grace", &performance.smf).unwrap();
+            assert_eq!(
+                file.tracks
+                    .iter()
+                    .flat_map(|track| track.notes.iter())
+                    .count(),
+                6
+            );
+            assert!((file.duration.as_secs_f64() - 2.0).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn ambiguous_or_unquantized_grace_notes_report_the_written_measure() {
+        let normal =
+            r#"<note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>"#;
+        for grace in [
+            r#"<grace slash="yes"/>"#,
+            r#"<grace slash="yes" steal-time-previous="10"/>"#,
+            r#"<grace slash="no" make-time="1"/>"#,
+            r#"<grace slash="no" steal-time-following="100"/>"#,
+            r#"<grace slash="yes" steal-time-following="33.3333"/>"#,
+        ] {
+            let xml = format!(
+                r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note>{grace}<pitch><step>D</step><octave>4</octave></pitch></note>{normal}</measure></part></score-partwise>"#
+            );
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let error = generate(&score, 120).err().unwrap();
+            assert!(error.contains("第 1 小节"), "{grace}: {error}");
+        }
+    }
+
+    #[test]
+    fn appoggiatura_with_the_official_thirty_three_percent_hint_uses_exact_midi_time() {
+        // MusicXML's Appoggiatura example uses slash="no" and
+        // steal-time-following="33"; the latter is an exact percentage.
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><grace slash="no" steal-time-following="33"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(
+            notes
+                .iter()
+                .map(|note| (note.pitch, note.start, note.end))
+                .collect::<Vec<_>>(),
+            [(62, 0, 1584), (64, 1584, 4800)]
+        );
+        let midi = midi_file::MidiFile::from_smf("appoggiatura", &performance.smf).unwrap();
+        assert!(
+            (midi.duration.as_secs_f64() - 0.5).abs() < 0.00001,
+            "duration={:?}",
+            midi.duration
+        );
+    }
+
+    #[test]
+    fn consecutive_grace_notes_share_one_principal_without_extending_the_measure() {
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><grace slash="yes" steal-time-following="20"/><pitch><step>C</step><octave>4</octave></pitch></note><note><grace slash="yes" steal-time-following="30"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(
+            performance.tracks[0]
+                .notes
+                .iter()
+                .map(|note| (note.pitch, note.start, note.end))
+                .collect::<Vec<_>>(),
+            [(60, 0, 192), (62, 192, 480), (64, 480, 960)]
+        );
+        let midi = midi_file::MidiFile::from_smf("grace-group", &performance.smf).unwrap();
+        assert!((midi.duration.as_secs_f64() - 0.5).abs() < 0.00001);
     }
     #[test]
     fn numeric_fine_keeps_midi_notes_occurrences_and_end_of_track_in_sync() {

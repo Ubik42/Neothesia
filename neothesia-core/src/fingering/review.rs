@@ -73,6 +73,31 @@ pub fn review_cross_hand(
     reviews
 }
 
+/// A bounded keyboard-space heuristic for ranking *pairs* of hand plans.
+/// Two semitones per finger estimates a hand's key-range center. This is a
+/// ranking aid only; it cannot infer wrist, arm, or body movement.
+pub fn cross_hand_plan_cost(
+    left: &[FingeringNote], left_fingers: &[u8],
+    right: &[FingeringNote], right_fingers: &[u8],
+) -> i64 {
+    if left.len()!=left_fingers.len() || right.len()!=right_fingers.len()
+        || left_fingers.iter().chain(right_fingers).any(|f|!(1..=5).contains(f)) {return 0;}
+    let mut total=0_i64;
+    for (a, left_note) in left.iter().enumerate() {
+        let mut worst=0_i64;
+        for (b, right_note) in right.iter().enumerate() {
+            if left_note.onset>=right_note.end || right_note.onset>=left_note.end {continue;}
+            let left_center=i32::from(left_note.pitch)+2*(i32::from(left_fingers[a])-3);
+            let right_center=i32::from(right_note.pitch)-2*(i32::from(right_fingers[b])-3);
+            let crowding=(left_center-right_center+2).max(0).min(16) as i64;
+            let same_key=if left_note.pitch==right_note.pitch {20} else {0};
+            worst=worst.max(crowding+same_key);
+        }
+        total=total.saturating_add(worst);
+    }
+    total
+}
+
 // These are transparent review thresholds, not measured limits of a pianist.
 // Keep them shared by path scoring and review so a cost has a visible cause.
 fn movement_kind(a: FingeringNote, af: u8, b: FingeringNote, bf: u8,
@@ -190,5 +215,14 @@ mod tests {
         assert_eq!(crossing[0].overlap_ms, 400);
         assert!(review_cross_hand(&left[..1], &[2], FingeringHand::Left,
             &[n(72, 1000, 1300)], &[3]).is_empty());
+    }
+    #[test]
+    fn joint_cost_changes_with_chosen_fingers_but_rest_removes_cost() {
+        let left=[n(64,0,1000)];let right=[n(67,500,900)];
+        let crowded=cross_hand_plan_cost(&left,&[5],&right,&[5]);
+        let open=cross_hand_plan_cost(&left,&[1],&right,&[1]);
+        assert!(crowded>open);
+        assert_eq!(cross_hand_plan_cost(&left,&[5],&[n(67,1000,1200)],&[5]),0);
+        assert!(cross_hand_plan_cost(&left,&[2],&[n(64,500,900)],&[3])>crowded);
     }
 }

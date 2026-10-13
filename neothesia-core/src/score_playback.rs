@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::musicxml::{
-    BarlineLocation, EndingType, Part, RepeatDirection, ScoreEvent, ScoreEventId, ScoreTime,
+    BarlineLocation, EndingType, Note, Part, RepeatDirection, ScoreEvent, ScoreEventId, ScoreTime,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,177 @@ pub struct PerformedScoreEvent {
     pub id: ScoreEventOccurrenceId,
     pub onset: ScoreTime,
     pub duration: Option<ScoreTime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NoteTiming {
+    pub onset: ScoreTime,
+    pub duration: ScoreTime,
+}
+
+fn grace_percent(value: &str) -> Option<ScoreTime> {
+    let (whole, fraction) = value.trim().split_once('.').unwrap_or((value.trim(), ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|c| c.is_ascii_digit())
+        || fraction.len() > 3
+        || !fraction.bytes().all(|c| c.is_ascii_digit())
+        || value.contains('.') && fraction.is_empty()
+    {
+        return None;
+    }
+    let scale = 10_i64.pow(fraction.len() as u32);
+    let amount =
+        whole
+            .parse::<i64>()
+            .ok()?
+            .checked_mul(scale)?
+            .checked_add(if fraction.is_empty() {
+                0
+            } else {
+                fraction.parse::<i64>().ok()?
+            })?;
+    (amount > 0 && amount < 100 * scale).then(|| ScoreTime::new(amount, (100 * scale) as u32))
+}
+
+fn fraction_of(duration: ScoreTime, ratio: ScoreTime) -> Option<ScoreTime> {
+    checked_time(
+        i128::from(duration.numerator) * i128::from(ratio.numerator),
+        i128::from(duration.denominator) * i128::from(ratio.denominator),
+    )
+}
+
+fn checked_time(mut numerator: i128, mut denominator: i128) -> Option<ScoreTime> {
+    if denominator <= 0 {
+        return None;
+    }
+    let mut a = numerator.unsigned_abs();
+    let mut b = denominator as u128;
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    let divisor = a.max(1) as i128;
+    numerator /= divisor;
+    denominator /= divisor;
+    Some(ScoreTime::new(
+        i64::try_from(numerator).ok()?,
+        u32::try_from(denominator).ok()?,
+    ))
+}
+
+fn checked_add_time(left: ScoreTime, right: ScoreTime) -> Option<ScoreTime> {
+    checked_time(
+        i128::from(left.numerator) * i128::from(right.denominator)
+            + i128::from(right.numerator) * i128::from(left.denominator),
+        i128::from(left.denominator) * i128::from(right.denominator),
+    )
+}
+
+/// Resolves only grace groups with explicit time borrowed from their following
+/// note. Every returned span remains in written score coordinates.
+pub(crate) fn grace_note_timing(part: &Part) -> Result<BTreeMap<ScoreEventId, NoteTiming>, String> {
+    let mut spans = BTreeMap::new();
+    for (measure_index, measure) in part.measures.iter().enumerate() {
+        let mut groups: BTreeMap<
+            (ScoreTime, u8, Option<String>),
+            (Vec<(usize, &Note)>, Vec<(usize, &Note)>),
+        > = BTreeMap::new();
+        for (position, event) in measure.events.iter().enumerate() {
+            let ScoreEvent::Note(note) = event else {
+                continue;
+            };
+            let entry = groups
+                .entry((note.onset, note.staff, note.voice.clone()))
+                .or_default();
+            if note.grace {
+                entry.0.push((position, note));
+            } else {
+                entry.1.push((position, note));
+            }
+        }
+        for ((_, _, _), (graces, regular)) in groups {
+            if graces.is_empty() {
+                continue;
+            }
+            let problem =
+                |message: &str| format!("第 {} 小节的装饰音：{message}", measure_index + 1);
+            let principals: Vec<_> = regular.iter().filter(|(_, note)| !note.chord).collect();
+            if principals.len() != 1 || graces.len() > 16 {
+                return Err(problem("须有同一声部的唯一主音，且最多 16 个连续装饰音"));
+            }
+            let (principal_position, principal) = *principals[0];
+            if regular.iter().any(|(position, note)| {
+                *position < principal_position
+                    || note.duration != principal.duration
+                    || note.pitch.is_none()
+                    || !note.ties.is_empty()
+            }) || graces.iter().any(|(position, note)| {
+                *position >= principal_position
+                    || note.pitch.is_none()
+                    || note.chord
+                    || note.duration.numerator != 0
+                    || !note.ties.is_empty()
+            }) || principal.duration.numerator <= 0
+            {
+                return Err(problem("装饰音与主音的顺序、音高、时值或延音关系不明确"));
+            }
+            let mut borrowed = ScoreTime::default();
+            for (_, grace) in &graces {
+                let Some(mark) = &grace.grace_timing else {
+                    return Err(problem("缺少 grace 记号的时间信息"));
+                };
+                if mark
+                    .slash
+                    .as_deref()
+                    .is_some_and(|v| v != "yes" && v != "no")
+                    || mark.make_time.is_some()
+                    || mark.steal_time_previous.is_some()
+                {
+                    return Err(problem("当前只支持明确从后续主音借时值的短倚音或长倚音"));
+                }
+                let Some(ratio) = mark.steal_time_following.as_deref().and_then(grace_percent)
+                else {
+                    return Err(problem(
+                        "steal-time-following 须为大于 0 且小于 100 的百分数，最多三位小数",
+                    ));
+                };
+                let Some(length) = fraction_of(principal.duration, ratio) else {
+                    return Err(problem("借用时值超过可表示的乐谱精度"));
+                };
+                let onset = checked_add_time(grace.onset, borrowed)
+                    .ok_or_else(|| problem("装饰音位置超出可表示的乐谱精度"))?;
+                spans.insert(
+                    grace.id.clone(),
+                    NoteTiming {
+                        onset,
+                        duration: length,
+                    },
+                );
+                borrowed = checked_add_time(borrowed, length)
+                    .ok_or_else(|| problem("借用时值超出可表示的乐谱精度"))?;
+            }
+            if borrowed >= principal.duration {
+                return Err(problem("装饰音合计借用的时间必须小于主音时值"));
+            }
+            for (_, note) in regular {
+                let onset = checked_add_time(note.onset, borrowed)
+                    .ok_or_else(|| problem("主音位置超出可表示的乐谱精度"))?;
+                let remainder = checked_time(
+                    i128::from(note.duration.numerator) * i128::from(borrowed.denominator)
+                        - i128::from(borrowed.numerator) * i128::from(note.duration.denominator),
+                    i128::from(note.duration.denominator) * i128::from(borrowed.denominator),
+                )
+                .ok_or_else(|| problem("主音剩余时值超出可表示的乐谱精度"))?;
+                spans.insert(
+                    note.id.clone(),
+                    NoteTiming {
+                        onset,
+                        duration: remainder,
+                    },
+                );
+            }
+        }
+    }
+    Ok(spans)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1188,6 +1359,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
 /// Every occurrence retains its stable source ID and adds the measure-visit ID.
 pub fn expand_event_occurrences(part: &Part, plan: &PlaybackPlan) -> Vec<PerformedScoreEvent> {
     let mut result = Vec::new();
+    let grace_spans = grace_note_timing(part).unwrap_or_default();
     for visit in &plan.visits {
         if visit.part_id != part.id {
             continue;
@@ -1197,7 +1369,14 @@ pub fn expand_event_occurrences(part: &Part, plan: &PlaybackPlan) -> Vec<Perform
         };
         for event in &measure.events {
             let (source_id, onset, duration) = match event {
-                ScoreEvent::Note(note) => (&note.id, note.onset, Some(note.duration)),
+                ScoreEvent::Note(note) => {
+                    let span = grace_spans.get(&note.id);
+                    (
+                        &note.id,
+                        span.map_or(note.onset, |span| span.onset),
+                        Some(span.map_or(note.duration, |span| span.duration)),
+                    )
+                }
                 ScoreEvent::Direction(direction) => (&direction.id, direction.onset, None),
             };
             let relative_onset = onset.subtract(measure.start);

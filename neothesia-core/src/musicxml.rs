@@ -107,12 +107,21 @@ pub struct Note {
     pub pitch: Option<Pitch>,
     pub chord: bool,
     pub grace: bool,
+    pub grace_timing: Option<GraceTiming>,
     pub ties: Vec<SpanType>,
     pub slurs: Vec<NumberedSpan>,
     pub time_modification: Option<TupletRatio>,
     pub tuplets: Vec<TupletSpan>,
     pub fingering: Option<String>,
     pub articulations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraceTiming {
+    pub slash: Option<String>,
+    pub steal_time_following: Option<String>,
+    pub steal_time_previous: Option<String>,
+    pub make_time: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,6 +556,7 @@ struct NoteBuilder {
     rest: bool,
     chord: bool,
     grace: bool,
+    grace_timing: Option<GraceTiming>,
     ties: Vec<SpanType>,
     slurs: Vec<NumberedSpan>,
     tuplet_actual: Option<u16>,
@@ -824,7 +834,11 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     }
                     b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
                     b"chord" if note.is_some() => note.as_mut().unwrap().chord = true,
-                    b"grace" if note.is_some() => note.as_mut().unwrap().grace = true,
+                    b"grace" if note.is_some() => {
+                        let built = note.as_mut().unwrap();
+                        built.grace = true;
+                        built.grace_timing = Some(grace_timing(&start)?);
+                    }
                     b"tie" | b"tied" if note.is_some() => {
                         push_span(&start, &mut note.as_mut().unwrap().ties)?
                     }
@@ -1180,6 +1194,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 pitch,
                                 chord: built.chord,
                                 grace: built.grace,
+                                grace_timing: built.grace_timing,
                                 ties: built.ties,
                                 slurs: built.slurs,
                                 time_modification,
@@ -1276,7 +1291,11 @@ fn handle_empty(
         }
         b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
         b"chord" if note.is_some() => note.as_mut().unwrap().chord = true,
-        b"grace" if note.is_some() => note.as_mut().unwrap().grace = true,
+        b"grace" if note.is_some() => {
+            let built = note.as_mut().unwrap();
+            built.grace = true;
+            built.grace_timing = Some(grace_timing(start)?);
+        }
         b"tie" | b"tied" if note.is_some() => push_span(start, &mut note.as_mut().unwrap().ties)?,
         b"slur" if note.is_some() => {
             let kind = span_attribute(start)?;
@@ -1400,6 +1419,15 @@ fn parse_barline_location(value: Option<String>) -> BarlineLocation {
         None | Some("right") => BarlineLocation::Right,
         Some(value) => BarlineLocation::Other(value.to_owned()),
     }
+}
+
+fn grace_timing(start: &BytesStart<'_>) -> Result<GraceTiming, ImportError> {
+    Ok(GraceTiming {
+        slash: attribute(start, b"slash")?,
+        steal_time_following: attribute(start, b"steal-time-following")?,
+        steal_time_previous: attribute(start, b"steal-time-previous")?,
+        make_time: attribute(start, b"make-time")?,
+    })
 }
 
 fn sound_navigation(start: &BytesStart<'_>) -> Result<SoundBuilder, ImportError> {

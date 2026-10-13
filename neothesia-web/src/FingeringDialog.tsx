@@ -29,13 +29,18 @@ type CrossHandReview = {
   oppositeMeasure: number;
   oppositePitch: number;
   oppositeFinger: number;
+  oppositeSaved: boolean;
   kind: "sameKey" | "crossedRange";
   overlapMs: number;
 };
 type Plan = {
   cost: number;
+  primaryCost?: number;
+  oppositeCost?: number;
+  jointCost?: number;
   proposals: Proposal[];
   contextFingers: number[];
+  oppositeContextFingers?: (number | null)[];
   crossings: number;
   shifts: number;
   wide: number;
@@ -77,7 +82,7 @@ type Result = {
     measure: number;
     onset: number;
     end: number;
-    saved: number;
+    saved: number | null;
     target: boolean;
   }[];
   contentId: string;
@@ -85,6 +90,7 @@ type Result = {
   undoAvailable: boolean;
   contextTracks: number[];
   targetTracks: number[];
+  jointStatus?: string;
   scoreArticulations?: {
     paired: boolean;
     slurLinks: number;
@@ -667,6 +673,7 @@ export function FingeringDialog({
         )}
         {result ? (
           <>
+            {result.jointStatus && <p className="fingering-help" role="status">双手候选：{result.jointStatus}。组合评分只比较琴键位置与持音时间，不判断身体动作。</p>}
             {result.scoreArticulations && (
               <p className="fingering-help" role="status">
                 {result.scoreArticulations.slurLinks + result.scoreArticulations.staccatoNotes > 0
@@ -700,6 +707,7 @@ export function FingeringDialog({
                     穿 / 跨指 {plan.crossings} · 移手 {plan.shifts} · 宽手型{" "}
                     {plan.wide} · 改动已有 {plan.changed}
                   </small>
+                  {typeof plan.jointCost === "number" && <small>双手交叠代价 {plan.jointCost} · 组合规则分 {plan.cost}</small>}
                 </button>
               ))}
             </div>
@@ -1415,7 +1423,7 @@ function CrossHandReviewList({
   return (
     <div className="finger-review">
       <strong>{title} · {items.length} 处</strong>
-      <p>另一只手的指法取自已保存标记。两手在同一时段按同键，或左手音高超过右手时，请检查分手与手位。</p>
+      <p>两手在同一时段按同键，或左手音高超过右手时，请检查分手与手位。对侧未保存的手指会标为临时建议。</p>
       {items.length >= 100 && <p>这里最多列出 100 处。请缩小小节范围，查看其余位置。</p>}
       {items.slice(page * 8, (page + 1) * 8).map((item) => (
         <button
@@ -1425,7 +1433,7 @@ function CrossHandReviewList({
         >
           <span>
             {trackName(item.track)}第 {item.measure} 小节 {pitchName(item.pitch)}（{item.finger} 指）
-            与 {trackName(item.oppositeTrack)}第 {item.oppositeMeasure} 小节 {pitchName(item.oppositePitch)}（{item.oppositeFinger} 指）
+            与 {trackName(item.oppositeTrack)}第 {item.oppositeMeasure} 小节 {pitchName(item.oppositePitch)}（{item.oppositeFinger} 指{item.oppositeSaved ? "，已保存" : "，临时建议"}）
           </span>
           <strong>{item.kind === "sameKey" ? "双手同时占用同一琴键" : "左右手音区交叉"} · 重叠 {item.overlapMs} 毫秒</strong>
           <small>打开这个位置，检查谱面分手；必要时修改指法或重新分配声部。</small>
@@ -1480,8 +1488,10 @@ function FingerPosition({
           n.onset < (context.find((position) => position.target)?.onset ?? 0)),
     );
   const activeOpposite = (result.oppositeContext ?? [])
-    .filter((n) => (n.onset <= onset && n.end > onset) || n.onset === onset)
-    .map((n) => ({ ...n, finger: n.saved, part: hand === "left" ? "right" : "left" }));
+    .map((n, i) => ({ ...n, finger: previewFingers ? n.saved : (plan.oppositeContextFingers?.[i] ?? n.saved),
+      tentative: !previewFingers && n.saved == null && plan.oppositeContextFingers?.[i] != null,
+      part: hand === "left" ? "right" : "left" }))
+    .filter((n) => (n.onset <= onset && n.end > onset) || n.onset === onset);
   const active = [...activeCurrent, ...activeOpposite];
   const firstTarget = context.find((n) => n.target)?.onset ?? selected.onset;
   const keyboardNotes =
@@ -1569,7 +1579,7 @@ function FingerPosition({
               const keyNotes = active.filter((n) => n.pitch === p);
               const n = keyNotes[0];
               const label = [
-                ...new Set(keyNotes.map((n) => `${n.part === "left" ? "L" : "R"}${n.finger ?? "·"}`)),
+                ...new Set(keyNotes.map((n) => `${n.part === "left" ? "L" : "R"}${n.finger ?? "·"}${"tentative" in n && n.tentative ? "*" : ""}`)),
               ].join("/");
               return (
                 <g key={p}>
@@ -1609,7 +1619,7 @@ function FingerPosition({
         )}
       </svg>
       <small>
-        键上 L/R 表示左/右手，数字为手指
+        键上 L/R 表示左/右手，数字为手指，* 表示对侧尚未保存的临时建议
         {previewFingers
           ? "，· 表示仍未标记；当前显示保存后的实际组合。切回完整推荐方案可示范声音。"
           : "；当前显示完整推荐方案。"}

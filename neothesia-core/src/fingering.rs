@@ -2,7 +2,7 @@ use std::time::Duration;
 mod alternatives;
 pub use alternatives::{validate_substitution_plan,FingerSubstitution,suggest_fingering_plans_with_substitutions,suggest_fingering_plans_with_expression,FingeringPlan, FingeringSearchFailure, suggest_fingering_plans, suggest_fingering_plans_at_rate, suggest_fingering_plans_for_indices};
 mod review;
-pub use review::{CrossHandReview, CrossHandReviewKind, FingeringReview, FingeringReviewKind, review_cross_hand, review_fingering_plan};
+pub use review::{CrossHandReview, CrossHandReviewKind, FingeringReview, FingeringReviewKind, cross_hand_plan_cost, review_cross_hand, review_fingering_plan};
 use review::timed_movement_cost;
 
 use serde::{Deserialize, Serialize};

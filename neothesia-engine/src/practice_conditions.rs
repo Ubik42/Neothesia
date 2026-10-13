@@ -47,6 +47,59 @@ pub(super) fn same_attempt_conditions(a: &PracticeSession, b: &PracticeSession) 
             == b.routine.as_ref().and_then(|r| r.expression.as_ref())
 }
 
+/// Compare a reviewed old single-left-track attempt with a current attempt.
+/// The caller must first prove both stored scope hashes against their actual
+/// MIDI layouts and hold a user-approved alias. This helper changes copies only.
+pub(super) fn same_reviewed_left_layout(old: &PracticeSession, current: &PracticeSession) -> bool {
+    let (Some(old_context), Some(current_context)) = (&old.context, &current.context) else {
+        return false;
+    };
+    let old_tracks: Vec<_> = old_context
+        .tracks
+        .iter()
+        .filter(|t| t.track_id == 1)
+        .collect();
+    let current_tracks: Vec<_> = current_context
+        .tracks
+        .iter()
+        .filter(|t| t.track_id == 2)
+        .collect();
+    if old_tracks.len() != 1
+        || current_tracks.len() != 1
+        || old_context.tracks.iter().any(|t| t.track_id == 2)
+        || old_context.parts.keys().any(|id| *id != 0 && *id != 1)
+        || current_context.parts.get(&2).is_none()
+        || old_context.parts.get(&1) != current_context.parts.get(&2)
+    {
+        return false;
+    }
+    let mut old_copy = old.clone();
+    let mut current_copy = current.clone();
+    old_copy.scope = current.scope.clone();
+    let old_ctx = old_copy.context.as_mut().unwrap();
+    old_ctx
+        .tracks
+        .retain(|t| t.track_id == 0 || t.track_id == 1);
+    for track in &mut old_ctx.tracks {
+        if track.track_id == 1 {
+            track.track_id = 2;
+        }
+    }
+    old_ctx.parts = old_context
+        .parts
+        .iter()
+        .map(|(id, part)| (if *id == 1 { 2 } else { *id }, *part))
+        .collect();
+    let current_ctx = current_copy.context.as_mut().unwrap();
+    current_ctx
+        .tracks
+        .retain(|t| t.track_id == 0 || t.track_id == 2);
+    current_ctx
+        .parts
+        .retain(|track, _| *track == 0 || *track == 2);
+    same_attempt_conditions(&old_copy, &current_copy)
+}
+
 /// Explain why an older attempt cannot be used as evidence for this attempt.
 /// Keep this list aligned with `same_attempt_conditions`; both records belong
 /// to the same song when the caller uses it.

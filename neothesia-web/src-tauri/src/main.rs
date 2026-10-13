@@ -365,6 +365,18 @@ async fn export_paper_page(state:tauri::State<'_,State>,name: String, bytes: Vec
     file.write(&bytes).await.map_err(|e|e.to_string())?;Ok(Some(file.path().to_string_lossy().into()))
 }
 #[tauri::command]
+async fn export_paper_book(state:tauri::State<'_,State>,name:String,bytes:Vec<u8>) -> Result<Option<String>,String> {
+    if bytes.len()<100 || bytes.len()>64_000_000 || !bytes.starts_with(b"%PDF-") || !bytes[bytes.len().saturating_sub(1024)..].windows(5).any(|part|part==b"%%EOF") {
+        return Err("整本批注 PDF 格式或大小无效".into());
+    }
+    let name=name.chars().map(|c|if "<>:\"/\\|?*".contains(c)||c.is_control(){'_'}else{c}).collect::<String>();
+    let Some(file)=file_dialog(&state.data,"exportPaper").set_title("保存整本批注 PDF").add_filter("PDF 文档", &["pdf"])
+        .set_file_name(if name.ends_with(".pdf"){name}else{format!("{name}.pdf")}).save_file().await else{return Ok(None);};
+    remember_location(&state.data,"exportPaper",file.path(),false);
+    file.write(&bytes).await.map_err(|e|e.to_string())?;
+    Ok(Some(file.path().to_string_lossy().into()))
+}
+#[tauri::command]
 async fn export_annotated_score(state: tauri::State<'_, State>, request: serde_json::Value) -> Result<Option<String>, String> {
     let command: Command=serde_json::from_value(request).map_err(|e|e.to_string())?;
     if !matches!(command, Command::ExportAnnotatedScore {download:true,..}) {return Err("导出请求无效".into());}
@@ -545,6 +557,7 @@ fn main() {
             export_midi,
             export_annotated_score,
             export_paper_page,
+            export_paper_book,
             export_package,
             pick_package,
             stage_package,

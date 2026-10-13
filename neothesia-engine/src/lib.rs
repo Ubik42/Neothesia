@@ -13,6 +13,7 @@ pub mod file_locations;
 mod import_storage;
 mod library_metadata;
 mod legacy_exercise_tracks;
+mod legacy_exercise_history;
 mod audio;
 mod track_sound;
 mod track_appearance;
@@ -195,6 +196,8 @@ impl Default for Snapshot {
 pub enum Command {
     PreviewLegacyExerciseTracks { content_id: String },
     ApplyLegacyExerciseTracks { content_id: String, fingerprint: String, #[serde(default)] restore_conditions: bool },
+    PreviewLegacyExerciseHistory { content_id: String },
+    ReviewLegacyExerciseHistory { content_id: String, old_id:String, current_id:String, fingerprint:String, approve:bool },
     MetadataTemplates,
     UpdateMetadataTemplate {name:String,rules:Option<metadata_templates::Rules>,expected:u64},
     FileLocations,
@@ -1806,6 +1809,8 @@ impl Player {
         self.end_hold = 0.;
     }
     fn command(&mut self, command: Command) -> Result<serde_json::Value, String> {
+        if let Command::PreviewLegacyExerciseHistory{content_id}=command {return legacy_exercise_history::preview(self,&content_id);}
+        if let Command::ReviewLegacyExerciseHistory{content_id,old_id,current_id,fingerprint,approve}=command {return legacy_exercise_history::update(self,&content_id,&old_id,&current_id,&fingerprint,approve);}
         if let Command::PreviewLegacyExerciseTracks { content_id } = command {
             return legacy_exercise_tracks::preview(self, &content_id);
         }
@@ -3560,7 +3565,8 @@ impl Player {
                 self.restore_latency();
                 self.reset(self.state.position);
             }
-            Command::PreviewLegacyExerciseTracks { .. } | Command::ApplyLegacyExerciseTracks { .. } => unreachable!(),
+            Command::PreviewLegacyExerciseTracks { .. } | Command::ApplyLegacyExerciseTracks { .. }
+                | Command::PreviewLegacyExerciseHistory { .. } | Command::ReviewLegacyExerciseHistory { .. } => unreachable!(),
         }
         if persist {
             self.persist()?;

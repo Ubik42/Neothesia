@@ -57,6 +57,7 @@ impl Player {
     fn weak_practice_rows(&self) -> Vec<Suggestion> {
         let mut rows = vec![];
         for (cid, history) in self.history.snapshot() {
+            let legacy_approvals=crate::legacy_exercise_history::active_approvals(&self.data,&cid);
             let Some(last) = history.sessions.iter().rev().find(|s| {
                 s.context
                     .as_ref()
@@ -87,7 +88,7 @@ impl Player {
                     continue;
                 }
                 if !sources.iter().any(|previous| {
-                    practice_conditions::same_attempt_conditions(previous, s)
+                    crate::legacy_exercise_history::same_reviewed(&legacy_approvals,previous,s)
                 }) {
                     sources.push(s);
                     if sources.len() == 16 {
@@ -103,7 +104,7 @@ impl Player {
                     .sessions
                     .iter()
                     .rev()
-                    .filter(|s| practice_conditions::same_attempt_conditions(last, s))
+                    .filter(|s| crate::legacy_exercise_history::same_reviewed(&legacy_approvals,last,s))
                     .take(8)
                     .collect();
                 rows.extend(self.expression_practice_rows(&cid, &history, last, &matching));

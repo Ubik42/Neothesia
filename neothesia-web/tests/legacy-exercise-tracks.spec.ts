@@ -10,7 +10,8 @@ test("单左手练习可核对旧资料，缺少旧原件时说明原因", async
   await page.getByRole("button", { name: "核对旧版左手资料" }).click();
   const dialog = page.getByRole("dialog", { name: "旧版左手练习资料核对" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("alert")).toContainText("没有找到保留的旧版单左手 MIDI 原件");
+  await expect(dialog.getByRole("alert").filter({hasText:"没有找到保留的旧版单左手 MIDI 原件"})).toBeVisible();
+  await expect(dialog.getByRole("alert").filter({hasText:"这首练习尚无保存的成绩"})).toBeVisible();
   await dialog.getByRole("button", { name: "关闭旧版资料核对" }).click();
   await expect(dialog).toHaveCount(0);
 });

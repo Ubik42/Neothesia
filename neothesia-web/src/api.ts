@@ -505,6 +505,11 @@ export const api = {
       name,
       bytes: Array.from(bytes),
     }),
+  exportPaperBook: (name: string, bytes: Uint8Array) =>
+    invoke<string | null>("export_paper_book", {
+      name,
+      bytes: Array.from(bytes),
+    }),
   exportAnnotatedScore: (request: Record<string, unknown>) =>
     invoke<string | null>("export_annotated_score", { request }),
   pickPracticeBackup: () =>
