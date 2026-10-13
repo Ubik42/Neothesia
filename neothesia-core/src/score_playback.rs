@@ -266,6 +266,8 @@ fn navigation(
     let mut targets = BTreeMap::new();
     let mut text_fines = Vec::new();
     let mut text_da_capos = Vec::new();
+    let mut text_dal_segnos = Vec::new();
+    let mut printed_segnos = Vec::new();
     for (index, m) in part.measures.iter().enumerate() {
         for e in &m.events {
             let ScoreEvent::Direction(d) = e else {
@@ -289,8 +291,16 @@ fn navigation(
                 }
             }
             let recognized_dc = printed_command == "dcalfine" || printed_command == "dacapoalfine";
+            let recognized_ds =
+                printed_command == "dsalfine" || printed_command == "dalsegnoalfine";
             if recognized_dc {
                 text_da_capos.push((index, offset));
+            }
+            if recognized_ds {
+                text_dal_segnos.push((index, offset));
+            }
+            if d.segno || printed_command == "segno" {
+                printed_segnos.push((index, offset));
             }
             let has_command = d.navigation.iter().any(|s| {
                 ["dacapo", "dalsegno", "tocoda", "fine"]
@@ -315,6 +325,7 @@ fn navigation(
                 });
             if !has_command
                 && !recognized_dc
+                && !recognized_ds
                 && d.words.iter().any(|w| {
                     let w = w.to_lowercase().replace(' ', "");
                     w.contains("d.c.")
@@ -413,12 +424,12 @@ fn navigation(
         });
         marks[index].dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
     }
-    // A printed Fine is a musical destination only when a single backward
-    // return makes its meaning unambiguous. Its direction onset is the exact
-    // cut point; the word alone is not a duration instruction.
+    // Printed navigation is executable only when the return, destination and
+    // cut point each have one position. The written part remains untouched.
     let mut fine_positions: BTreeSet<(usize, ScoreTime)> = text_fines.iter().copied().collect();
     let mut dc_positions = BTreeSet::new();
-    let mut has_other_jump = false;
+    let mut ds_positions = BTreeMap::new();
+    let mut has_coda_jump = false;
     for (index, local) in marks.iter().enumerate() {
         for mark in local {
             if mark.attributes.contains_key("fine") {
@@ -427,31 +438,51 @@ fn navigation(
             if mark.attributes.contains_key("dacapo") {
                 dc_positions.insert((index, mark.offset));
             }
-            has_other_jump |= ["dalsegno", "tocoda"]
-                .iter()
-                .any(|kind| mark.attributes.contains_key(*kind));
+            if let Some(label) = mark.attributes.get("dalsegno") {
+                ds_positions.insert((index, mark.offset), label.clone());
+            }
+            has_coda_jump |= mark.attributes.contains_key("tocoda");
         }
     }
-    if !text_fines.is_empty() && text_da_capos.is_empty() && dc_positions.is_empty() {
+    let printed_navigation =
+        !text_fines.is_empty() || !text_da_capos.is_empty() || !text_dal_segnos.is_empty();
+    if printed_navigation && fine_positions.len() != 1 {
         diagnose(
             plan,
-            text_fines.first().map(|point| point.0),
-            "文字 Fine 没有明确的 D.C. al Fine 返回指令，无法确定终点".into(),
+            text_da_capos
+                .first()
+                .or(text_dal_segnos.first())
+                .or(text_fines.first())
+                .map(|point| point.0),
+            "al Fine 需要唯一且位置明确的 Fine 终点".into(),
         );
     }
-    if !text_da_capos.is_empty() || !text_fines.is_empty() && !dc_positions.is_empty() {
-        if fine_positions.len() != 1 {
+    if printed_navigation {
+        if dc_positions.len() + ds_positions.len() > 1
+            || text_da_capos.len() + text_dal_segnos.len() > 1
+            || has_coda_jump
+            || !text_da_capos.is_empty() && !ds_positions.is_empty()
+            || !text_dal_segnos.is_empty() && !dc_positions.is_empty()
+        {
             diagnose(
                 plan,
-                text_da_capos.first().or(text_fines.first()).map(|p| p.0),
-                "D.C. al Fine 需要唯一且位置明确的 Fine 终点".into(),
+                text_da_capos
+                    .first()
+                    .or(text_dal_segnos.first())
+                    .or(text_fines.first())
+                    .map(|p| p.0),
+                "文字 al Fine 与其他跳转冲突，无法确定演奏顺序".into(),
             );
         }
-        if text_da_capos.len() > 1 || dc_positions.len() > 1 || has_other_jump {
+        if dc_positions.is_empty()
+            && ds_positions.is_empty()
+            && text_da_capos.is_empty()
+            && text_dal_segnos.is_empty()
+        {
             diagnose(
                 plan,
-                text_da_capos.first().or(text_fines.first()).map(|p| p.0),
-                "文字 D.C. al Fine 与其他跳转冲突，无法确定演奏顺序".into(),
+                text_fines.first().map(|point| point.0),
+                "文字 Fine 没有明确的 D.C./D.S. al Fine 返回指令，无法确定终点".into(),
             );
         }
         for &(index, offset) in &text_da_capos {
@@ -480,9 +511,112 @@ fn navigation(
                 }
             }
         }
+        let printed_segno_positions: BTreeSet<_> = printed_segnos.iter().copied().collect();
+        if !text_dal_segnos.is_empty() || !text_fines.is_empty() && !ds_positions.is_empty() {
+            if printed_segno_positions.len() > 1 {
+                diagnose(
+                    plan,
+                    printed_segnos.first().map(|p| p.0),
+                    "印刷 Segno 在多个位置出现，无法确定 D.S. 目标".into(),
+                );
+            }
+            for &(index, offset) in &text_dal_segnos {
+                if offset < ScoreTime::default() || offset > part.measures[index].duration {
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "文字 D.S. al Fine 的位置超出本小节".into(),
+                    );
+                    continue;
+                }
+                if ds_positions.contains_key(&(index, offset)) {
+                    continue;
+                }
+                if !ds_positions.is_empty() {
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "文字 D.S. al Fine 与 sound dalsegno 不在同一位置".into(),
+                    );
+                    continue;
+                }
+                let sound_targets: Vec<_> = targets
+                    .iter()
+                    .filter(|((kind, _), _)| kind == "segno")
+                    .map(|((_, label), point)| (label.clone(), *point))
+                    .collect();
+                let chosen = if sound_targets.len() == 1 {
+                    Some(sound_targets[0].clone())
+                } else if sound_targets.is_empty() && printed_segno_positions.len() == 1 {
+                    Some((
+                        "__printed_segno__".to_string(),
+                        *printed_segno_positions.iter().next().unwrap(),
+                    ))
+                } else {
+                    None
+                };
+                let Some((label, point)) = chosen else {
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "D.S. al Fine 需要唯一且位置明确的 Segno 目标".into(),
+                    );
+                    continue;
+                };
+                if !printed_segno_positions.is_empty() && !printed_segno_positions.contains(&point)
+                {
+                    diagnose(
+                        plan,
+                        Some(index),
+                        "印刷 Segno 与 sound segno 指向不同位置".into(),
+                    );
+                    continue;
+                }
+                targets.insert(("segno".into(), label.clone()), point);
+                marks[index].push(Navigation {
+                    offset,
+                    attributes: BTreeMap::from([("dalsegno".into(), label.clone())]),
+                    passes: None,
+                });
+                ds_positions.insert((index, offset), label);
+            }
+            // An explicit dalsegno may name the sole printed sign even when
+            // the score does not carry a separate sound segno destination.
+            if let Some((&command, label)) = ds_positions.iter().next() {
+                if !targets.contains_key(&("segno".into(), label.clone()))
+                    && printed_segno_positions.len() == 1
+                {
+                    targets.insert(
+                        ("segno".into(), label.clone()),
+                        *printed_segno_positions.iter().next().unwrap(),
+                    );
+                }
+                if let (Some(&printed), Some(&target)) = (
+                    printed_segno_positions.iter().next(),
+                    targets.get(&("segno".into(), label.clone())),
+                ) {
+                    if printed != target {
+                        diagnose(
+                            plan,
+                            Some(command.0),
+                            "印刷 Segno 与 sound segno 指向不同位置".into(),
+                        );
+                    }
+                }
+            }
+        }
         if let Some(&fine) = fine_positions.iter().next() {
-            if dc_positions.iter().any(|&dc| fine >= dc) {
-                diagnose(plan, Some(fine.0), "Fine 必须位于 D.C. 返回位置之前".into());
+            if dc_positions.iter().any(|&dc| fine >= dc)
+                || ds_positions.keys().any(|&ds| fine >= ds)
+            {
+                diagnose(plan, Some(fine.0), "Fine 必须位于返回指令之前".into());
+            }
+            if let Some((_, label)) = ds_positions.iter().next() {
+                if let Some(&segno) = targets.get(&("segno".into(), label.clone())) {
+                    if fine <= segno {
+                        diagnose(plan, Some(fine.0), "Fine 必须位于 Segno 之后".into());
+                    }
+                }
             }
         }
         for &(index, offset) in &text_fines {
@@ -1433,6 +1567,65 @@ mod tests {
             assert_eq!(notes.len(), 5);
             assert_eq!(notes.last().unwrap().id.source_id.measure_ordinal, 1);
             assert_eq!(notes.last().unwrap().onset, ScoreTime::new(4, 1));
+        }
+    }
+
+    #[test]
+    fn printed_dal_segno_fine_uses_the_unique_printed_sign_and_keeps_occurrences() {
+        for segno in ["<segno/>", "<segno></segno>"] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, &format!("<direction><direction-type>{segno}</direction-type></direction>"), ""),
+                measure(3, "", r#"<direction><direction-type><words>Fine</words></direction-type></direction>"#),
+                measure(4, "", ""),
+                measure(5, "", r#"<direction><direction-type><words>D.S.</words><words>al Fine</words></direction-type></direction>"#),
+            ].join("");
+            let part = part(&source);
+            let plan = build_playback_plan(&part, PlaybackLimits::default());
+            assert!(plan.complete, "{segno}: {:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 3, 4, 1, 2]);
+            let notes: Vec<_> = expand_event_occurrences(&part, &plan)
+                .into_iter()
+                .filter(|event| event.duration.is_some())
+                .collect();
+            assert_eq!(notes[1].id.source_id, notes[5].id.source_id);
+            assert_ne!(notes[1].id, notes[5].id);
+            assert_eq!(notes[6].onset, ScoreTime::new(6, 1));
+        }
+    }
+
+    #[test]
+    fn printed_dal_segno_fine_respects_explicit_sound_label() {
+        for sign in [
+            r#"<direction><direction-type><segno/></direction-type><sound segno="A"/></direction>"#,
+            r#"<direction><direction-type><segno/></direction-type></direction>"#,
+        ] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, sign, ""),
+                measure(3, "", r#"<direction><direction-type><words>Fine</words></direction-type></direction>"#),
+                measure(4, "", r#"<direction><direction-type><words>D.S. al Fine</words></direction-type><sound dalsegno="A"/></direction>"#),
+            ].join("");
+            let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+            assert!(plan.complete, "{sign}: {:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 3, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn printed_dal_segno_fine_rejects_ambiguous_or_conflicting_targets() {
+        let ds = r#"<direction><direction-type><words>D.S. al Fine</words></direction-type></direction>"#;
+        let fine = r#"<direction><direction-type><words>Fine</words></direction-type></direction>"#;
+        for source in [
+            [measure(1, "", ""), measure(2, "", fine), measure(3, "", ds)].join(""),
+            [measure(1, r#"<direction><direction-type><segno/></direction-type></direction>"#, ""), measure(2, r#"<direction><direction-type><segno/></direction-type></direction>"#, fine), measure(3, "", ds)].join(""),
+            [measure(1, r#"<direction><direction-type><segno/></direction-type><sound segno="A"/></direction>"#, ""), measure(2, r#"<sound segno="B"/>"#, fine), measure(3, "", ds)].join(""),
+            [measure(1, r#"<direction><direction-type><segno/></direction-type></direction>"#, ""), measure(2, r#"<sound segno="A"/>"#, fine), measure(3, "", r#"<direction><direction-type><words>D.S. al Fine</words></direction-type><sound dalsegno="A"/></direction>"#)].join(""),
+            [measure(1, &format!(r#"<direction><direction-type><segno/></direction-type></direction>{fine}"#), ""), measure(2, "", ds)].join(""),
+        ] {
+            let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+            assert!(!plan.complete, "{source}");
+            assert!(!plan.diagnostics.is_empty());
         }
     }
 

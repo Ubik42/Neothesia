@@ -92,6 +92,7 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await reader.locator(".paper-note-editor summary").click();
   await reader.getByLabel("音符位置演奏小节").fill("2");
   await expect(reader.getByLabel("纸谱位置目标音")).toContainText("D4");
+  await expect(reader.locator(".paper-note-editor")).toContainText("当前有效位置 0 / 3 个演奏音符");
   await reader.getByRole("button", { name: "框选音符位置" }).click();
   const sheet = reader.locator(".paper-annotation-sheet");
   await sheet.scrollIntoViewIfNeeded();
@@ -103,6 +104,12 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await page.mouse.up();
   await expect(reader.getByRole("button", { name: "保存音符位置" })).toBeEnabled();
   await reader.getByRole("button", { name: "保存音符位置" }).click();
+  await expect(reader.locator(".paper-note-editor")).toContainText("当前有效位置 1 / 3 个演奏音符");
+  await page.screenshot({ path: "../outputs/Neothesia-纸谱逐音标记进度.png" });
+  await reader.getByRole("button", { name: "下一处未标记音符" }).click();
+  await expect(reader.getByLabel("音符位置演奏小节")).toHaveValue("3");
+  await expect(reader.getByLabel("纸谱位置目标音")).toContainText("未标记 · E4");
+  await reader.getByLabel("音符位置演奏小节").fill("2");
   await expect(reader.getByRole("button", { name: "D4 在第 2 小节的纸谱位置" })).toBeVisible();
   const savedPaper = await command({ type: "scoreAttachments", content_id: song.contentId });
   expect(savedPaper.attachments[0].noteAnchors).toHaveLength(1);

@@ -46,6 +46,96 @@ pub(super) fn same_attempt_conditions(a: &PracticeSession, b: &PracticeSession) 
         && a.routine.as_ref().and_then(|r| r.expression.as_ref())
             == b.routine.as_ref().and_then(|r| r.expression.as_ref())
 }
+
+/// Explain why an older attempt cannot be used as evidence for this attempt.
+/// Keep this list aligned with `same_attempt_conditions`; both records belong
+/// to the same song when the caller uses it.
+pub(super) fn attempt_difference_reasons(
+    current: &PracticeSession,
+    older: &PracticeSession,
+) -> Vec<&'static str> {
+    let mut reasons = Vec::new();
+    if current.scope.as_deref().is_none_or(str::is_empty)
+        || older.scope.as_deref().is_none_or(str::is_empty)
+    {
+        reasons.push("练习音符范围缺少完整记录");
+    } else if current.scope != older.scope {
+        reasons.push("练习音符范围不同");
+    }
+    if current.mode.as_deref().is_none_or(str::is_empty)
+        || older.mode.as_deref().is_none_or(str::is_empty)
+    {
+        reasons.push("练习模式缺少完整记录");
+    } else if current.mode != older.mode {
+        reasons.push("练习模式不同");
+    }
+    if current.hands != older.hands {
+        reasons.push("练习手别不同");
+    }
+    if current.kind != older.kind {
+        reasons.push("整曲或练习小节范围不同");
+    }
+    if !current.speed.is_finite() || !older.speed.is_finite() {
+        reasons.push("练习速度记录无效");
+    } else if (current.speed - older.speed).abs() >= 0.0001 {
+        reasons.push("练习速度不同");
+    }
+    if current.effective_tempo_bpm != older.effective_tempo_bpm {
+        reasons.push("实际节拍速度不同");
+    }
+    let (Some(a), Some(b)) = (&current.context, &older.context) else {
+        reasons.push("旧记录缺少完整演奏条件");
+        return reasons;
+    };
+    if a.grid.is_empty() || b.grid.is_empty() {
+        reasons.push("音乐小节网格缺少记录");
+    } else if a.grid != b.grid {
+        reasons.push("音乐小节网格不同");
+    }
+    if a.hands.is_empty() || b.hands.is_empty() {
+        reasons.push("逐音分手条件缺少记录");
+    } else if a.hands != b.hands {
+        reasons.push("逐音分手条件不同");
+    }
+    if a.target_notes == 0 || b.target_notes == 0 || a.judged_notes == 0 || b.judged_notes == 0 {
+        reasons.push("目标音或判定音缺少有效数量");
+    } else if a.target_notes != b.target_notes || a.judged_notes != b.judged_notes {
+        reasons.push("目标音或实际判定音数量不同");
+    }
+    if a.tracks != b.tracks {
+        reasons.push("音轨演奏与伴奏设置不同");
+    }
+    if a.parts != b.parts {
+        reasons.push("音轨手别设置不同");
+    }
+    if a.exercise_spec != b.exercise_spec {
+        reasons.push("技术练习内容不同");
+    }
+    if a.count_in != b.count_in {
+        reasons.push("预备拍设置不同");
+    }
+    if a.metronome != b.metronome {
+        reasons.push("节拍器设置不同");
+    }
+    if a.latency != b.latency {
+        reasons.push("按键延迟校准不同");
+    }
+    if a.pedal_latency_ms.unwrap_or(a.latency) != b.pedal_latency_ms.unwrap_or(b.latency) {
+        reasons.push("踏板延迟校准不同");
+    }
+    if a.rounds != b.rounds {
+        reasons.push("练习轮数不同");
+    }
+    if a.adaptive != b.adaptive {
+        reasons.push("自适应速度设置不同");
+    }
+    if a.routine.as_ref().and_then(|r| r.expression.as_ref())
+        != b.routine.as_ref().and_then(|r| r.expression.as_ref())
+    {
+        reasons.push("力度或踏板专项目标不同");
+    }
+    reasons
+}
 pub(super) fn grid(file: &MidiFile) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for m in &file.musical_time.measures {
@@ -119,18 +209,38 @@ mod tests {
 
     fn attempt() -> PracticeSession {
         PracticeSession {
-            replay_clips: vec![], playing_ms: None, annotation: None, id: None,
+            replay_clips: vec![],
+            playing_ms: None,
+            annotation: None,
+            id: None,
             context: Some(PracticeSessionContext {
-                routine: None, ladder: None, target_notes: 12, judged_notes: 12,
-                tracks: vec![], parts: BTreeMap::new(), hands: "both".into(),
-                count_in: 1, metronome: true, latency: 10,
-                pedal_latency_ms: Some(10), rounds: 0, adaptive: false,
-                grid: "grid-1".into(), source_path: None, exercise_spec: None,
+                routine: None,
+                ladder: None,
+                target_notes: 12,
+                judged_notes: 12,
+                tracks: vec![],
+                parts: BTreeMap::new(),
+                hands: "both".into(),
+                count_in: 1,
+                metronome: true,
+                latency: 10,
+                pedal_latency_ms: Some(10),
+                rounds: 0,
+                adaptive: false,
+                grid: "grid-1".into(),
+                source_path: None,
+                exercise_spec: None,
             }),
             recorded_at_unix_ms: 1,
-            kind: PracticeSessionKind::Loop { start_measure: 2, end_measure: 4 },
-            hands: PracticeHands::Both, speed: 0.8, mode: Some("flow".into()),
-            scope: Some("scope-1".into()), effective_tempo_bpm: Some(80),
+            kind: PracticeSessionKind::Loop {
+                start_measure: 2,
+                end_measure: 4,
+            },
+            hands: PracticeHands::Both,
+            speed: 0.8,
+            mode: Some("flow".into()),
+            scope: Some("scope-1".into()),
+            effective_tempo_bpm: Some(80),
             summary: AttemptSummary::default(),
         }
     }
@@ -157,7 +267,10 @@ mod tests {
     fn same_condition_rejects_changed_range_grid_settings_and_missing_legacy_context() {
         let original = attempt();
         let mut altered = original.clone();
-        altered.kind = PracticeSessionKind::Loop { start_measure: 3, end_measure: 4 };
+        altered.kind = PracticeSessionKind::Loop {
+            start_measure: 3,
+            end_measure: 4,
+        };
         assert!(!same_attempt_conditions(&original, &altered));
         altered = original.clone();
         altered.context.as_mut().unwrap().grid = "grid-2".into();
@@ -171,5 +284,26 @@ mod tests {
         altered = original.clone();
         altered.context = None;
         assert!(!same_attempt_conditions(&altered, &altered));
+    }
+
+    #[test]
+    fn excluded_attempt_explains_actual_condition_differences() {
+        let current = attempt();
+        let mut older = current.clone();
+        older.speed = 0.7;
+        older.context.as_mut().unwrap().grid = "grid-previous".into();
+        older.context.as_mut().unwrap().pedal_latency_ms = Some(22);
+        assert!(!same_attempt_conditions(&current, &older));
+        assert_eq!(
+            attempt_difference_reasons(&current, &older),
+            ["练习速度不同", "音乐小节网格不同", "踏板延迟校准不同"]
+        );
+        assert!(attempt_difference_reasons(&current, &current).is_empty());
+        older = current.clone();
+        older.context = None;
+        assert_eq!(
+            attempt_difference_reasons(&current, &older),
+            ["旧记录缺少完整演奏条件"]
+        );
     }
 }

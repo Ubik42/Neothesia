@@ -36,6 +36,7 @@ type Summary = {
   metadataHistoryDuplicates?: number;
   metadataHistoryUnmatched?: number;
   metadataHistoryAmbiguous?: number;
+  metadataHistoryPendingAdded?: number;
   metadataHistoryError?: string | null;
   metadataTemplateRows?: { name: string; rules: Partial<Rules> }[];
   templateError?: string | null;
@@ -97,6 +98,9 @@ export function PracticeBackupDialog({
   const [localBatches, setLocalBatches] = useState<BatchSummary[]>([]);
   const [batchError, setBatchError] = useState("");
   const [progress, setProgress] = useState("");
+  const [pendingHistory, setPendingHistory] = useState<{sourcePath:string;contentId:string;title?:string|null;records:number;candidates:string[]}[]>([]);
+  const [pendingTargets, setPendingTargets] = useState<Record<string,string>>({});
+  const [pendingError, setPendingError] = useState("");
   const [workspace, setWorkspace] = useState<{
     practice: File;
     batches: BatchData[];
@@ -110,6 +114,7 @@ export function PracticeBackupDialog({
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
+    void refreshPending();
     void listBatches()
       .then((rows) => {
         if (alive.current) setLocalBatches(rows);
@@ -121,6 +126,21 @@ export function PracticeBackupDialog({
       alive.current = false;
     };
   }, []);
+  const refreshPending = async () => {
+    try {
+      const result = await api.command<{rows:typeof pendingHistory}>({type:"pendingMetadataHistory"});
+      if (alive.current) { setPendingHistory(result.rows); setPendingError(""); }
+    } catch (e) { if (alive.current) setPendingError(String(e)); }
+  };
+  const claimPending = (row: typeof pendingHistory[number]) => work(async () => {
+    const key = `${row.contentId}:${row.sourcePath}`;
+    const target = pendingTargets[key] || (row.candidates.length === 1 ? row.candidates[0] : "");
+    if (!target) throw new Error("请先选择要接收资料修改历史的曲目");
+    const result = await api.command<{added:number;records:number}>({type:"claimPendingMetadataHistory",source_path:row.sourcePath,content_id:row.contentId,target_path:target});
+    setMessage(`已将 ${result.records} 条修改历史认领到所选曲目，新增 ${result.added} 条。`);
+    await refreshPending();
+    await changed();
+  });
   const work = async (job: () => Promise<void>) => {
     if (working.current) return;
     working.current = true;
@@ -247,6 +267,7 @@ export function PracticeBackupDialog({
             metadataHistoryDuplicates?: number;
             metadataHistoryUnmatched?: number;
             metadataHistoryAmbiguous?: number;
+            metadataHistoryPendingAdded?: number;
           }>({
             type: "importStagedPracticeBackup",
             token: summary.token,
@@ -258,8 +279,9 @@ export function PracticeBackupDialog({
           setWorkspace(null);
           batchSaved.current = false;
           setMessage(
-            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：曲目资料历史新增 ${result.metadataHistoryAdded ?? 0} 条、跳过重复 ${result.metadataHistoryDuplicates ?? 0} 条、未找到同内容曲目 ${result.metadataHistoryUnmatched ?? 0} 条、多处同内容路径无法确定归属 ${result.metadataHistoryAmbiguous ?? 0} 条。成绩新增 ${result.addedRecords} 条、跳过重复 ${result.duplicateRecords} 条、区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。累计时长新增 ${result.addedTimeEntries ?? 0} 条。本机导入前副本已保留。`,
+            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：曲目资料历史新增 ${result.metadataHistoryAdded ?? 0} 条、跳过重复 ${result.metadataHistoryDuplicates ?? 0} 条、另存待认领 ${result.metadataHistoryPendingAdded ?? 0} 条。成绩新增 ${result.addedRecords} 条、跳过重复 ${result.duplicateRecords} 条、区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。累计时长新增 ${result.addedTimeEntries ?? 0} 条。本机导入前副本已保留。`,
           );
+          await refreshPending();
           try {
             await changed();
           } catch (e) {
@@ -347,6 +369,25 @@ export function PracticeBackupDialog({
             </label>
           ))}
         </div>
+        <section className="practice-backup-export" aria-label="待认领资料修改历史">
+          <h3>待认领的资料修改历史</h3>
+          <p className="parameter-help">备份中无法确定归属的记录会保存在本机。曲目入库后，请在这里选择内容相同的 MIDI 路径。选择前请核对来源与目标；认领只增加修改历史，不会改写曲目资料。</p>
+          {pendingError && <p role="alert">待认领记录无法读取：{pendingError}</p>}
+          {pendingHistory.length === 0 && !pendingError && <p className="parameter-help">目前没有待认领记录。</p>}
+          {pendingHistory.map((row) => {
+            const key = `${row.contentId}:${row.sourcePath}`;
+            return <div key={key} className="practice-backup-pending-row">
+              <p><strong>{row.title || "未命名曲目"}</strong> · {row.records} 条记录</p>
+              <p className="parameter-help">原路径：{row.sourcePath}</p>
+              <p className="parameter-help">内容身份：{row.contentId}</p>
+              {row.candidates.length ? <><select aria-label={`认领目标 ${row.sourcePath}`} disabled={busy} value={pendingTargets[key] ?? (row.candidates.length === 1 ? row.candidates[0] : "")} onChange={(e)=>setPendingTargets((old)=>({...old,[key]:e.target.value}))}>
+                {row.candidates.length > 1 && <option value="">选择目标 MIDI</option>}
+                {row.candidates.map((path)=><option key={path} value={path}>{path}</option>)}
+              </select><button type="button" disabled={busy || (row.candidates.length > 1 && !pendingTargets[key])} onClick={()=>void claimPending(row)}>认领到所选曲目</button></> : <p className="parameter-help">曲库中还没有内容相同的 MIDI。请先导入或索引曲目，再重新打开此窗口。</p>}
+            </div>;
+          })}
+          <button type="button" disabled={busy} onClick={()=>void refreshPending()}>刷新待认领记录</button>
+        </section>
         <div className="practice-backup-export">
           <h3>保存本机资料</h3>
           <p className="parameter-help">
@@ -650,10 +691,10 @@ export function PracticeBackupDialog({
                 <p role="alert">本机资料修改历史无法安全合并：{summary.metadataHistoryError}。请先修复本机历史，或取消“片段、阶梯、技术练习、音轨、资料模板与修改历史”。</p>
               )}
               {!!summary.metadataHistoryUnmatched && selection.presets && (
-                <p className="parameter-help">有 {summary.metadataHistoryUnmatched} 条资料修改历史没有找到已索引的同内容 MIDI。请先将对应曲目加入本机曲库并重新预览备份。</p>
+                <p className="parameter-help">有 {summary.metadataHistoryUnmatched} 条资料修改历史没有找到已索引的同内容 MIDI。导入后，这些记录会保存在上方的待认领列表。</p>
               )}
               {!!summary.metadataHistoryAmbiguous && selection.presets && (
-                <p className="parameter-help">有 {summary.metadataHistoryAmbiguous} 条资料修改历史对应本机多个相同内容路径。软件不会猜测修改归属。请先整理重复路径并重新预览备份。</p>
+                <p className="parameter-help">有 {summary.metadataHistoryAmbiguous} 条资料修改历史对应本机多个相同内容路径。导入后，请在上方明确选择接收路径。</p>
               )}
               <p className="parameter-help">
                 本机已有相同成绩 {summary.duplicateRecords} 条，合并时跳过。

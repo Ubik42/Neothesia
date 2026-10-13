@@ -1,7 +1,9 @@
 use super::*;
 use crate::preferences::{ExercisePreset, LadderPreset, LadderRun, PassagePreset};
 use crate::routine_commands::{PracticeRoutine, RoutineRun, RoutineTarget};
-use neothesia_core::practice_history::{SongPracticeHistory, PracticeTimeLedger, validate_time_ledger};
+use neothesia_core::practice_history::{
+    PracticeTimeLedger, SongPracticeHistory, validate_time_ledger,
+};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Read, Write};
@@ -142,7 +144,12 @@ fn routine(r: &PracticeRoutine) -> Result<(), String> {
             .validate(i.settings.mode.as_deref().unwrap_or("wait"))?;
         match &i.target {
             RoutineTarget::Whole => {}
-            RoutineTarget::PrecisePassage {range} => {range.validate()?;if range.content_id!=i.content_id || range.grid!=i.grid{return Err("拍内计划归属无效".into())}},
+            RoutineTarget::PrecisePassage { range } => {
+                range.validate()?;
+                if range.content_id != i.content_id || range.grid != i.grid {
+                    return Err("拍内计划归属无效".into());
+                }
+            }
             RoutineTarget::ScorePassage { range } => range.validate()?,
             RoutineTarget::Passage { start, end } => range(*start, *end)?,
             RoutineTarget::Ladder { preset } => {
@@ -165,7 +172,9 @@ fn routine(r: &PracticeRoutine) -> Result<(), String> {
 fn finite_numbers(v: &Value) -> Result<(), String> {
     fn check(v: &Value, key: &str) -> Result<(), String> {
         // Ledger timestamps, durations and capacity are checked by its shared strict validator.
-        if key == "timeLedger" { return Ok(()); }
+        if key == "timeLedger" {
+            return Ok(());
+        }
         match v {
             Value::Array(a) => {
                 if a.len() > 1_000_000 {
@@ -183,8 +192,13 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
             Value::Number(n) => {
                 let max = if matches!(
                     key,
-                    "createdAt" | "timeMs"
-                        | "generatedAt" | "recordedAt" | "from" | "to" | "runningMs"
+                    "createdAt"
+                        | "timeMs"
+                        | "generatedAt"
+                        | "recordedAt"
+                        | "from"
+                        | "to"
+                        | "runningMs"
                         | "recorded_at_unix_ms"
                         | "last_used_unix_ms"
                         | "updated_at_unix_ms"
@@ -211,13 +225,56 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
 
 impl Backup {
     pub fn version(&self) -> u8 {
-        if !self.metadata_history.is_empty() { return 13; }
-        if !self.time_ledger.is_empty() || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.schedule.as_ref().is_some_and(|s|!s.skip_dates.is_empty()||!s.extra_dates.is_empty())) { return 12; }
-        let trimmed=|r:&crate::score_ranges::ScoreRange|r.start_trim>0||r.end_trim>0;
+        if !self.metadata_history.is_empty() {
+            return 13;
+        }
+        if !self.time_ledger.is_empty()
+            || self
+                .routines
+                .iter()
+                .chain(self.runs.values().map(|r| &r.routine))
+                .any(|r| {
+                    r.schedule
+                        .as_ref()
+                        .is_some_and(|s| !s.skip_dates.is_empty() || !s.extra_dates.is_empty())
+                })
+        {
+            return 12;
+        }
+        let trimmed = |r: &crate::score_ranges::ScoreRange| r.start_trim > 0 || r.end_trim > 0;
         if self.passages.values().flatten().any(|p|p.score_range.as_ref().is_some_and(trimmed)) || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.items.iter().any(|i|matches!(&i.target,RoutineTarget::ScorePassage{range} if trimmed(range)))){return 11;}
-        if self.passages.values().flatten().any(|p|p.precise_range.is_some()) || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.items.iter().any(|i|matches!(i.target,RoutineTarget::PrecisePassage{..}))){return 10;}
-        if self.history.values().any(|h|h.sessions.iter().any(|s|!s.replay_clips.is_empty())) {return 9;}
-        if self.performances.values().flat_map(|rows|rows.values()).any(|a|a.has_measures()){return 8;}
+        if self
+            .passages
+            .values()
+            .flatten()
+            .any(|p| p.precise_range.is_some())
+            || self
+                .routines
+                .iter()
+                .chain(self.runs.values().map(|r| &r.routine))
+                .any(|r| {
+                    r.items
+                        .iter()
+                        .any(|i| matches!(i.target, RoutineTarget::PrecisePassage { .. }))
+                })
+        {
+            return 10;
+        }
+        if self
+            .history
+            .values()
+            .any(|h| h.sessions.iter().any(|s| !s.replay_clips.is_empty()))
+        {
+            return 9;
+        }
+        if self
+            .performances
+            .values()
+            .flat_map(|rows| rows.values())
+            .any(|a| a.has_measures())
+        {
+            return 8;
+        }
         if self
             .performances
             .values()
@@ -274,21 +331,39 @@ impl Backup {
     pub fn validate(&self) -> Result<(), String> {
         crate::metadata_history::validate_backup(&self.metadata_history)?;
         validate_time_ledger(&self.time_ledger)?;
-        if self.time_ledger.len()>10000 {return Err("备份累计时长的曲目数量超过上限".into());}
-        let mut total_time=0u64;
-        for (cid,rows) in &self.time_ledger {
+        if self.time_ledger.len() > 10000 {
+            return Err("备份累计时长的曲目数量超过上限".into());
+        }
+        let mut total_time = 0u64;
+        for (cid, rows) in &self.time_ledger {
             identity(cid)?;
-            for (id,entry) in rows {
-                if id.is_empty() || id.len()>200 || id.chars().any(char::is_control) {return Err("备份累计时长的保存编号无效".into());}
-                total_time=total_time.checked_add(entry.untracked_ms).ok_or("备份累计时长超过上限")?;
-                for slice in &entry.slices {total_time=total_time.checked_add(slice.running_ms).ok_or("备份累计时长超过上限")?;}
-                if total_time>9_007_199_254_740_991 {return Err("备份累计时长超过精确统计上限".into());}
+            for (id, entry) in rows {
+                if id.is_empty() || id.len() > 200 || id.chars().any(char::is_control) {
+                    return Err("备份累计时长的保存编号无效".into());
+                }
+                total_time = total_time
+                    .checked_add(entry.untracked_ms)
+                    .ok_or("备份累计时长超过上限")?;
+                for slice in &entry.slices {
+                    total_time = total_time
+                        .checked_add(slice.running_ms)
+                        .ok_or("备份累计时长超过上限")?;
+                }
+                if total_time > 9_007_199_254_740_991 {
+                    return Err("备份累计时长超过精确统计上限".into());
+                }
             }
         }
-        for (cid,h) in &self.history {for s in &h.sessions {
-            let duration=self.performances.get(cid).and_then(|rows|rows.get(&session_key(s))).map(|a|a.duration);
-            neothesia_core::practice_history::validate_replay_clips(&s.replay_clips,duration)?;
-        }}
+        for (cid, h) in &self.history {
+            for s in &h.sessions {
+                let duration = self
+                    .performances
+                    .get(cid)
+                    .and_then(|rows| rows.get(&session_key(s)))
+                    .map(|a| a.duration);
+                neothesia_core::practice_history::validate_replay_clips(&s.replay_clips, duration)?;
+            }
+        }
         if self.performances.len() > 10000 {
             return Err("备份回放曲目过多".into());
         }
@@ -418,7 +493,12 @@ impl Backup {
                 text(&p.name, 320)?;
                 text(&p.notes, 8192)?;
                 range(p.start, p.end)?;
-                if let Some(r)=&p.precise_range {r.validate()?;if &r.content_id!=cid || p.score_range.is_some(){return Err("拍内段落归属无效".into())}}
+                if let Some(r) = &p.precise_range {
+                    r.validate()?;
+                    if &r.content_id != cid || p.score_range.is_some() {
+                        return Err("拍内段落归属无效".into());
+                    }
+                }
                 if let Some(range) = &p.score_range {
                     range.validate()?;
                 }
@@ -578,7 +658,10 @@ impl Backup {
             serde_json::from_slice(&files["manifest.json"]).map_err(|e| e.to_string())?;
         let data = &files["practice.json"];
         if header["format"] != "neothesia-practice"
-            || !matches!(header["version"].as_u64(), Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13))
+            || !matches!(
+                header["version"].as_u64(),
+                Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13)
+            )
             || header["size"].as_u64() != Some(data.len() as u64)
             || header["hash"].as_str() != Some(blake3::hash(data).to_hex().as_str())
         {
@@ -593,17 +676,33 @@ impl Backup {
     }
     pub fn summary(&self) -> Value {
         let mut value = json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()});
-        value["metadataHistory"] = json!(self.metadata_history.iter().map(|row| row.records.len()).sum::<usize>());
-        value["metadataHistorySongs"] = json!(self.metadata_history.iter().map(|row| &row.content_id).collect::<BTreeSet<_>>().len());
+        value["metadataHistory"] = json!(
+            self.metadata_history
+                .iter()
+                .map(|row| row.records.len())
+                .sum::<usize>()
+        );
+        value["metadataHistorySongs"] = json!(
+            self.metadata_history
+                .iter()
+                .map(|row| &row.content_id)
+                .collect::<BTreeSet<_>>()
+                .len()
+        );
         value
     }
 }
 fn session_key(s: &PracticeSession) -> String {
     s.stable_id()
 }
-fn collision_key(session:&PracticeSession)->String {
-    let mut evidence=session.clone();evidence.annotation=None;evidence.replay_clips.clear();
-    format!("import-{}",blake3::hash(&serde_json::to_vec(&evidence).unwrap()).to_hex())
+fn collision_key(session: &PracticeSession) -> String {
+    let mut evidence = session.clone();
+    evidence.annotation = None;
+    evidence.replay_clips.clear();
+    format!(
+        "import-{}",
+        blake3::hash(&serde_json::to_vec(&evidence).unwrap()).to_hex()
+    )
 }
 fn merge_rows<T: Clone + Serialize>(
     local: &mut Vec<T>,
@@ -672,6 +771,8 @@ struct Journal {
     performances: BTreeMap<String, bool>,
     #[serde(default)]
     metadata_histories: BTreeMap<String, bool>,
+    #[serde(default)]
+    pending_metadata_history: Option<bool>,
     folder: String,
     prefs: bool,
     history: bool,
@@ -713,8 +814,12 @@ pub fn recover(data: &Path) -> Result<(), String> {
         return Err("练习导入回放恢复路径无效".into());
     }
     if j.metadata_histories.keys().any(|name| {
-        name.len() != 69 || !name.ends_with(".json") || !name.as_bytes()[..64].iter().all(|b| b.is_ascii_hexdigit())
-    }) { return Err("练习导入资料历史恢复路径无效".into()); }
+        name.len() != 69
+            || !name.ends_with(".json")
+            || !name.as_bytes()[..64].iter().all(|b| b.is_ascii_hexdigit())
+    }) {
+        return Err("练习导入资料历史恢复路径无效".into());
+    }
     if !j.committed {
         let old = data.join("practice-restore-points").join(&j.folder);
         for (name, exists) in [
@@ -726,6 +831,10 @@ pub fn recover(data: &Path) -> Result<(), String> {
         .chain(
             j.templates
                 .map(|exists| ("metadata-templates.json", exists)),
+        )
+        .chain(
+            j.pending_metadata_history
+                .map(|exists| ("pending-metadata-history.json", exists)),
         ) {
             if exists {
                 atomic(
@@ -753,9 +862,13 @@ pub fn recover(data: &Path) -> Result<(), String> {
             let path = data.join("metadata-history").join(name);
             if *exists {
                 std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-                atomic(&path, &std::fs::read(old.join("metadata-history").join(name)).map_err(|e|e.to_string())?)?;
+                atomic(
+                    &path,
+                    &std::fs::read(old.join("metadata-history").join(name))
+                        .map_err(|e| e.to_string())?,
+                )?;
             } else if path.exists() {
-                std::fs::remove_file(path).map_err(|e|e.to_string())?;
+                std::fs::remove_file(path).map_err(|e| e.to_string())?;
             }
         }
     }
@@ -769,6 +882,7 @@ fn commit(
     templates: Option<&[u8]>,
     performances: &BTreeMap<String, Vec<u8>>,
     metadata_histories: &BTreeMap<String, Vec<u8>>,
+    pending_metadata_history: Option<&[u8]>,
 ) -> Result<String, String> {
     recover(data)?;
     std::fs::create_dir_all(data).map_err(|e| e.to_string())?;
@@ -784,6 +898,7 @@ fn commit(
     let mut j = Journal {
         performances: BTreeMap::new(),
         metadata_histories: BTreeMap::new(),
+        pending_metadata_history: pending_metadata_history.map(|_| false),
         folder: folder.clone(),
         prefs: false,
         history: false,
@@ -801,6 +916,11 @@ fn commit(
         j.templates
             .as_mut()
             .map(|exists| ("metadata-templates.json", exists)),
+    )
+    .chain(
+        j.pending_metadata_history
+            .as_mut()
+            .map(|exists| ("pending-metadata-history.json", exists)),
     ) {
         let p = data.join(name);
         *exists = p.exists();
@@ -821,12 +941,15 @@ fn commit(
         j.performances.insert(name.clone(), exists);
     }
     if !metadata_histories.is_empty() {
-        std::fs::create_dir_all(root.join("metadata-history")).map_err(|e|e.to_string())?;
+        std::fs::create_dir_all(root.join("metadata-history")).map_err(|e| e.to_string())?;
     }
     for name in metadata_histories.keys() {
         let path = data.join("metadata-history").join(name);
         let exists = path.exists();
-        if exists { std::fs::copy(&path, root.join("metadata-history").join(name)).map_err(|e|e.to_string())?; }
+        if exists {
+            std::fs::copy(&path, root.join("metadata-history").join(name))
+                .map_err(|e| e.to_string())?;
+        }
         j.metadata_histories.insert(name.clone(), exists);
     }
     let journal = data.join("practice-import-journal.json");
@@ -847,13 +970,18 @@ fn commit(
         if let Some(bytes) = templates {
             atomic(&data.join("metadata-templates.json"), bytes)?;
         }
+        if let Some(bytes) = pending_metadata_history {
+            atomic(&data.join("pending-metadata-history.json"), bytes)?;
+        }
         if !performances.is_empty() {
             std::fs::create_dir_all(data.join("performance-history")).map_err(|e| e.to_string())?;
         }
         for (name, bytes) in performances {
             atomic(&data.join("performance-history").join(name), bytes)?;
         }
-        if !metadata_histories.is_empty() { std::fs::create_dir_all(data.join("metadata-history")).map_err(|e|e.to_string())?; }
+        if !metadata_histories.is_empty() {
+            std::fs::create_dir_all(data.join("metadata-history")).map_err(|e| e.to_string())?;
+        }
         for (name, bytes) in metadata_histories {
             atomic(&data.join("metadata-history").join(name), bytes)?;
         }
@@ -880,7 +1008,11 @@ impl Player {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
-            metadata_history: if s.presets { crate::metadata_history::snapshot(&self.data)? } else { vec![] },
+            metadata_history: if s.presets {
+                crate::metadata_history::snapshot(&self.data)?
+            } else {
+                vec![]
+            },
             metadata_templates: if s.presets {
                 crate::metadata_templates::snapshot_unlocked(&self.data)?
             } else {
@@ -1123,17 +1255,22 @@ impl Player {
             }
         }
         let mut v = b.summary();
-        let metadata_history_plan = library_workspace::Workspace::load(&self.data)
-            .and_then(|mut workspace| crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history));
+        let metadata_history_plan =
+            library_workspace::Workspace::load(&self.data).and_then(|mut workspace| {
+                crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history)
+            });
         match metadata_history_plan {
             Ok(plan) => {
                 v["metadataHistoryAdded"] = json!(plan.added);
                 v["metadataHistoryDuplicates"] = json!(plan.duplicates);
                 v["metadataHistoryUnmatched"] = json!(plan.unmatched);
                 v["metadataHistoryAmbiguous"] = json!(plan.ambiguous);
+                v["metadataHistoryPendingAdded"] = json!(plan.pending_added);
                 v["metadataHistoryError"] = Value::Null;
             }
-            Err(error) => { v["metadataHistoryError"] = json!(error); }
+            Err(error) => {
+                v["metadataHistoryError"] = json!(error);
+            }
         }
         v["performanceConflicts"] = json!(performance_conflicts);
         v["duplicatePerformances"] = json!(performance_duplicates);
@@ -1174,16 +1311,47 @@ impl Player {
                     .count())
                 .sum::<usize>()
         );
-        let mut time_duplicates=0;
-        let mut time_conflicts=0;
-        for (cid,rows) in &b.time_ledger { for (id,incoming) in rows {
-            if let Some(local)=self.history.time_ledger().get(cid).and_then(|r|r.get(id)) {
-                if local == incoming {time_duplicates+=1;} else {time_conflicts+=1;}
+        let mut time_duplicates = 0;
+        let mut time_conflicts = 0;
+        for (cid, rows) in &b.time_ledger {
+            for (id, incoming) in rows {
+                if let Some(local) = self.history.time_ledger().get(cid).and_then(|r| r.get(id)) {
+                    if local == incoming {
+                        time_duplicates += 1;
+                    } else {
+                        time_conflicts += 1;
+                    }
+                }
             }
-        }}
-        v["timeLedgerDuplicates"]=json!(time_duplicates);
-        v["timeLedgerConflicts"]=json!(time_conflicts);
-        v["replayClipConflicts"] = json!(b.history.iter().map(|(cid,h)|h.sessions.iter().map(|s|local.get(cid).and_then(|l|l.sessions.iter().find(|x|(session_key(x)==session_key(s)||session_key(x)==collision_key(s))&&x.same_performance(s))).map(|x|s.replay_clips.iter().filter(|c|x.replay_clips.iter().any(|old|old.id==c.id&&old!=*c)).count()).unwrap_or(0)).sum::<usize>()).sum::<usize>());
+        }
+        v["timeLedgerDuplicates"] = json!(time_duplicates);
+        v["timeLedgerConflicts"] = json!(time_conflicts);
+        v["replayClipConflicts"] = json!(
+            b.history
+                .iter()
+                .map(|(cid, h)| h
+                    .sessions
+                    .iter()
+                    .map(|s| local
+                        .get(cid)
+                        .and_then(|l| l
+                            .sessions
+                            .iter()
+                            .find(|x| (session_key(x) == session_key(s)
+                                || session_key(x) == collision_key(s))
+                                && x.same_performance(s)))
+                        .map(|x| s
+                            .replay_clips
+                            .iter()
+                            .filter(|c| x
+                                .replay_clips
+                                .iter()
+                                .any(|old| old.id == c.id && old != *c))
+                            .count())
+                        .unwrap_or(0))
+                    .sum::<usize>())
+                .sum::<usize>()
+        );
         v["references"] = json!(refs.into_values().collect::<Vec<_>>());
         v
     }
@@ -1211,7 +1379,8 @@ impl Player {
         let _guard = lock.lock().map_err(|_| "曲库资料正忙")?;
         let mut workspace = library_workspace::Workspace::load(&self.data)?;
         let mut b = selected(b, &s);
-        let metadata_history_plan = crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history)?;
+        let metadata_history_plan =
+            crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history)?;
         let mut history = self.history.clone();
         let added_time_entries = history.merge_time_ledger(b.time_ledger.clone())?;
         let mut learning_changed = 0;
@@ -1266,7 +1435,13 @@ impl Player {
                     if session.annotation.is_some() && (replace || x.annotation.is_none()) {
                         x.annotation = session.annotation.clone();
                     }
-                    merge_rows(&mut x.replay_clips,&session.replay_clips,|c|&c.id,replace,100)?;
+                    merge_rows(
+                        &mut x.replay_clips,
+                        &session.replay_clips,
+                        |c| &c.id,
+                        replace,
+                        100,
+                    )?;
                     duplicates += 1;
                     continue;
                 }
@@ -1283,8 +1458,14 @@ impl Player {
                         if session.annotation.is_some() && (replace || x.annotation.is_none()) {
                             x.annotation = session.annotation.clone();
                         }
-                        merge_rows(&mut x.replay_clips,&session.replay_clips,|c|&c.id,replace,100)?;
-                    duplicates += 1;
+                        merge_rows(
+                            &mut x.replay_clips,
+                            &session.replay_clips,
+                            |c| &c.id,
+                            replace,
+                            100,
+                        )?;
+                        duplicates += 1;
                         continue;
                     }
                     collisions += 1;
@@ -1450,6 +1631,7 @@ impl Player {
             templates.as_deref(),
             &performance_files,
             &metadata_history_plan.files,
+            metadata_history_plan.pending_file.as_deref(),
         )?;
         let sound_changed = self.preferences.track_sounds != prefs.track_sounds;
         self.preferences = prefs;
@@ -1458,7 +1640,7 @@ impl Player {
             self.reset(self.state.position);
         }
         Ok(
-            json!({"metadataHistoryAdded":metadata_history_plan.added,"metadataHistoryDuplicates":metadata_history_plan.duplicates,"metadataHistoryUnmatched":metadata_history_plan.unmatched,"metadataHistoryAmbiguous":metadata_history_plan.ambiguous,"addedTimeEntries":added_time_entries,"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
+            json!({"metadataHistoryAdded":metadata_history_plan.added,"metadataHistoryDuplicates":metadata_history_plan.duplicates,"metadataHistoryUnmatched":metadata_history_plan.unmatched,"metadataHistoryAmbiguous":metadata_history_plan.ambiguous,"metadataHistoryPendingAdded":metadata_history_plan.pending_added,"addedTimeEntries":added_time_entries,"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
         )
     }
 }
@@ -1544,104 +1726,308 @@ mod tests {
         serde_json::from_value(p.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap()
     }
     fn time_entry() -> neothesia_core::practice_history::PracticeTimeEntry {
-        use neothesia_core::practice_history::{PracticeTimeEntry,PracticeTimeSlice};
-        PracticeTimeEntry {saved_at_unix_ms:1_700_000_015_000,slices:vec![PracticeTimeSlice{from:1_700_000_000_000,to:1_700_000_010_000,running_ms:7000}],untracked_ms:500}
+        use neothesia_core::practice_history::{PracticeTimeEntry, PracticeTimeSlice};
+        PracticeTimeEntry {
+            saved_at_unix_ms: 1_700_000_015_000,
+            slices: vec![PracticeTimeSlice {
+                from: 1_700_000_000_000,
+                to: 1_700_000_010_000,
+                running_ms: 7000,
+            }],
+            untracked_ms: 500,
+        }
     }
     #[test]
     fn time_ledger_v12_roundtrip_filter_idempotence_and_old_backup() {
-        let mut source=player();let mut b=fixture(&mut source);
-        let cid=b.history.keys().next().unwrap().clone();
-        b.time_ledger.insert(cid.clone(),(0..251).map(|i|(format!("ledger-{i}"),time_entry())).collect());
-        assert_eq!(b.version(),12);
-        let decoded=Backup::decode(&b.encode().unwrap()).unwrap();
-        assert_eq!(decoded.time_ledger,b.time_ledger);
-        assert_eq!(decoded.summary()["timeLedgerEntries"],251);
-        assert_eq!(decoded.summary()["timeLedgerRunningMs"],251*7000);
-        assert_eq!(decoded.summary()["timeLedgerUntrackedMs"],251*500);
-        let mut dated=decoded.clone();dated.created_at=dated.history[&cid].sessions[0].recorded_at_unix_ms+90*86_400_000;
-        let recent=selected(dated,&Selection{days:30,..Selection::default()});
-        assert!(recent.history.is_empty());assert_eq!(recent.time_ledger[&cid].len(),251);
-        assert!(selected(decoded.clone(),&Selection{records:false,..Selection::default()}).time_ledger.is_empty());
-        let mut target=player();
-        assert_eq!(target.apply_practice_backup(recent.clone(),Selection::default(),"keep".into()).unwrap()["addedTimeEntries"],251);
+        let mut source = player();
+        let mut b = fixture(&mut source);
+        let cid = b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(
+            cid.clone(),
+            (0..251)
+                .map(|i| (format!("ledger-{i}"), time_entry()))
+                .collect(),
+        );
+        assert_eq!(b.version(), 12);
+        let decoded = Backup::decode(&b.encode().unwrap()).unwrap();
+        assert_eq!(decoded.time_ledger, b.time_ledger);
+        assert_eq!(decoded.summary()["timeLedgerEntries"], 251);
+        assert_eq!(decoded.summary()["timeLedgerRunningMs"], 251 * 7000);
+        assert_eq!(decoded.summary()["timeLedgerUntrackedMs"], 251 * 500);
+        let mut dated = decoded.clone();
+        dated.created_at = dated.history[&cid].sessions[0].recorded_at_unix_ms + 90 * 86_400_000;
+        let recent = selected(
+            dated,
+            &Selection {
+                days: 30,
+                ..Selection::default()
+            },
+        );
+        assert!(recent.history.is_empty());
+        assert_eq!(recent.time_ledger[&cid].len(), 251);
+        assert!(
+            selected(
+                decoded.clone(),
+                &Selection {
+                    records: false,
+                    ..Selection::default()
+                }
+            )
+            .time_ledger
+            .is_empty()
+        );
+        let mut target = player();
+        assert_eq!(
+            target
+                .apply_practice_backup(recent.clone(), Selection::default(), "keep".into())
+                .unwrap()["addedTimeEntries"],
+            251
+        );
         assert!(target.history.snapshot().is_empty());
-        assert_eq!(target.apply_practice_backup(recent,Selection::default(),"backup".into()).unwrap()["addedTimeEntries"],0);
-        assert_eq!(target.inspect_practice_backup(&decoded)["timeLedgerDuplicates"],251);
-        let reload=PracticeHistoryStore::load(target.history.path());
-        assert_eq!(reload.time_ledger(),&decoded.time_ledger);
-        let mut old=decoded.clone();old.time_ledger.clear();
-        assert!(old.version()<=11);
-        let old=Backup::decode(&old.encode().unwrap()).unwrap();assert!(old.time_ledger.is_empty());
-        target.apply_practice_backup(old,Selection::default(),"keep".into()).unwrap();
-        assert_eq!(target.history.time_ledger()[&cid].len(),251);
-        let snapshot:Backup=serde_json::from_value(target.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
-        assert_eq!(snapshot.time_ledger[&cid].len(),251);
+        assert_eq!(
+            target
+                .apply_practice_backup(recent, Selection::default(), "backup".into())
+                .unwrap()["addedTimeEntries"],
+            0
+        );
+        assert_eq!(
+            target.inspect_practice_backup(&decoded)["timeLedgerDuplicates"],
+            251
+        );
+        let reload = PracticeHistoryStore::load(target.history.path());
+        assert_eq!(reload.time_ledger(), &decoded.time_ledger);
+        let mut old = decoded.clone();
+        old.time_ledger.clear();
+        assert!(old.version() <= 11);
+        let old = Backup::decode(&old.encode().unwrap()).unwrap();
+        assert!(old.time_ledger.is_empty());
+        target
+            .apply_practice_backup(old, Selection::default(), "keep".into())
+            .unwrap();
+        assert_eq!(target.history.time_ledger()[&cid].len(), 251);
+        let snapshot: Backup = serde_json::from_value(
+            target
+                .practice_backup_snapshot(&Selection::default())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(snapshot.time_ledger[&cid].len(), 251);
     }
     #[test]
     fn time_ledger_v12_schedule_exceptions_require_new_reader() {
-        let mut p=player();let mut b=fixture(&mut p);
+        let mut p = player();
+        let mut b = fixture(&mut p);
         assert!(b.time_ledger.is_empty());
-        b.routines[0].schedule=Some(crate::routine_commands::RoutineSchedule {enabled:true,weekdays:vec![1],start:"2026-10-01".into(),end:None,skip_dates:vec!["2026-10-05".into()],extra_dates:vec!["2026-10-06".into()]});
-        assert_eq!(b.version(),12);
-        let restored=Backup::decode(&b.encode().unwrap()).unwrap();
-        assert_eq!(restored.routines[0].schedule.as_ref().unwrap().skip_dates,vec!["2026-10-05"]);
-        assert_eq!(restored.routines[0].schedule.as_ref().unwrap().extra_dates,vec!["2026-10-06"]);
-        b.routines[0].schedule=None;
-        b.runs.values_mut().next().unwrap().routine.schedule=restored.routines[0].schedule.clone();
-        assert_eq!(b.version(),12);
+        b.routines[0].schedule = Some(crate::routine_commands::RoutineSchedule {
+            enabled: true,
+            weekdays: vec![1],
+            start: "2026-10-01".into(),
+            end: None,
+            skip_dates: vec!["2026-10-05".into()],
+            extra_dates: vec!["2026-10-06".into()],
+        });
+        assert_eq!(b.version(), 12);
+        let restored = Backup::decode(&b.encode().unwrap()).unwrap();
+        assert_eq!(
+            restored.routines[0].schedule.as_ref().unwrap().skip_dates,
+            vec!["2026-10-05"]
+        );
+        assert_eq!(
+            restored.routines[0].schedule.as_ref().unwrap().extra_dates,
+            vec!["2026-10-06"]
+        );
+        b.routines[0].schedule = None;
+        b.runs.values_mut().next().unwrap().routine.schedule =
+            restored.routines[0].schedule.clone();
+        assert_eq!(b.version(), 12);
     }
     #[test]
     fn time_ledger_collision_and_invalid_data_reject_before_writes() {
-        let mut p=player();let mut b=fixture(&mut p);let cid=b.history.keys().next().unwrap().clone();
-        b.time_ledger.insert(cid.clone(),BTreeMap::from([("same-id".into(),time_entry())]));
-        p.apply_practice_backup(b.clone(),Selection::default(),"keep".into()).unwrap();
-        let before=std::fs::read(p.history.path()).unwrap();let original=p.history.time_ledger().clone();
-        b.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().untracked_ms+=1;
-        assert_eq!(p.inspect_practice_backup(&b)["timeLedgerConflicts"],1);
-        for policy in ["keep","backup"] {assert!(p.apply_practice_backup(b.clone(),Selection::default(),policy.into()).is_err());}
-        assert_eq!(p.history.time_ledger(),&original);assert_eq!(std::fs::read(p.history.path()).unwrap(),before);
-        let mut invalid=b.clone();invalid.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().slices[0].running_ms=20000;
+        let mut p = player();
+        let mut b = fixture(&mut p);
+        let cid = b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(
+            cid.clone(),
+            BTreeMap::from([("same-id".into(), time_entry())]),
+        );
+        p.apply_practice_backup(b.clone(), Selection::default(), "keep".into())
+            .unwrap();
+        let before = std::fs::read(p.history.path()).unwrap();
+        let original = p.history.time_ledger().clone();
+        b.time_ledger
+            .get_mut(&cid)
+            .unwrap()
+            .get_mut("same-id")
+            .unwrap()
+            .untracked_ms += 1;
+        assert_eq!(p.inspect_practice_backup(&b)["timeLedgerConflicts"], 1);
+        for policy in ["keep", "backup"] {
+            assert!(
+                p.apply_practice_backup(b.clone(), Selection::default(), policy.into())
+                    .is_err()
+            );
+        }
+        assert_eq!(p.history.time_ledger(), &original);
+        assert_eq!(std::fs::read(p.history.path()).unwrap(), before);
+        let mut invalid = b.clone();
+        invalid
+            .time_ledger
+            .get_mut(&cid)
+            .unwrap()
+            .get_mut("same-id")
+            .unwrap()
+            .slices[0]
+            .running_ms = 20000;
         assert!(invalid.encode().is_err());
-        let mut overflow=b;overflow.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().untracked_ms=u64::MAX;
+        let mut overflow = b;
+        overflow
+            .time_ledger
+            .get_mut(&cid)
+            .unwrap()
+            .get_mut("same-id")
+            .unwrap()
+            .untracked_ms = u64::MAX;
         assert!(overflow.encode().is_err());
     }
     #[test]
     fn time_ledger_failed_commit_restores_same_history_file() {
-        let mut p=player();let mut b=fixture(&mut p);let cid=b.history.keys().next().unwrap().clone();
-        b.time_ledger.insert(cid.clone(),BTreeMap::from([("before".into(),time_entry())]));
-        p.apply_practice_backup(b,Selection::default(),"keep".into()).unwrap();
-        let before=std::fs::read(p.history.path()).unwrap();let mut changed=p.history.clone();
-        changed.merge_time_ledger(BTreeMap::from([(cid.clone(),BTreeMap::from([("after".into(),time_entry())]))])).unwrap();
+        let mut p = player();
+        let mut b = fixture(&mut p);
+        let cid = b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(
+            cid.clone(),
+            BTreeMap::from([("before".into(), time_entry())]),
+        );
+        p.apply_practice_backup(b, Selection::default(), "keep".into())
+            .unwrap();
+        let before = std::fs::read(p.history.path()).unwrap();
+        let mut changed = p.history.clone();
+        changed
+            .merge_time_ledger(BTreeMap::from([(
+                cid.clone(),
+                BTreeMap::from([("after".into(), time_entry())]),
+            )]))
+            .unwrap();
         // Failure occurs after history and preferences have been written, exercising the real journal rollback.
-        std::fs::write(p.data.join("performance-history"),b"block directory creation").unwrap();
-        let performances=BTreeMap::from([(format!("{}.json","a".repeat(64)),b"{}".to_vec())]);
-        let workspace=library_workspace::Workspace::load(&p.data).unwrap();
-        assert!(commit(&p.data,&p.preferences,&changed,&workspace,None,&performances,&BTreeMap::new()).is_err());
-        assert_eq!(std::fs::read(p.history.path()).unwrap(),before);
-        let restored=PracticeHistoryStore::load(p.history.path());
-        assert!(restored.time_ledger()[&cid].contains_key("before"));assert!(!restored.time_ledger()[&cid].contains_key("after"));
+        std::fs::write(
+            p.data.join("performance-history"),
+            b"block directory creation",
+        )
+        .unwrap();
+        let performances = BTreeMap::from([(format!("{}.json", "a".repeat(64)), b"{}".to_vec())]);
+        let workspace = library_workspace::Workspace::load(&p.data).unwrap();
+        assert!(
+            commit(
+                &p.data,
+                &p.preferences,
+                &changed,
+                &workspace,
+                None,
+                &performances,
+                &BTreeMap::new(),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(p.history.path()).unwrap(), before);
+        let restored = PracticeHistoryStore::load(p.history.path());
+        assert!(restored.time_ledger()[&cid].contains_key("before"));
+        assert!(!restored.time_ledger()[&cid].contains_key("after"));
         assert!(!p.data.join("practice-import-journal.json").exists());
     }
     #[test]
     fn replay_clip_v9_merges_metadata_without_duplicate_records_and_preserves_legacy() {
         use neothesia_core::practice_history::ReplayClip;
-        let mut p=player();let mut b=fixture(&mut p);let cid=b.history.keys().next().unwrap().clone();
-        let before=p.history.song(&cid).unwrap().sessions[0].clone();
-        let clip=ReplayClip{id:"clip-one".into(),name:"左手慢练".into(),start:0.,end:1.,notes:"留意转指".into(),updated_at_unix_ms:1};
-        p.history.set_replay_clips(&cid,"same-id",vec![],vec![clip.clone()]).unwrap();
+        let mut p = player();
+        let mut b = fixture(&mut p);
+        let cid = b.history.keys().next().unwrap().clone();
+        let before = p.history.song(&cid).unwrap().sessions[0].clone();
+        let clip = ReplayClip {
+            id: "clip-one".into(),
+            name: "左手慢练".into(),
+            start: 0.,
+            end: 1.,
+            notes: "留意转指".into(),
+            updated_at_unix_ms: 1,
+        };
+        p.history
+            .set_replay_clips(&cid, "same-id", vec![], vec![clip.clone()])
+            .unwrap();
         assert!(p.history.song(&cid).unwrap().sessions[0].same_performance(&before));
-        let mut legacy=before.clone();legacy.id=None;let old_id=legacy.stable_id();legacy.replay_clips.push(clip.clone());assert_eq!(legacy.stable_id(),old_id);
-        b.history.get_mut(&cid).unwrap().sessions[0].replay_clips=vec![ReplayClip{name:"备份名称".into(),..clip.clone()},ReplayClip{id:"clip-two".into(),name:"第二段".into(),..clip.clone()}];
-        assert_eq!(b.version(),9);let b=Backup::decode(&b.encode().unwrap()).unwrap();assert_eq!(b.summary()["replayClips"],2);assert_eq!(p.inspect_practice_backup(&b)["replayClipConflicts"],1);
-        p.apply_practice_backup(b.clone(),Selection::default(),"keep".into()).unwrap();
-        assert_eq!(p.history.song(&cid).unwrap().sessions.len(),1);assert_eq!(p.history.song(&cid).unwrap().sessions[0].replay_clips[0].name,"左手慢练");assert_eq!(p.history.song(&cid).unwrap().sessions[0].replay_clips.len(),2);
-        p.apply_practice_backup(b.clone(),Selection::default(),"backup".into()).unwrap();assert_eq!(p.history.song(&cid).unwrap().sessions[0].replay_clips[0].name,"备份名称");
-        let mut old=b.clone();old.history.get_mut(&cid).unwrap().sessions[0].replay_clips.clear();p.apply_practice_backup(old,Selection::default(),"backup".into()).unwrap();assert_eq!(p.history.song(&cid).unwrap().sessions[0].replay_clips.len(),2);
-        let mut invalid=b.clone();invalid.history.get_mut(&cid).unwrap().sessions[0].replay_clips[0].end=0.;assert!(invalid.encode().is_err());
-        let mut collision=b.clone();collision.history.get_mut(&cid).unwrap().sessions[0].speed=0.5;
-        p.apply_practice_backup(collision.clone(),Selection::default(),"keep".into()).unwrap();assert_eq!(p.history.song(&cid).unwrap().sessions.len(),2);
-        collision.history.get_mut(&cid).unwrap().sessions[0].replay_clips[0].name="碰撞后的新名字".into();assert_eq!(p.inspect_practice_backup(&collision)["replayClipConflicts"],1);p.apply_practice_backup(collision,Selection::default(),"backup".into()).unwrap();assert_eq!(p.history.song(&cid).unwrap().sessions.len(),2);assert!(p.history.song(&cid).unwrap().sessions.iter().any(|s|s.replay_clips.iter().any(|c|c.name=="碰撞后的新名字")));
-        let reload=Player::new(p.data.clone(),PathBuf::from("unused.sf2"),true);assert_eq!(reload.history.song(&cid).unwrap().sessions.len(),2);
+        let mut legacy = before.clone();
+        legacy.id = None;
+        let old_id = legacy.stable_id();
+        legacy.replay_clips.push(clip.clone());
+        assert_eq!(legacy.stable_id(), old_id);
+        b.history.get_mut(&cid).unwrap().sessions[0].replay_clips = vec![
+            ReplayClip {
+                name: "备份名称".into(),
+                ..clip.clone()
+            },
+            ReplayClip {
+                id: "clip-two".into(),
+                name: "第二段".into(),
+                ..clip.clone()
+            },
+        ];
+        assert_eq!(b.version(), 9);
+        let b = Backup::decode(&b.encode().unwrap()).unwrap();
+        assert_eq!(b.summary()["replayClips"], 2);
+        assert_eq!(p.inspect_practice_backup(&b)["replayClipConflicts"], 1);
+        p.apply_practice_backup(b.clone(), Selection::default(), "keep".into())
+            .unwrap();
+        assert_eq!(p.history.song(&cid).unwrap().sessions.len(), 1);
+        assert_eq!(
+            p.history.song(&cid).unwrap().sessions[0].replay_clips[0].name,
+            "左手慢练"
+        );
+        assert_eq!(
+            p.history.song(&cid).unwrap().sessions[0].replay_clips.len(),
+            2
+        );
+        p.apply_practice_backup(b.clone(), Selection::default(), "backup".into())
+            .unwrap();
+        assert_eq!(
+            p.history.song(&cid).unwrap().sessions[0].replay_clips[0].name,
+            "备份名称"
+        );
+        let mut old = b.clone();
+        old.history.get_mut(&cid).unwrap().sessions[0]
+            .replay_clips
+            .clear();
+        p.apply_practice_backup(old, Selection::default(), "backup".into())
+            .unwrap();
+        assert_eq!(
+            p.history.song(&cid).unwrap().sessions[0].replay_clips.len(),
+            2
+        );
+        let mut invalid = b.clone();
+        invalid.history.get_mut(&cid).unwrap().sessions[0].replay_clips[0].end = 0.;
+        assert!(invalid.encode().is_err());
+        let mut collision = b.clone();
+        collision.history.get_mut(&cid).unwrap().sessions[0].speed = 0.5;
+        p.apply_practice_backup(collision.clone(), Selection::default(), "keep".into())
+            .unwrap();
+        assert_eq!(p.history.song(&cid).unwrap().sessions.len(), 2);
+        collision.history.get_mut(&cid).unwrap().sessions[0].replay_clips[0].name =
+            "碰撞后的新名字".into();
+        assert_eq!(
+            p.inspect_practice_backup(&collision)["replayClipConflicts"],
+            1
+        );
+        p.apply_practice_backup(collision, Selection::default(), "backup".into())
+            .unwrap();
+        assert_eq!(p.history.song(&cid).unwrap().sessions.len(), 2);
+        assert!(
+            p.history
+                .song(&cid)
+                .unwrap()
+                .sessions
+                .iter()
+                .any(|s| s.replay_clips.iter().any(|c| c.name == "碰撞后的新名字"))
+        );
+        let reload = Player::new(p.data.clone(), PathBuf::from("unused.sf2"), true);
+        assert_eq!(reload.history.song(&cid).unwrap().sessions.len(), 2);
     }
     #[test]
     fn measured_time_backup_roundtrip_dedup_and_legacy_unknown() {
@@ -1659,7 +2045,9 @@ mod tests {
         target
             .apply_practice_backup(decoded, Selection::default(), "keep".into())
             .unwrap();
-        let time = target.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        let time = target
+            .practice_time(&cid, 0, 9_000_000_000_000_000)
+            .unwrap();
         assert_eq!(time["totalMs"], 0);
         assert_eq!(time["timedSessions"], 0);
         assert_eq!(time["legacyTimedMs"], 75000);
@@ -1673,7 +2061,9 @@ mod tests {
             .apply_practice_backup(old.clone(), Selection::default(), "backup".into())
             .unwrap();
         assert_eq!(target.history.song(&cid).unwrap().sessions.len(), 1);
-        let time = target.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        let time = target
+            .practice_time(&cid, 0, 9_000_000_000_000_000)
+            .unwrap();
         assert_eq!(time["totalMs"], 0);
         assert_eq!(time["timedSessions"], 0);
         assert_eq!(time["legacyTimedMs"], 75000);
@@ -1683,7 +2073,9 @@ mod tests {
         unknown
             .apply_practice_backup(old, Selection::default(), "keep".into())
             .unwrap();
-        let time = unknown.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        let time = unknown
+            .practice_time(&cid, 0, 9_000_000_000_000_000)
+            .unwrap();
         assert_eq!(time["totalMs"], 0);
         assert_eq!(time["legacyTimedMs"], 0);
         assert_eq!(time["legacySessions"], 1);
@@ -1693,7 +2085,9 @@ mod tests {
             .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
             .unwrap();
         assert_eq!(unknown.history.song(&cid).unwrap().sessions.len(), 1);
-        let time = unknown.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        let time = unknown
+            .practice_time(&cid, 0, 9_000_000_000_000_000)
+            .unwrap();
         assert_eq!(time["totalMs"], 0);
         assert_eq!(time["timedSessions"], 0);
         assert_eq!(time["legacyTimedMs"], 75000);
@@ -1976,6 +2370,7 @@ mod tests {
         let journal = Journal {
             performances: BTreeMap::new(),
             metadata_histories: BTreeMap::new(),
+            pending_metadata_history: None,
             folder: folder.into(),
             prefs: false,
             history: false,
@@ -2200,6 +2595,7 @@ mod tests {
         let j = Journal {
             folder: "restore-performance-test".into(),
             metadata_histories: BTreeMap::new(),
+            pending_metadata_history: None,
             prefs: false,
             history: false,
             workspace: None,
@@ -2239,6 +2635,7 @@ mod tests {
         let journal = Journal {
             performances: BTreeMap::new(),
             metadata_histories: BTreeMap::new(),
+            pending_metadata_history: None,
             folder: folder.into(),
             prefs: true,
             history: true,
@@ -2263,19 +2660,38 @@ mod tests {
         std::fs::create_dir_all(&source.data).unwrap();
         std::fs::write(&source_path, include_bytes!("../assets/five-finger.mid")).unwrap();
         let mut source_workspace = library_workspace::Workspace::default();
-        let cid = source_workspace.inspect(source_path.clone(), true).unwrap().content_id.unwrap();
+        let cid = source_workspace
+            .inspect(source_path.clone(), true)
+            .unwrap()
+            .content_id
+            .unwrap();
         source_workspace.save(&source.data).unwrap();
         let mut before = neothesia_core::library::SongMetadata::default();
         let mut after = before.clone();
         after.title = Some("迁移前的标题".into());
-        let id = crate::metadata_history::prepare(&source.data, &source_path, &cid, before.clone(), after.clone(), None).unwrap();
+        let id = crate::metadata_history::prepare(
+            &source.data,
+            &source_path,
+            &cid,
+            before.clone(),
+            after.clone(),
+            None,
+        )
+        .unwrap();
         crate::metadata_history::finish(&source.data, &source_path, &id, true).unwrap();
         before = after;
         after = before.clone();
         after.notes = Some("第二次修改".into());
-        let id2 = crate::metadata_history::prepare(&source.data, &source_path, &cid, before, after, None).unwrap();
+        let id2 =
+            crate::metadata_history::prepare(&source.data, &source_path, &cid, before, after, None)
+                .unwrap();
         crate::metadata_history::finish(&source.data, &source_path, &id2, true).unwrap();
-        let backup: Backup = serde_json::from_value(source.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
+        let backup: Backup = serde_json::from_value(
+            source
+                .practice_backup_snapshot(&Selection::default())
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(backup.version(), 13);
         let backup = Backup::decode(&backup.encode().unwrap()).unwrap();
         assert_eq!(backup.summary()["metadataHistory"], 2);
@@ -2286,22 +2702,37 @@ mod tests {
         let mut target_workspace = library_workspace::Workspace::default();
         target_workspace.inspect(target_path.clone(), true).unwrap();
         target_workspace.save(&target.data).unwrap();
-        assert_eq!(target.inspect_practice_backup(&backup)["metadataHistoryAdded"], 2);
-        let first = target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap();
+        assert_eq!(
+            target.inspect_practice_backup(&backup)["metadataHistoryAdded"],
+            2
+        );
+        let first = target
+            .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
+            .unwrap();
         assert_eq!(first["metadataHistoryAdded"], 2);
         assert_eq!(first["metadataHistoryUnmatched"], 0);
-        let second = target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap();
+        let second = target
+            .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
+            .unwrap();
         assert_eq!(second["metadataHistoryAdded"], 0);
         assert_eq!(second["metadataHistoryDuplicates"], 2);
         let reopened = Player::new(target.data.clone(), PathBuf::from("unused.sf2"), true);
         assert_eq!(crate::metadata_history::inspect(&reopened.data, &target_path, &cid, None).unwrap()["records"].as_array().unwrap().len(), 2);
-        assert_eq!(crate::metadata_history::record(&reopened.data, &target_path, &cid, &id).unwrap().state, "applied");
+        assert_eq!(
+            crate::metadata_history::record(&reopened.data, &target_path, &cid, &id)
+                .unwrap()
+                .state,
+            "applied"
+        );
         let duplicate_path = target.data.join("duplicate.mid");
         std::fs::copy(&target_path, &duplicate_path).unwrap();
         let mut indexed = library_workspace::Workspace::load(&target.data).unwrap();
         indexed.inspect(duplicate_path, true).unwrap();
         indexed.save(&target.data).unwrap();
-        assert_eq!(reopened.inspect_practice_backup(&backup)["metadataHistoryAmbiguous"], 2);
+        assert_eq!(
+            reopened.inspect_practice_backup(&backup)["metadataHistoryAmbiguous"],
+            2
+        );
         let mut broken = backup;
         broken.metadata_history[0].records[0].id = "invalid".into();
         assert!(broken.encode().is_err());
@@ -2313,17 +2744,41 @@ mod tests {
         let source_path = source.data.join("piece.mid");
         std::fs::write(&source_path, include_bytes!("../assets/five-finger.mid")).unwrap();
         let mut indexed = library_workspace::Workspace::default();
-        let cid = indexed.inspect(source_path.clone(), true).unwrap().content_id.unwrap();
+        let cid = indexed
+            .inspect(source_path.clone(), true)
+            .unwrap()
+            .content_id
+            .unwrap();
         indexed.save(&source.data).unwrap();
         let mut after = neothesia_core::library::SongMetadata::default();
         after.title = Some("原曲".into());
-        let id = crate::metadata_history::prepare(&source.data, &source_path, &cid, Default::default(), after, None).unwrap();
+        let id = crate::metadata_history::prepare(
+            &source.data,
+            &source_path,
+            &cid,
+            Default::default(),
+            after,
+            None,
+        )
+        .unwrap();
         crate::metadata_history::finish(&source.data, &source_path, &id, true).unwrap();
-        let backup: Backup = serde_json::from_value(source.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
-        let source_journal = source.data.join("metadata-history").join(format!("{}.json", blake3::hash(library_workspace::key(&source_path).as_bytes())));
+        let backup: Backup = serde_json::from_value(
+            source
+                .practice_backup_snapshot(&Selection::default())
+                .unwrap(),
+        )
+        .unwrap();
+        let source_journal = source.data.join("metadata-history").join(format!(
+            "{}.json",
+            blake3::hash(library_workspace::key(&source_path).as_bytes())
+        ));
         let verified_source = std::fs::read(&source_journal).unwrap();
         std::fs::write(&source_journal, b"broken").unwrap();
-        assert!(source.practice_backup_snapshot(&Selection::default()).is_err());
+        assert!(
+            source
+                .practice_backup_snapshot(&Selection::default())
+                .is_err()
+        );
         std::fs::write(&source_journal, verified_source).unwrap();
         let mut target = player();
         std::fs::create_dir_all(&target.data).unwrap();
@@ -2333,16 +2788,126 @@ mod tests {
         local.inspect(target_path.clone(), true).unwrap();
         local.save(&target.data).unwrap();
         std::fs::write(&target_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
-        assert_eq!(target.inspect_practice_backup(&backup)["metadataHistoryUnmatched"], 1);
-        assert_eq!(target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap()["metadataHistoryAdded"], 0);
+        assert_eq!(
+            target.inspect_practice_backup(&backup)["metadataHistoryUnmatched"],
+            1
+        );
+        assert_eq!(
+            target
+                .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
+                .unwrap()["metadataHistoryAdded"],
+            0
+        );
         assert!(crate::metadata_history::inspect(&target.data, &target_path, &cid, None).unwrap()["records"].as_array().unwrap().is_empty());
         std::fs::write(&target_path, include_bytes!("../assets/five-finger.mid")).unwrap();
-        let journal_path = target.data.join("metadata-history").join(format!("{}.json", blake3::hash(library_workspace::key(&target_path).as_bytes())));
+        let journal_path = target.data.join("metadata-history").join(format!(
+            "{}.json",
+            blake3::hash(library_workspace::key(&target_path).as_bytes())
+        ));
         std::fs::create_dir_all(journal_path.parent().unwrap()).unwrap();
         std::fs::write(&journal_path, b"broken").unwrap();
-        assert!(target.inspect_practice_backup(&backup)["metadataHistoryError"].as_str().is_some());
-        assert!(target.apply_practice_backup(backup, Selection::default(), "backup".into()).is_err());
+        assert!(
+            target.inspect_practice_backup(&backup)["metadataHistoryError"]
+                .as_str()
+                .is_some()
+        );
+        assert!(
+            target
+                .apply_practice_backup(backup, Selection::default(), "backup".into())
+                .is_err()
+        );
         assert_eq!(std::fs::read(journal_path).unwrap(), b"broken");
+    }
+    #[test]
+    fn unmatched_metadata_history_is_saved_and_claimed_after_song_is_indexed() {
+        let source = player();
+        std::fs::create_dir_all(&source.data).unwrap();
+        let source_path = source.data.join("source.mid");
+        std::fs::write(&source_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut source_workspace = library_workspace::Workspace::default();
+        let cid = source_workspace
+            .inspect(source_path.clone(), true)
+            .unwrap()
+            .content_id
+            .unwrap();
+        source_workspace.save(&source.data).unwrap();
+        let mut after = neothesia_core::library::SongMetadata::default();
+        after.notes = Some("保存的课堂提示".into());
+        let id = crate::metadata_history::prepare(
+            &source.data,
+            &source_path,
+            &cid,
+            Default::default(),
+            after,
+            None,
+        )
+        .unwrap();
+        crate::metadata_history::finish(&source.data, &source_path, &id, true).unwrap();
+        let backup: Backup = serde_json::from_value(
+            source
+                .practice_backup_snapshot(&Selection::default())
+                .unwrap(),
+        )
+        .unwrap();
+        let mut target = player();
+        assert_eq!(
+            target
+                .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
+                .unwrap()["metadataHistoryPendingAdded"],
+            1
+        );
+        assert_eq!(
+            target
+                .apply_practice_backup(backup, Selection::default(), "keep".into())
+                .unwrap()["metadataHistoryPendingAdded"],
+            0
+        );
+        let target_path = target.data.join("later.mid");
+        std::fs::write(&target_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut workspace = library_workspace::Workspace::load(&target.data).unwrap();
+        workspace.inspect(target_path.clone(), true).unwrap();
+        workspace.save(&target.data).unwrap();
+        let mut reopened = library_workspace::Workspace::load(&target.data).unwrap();
+        let rows = crate::metadata_history::pending_rows(&target.data, &mut reopened).unwrap();
+        assert_eq!(rows["rows"][0]["candidates"].as_array().unwrap().len(), 1);
+        let changed_path = target.data.join("wrong.mid");
+        std::fs::write(&changed_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        reopened.inspect(changed_path.clone(), true).unwrap();
+        assert!(
+            crate::metadata_history::claim_pending(
+                &target.data,
+                &mut reopened,
+                &source_path,
+                &cid,
+                &changed_path
+            )
+            .is_err()
+        );
+        assert_eq!(
+            crate::metadata_history::claim_pending(
+                &target.data,
+                &mut reopened,
+                &source_path,
+                &cid,
+                &target_path
+            )
+            .unwrap()["added"],
+            1
+        );
+        assert!(
+            crate::metadata_history::pending_rows(&target.data, &mut reopened).unwrap()["rows"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            crate::metadata_history::record(&target.data, &target_path, &cid, &id)
+                .unwrap()
+                .state,
+            "applied"
+        );
+        let mut reopened_again = library_workspace::Workspace::load(&target.data).unwrap();
+        assert!(crate::metadata_history::pending_rows(&target.data,&mut reopened_again).unwrap()["rows"].as_array().unwrap().is_empty());
     }
     #[test]
     fn metadata_history_recovery_restores_existing_and_removes_new_files() {
@@ -2350,15 +2915,51 @@ mod tests {
         std::fs::create_dir_all(p.data.join("metadata-history")).unwrap();
         let old = format!("{}.json", "a".repeat(64));
         let new = format!("{}.json", "b".repeat(64));
-        let restore = p.data.join("practice-restore-points/restore-metadata-test/metadata-history");
+        let restore = p
+            .data
+            .join("practice-restore-points/restore-metadata-test/metadata-history");
         std::fs::create_dir_all(&restore).unwrap();
         std::fs::write(restore.join(&old), b"original").unwrap();
+        std::fs::write(
+            restore
+                .parent()
+                .unwrap()
+                .join("pending-metadata-history.json"),
+            b"saved pending",
+        )
+        .unwrap();
+        std::fs::write(
+            p.data.join("pending-metadata-history.json"),
+            b"partial pending",
+        )
+        .unwrap();
         std::fs::write(p.data.join("metadata-history").join(&old), b"partial").unwrap();
         std::fs::write(p.data.join("metadata-history").join(&new), b"new").unwrap();
-        let journal = Journal { folder: "restore-metadata-test".into(), prefs: false, history: false, workspace: None, templates: None, committed: false, performances: BTreeMap::new(), metadata_histories: BTreeMap::from([(old.clone(),true),(new.clone(),false)]) };
-        std::fs::write(p.data.join("practice-import-journal.json"), serde_json::to_vec(&journal).unwrap()).unwrap();
+        let journal = Journal {
+            folder: "restore-metadata-test".into(),
+            prefs: false,
+            history: false,
+            workspace: None,
+            templates: None,
+            pending_metadata_history: Some(true),
+            committed: false,
+            performances: BTreeMap::new(),
+            metadata_histories: BTreeMap::from([(old.clone(), true), (new.clone(), false)]),
+        };
+        std::fs::write(
+            p.data.join("practice-import-journal.json"),
+            serde_json::to_vec(&journal).unwrap(),
+        )
+        .unwrap();
         recover(&p.data).unwrap();
-        assert_eq!(std::fs::read(p.data.join("metadata-history").join(old)).unwrap(), b"original");
+        assert_eq!(
+            std::fs::read(p.data.join("pending-metadata-history.json")).unwrap(),
+            b"saved pending"
+        );
+        assert_eq!(
+            std::fs::read(p.data.join("metadata-history").join(old)).unwrap(),
+            b"original"
+        );
         assert!(!p.data.join("metadata-history").join(new).exists());
     }
 }

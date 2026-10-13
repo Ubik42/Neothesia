@@ -252,6 +252,8 @@ pub enum Command {
     InspectPracticeBackup{backup:practice_backup::Backup},
     ApplyPracticeBackup{#[serde(deserialize_with="practice_backup::deserialize_command_backup")] backup:practice_backup::Backup,selection:practice_backup::Selection,policy:String},
     ImportStagedPracticeBackup{token:String,selection:practice_backup::Selection,policy:String},
+    PendingMetadataHistory,
+    ClaimPendingMetadataHistory{source_path:PathBuf,content_id:String,target_path:PathBuf},
     ExportPackage,
     ExportPackageFile,
     ImportStagedPackage { token: String, policy: String },
@@ -792,6 +794,7 @@ impl Engine {
                 | Command::ImportMidi { .. }
                 | Command::ImportPackage { .. }
                 | Command::ExportPackage | Command::ExportPackageFile | Command::PracticeBackupSnapshot{..} | Command::InspectPracticeBackup{..} | Command::ApplyPracticeBackup{..}
+                | Command::PendingMetadataHistory | Command::ClaimPendingMetadataHistory{..}
                 | Command::ManageLibraryScore{..} | Command::OpenLibraryScore{..}
         ) {
             Duration::from_secs(120)
@@ -2809,6 +2812,17 @@ impl Player {
             Command::UpdateLibraryPaper{..}=>return Err("谱页整理应由独立调用线程执行".into()),
             Command::ExportPracticeBackup{..}|Command::ImportStagedPracticeBackup{..}=>return Err("备份文件应由独立调用线程处理".into()),
             Command::PracticeBackupSnapshot{selection}=>return self.practice_backup_snapshot(&selection),
+            Command::PendingMetadataHistory | Command::ClaimPendingMetadataHistory{..}=>{
+                let lock=library_workspace::lock_for(&self.data)?;
+                let _guard=lock.lock().map_err(|_|"曲库资料正忙")?;
+                let mut workspace=library_workspace::Workspace::load(&self.data)?;
+                return match command {
+                    Command::PendingMetadataHistory=>metadata_history::pending_rows(&self.data,&mut workspace),
+                    Command::ClaimPendingMetadataHistory{source_path,content_id,target_path}=>
+                        metadata_history::claim_pending(&self.data,&mut workspace,&source_path,&content_id,&target_path),
+                    _=>unreachable!(),
+                };
+            }
             Command::InspectPracticeBackup{backup}=>return Ok(self.inspect_practice_backup(&backup)),
             Command::ApplyPracticeBackup{backup,selection,policy}=>return self.apply_practice_backup(backup,selection,policy),
             Command::AddLibraryScore{path,content_id,name,bytes,kind,target,..}=>{if kind!="notation"{return Err("谱页操作应由独立调用线程执行".into());}return self.add_library_notation(path,content_id,name,bytes,target);}

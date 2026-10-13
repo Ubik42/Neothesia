@@ -86,6 +86,7 @@ interface Detail extends Entry {
     recent: Entry[];
     reasonCode?: string | null;
     reason?: string | null;
+    excludedRecent?: { entry: Entry; reasons: string[] }[];
     conditions?: {
       complete: boolean;
       range: [number, number] | null;
@@ -104,11 +105,19 @@ interface Detail extends Entry {
       rounds?: number;
       adaptive?: boolean;
       grid?: string;
-      tracks?: unknown[];
-      parts?: unknown[];
-      assignedHands?: unknown[];
-      exerciseSpec?: unknown;
-      expressionGoal?: unknown;
+      tracks?: { track_id: number; mode: string; visible: boolean }[];
+      parts?: Record<string, string>;
+      assignedHands?: string;
+      exerciseSpec?: {
+        tonic: number; tonality: string; minor_form?: string; pattern: string;
+        direction: string; hands: string; octaves: number; repetitions: number;
+        tempo_bpm: number;
+      } | null;
+      expressionGoal?: {
+        velocity_difference: number | null;
+        contour_percent: number | null;
+        pedal_offset_ms: number | null;
+      } | null;
     };
   };
 }
@@ -156,6 +165,44 @@ const delta = (a: number | null, b: number | null) =>
   a === null || b === null
     ? "—"
     : `${a >= b ? "+" : ""}${Math.round((a - b) * 100)} 个百分点`;
+const trackModeName = (mode: string) =>
+  ({ Human: "自己弹", Auto: "伴奏", Mute: "静音" })[mode] ?? mode;
+const partName = (part: string) =>
+  ({ LeftHand: "左手", RightHand: "右手", Other: "其他" })[part] ?? part;
+function exerciseName(spec: NonNullable<NonNullable<Detail["comparison"]["conditions"]>["exerciseSpec"]>) {
+  const key = ["C", "升 C", "D", "降 E", "E", "F", "升 F", "G", "降 A", "A", "降 B", "B"][spec.tonic] ?? `音级 ${spec.tonic}`;
+  const kind = ({ Scale: "音阶", Arpeggio: "琶音", PrimaryChords: "主和弦" })[spec.pattern] ?? spec.pattern;
+  const direction = ({ Ascending: "上行", Descending: "下行", UpAndDown: "上下行" })[spec.direction] ?? spec.direction;
+  const hands = ({ Right: "右手", Left: "左手", Both: "双手" })[spec.hands] ?? spec.hands;
+  const minor = spec.tonality === "Minor" ? `、${({ Natural: "自然", Harmonic: "和声", Melodic: "旋律" })[spec.minor_form ?? "Natural"] ?? spec.minor_form}小调` : "大调";
+  return `${key}${minor} ${kind}；${direction}；${hands}；${spec.octaves} 个八度；${spec.repetitions} 次；${spec.tempo_bpm} BPM`;
+}
+function ComparisonConditions({ detail }: { detail: Detail }) {
+  const c = detail.comparison.conditions;
+  if (!c) return null;
+  const parts = Object.entries(c.parts ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+  return (
+    <details className="history-comparison-conditions">
+      <summary>查看本次比较条件</summary>
+      <p className="parameter-help">软件只比较这首曲目中更早保存、且以下条件相同的成绩。曲名和文件路径可以改变；曲目内容必须相同。</p>
+      <dl>
+        <div><dt>曲目内容</dt><dd title={detail.contentId}>已按文件内容核对（{detail.contentId.slice(0, 12)}…）</dd></div>
+        <div><dt>小节与练习音符</dt><dd>{c.grid ? `小节版本 ${c.grid}` : "小节版本未记录"}；{c.scope ? `练习音符版本 ${c.scope}` : "练习音符版本未记录"}</dd></div>
+        <div><dt>范围与弹法</dt><dd>{c.range ? `第 ${c.range[0]}–${c.range[1]} 小节` : "全曲"}；{modeName(c.mode)}；{handName(c.hands)}；逐音分手 {c.assignedHands || "未记录"}</dd></div>
+        <div><dt>速度</dt><dd>{Math.round(c.speed * 100)}%；{c.effectiveTempoBpm == null ? "有效速度未记录" : `${c.effectiveTempoBpm} BPM`}</dd></div>
+        <div><dt>判断范围</dt><dd>{c.targetNotes == null || c.judgedNotes == null ? "目标音符与判断数未记录" : `${c.judgedNotes}/${c.targetNotes} 个目标音符已判断`}</dd></div>
+        <div><dt>音轨安排</dt><dd>{c.tracks?.length ? c.tracks.map((t) => `音轨 ${t.track_id + 1} ${trackModeName(t.mode)}${t.visible ? "、显示" : "、隐藏"}`).join("；") : "未记录"}</dd></div>
+        <div><dt>音轨分手</dt><dd>{parts.length ? parts.map(([track, part]) => `音轨 ${Number(track) + 1} ${partName(part)}`).join("；") : "没有单独指定的音轨分手"}</dd></div>
+        <div><dt>练习来源</dt><dd>{c.exerciseSpec == null ? "导入曲目" : `生成的技术练习：${exerciseName(c.exerciseSpec)}`}</dd></div>
+        <div><dt>预备与节拍</dt><dd>预备 {c.countIn ?? "未记录"} 小节；节拍器 {c.metronome == null ? "未记录" : c.metronome ? "开" : "关"}</dd></div>
+        <div><dt>设备校准</dt><dd>输入 {c.inputLatencyMs ?? "未记录"} ms；踏板 {c.pedalLatencyMs ?? "未记录"} ms{c.pedalLatencySource === "legacyInputLatency" ? "（旧记录沿用输入校准值）" : ""}</dd></div>
+        <div><dt>重复与自适应</dt><dd>{c.rounds == null ? "轮数未记录" : c.rounds === 0 ? "不限轮数" : `${c.rounds} 轮`}；自适应 {c.adaptive == null ? "未记录" : c.adaptive ? "开" : "关"}</dd></div>
+        <div><dt>力度与踏板目标</dt><dd>{c.expressionGoal == null ? "无专项要求" : expressionGoalText({ velocityDifference: c.expressionGoal.velocity_difference, contourPercent: c.expressionGoal.contour_percent, pedalOffsetMs: c.expressionGoal.pedal_offset_ms })}</dd></div>
+      </dl>
+      {!c.complete && <p className="parameter-help">这条记录缺少可确认的完整条件或有效判断，因此软件不会把它当作同条件比较的依据。</p>}
+    </details>
+  );
+}
 function Trend({ detail }: { detail: Detail }) {
   const points = [...detail.comparison.recent, detail];
   const judged = points
@@ -591,6 +638,7 @@ export function HistoryDialog({
             <option value="90">最近 90 天</option>
           </select>
         </div>
+        <p className="history-filter-help">上方选项只筛选记录列表。选中成绩后的“同条件比较”会核对保存时的曲目内容、小节与音符、练习范围、音轨、弹法、速度、判断数和设备设置；搜索词与日期筛选不会改变比较结果。</p>
         {error && (
           <p className="history-error" role="alert">
             {error}
@@ -734,15 +782,12 @@ export function HistoryDialog({
                     {detail.context.adaptive ? "开" : "关"} ·{" "}
                     {detail.context.rounds || "不限"} 轮 · 输入校准{" "}
                     {detail.context.latency} ms
-                    {detail.context.pedal_latency_ms != null
+                  {detail.context.pedal_latency_ms != null
                       ? `（踏板同步 ${detail.context.pedal_latency_ms} ms）`
-                      : "（旧记录踏板未校准）"}
+                      : `（旧记录踏板沿用输入校准 ${detail.context.latency} ms）`}
                     <br />
                     {detail.context.tracks
-                      .map(
-                        (t) =>
-                          `音轨 ${t.track_id + 1}：${{ Human: "自己弹", Auto: "伴奏", Mute: "静音" }[t.mode] ?? t.mode}${t.visible ? "" : "（隐藏）"}`,
-                      )
+                      .map((t) => `音轨 ${t.track_id + 1}：${trackModeName(t.mode)}${t.visible ? "" : "（隐藏）"}`)
                       .join("；")}
                   </p>
                 ) : (
@@ -862,34 +907,7 @@ export function HistoryDialog({
                   }}
                 />
                 <h4>同条件比较</h4>
-                {detail.comparison.conditions && (
-                  <details className="history-comparison-conditions">
-                    <summary>查看本次比较条件</summary>
-                    <p>
-                      {detail.comparison.conditions.range
-                        ? `第 ${detail.comparison.conditions.range[0]}–${detail.comparison.conditions.range[1]} 小节`
-                        : "全曲"}
-                      {` · ${modeName(detail.comparison.conditions.mode)} · ${handName(detail.comparison.conditions.hands)}`}
-                      {` · 速度 ${detail.comparison.conditions.speed}%`}
-                      {detail.comparison.conditions.effectiveTempoBpm == null
-                        ? " · 有效 BPM 未记录"
-                        : ` · ${detail.comparison.conditions.effectiveTempoBpm} BPM`}
-                      {detail.comparison.conditions.targetNotes == null
-                        ? " · 音符覆盖未记录"
-                        : ` · 判断 ${detail.comparison.conditions.judgedNotes}/${detail.comparison.conditions.targetNotes} 个目标音符`}
-                    </p>
-                    <p>
-                      {detail.comparison.conditions.metronome ? "节拍器开启" : "节拍器关闭"}
-                      {detail.comparison.conditions.countIn == null ? "" : ` · 预备拍 ${detail.comparison.conditions.countIn}`}
-                      {detail.comparison.conditions.inputLatencyMs == null ? "" : ` · 输入校准 ${detail.comparison.conditions.inputLatencyMs} ms`}
-                      {detail.comparison.conditions.pedalLatencyMs == null ? "" : ` · 踏板校准 ${detail.comparison.conditions.pedalLatencyMs} ms`}
-                      {detail.comparison.conditions.pedalLatencySource === "legacyInputLatency" ? "（旧记录沿用输入校准）" : ""}
-                      {detail.comparison.conditions.rounds == null ? "" : ` · 轮数 ${detail.comparison.conditions.rounds}`}
-                      {detail.comparison.conditions.adaptive ? " · 自适应开启" : ""}
-                    </p>
-                    <p className="parameter-help">相同范围、模式、手别、速度、谱面、练习声部、校准和目标音符数的旧记录才会进入比较。</p>
-                  </details>
-                )}
+                <ComparisonConditions detail={detail} />
                 {detail.comparison.count ? (
                   <>
                     <p className="history-comparison">
@@ -908,6 +926,21 @@ export function HistoryDialog({
                   </>
                 ) : (
                   <p className="parameter-help">{detail.comparison.reason ?? "此前没有可比较记录。"}</p>
+                )}
+                {!!detail.comparison.excludedRecent?.length && (
+                  <details className="history-excluded-attempts">
+                    <summary>查看未纳入比较的旧成绩（最近 {detail.comparison.excludedRecent.length} 条）</summary>
+                    <p className="parameter-help">软件按保存时间列出最近的不同条件成绩。每条原因来自本地引擎保存的练习条件。</p>
+                    <ul>
+                      {detail.comparison.excludedRecent.map(({ entry, reasons }) => (
+                        <li key={`${entry.contentId}:${entry.id}`}>
+                          <div><strong>{date(entry.recordedAt)} · {percent(accuracy(entry.score))}</strong><button disabled={busy || notesDirty} onClick={() => setSelected(entry)}>查看这次成绩</button></div>
+                          <span>{rangeName(entry)} · {modeName(entry.mode)} · {handName(entry.hands)} · {Math.round(entry.speed * 100)}%</span>
+                          <p>{reasons.join("；")}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
                 {timed ? (
                   <p className="history-timing">

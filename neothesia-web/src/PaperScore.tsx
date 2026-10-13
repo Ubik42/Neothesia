@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, pitchName, type LoadedSong, type Note } from "./api";
 import { annotatedPagePng } from "./PaperPageExport";
 import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
@@ -606,6 +606,41 @@ export function PaperReader({
   const selectedNote: Note | undefined = notesForMeasure.find((note) => `${note.track}:${note.index}` === noteKey) ?? notesForMeasure[0];
   const savedNoteAnchor = selectedNote && attachment.noteAnchors?.find((anchor) =>
     anchor.track === selectedNote.track && anchor.index === selectedNote.index);
+  const noteCoverage = useMemo(() => {
+    if (!song || !practice || song.contentId !== contentId) return { notes: [], marked: new Set<string>() };
+    const measureAt = (tick: number) => {
+      let low = 0, high = song.measures.length - 1;
+      while (low <= high) {
+        const middle = (low + high) >> 1;
+        const measure = song.measures[middle];
+        if (tick < measure.startTick) high = middle - 1;
+        else if (tick >= measure.endTick) low = middle + 1;
+        else return middle + 1;
+      }
+      return 0;
+    };
+    const notes = song.notes.flatMap((note) => {
+      const measure = measureAt(note.tick);
+      return measure === 0 ? [] : [{ note, measure }];
+    }).sort((a, b) => a.measure - b.measure || a.note.tick - b.note.tick ||
+      a.note.track - b.note.track || a.note.index - b.note.index);
+    const valid = new Map(notes.map(({ note, measure }) => [`${note.track}:${note.index}`, { note, measure }]));
+    const marked = new Set<string>();
+    for (const anchor of attachment.noteAnchors ?? []) {
+      const key = `${anchor.track}:${anchor.index}`;
+      const target = valid.get(key);
+      const asset = attachment.format === "pdf" ? attachment.pages[0] : attachment.pages[anchor.page - 1];
+      if (target && target.note.pitch === anchor.pitch && target.measure === anchor.measure &&
+          anchor.grid === practice.grid && asset?.id === anchor.assetId && asset.available) marked.add(key);
+    }
+    return { notes, marked };
+  }, [song, practice?.grid, contentId, attachment.noteAnchors, attachment.pages, attachment.format]);
+  const unmarkedNote = useMemo(() => {
+    const position = noteCoverage.notes.findIndex(({ note }) =>
+      note.track === selectedNote?.track && note.index === selectedNote?.index);
+    return noteCoverage.notes.slice(position + 1).concat(noteCoverage.notes.slice(0, position + 1))
+      .find(({ note }) => !noteCoverage.marked.has(`${note.track}:${note.index}`));
+  }, [noteCoverage, selectedNote?.track, selectedNote?.index]);
   const measured = playback?.measure ?? practice?.measure ?? 1;
   const [view, setView] = useState<PaperView>(attachment.view),
     [count, setCount] = useState(
@@ -1503,6 +1538,7 @@ export function PaperReader({
               <p className="parameter-help">
                 先选实际演奏小节和音符，再在纸谱上框选它的位置。同一音高在反复段出现多次时，请逐次标记。
               </p>
+              <p className="parameter-help">当前有效位置 {noteCoverage.marked.size} / {noteCoverage.notes.length} 个演奏音符。小节网格或谱页变化后，旧位置需重新核对。</p>
               <div className="paper-note-editor-controls">
                 <label>
                   演奏小节
@@ -1518,11 +1554,18 @@ export function PaperReader({
                     {!notesForMeasure.length && <option value="">这一小节没有可标记的音符</option>}
                     {notesForMeasure.map((note) => (
                       <option key={`${note.track}:${note.index}`} value={`${note.track}:${note.index}`}>
-                        {pitchName(note.pitch)} · {song.tracks.find((track) => track.id === note.track)?.name ?? `音轨 ${note.track}`} · 第 {((note.tick - measureForNote!.startTick) / song.ppq + 1).toFixed(2)} 拍
+                        {noteCoverage.marked.has(`${note.track}:${note.index}`) ? "已标记 · " : "未标记 · "}{pitchName(note.pitch)} · {song.tracks.find((track) => track.id === note.track)?.name ?? `音轨 ${note.track}`} · 第 {((note.tick - measureForNote!.startTick) / song.ppq + 1).toFixed(2)} 拍
                       </option>
                     ))}
                   </select>
                 </label>
+                <button type="button" disabled={disabled || selectingNoteRegion || !unmarkedNote}
+                  onClick={() => {
+                    if (!unmarkedNote) return;
+                    setNoteMeasure(unmarkedNote.measure);
+                    setNoteKey(`${unmarkedNote.note.track}:${unmarkedNote.note.index}`);
+                    setNoteRegion(null);
+                  }}>下一处未标记音符</button>
                 <span>当前第 {view.page} 页{noteRegion && noteRegionPage === view.page ? " · 已框选" : ""}</span>
                 <button disabled={disabled || !selectedNote || !count || loading || annotationEditing || selectingRegion || selectingNoteRegion}
                   onClick={() => setSelectingNoteRegion(true)}>框选音符位置</button>

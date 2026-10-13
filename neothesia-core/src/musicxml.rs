@@ -121,6 +121,8 @@ pub struct Direction {
     pub staff: Option<u8>,
     pub dynamics: Vec<String>,
     pub words: Vec<String>,
+    /// Printed segno sign inside a direction-type, independent of sound navigation.
+    pub segno: bool,
     pub tempo_bpm: Option<String>,
     pub navigation: Vec<SoundNavigation>,
     pub pedals: Vec<PedalMark>,
@@ -559,6 +561,7 @@ struct DirectionBuilder {
     offset: i64,
     dynamics: Vec<String>,
     words: Vec<String>,
+    segno: bool,
     tempo_bpm: Option<String>,
     navigation: Vec<SoundBuilder>,
     pedals: Vec<PedalMark>,
@@ -628,6 +631,7 @@ fn finish_direction(
         staff: built.staff,
         dynamics: built.dynamics,
         words: built.words,
+        segno: built.segno,
         tempo_bpm: primary_tempo,
         navigation,
         pedals: built.pedals,
@@ -649,6 +653,7 @@ fn finish_direction(
             staff: built.staff,
             dynamics: vec![],
             words: vec![],
+            segno: false,
             tempo_bpm: Some(tempo),
             navigation: vec![],
             pedals: vec![],
@@ -778,9 +783,14 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         })
                     }
                     b"fingering" if note.is_some() => {
-                        non_onset_fingering=attribute(&start,b"substitution")?.as_deref()==Some("yes") || attribute(&start,b"alternate")?.as_deref()==Some("yes");
+                        non_onset_fingering = attribute(&start, b"substitution")?.as_deref()
+                            == Some("yes")
+                            || attribute(&start, b"alternate")?.as_deref() == Some("yes");
                     }
                     b"direction" => direction = Some(DirectionBuilder::default()),
+                    b"segno" if direction.is_some() && parent_is(&path, 2, b"direction-type") => {
+                        direction.as_mut().unwrap().segno = true;
+                    }
                     b"attributes" => attributes = Some(AttributesBuilder::default()),
                     b"barline" => {
                         barline = Some(BarlineBuilder {
@@ -1047,7 +1057,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             Some(parse_u8("direction staff", &value)?)
                     }
                     b"fingering" if note.is_some() => {
-                        if !non_onset_fingering {note.as_mut().unwrap().fingering = nonempty(value);}
+                        if !non_onset_fingering {
+                            note.as_mut().unwrap().fingering = nonempty(value);
+                        }
                     }
                     b"actual-notes" if note.is_some() => {
                         note.as_mut().unwrap().tuplet_actual =
@@ -1238,6 +1250,9 @@ fn handle_empty(
     barline: &mut Option<BarlineBuilder>,
 ) -> Result<(), ImportError> {
     match start.name().as_ref() {
+        b"segno" if direction.is_some() && parent_is(path, 1, b"direction-type") => {
+            direction.as_mut().unwrap().segno = true;
+        }
         b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
         b"chord" if note.is_some() => note.as_mut().unwrap().chord = true,
         b"grace" if note.is_some() => note.as_mut().unwrap().grace = true,

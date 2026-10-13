@@ -226,6 +226,7 @@ pub fn normalized(score: &Score) -> Result<Score, String> {
                         staff: None,
                         dynamics: vec![],
                         words: vec![],
+                        segno: false,
                         tempo_bpm: None,
                         navigation: missing,
                         pedals: vec![],
@@ -945,6 +946,37 @@ mod tests {
                 .note,
             62
         );
+    }
+
+    #[test]
+    fn printed_dal_segno_fine_generates_the_return_passage_and_midi_end() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="2"><direction><direction-type><segno/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>Fine</words></direction-type></direction></measure>
+        <measure number="4"><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>D.S. al Fine</words></direction-type></direction></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(
+            notes.iter().map(|note| note.pitch).collect::<Vec<_>>(),
+            [60, 62, 64, 65, 62, 64]
+        );
+        assert_eq!(
+            notes.iter().map(|note| note.start).collect::<Vec<_>>(),
+            [0, 960, 1920, 2880, 3840, 4800]
+        );
+        assert_eq!(notes.last().unwrap().end, 5760);
+        let file = midi_file::MidiFile::from_smf("printed-ds-fine", &performance.smf).unwrap();
+        assert_eq!(
+            file.tracks
+                .iter()
+                .flat_map(|track| track.notes.iter())
+                .count(),
+            6
+        );
+        assert!((file.duration.as_secs_f64() - 3.0).abs() < 0.00001);
     }
     #[test]
     fn numeric_fine_keeps_midi_notes_occurrences_and_end_of_track_in_sync() {

@@ -224,6 +224,16 @@ impl Player {
             .iter()
             .filter_map(|s| s.summary.overall.accuracy())
             .max_by(f32::total_cmp);
+        let excluded_recent = history.sessions[..index]
+            .iter()
+            .rev()
+            .filter(|older| !practice_conditions::same_attempt_conditions(session, older))
+            .take(12)
+            .map(|older| json!({
+                "entry": entry(content_id, &history.display_name, None, older),
+                "reasons": practice_conditions::attempt_difference_reasons(session, older),
+            }))
+            .collect::<Vec<_>>();
         let mut row = entry(
             content_id,
             &history.display_name,
@@ -245,6 +255,7 @@ impl Player {
             };
         row["comparison"] = json!({"count":peers.len(),"bestAccuracy":best,
             "conditions":conditions,"reasonCode":reason_code,"reason":reason,
+            "excludedRecent":excluded_recent,
             "previous":peers.last().map(|s|entry(content_id,&history.display_name,None,s)),
             "recent":peers.iter().rev().take(29).rev().map(|s|entry(content_id,&history.display_name,None,s)).collect::<Vec<_>>()});
         Ok(row)

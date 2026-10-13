@@ -48,6 +48,16 @@ test("历史筛选、同条件详情、恢复设置和单小节重练", async ({
   await expect(page.locator(".history-record")).toHaveCount(3);
   await page.locator(".history-record").nth(1).click();
   await expect(page.locator(".history-comparison")).toContainText("共 1 次");
+  await expect(page.locator(".history-filter-help")).toContainText("搜索词与日期筛选不会改变比较结果");
+  await page.getByText("查看本次比较条件").click();
+  const conditions = page.locator(".history-comparison-conditions");
+  await expect(conditions).toContainText("曲目内容");
+  await expect(conditions).toContainText("小节与练习音符");
+  await expect(conditions).toContainText("60%");
+  await expect(conditions).toContainText("目标音符");
+  await expect(conditions).toContainText("音轨安排");
+  await expect(conditions).toContainText("设备校准");
+  await expect(conditions).toContainText("力度与踏板目标");
   await expect(
     page.getByRole("img", { name: /同条件正确率走势/ }),
   ).toBeVisible();
@@ -68,6 +78,13 @@ test("历史筛选、同条件详情、恢复设置和单小节重练", async ({
   await page.getByRole("button", { name: "练习历史", exact: true }).click();
   await page.getByLabel("查找历史曲目").fill("历史详情练习");
   await expect(page.locator(".history-record")).toHaveCount(3);
+  await page.locator(".history-record").first().click();
+  await expect(page.locator(".history-excluded-attempts")).toContainText("最近 2 条");
+  await page.locator(".history-excluded-attempts summary").click();
+  await expect(page.locator(".history-excluded-attempts li")).toHaveCount(2);
+  await expect(page.locator(".history-excluded-attempts li").first()).toContainText("速度");
+  await page.locator(".history-excluded-attempts li").first().getByRole("button", { name: "查看这次成绩" }).click();
+  await expect(page.locator(".history-comparison")).toContainText("共 1 次");
   await page.locator(".history-record").first().click();
   await expect(
     page.getByText(/这条记录缺少完整的演奏条件|这是该曲保留的第一条记录|更早的记录在范围/),
