@@ -4,12 +4,14 @@ export interface RoutineSchedule {
   weekdays: number[];
   start: string;
   end: string | null;
+  skipDates?: string[];
+  extraDates?: string[];
 }
 const labels = ["一", "二", "三", "四", "五", "六", "日"];
 export const scheduleText = (s: RoutineSchedule | undefined | null) =>
   !s
     ? "手动安排"
-    : `${s.enabled ? "每周" : "已暂停 · 周"}${s.weekdays.map((d) => labels[d]).join("、")}`;
+    : `${s.enabled ? "每周" : "已暂停 · 周"}${s.weekdays.map((d) => labels[d]).join("、")}${(s.skipDates?.length || s.extraDates?.length) ? ` · ${s.skipDates?.length ?? 0} 天跳过 · ${s.extraDates?.length ?? 0} 天加练` : ""}`;
 export function RoutineScheduleEditor({
   value,
   day,
@@ -26,21 +28,38 @@ export function RoutineScheduleEditor({
     weekdays: [0, 1, 2, 3, 4],
     start: day,
     end: null,
+    skipDates: [],
+    extraDates: [],
   });
+  const [exceptionDay, setExceptionDay] = useState(day);
   useEffect(() => {
     setDraft(
-      value ?? {
+      value ? { ...value, skipDates: value.skipDates ?? [], extraDates: value.extraDates ?? [] } : {
         enabled: true,
         weekdays: [0, 1, 2, 3, 4],
         start: day,
         end: null,
+        skipDates: [],
+        extraDates: [],
       },
     );
+    setExceptionDay(day);
   }, [value, day]);
+  const exceptionValid = !!exceptionDay && exceptionDay >= draft.start && (!draft.end || exceptionDay <= draft.end);
   const valid =
     draft.weekdays.length > 0 &&
     !!draft.start &&
-    (!draft.end || draft.end >= draft.start);
+    (!draft.end || draft.end >= draft.start) &&
+    [...(draft.skipDates ?? []), ...(draft.extraDates ?? [])].every((d) => d >= draft.start && (!draft.end || d <= draft.end));
+  const addException = (key: "skipDates" | "extraDates") => {
+    if (!exceptionValid) return;
+    const other = key === "skipDates" ? "extraDates" : "skipDates";
+    setDraft((s) => ({
+      ...s,
+      [key]: [...new Set([...(s[key] ?? []), exceptionDay])].sort(),
+      [other]: (s[other] ?? []).filter((d) => d !== exceptionDay),
+    }));
+  };
   return (
     <details className="routine-schedule">
       <summary>周期安排 · {scheduleText(value)}</summary>
@@ -94,6 +113,23 @@ export function RoutineScheduleEditor({
             />
           </label>
         </div>
+        <div className="routine-schedule-exceptions">
+          <p>指定日期</p>
+          <div className="routine-schedule-dates">
+            <label>
+              日期
+              <input aria-label="例外日期" type="date" min={draft.start} max={draft.end ?? "2200-12-31"} value={exceptionDay} onChange={(e) => setExceptionDay(e.target.value)} />
+            </label>
+            <button type="button" disabled={!exceptionValid || (draft.skipDates?.length ?? 0) >= 366} onClick={() => addException("skipDates")}>这天跳过</button>
+            <button type="button" disabled={!exceptionValid || (draft.extraDates?.length ?? 0) >= 366} onClick={() => addException("extraDates")}>这天加练</button>
+          </div>
+          {[{ key: "skipDates" as const, label: "跳过" }, { key: "extraDates" as const, label: "加练" }].map(({ key, label }) =>
+            (draft[key] ?? []).length > 0 && <div className="routine-schedule-exception-list" key={key}>
+              <span>{label}：</span>
+              {(draft[key] ?? []).map((date) => <button type="button" key={date} aria-label={`移除${label}${date}`} onClick={() => setDraft((s) => ({ ...s, [key]: (s[key] ?? []).filter((d) => d !== date) }))}>{date} ×</button>)}
+            </div>,
+          )}
+        </div>
         <label className="routine-schedule-enable">
           <input
             type="checkbox"
@@ -121,7 +157,7 @@ export function RoutineScheduleEditor({
         </div>
       </fieldset>
       <p className="parameter-help">
-        打开符合规则的日期时建立当天安排，使用届时的模板。已有安排及成绩保留；暂停或取消只影响尚未建立的日期。不会自动开始演奏或补建未查看的过去日期。
+        打开符合每周规则或“加练”规则的日期时，软件会建立当天安排。“跳过”日期不会建立安排。修改规则只影响尚未建立的日期；已有安排及成绩保留。软件不会自动开始演奏，也不会补建未查看的过去日期。
       </p>
     </details>
   );

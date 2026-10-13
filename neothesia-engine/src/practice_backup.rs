@@ -1,7 +1,7 @@
 use super::*;
 use crate::preferences::{ExercisePreset, LadderPreset, LadderRun, PassagePreset};
 use crate::routine_commands::{PracticeRoutine, RoutineRun, RoutineTarget};
-use neothesia_core::practice_history::SongPracticeHistory;
+use neothesia_core::practice_history::{SongPracticeHistory, PracticeTimeLedger, validate_time_ledger};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Read, Write};
@@ -45,6 +45,8 @@ pub struct Backup {
     #[serde(default)]
     pub track_sounds: BTreeMap<String, BTreeMap<usize, crate::track_sound::TrackSound>>,
     pub history: BTreeMap<String, SongPracticeHistory>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub time_ledger: PracticeTimeLedger,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub performances: BTreeMap<String, BTreeMap<String, crate::performance_archive::Archive>>,
     #[serde(default)]
@@ -160,6 +162,8 @@ fn routine(r: &PracticeRoutine) -> Result<(), String> {
 }
 fn finite_numbers(v: &Value) -> Result<(), String> {
     fn check(v: &Value, key: &str) -> Result<(), String> {
+        // Ledger timestamps, durations and capacity are checked by its shared strict validator.
+        if key == "timeLedger" { return Ok(()); }
         match v {
             Value::Array(a) => {
                 if a.len() > 1_000_000 {
@@ -204,6 +208,7 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
 
 impl Backup {
     pub fn version(&self) -> u8 {
+        if !self.time_ledger.is_empty() || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.schedule.as_ref().is_some_and(|s|!s.skip_dates.is_empty()||!s.extra_dates.is_empty())) { return 12; }
         let trimmed=|r:&crate::score_ranges::ScoreRange|r.start_trim>0||r.end_trim>0;
         if self.passages.values().flatten().any(|p|p.score_range.as_ref().is_some_and(trimmed)) || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.items.iter().any(|i|matches!(&i.target,RoutineTarget::ScorePassage{range} if trimmed(range)))){return 11;}
         if self.passages.values().flatten().any(|p|p.precise_range.is_some()) || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.items.iter().any(|i|matches!(i.target,RoutineTarget::PrecisePassage{..}))){return 10;}
@@ -263,6 +268,18 @@ impl Backup {
         }
     }
     pub fn validate(&self) -> Result<(), String> {
+        validate_time_ledger(&self.time_ledger)?;
+        if self.time_ledger.len()>10000 {return Err("备份累计时长的曲目数量超过上限".into());}
+        let mut total_time=0u64;
+        for (cid,rows) in &self.time_ledger {
+            identity(cid)?;
+            for (id,entry) in rows {
+                if id.is_empty() || id.len()>200 || id.chars().any(char::is_control) {return Err("备份累计时长的保存编号无效".into());}
+                total_time=total_time.checked_add(entry.untracked_ms).ok_or("备份累计时长超过上限")?;
+                for slice in &entry.slices {total_time=total_time.checked_add(slice.running_ms).ok_or("备份累计时长超过上限")?;}
+                if total_time>9_007_199_254_740_991 {return Err("备份累计时长超过精确统计上限".into());}
+            }
+        }
         for (cid,h) in &self.history {for s in &h.sessions {
             let duration=self.performances.get(cid).and_then(|rows|rows.get(&session_key(s))).map(|a|a.duration);
             neothesia_core::practice_history::validate_replay_clips(&s.replay_clips,duration)?;
@@ -556,7 +573,7 @@ impl Backup {
             serde_json::from_slice(&files["manifest.json"]).map_err(|e| e.to_string())?;
         let data = &files["practice.json"];
         if header["format"] != "neothesia-practice"
-            || !matches!(header["version"].as_u64(), Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11))
+            || !matches!(header["version"].as_u64(), Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12))
             || header["size"].as_u64() != Some(data.len() as u64)
             || header["hash"].as_str() != Some(blake3::hash(data).to_hex().as_str())
         {
@@ -570,7 +587,7 @@ impl Backup {
         Ok(backup)
     }
     pub fn summary(&self) -> Value {
-        json!({"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()})
+        json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()})
     }
 }
 fn session_key(s: &PracticeSession) -> String {
@@ -623,6 +640,7 @@ fn selected(mut b: Backup, s: &Selection) -> Backup {
     }
     if !s.records {
         b.history.clear();
+        b.time_ledger.clear();
     } else if s.days > 0 {
         let cutoff = b.created_at.saturating_sub(u64::from(s.days) * 86_400_000);
         for h in b.history.values_mut() {
@@ -838,6 +856,7 @@ impl Player {
             track_sounds: self.preferences.track_sounds.clone(),
             track_appearances: self.preferences.track_appearances.clone(),
             history: self.history.snapshot(),
+            time_ledger: self.history.time_ledger().clone(),
             performances: BTreeMap::new(),
             learning: library_workspace::Workspace::load(&self.data)?.learning,
         };
@@ -1104,6 +1123,15 @@ impl Player {
                     .count())
                 .sum::<usize>()
         );
+        let mut time_duplicates=0;
+        let mut time_conflicts=0;
+        for (cid,rows) in &b.time_ledger { for (id,incoming) in rows {
+            if let Some(local)=self.history.time_ledger().get(cid).and_then(|r|r.get(id)) {
+                if local == incoming {time_duplicates+=1;} else {time_conflicts+=1;}
+            }
+        }}
+        v["timeLedgerDuplicates"]=json!(time_duplicates);
+        v["timeLedgerConflicts"]=json!(time_conflicts);
         v["replayClipConflicts"] = json!(b.history.iter().map(|(cid,h)|h.sessions.iter().map(|s|local.get(cid).and_then(|l|l.sessions.iter().find(|x|(session_key(x)==session_key(s)||session_key(x)==collision_key(s))&&x.same_performance(s))).map(|x|s.replay_clips.iter().filter(|c|x.replay_clips.iter().any(|old|old.id==c.id&&old!=*c)).count()).unwrap_or(0)).sum::<usize>()).sum::<usize>());
         v["references"] = json!(refs.into_values().collect::<Vec<_>>());
         v
@@ -1132,6 +1160,8 @@ impl Player {
         let _guard = lock.lock().map_err(|_| "曲库资料正忙")?;
         let mut workspace = library_workspace::Workspace::load(&self.data)?;
         let mut b = selected(b, &s);
+        let mut history = self.history.clone();
+        let added_time_entries = history.merge_time_ledger(b.time_ledger.clone())?;
         let mut learning_changed = 0;
         for (cid, plan) in &b.learning {
             if workspace.learning.get(cid).is_none()
@@ -1359,7 +1389,6 @@ impl Player {
                 performance_files.insert(name, bytes);
             }
         }
-        let mut history = self.history.clone();
         history.replace_snapshot(songs);
         let restore = commit(
             &self.data,
@@ -1376,7 +1405,7 @@ impl Player {
             self.reset(self.state.position);
         }
         Ok(
-            json!({"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
+            json!({"addedTimeEntries":added_time_entries,"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
         )
     }
 }
@@ -1461,6 +1490,85 @@ mod tests {
             .unwrap();
         serde_json::from_value(p.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap()
     }
+    fn time_entry() -> neothesia_core::practice_history::PracticeTimeEntry {
+        use neothesia_core::practice_history::{PracticeTimeEntry,PracticeTimeSlice};
+        PracticeTimeEntry {saved_at_unix_ms:1_700_000_015_000,slices:vec![PracticeTimeSlice{from:1_700_000_000_000,to:1_700_000_010_000,running_ms:7000}],untracked_ms:500}
+    }
+    #[test]
+    fn time_ledger_v12_roundtrip_filter_idempotence_and_old_backup() {
+        let mut source=player();let mut b=fixture(&mut source);
+        let cid=b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(cid.clone(),(0..251).map(|i|(format!("ledger-{i}"),time_entry())).collect());
+        assert_eq!(b.version(),12);
+        let decoded=Backup::decode(&b.encode().unwrap()).unwrap();
+        assert_eq!(decoded.time_ledger,b.time_ledger);
+        assert_eq!(decoded.summary()["timeLedgerEntries"],251);
+        assert_eq!(decoded.summary()["timeLedgerRunningMs"],251*7000);
+        assert_eq!(decoded.summary()["timeLedgerUntrackedMs"],251*500);
+        let mut dated=decoded.clone();dated.created_at=dated.history[&cid].sessions[0].recorded_at_unix_ms+90*86_400_000;
+        let recent=selected(dated,&Selection{days:30,..Selection::default()});
+        assert!(recent.history.is_empty());assert_eq!(recent.time_ledger[&cid].len(),251);
+        assert!(selected(decoded.clone(),&Selection{records:false,..Selection::default()}).time_ledger.is_empty());
+        let mut target=player();
+        assert_eq!(target.apply_practice_backup(recent.clone(),Selection::default(),"keep".into()).unwrap()["addedTimeEntries"],251);
+        assert!(target.history.snapshot().is_empty());
+        assert_eq!(target.apply_practice_backup(recent,Selection::default(),"backup".into()).unwrap()["addedTimeEntries"],0);
+        assert_eq!(target.inspect_practice_backup(&decoded)["timeLedgerDuplicates"],251);
+        let reload=PracticeHistoryStore::load(target.history.path());
+        assert_eq!(reload.time_ledger(),&decoded.time_ledger);
+        let mut old=decoded.clone();old.time_ledger.clear();
+        assert!(old.version()<=11);
+        let old=Backup::decode(&old.encode().unwrap()).unwrap();assert!(old.time_ledger.is_empty());
+        target.apply_practice_backup(old,Selection::default(),"keep".into()).unwrap();
+        assert_eq!(target.history.time_ledger()[&cid].len(),251);
+        let snapshot:Backup=serde_json::from_value(target.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
+        assert_eq!(snapshot.time_ledger[&cid].len(),251);
+    }
+    #[test]
+    fn time_ledger_v12_schedule_exceptions_require_new_reader() {
+        let mut p=player();let mut b=fixture(&mut p);
+        assert!(b.time_ledger.is_empty());
+        b.routines[0].schedule=Some(crate::routine_commands::RoutineSchedule {enabled:true,weekdays:vec![1],start:"2026-10-01".into(),end:None,skip_dates:vec!["2026-10-05".into()],extra_dates:vec!["2026-10-06".into()]});
+        assert_eq!(b.version(),12);
+        let restored=Backup::decode(&b.encode().unwrap()).unwrap();
+        assert_eq!(restored.routines[0].schedule.as_ref().unwrap().skip_dates,vec!["2026-10-05"]);
+        assert_eq!(restored.routines[0].schedule.as_ref().unwrap().extra_dates,vec!["2026-10-06"]);
+        b.routines[0].schedule=None;
+        b.runs.values_mut().next().unwrap().routine.schedule=restored.routines[0].schedule.clone();
+        assert_eq!(b.version(),12);
+    }
+    #[test]
+    fn time_ledger_collision_and_invalid_data_reject_before_writes() {
+        let mut p=player();let mut b=fixture(&mut p);let cid=b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(cid.clone(),BTreeMap::from([("same-id".into(),time_entry())]));
+        p.apply_practice_backup(b.clone(),Selection::default(),"keep".into()).unwrap();
+        let before=std::fs::read(p.history.path()).unwrap();let original=p.history.time_ledger().clone();
+        b.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().untracked_ms+=1;
+        assert_eq!(p.inspect_practice_backup(&b)["timeLedgerConflicts"],1);
+        for policy in ["keep","backup"] {assert!(p.apply_practice_backup(b.clone(),Selection::default(),policy.into()).is_err());}
+        assert_eq!(p.history.time_ledger(),&original);assert_eq!(std::fs::read(p.history.path()).unwrap(),before);
+        let mut invalid=b.clone();invalid.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().slices[0].running_ms=20000;
+        assert!(invalid.encode().is_err());
+        let mut overflow=b;overflow.time_ledger.get_mut(&cid).unwrap().get_mut("same-id").unwrap().untracked_ms=u64::MAX;
+        assert!(overflow.encode().is_err());
+    }
+    #[test]
+    fn time_ledger_failed_commit_restores_same_history_file() {
+        let mut p=player();let mut b=fixture(&mut p);let cid=b.history.keys().next().unwrap().clone();
+        b.time_ledger.insert(cid.clone(),BTreeMap::from([("before".into(),time_entry())]));
+        p.apply_practice_backup(b,Selection::default(),"keep".into()).unwrap();
+        let before=std::fs::read(p.history.path()).unwrap();let mut changed=p.history.clone();
+        changed.merge_time_ledger(BTreeMap::from([(cid.clone(),BTreeMap::from([("after".into(),time_entry())]))])).unwrap();
+        // Failure occurs after history and preferences have been written, exercising the real journal rollback.
+        std::fs::write(p.data.join("performance-history"),b"block directory creation").unwrap();
+        let performances=BTreeMap::from([(format!("{}.json","a".repeat(64)),b"{}".to_vec())]);
+        let workspace=library_workspace::Workspace::load(&p.data).unwrap();
+        assert!(commit(&p.data,&p.preferences,&changed,&workspace,None,&performances).is_err());
+        assert_eq!(std::fs::read(p.history.path()).unwrap(),before);
+        let restored=PracticeHistoryStore::load(p.history.path());
+        assert!(restored.time_ledger()[&cid].contains_key("before"));assert!(!restored.time_ledger()[&cid].contains_key("after"));
+        assert!(!p.data.join("practice-import-journal.json").exists());
+    }
     #[test]
     fn replay_clip_v9_merges_metadata_without_duplicate_records_and_preserves_legacy() {
         use neothesia_core::practice_history::ReplayClip;
@@ -1498,12 +1606,12 @@ mod tests {
         target
             .apply_practice_backup(decoded, Selection::default(), "keep".into())
             .unwrap();
-        assert_eq!(
-            target
-                .practice_time(&cid, 0, 9_000_000_000_000_000)
-                .unwrap()["totalMs"],
-            75000
-        );
+        let time = target.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        assert_eq!(time["totalMs"], 0);
+        assert_eq!(time["timedSessions"], 0);
+        assert_eq!(time["legacyTimedMs"], 75000);
+        assert_eq!(time["legacySessions"], 1);
+        assert_eq!(time["unknownSessions"], 0);
         assert_eq!(target.history.song(&cid).unwrap().sessions.len(), 1);
         backup.history.get_mut(&cid).unwrap().sessions[0].playing_ms = None;
         let old = Backup::decode(&backup.encode().unwrap()).unwrap();
@@ -1512,27 +1620,32 @@ mod tests {
             .apply_practice_backup(old.clone(), Selection::default(), "backup".into())
             .unwrap();
         assert_eq!(target.history.song(&cid).unwrap().sessions.len(), 1);
-        assert_eq!(
-            target
-                .practice_time(&cid, 0, 9_000_000_000_000_000)
-                .unwrap()["totalMs"],
-            75000
-        );
+        let time = target.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        assert_eq!(time["totalMs"], 0);
+        assert_eq!(time["timedSessions"], 0);
+        assert_eq!(time["legacyTimedMs"], 75000);
+        assert_eq!(time["legacySessions"], 1);
+        assert_eq!(time["unknownSessions"], 0);
         let mut unknown = player();
         unknown
             .apply_practice_backup(old, Selection::default(), "keep".into())
             .unwrap();
+        let time = unknown.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        assert_eq!(time["totalMs"], 0);
+        assert_eq!(time["legacyTimedMs"], 0);
+        assert_eq!(time["legacySessions"], 1);
+        assert_eq!(time["unknownSessions"], 1);
         backup.history.get_mut(&cid).unwrap().sessions[0].playing_ms = Some(75000);
         unknown
             .apply_practice_backup(backup.clone(), Selection::default(), "keep".into())
             .unwrap();
         assert_eq!(unknown.history.song(&cid).unwrap().sessions.len(), 1);
-        assert_eq!(
-            unknown
-                .practice_time(&cid, 0, 9_000_000_000_000_000)
-                .unwrap()["totalMs"],
-            75000
-        );
+        let time = unknown.practice_time(&cid, 0, 9_000_000_000_000_000).unwrap();
+        assert_eq!(time["totalMs"], 0);
+        assert_eq!(time["timedSessions"], 0);
+        assert_eq!(time["legacyTimedMs"], 75000);
+        assert_eq!(time["legacySessions"], 1);
+        assert_eq!(time["unknownSessions"], 0);
         backup.history.get_mut(&cid).unwrap().sessions[0].playing_ms = Some(u64::MAX);
         assert!(backup.encode().is_err());
     }

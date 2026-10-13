@@ -17,6 +17,11 @@ import { X, Download, FolderOpen } from "lucide-react";
 import { api } from "./api";
 import { scheduleText, type RoutineSchedule } from "./RoutineScheduleEditor";
 type Summary = {
+  timeLedgerEntries?: number;
+  timeLedgerRunningMs?: number;
+  timeLedgerUntrackedMs?: number;
+  timeLedgerDuplicates?: number;
+  timeLedgerConflicts?: number;
   replayClips?: number;
   replayClipConflicts?: number;
   performances?: number;
@@ -59,6 +64,11 @@ type Summary = {
     indexed: boolean;
   }[];
 };
+function timeText(value: number) {
+  const ms = Math.max(0, Math.floor(value));
+  const seconds = Math.floor(ms / 1000) % 60;
+  return `${Math.floor(ms / 3600000)} 小时 ${Math.floor(ms / 60000) % 60} 分 ${seconds}${ms % 1000 ? `.${String(ms % 1000).padStart(3, "0")}` : ""} 秒`;
+}
 export function PracticeBackupDialog({
   close,
   changed,
@@ -221,6 +231,7 @@ export function PracticeBackupDialog({
             keptPerformances: number;
             duplicatePerformances: number;
             trimmedPerformances: number;
+            addedTimeEntries?: number;
             addedRecords: number;
             duplicateRecords: number;
             renamedRecords: number;
@@ -236,7 +247,7 @@ export function PracticeBackupDialog({
           setWorkspace(null);
           batchSaved.current = false;
           setMessage(
-            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：新增记录 ${result.addedRecords}，跳过重复 ${result.duplicateRecords}，区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。本机导入前副本已保留。`,
+            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：新增记录 ${result.addedRecords}，跳过重复 ${result.duplicateRecords}，区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。累计时长新增 ${result.addedTimeEntries ?? 0} 条，相同条目已跳过。本机导入前副本已保留。`,
           );
           try {
             await changed();
@@ -266,7 +277,7 @@ export function PracticeBackupDialog({
     summary &&
     ((selection.plans &&
       (summary.plans.length || summary.days || summary.learning)) ||
-      (selection.records && summary.records) ||
+      (selection.records && (summary.records || summary.timeLedgerEntries)) ||
       (selection.presets &&
         summary.passages +
           summary.ladders +
@@ -326,6 +337,10 @@ export function PracticeBackupDialog({
         </div>
         <div className="practice-backup-export">
           <h3>保存本机资料</h3>
+          <p className="parameter-help">
+            成绩日期范围只筛选单次成绩和演奏回放。勾选个人成绩时，备份同时保留全部累计练习时长，包含已超出单曲
+            200 条成绩保留上限的运行时间。
+          </p>
           <label>
             导出成绩范围
             <select
@@ -535,6 +550,21 @@ export function PracticeBackupDialog({
               </p>
               <dl className="practice-backup-counts">
                 <div>
+                  <dt>累计时长条目 / 已有相同条目</dt>
+                  <dd>
+                    {summary.timeLedgerEntries ?? 0} /{" "}
+                    {summary.timeLedgerDuplicates ?? 0}
+                  </dd>
+                </div>
+                <div>
+                  <dt>可按日期统计的运行时长</dt>
+                  <dd>{timeText(summary.timeLedgerRunningMs ?? 0)}</dd>
+                </div>
+                <div>
+                  <dt>日期不明的运行时长</dt>
+                  <dd>{timeText(summary.timeLedgerUntrackedMs ?? 0)}</dd>
+                </div>
+                <div>
                   <dt>演奏回放 / 内容冲突</dt>
                   <dd>
                     {summary.performances ?? 0} /{" "}
@@ -587,6 +617,15 @@ export function PracticeBackupDialog({
                   </dd>
                 </div>
               </dl>
+              <p className="parameter-help">
+                累计时长按曲目和保存编号合并，相同条目只计算一次。旧版本备份没有累计时长条目时，现有累计时长保留。
+              </p>
+              {!!summary.timeLedgerConflicts && (
+                <p role="alert">
+                  本机与备份有 {summary.timeLedgerConflicts}{" "}
+                  条同编号累计时长不同。系统会拒绝导入这部分成绩资料，以免重复计算。您可以取消“个人成绩与演奏回放”，先导入其他资料。
+                </p>
+              )}
               <p className="parameter-help">
                 本机已有相同成绩 {summary.duplicateRecords} 条，合并时跳过。
               </p>
@@ -744,6 +783,7 @@ export function PracticeBackupDialog({
                 className="primary-button"
                 disabled={
                   busy ||
+                  (selection.records && !!summary.timeLedgerConflicts) ||
                   (!available &&
                     !(
                       workspace &&
@@ -762,7 +802,9 @@ export function PracticeBackupDialog({
             </>
           )}
         </div>
-        {busy && !message && <p role="status">{progress || "正在处理练习资料…"}</p>}
+        {busy && !message && (
+          <p role="status">{progress || "正在处理练习资料…"}</p>
+        )}
         {error && (
           <p className="dialog-error" role="alert">
             {error}

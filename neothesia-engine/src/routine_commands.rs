@@ -65,6 +65,10 @@ pub struct RoutineSchedule {
     pub weekdays: Vec<u8>,
     pub start: String,
     pub end: Option<String>,
+    #[serde(default)]
+    pub skip_dates: Vec<String>,
+    #[serde(default)]
+    pub extra_dates: Vec<String>,
 }
 impl RoutineSchedule {
     pub(super) fn validate(&self) -> Result<(), String> {
@@ -85,6 +89,21 @@ impl RoutineSchedule {
         {
             return Err("周期安排需要有效日期及不重复的星期；结束日期不能早于开始日期".into());
         }
+        for dates in [&self.skip_dates, &self.extra_dates] {
+            if dates.len() > 366
+                || dates.iter().any(|day| {
+                    !day_valid(day)
+                        || day.as_str() < self.start.as_str()
+                        || self.end.as_ref().is_some_and(|end| day > end)
+                })
+                || dates.iter().collect::<std::collections::BTreeSet<_>>().len() != dates.len()
+            {
+                return Err("例外日期需要在周期范围内，不能重复，且每类最多 366 天".into());
+            }
+        }
+        if self.skip_dates.iter().any(|day| self.extra_dates.contains(day)) {
+            return Err("同一天不能同时设为跳过和加练".into());
+        }
         Ok(())
     }
     fn matches(&self, day: &str) -> bool {
@@ -92,7 +111,9 @@ impl RoutineSchedule {
             && day_valid(day)
             && day >= self.start.as_str()
             && self.end.as_ref().is_none_or(|d| day <= d.as_str())
-            && self.weekdays.contains(&weekday(day))
+            && !self.skip_dates.iter().any(|date| date == day)
+            && (self.extra_dates.iter().any(|date| date == day)
+                || self.weekdays.contains(&weekday(day)))
     }
 }
 // Gregorian calendar: Monday = 0, Sunday = 6. Dates are validated before use.
@@ -1021,6 +1042,25 @@ impl Player {
 mod schedule_tests {
     use super::*;
     #[test]
+    fn schedule_date_exceptions_override_weekdays_and_keep_old_data_readable() {
+        let old = r#"{"enabled":true,"weekdays":[4],"start":"2026-10-02","end":"2026-10-16"}"#;
+        let mut rule: RoutineSchedule = serde_json::from_str(old).unwrap();
+        assert!(rule.skip_dates.is_empty() && rule.extra_dates.is_empty());
+        assert!(rule.matches("2026-10-02"));
+        assert!(!rule.matches("2026-10-03"));
+        rule.skip_dates.push("2026-10-02".into());
+        rule.extra_dates.push("2026-10-03".into());
+        rule.validate().unwrap();
+        assert!(!rule.matches("2026-10-02"));
+        assert!(rule.matches("2026-10-03"));
+        assert!(!rule.matches("2026-10-17"));
+        let reloaded: RoutineSchedule = serde_json::from_value(serde_json::to_value(&rule).unwrap()).unwrap();
+        assert_eq!(reloaded.skip_dates, rule.skip_dates);
+        assert_eq!(reloaded.extra_dates, rule.extra_dates);
+        rule.extra_dates.push("2026-10-02".into());
+        assert!(rule.validate().is_err());
+    }
+    #[test]
     fn calendar_rules_idempotent_snapshots_pause_copy_and_backup() {
         assert_eq!(weekday("2026-10-02"), 4);
         assert_eq!(weekday("2024-02-29"), 3);
@@ -1044,6 +1084,8 @@ mod schedule_tests {
             weekdays: vec![4],
             start: "2026-10-02".into(),
             end: Some("2026-10-16".into()),
+            skip_dates: vec![],
+            extra_dates: vec![],
         };
         assert!(p.save_routine_schedule(&id, Some(rule.clone())).is_err());
         let item = p

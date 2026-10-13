@@ -61,16 +61,21 @@ impl Player {
         Ok(json!({"favorite":library.is_some_and(|l|l.favorite),"queuePosition":library.and_then(|l|l.queue_position)}))
     }
 
-    pub(super) fn practice_time(&self, content_id: &str, from: u64, to: u64) -> Result<Value,String> {
-        if content_id.len()!=64 || !content_id.bytes().all(|b|b.is_ascii_hexdigit()) || from>=to || to>9_000_000_000_000_000 {return Err("曲目或统计时间范围无效".into());}
-        let sessions=self.history.song(content_id).map(|h|h.sessions.as_slice()).unwrap_or(&[]);
-        let mut total=0u64; let mut period=0u64; let mut timed=0usize; let mut unknown=0usize; let mut period_unknown=0usize;
-        for s in sessions {
-            let within=s.recorded_at_unix_ms>=from && s.recorded_at_unix_ms<to;
-            if let Some(ms)=s.playing_ms {total=total.saturating_add(ms);timed+=1;if within{period=period.saturating_add(ms);}}
-            else {unknown+=1;if within{period_unknown+=1;}}
-        }
-        Ok(json!({"totalMs":total,"periodMs":period,"timedSessions":timed,"unknownSessions":unknown,"periodUnknownSessions":period_unknown,"retainedSessions":sessions.len(),"from":from,"to":to}))
+    pub(super) fn practice_time(&self,content_id:&str,from:u64,to:u64)->Result<Value,String>{
+        if content_id.len()!=64||!content_id.bytes().all(|b|b.is_ascii_hexdigit())||from>=to||to>9_000_000_000_000_000{return Err("曲目或统计时间范围无效".into())}
+        let sessions=self.history.song(content_id).map(|s|s.sessions.as_slice()).unwrap_or(&[]);let ledger=self.history.time_ledger().get(content_id);
+        let mut total=0u64;let mut period=0u64;let mut untracked=0u64;let mut earliest=None;
+        for entry in ledger.into_iter().flat_map(|entries|entries.values()){untracked=untracked.saturating_add(entry.untracked_ms);for slice in &entry.slices{total=total.saturating_add(slice.running_ms);period=period.saturating_add(slice.intersection_ms(from,to));earliest=Some(earliest.map_or(slice.from,|old:u64|old.min(slice.from)));}}
+        let mut legacy=0;let mut legacy_timed=0;let mut legacy_ms=0u64;let mut period_legacy=0;let mut unknown=0;let mut period_unknown=0;
+        for session in sessions{if ledger.is_some_and(|entries|entries.contains_key(&session.stable_id())){continue}legacy+=1;let within=session.recorded_at_unix_ms>=from&&session.recorded_at_unix_ms<to;if within{period_legacy+=1}if let Some(ms)=session.playing_ms{legacy_timed+=1;legacy_ms=legacy_ms.saturating_add(ms)}else{unknown+=1;if within{period_unknown+=1}}}
+        Ok(json!({"totalMs":total,"periodMs":period,"timedSessions":ledger.map_or(0,|entries|entries.len()),"unknownSessions":unknown,"periodUnknownSessions":period_unknown,"retainedSessions":sessions.len(),"legacySessions":legacy,"legacyTimedSessions":legacy_timed,"legacyTimedMs":legacy_ms,"periodLegacySessions":period_legacy,"untrackedMs":untracked,"earliestIntervalAt":earliest,"coverage":"saved-running-ledger","from":from,"to":to}))
+    }
+    pub(super) fn practice_calendar(&self,from:u64,to:u64,content_id:Option<&str>)->Result<Value,String>{
+        if from>=to||to>9_000_000_000_000_000||to-from>366*86_400_000||content_id.is_some_and(|id|id.is_empty()||id.len()>160){return Err("练习日历需选择不超过 366 天的有效日期范围".into())}
+        let mut intervals=Vec::new();let mut saves=Vec::new();let mut total=0u64;let mut untracked=0u64;let mut earliest=None;
+        for(cid,entries)in self.history.time_ledger(){if content_id.is_some_and(|wanted|wanted!=cid){continue}let title=self.history.song(cid).map(|s|s.display_name.as_str()).unwrap_or("练习记录");for(id,entry)in entries{if entry.saved_at_unix_ms>=from&&entry.saved_at_unix_ms<to{saves.push(json!({"contentId":cid,"saveId":id,"savedAt":entry.saved_at_unix_ms}));untracked=untracked.saturating_add(entry.untracked_ms);}if saves.len()>100_000{return Err("该日期范围的保存记录过多，请缩小日期范围".into())}for slice in &entry.slices{earliest=Some(earliest.map_or(slice.from,|old:u64|old.min(slice.from)));let ms=slice.intersection_ms(from,to);if ms>0{total=total.saturating_add(ms);intervals.push(json!({"contentId":cid,"title":title,"saveId":id,"from":slice.from.max(from),"to":slice.to.min(to),"runningMs":ms}));}if intervals.len()+saves.len()>100_000{return Err("该日期范围的计时记录过多，请缩小日期范围".into())}}}}
+        let mut legacy=0;let mut legacy_ms=0u64;for(cid,song)in self.history.snapshot(){if content_id.is_some_and(|wanted|wanted!=cid){continue}let ledger=self.history.time_ledger().get(&cid);for session in &song.sessions{if session.recorded_at_unix_ms>=from&&session.recorded_at_unix_ms<to&&!ledger.is_some_and(|entries|entries.contains_key(&session.stable_id())){legacy+=1;legacy_ms=legacy_ms.saturating_add(session.playing_ms.unwrap_or(0));}}}
+        Ok(json!({"from":from,"to":to,"intervals":intervals,"saves":saves,"totalMs":total,"legacySessions":legacy,"legacyTimedMs":legacy_ms,"untrackedMs":untracked,"earliestIntervalAt":earliest,"coverage":"saved-running-ledger"}))
     }
 
     pub(super) fn history_context(&self) -> PracticeSessionContext {
@@ -134,7 +139,8 @@ impl Player {
             exercise_spec: self.exercise,
         }
     }
-    pub(super) fn history_query(
+    pub(super) fn history_query(&self,query:&str,mode:&str,hands:&str,range:&str,days:u32,offset:usize,limit:usize)->Result<Value,String>{self.history_query_window(query,mode,hands,range,days,offset,limit,None,None)}
+    pub(super) fn history_query_window(
         &self,
         query: &str,
         mode: &str,
@@ -143,7 +149,10 @@ impl Player {
         days: u32,
         offset: usize,
         limit: usize,
+        from:Option<u64>,
+        to:Option<u64>,
     ) -> Result<Value, String> {
+        let window=match(from,to){(None,None)=>None,(Some(a),Some(b))if a<b&&b<=9_000_000_000_000_000&&b-a<=366*86_400_000=>Some((a,b)),_=>return Err("历史日期范围需完整填写，且不超过 366 天".into())};
         let query = query.trim().to_lowercase();
         let cutoff = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -155,6 +164,7 @@ impl Player {
             let song_matches=query.is_empty() || song.display_name.to_lowercase().contains(&query) || song.source_path.as_ref().is_some_and(|p|p.to_string_lossy().to_lowercase().contains(&query));
             if let Some(history) = self.history.song(&song.content_id) {
                 for session in &history.sessions {
+                    if window.is_some_and(|(a,b)|session.recorded_at_unix_ms<a||session.recorded_at_unix_ms>=b){continue}
                     if !song_matches && !session.annotation.as_ref().is_some_and(|a|[&a.note,&a.teacher,&a.next].iter().any(|v|v.to_lowercase().contains(&query))){continue;}
                     if !mode.is_empty() && session.mode.as_deref() != Some(mode) {
                         continue;

@@ -672,8 +672,30 @@ fn median_u32(values: &[u32]) -> Option<u32> {
     }
 }
 
+/// UTC half-open intervals. running_ms can be shorter when a measured interval has a gap.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
+pub struct PracticeTimeSlice { pub from:u64,pub to:u64,pub running_ms:u64 }
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub struct PracticeTimeEntry { pub saved_at_unix_ms:u64,pub slices:Vec<PracticeTimeSlice>,#[serde(default)] pub untracked_ms:u64 }
+pub type PracticeTimeLedger=BTreeMap<String,BTreeMap<String,PracticeTimeEntry>>;
+pub fn validate_time_ledger(ledger:&PracticeTimeLedger)->Result<(),String>{
+    let mut saves=0usize;let mut slices=0usize;let mut total_ms=0u128;
+    for (cid,entries) in ledger {if cid.is_empty()||cid.len()>160{return Err("计时账本的曲目标识无效".into())}saves=saves.checked_add(entries.len()).ok_or("计时账本数量超限")?;
+        for (id,entry) in entries {if id.is_empty()||id.len()>200||entry.saved_at_unix_ms>9_000_000_000_000_000||entry.slices.len()>20_000{return Err("计时账本条目无效".into())}total_ms+=u128::from(entry.untracked_ms);let mut end=0;
+            for slice in &entry.slices {if slice.from<end||slice.from>=slice.to||slice.to>9_000_000_000_000_000||slice.running_ms==0||slice.running_ms>slice.to-slice.from{return Err("计时账本区间无效或重叠".into())}end=slice.to;total_ms+=u128::from(slice.running_ms);}
+            slices=slices.checked_add(entry.slices.len()).ok_or("计时账本区间数量超限")?;
+        }
+    }
+    if total_ms>9_000_000_000_000_000||saves>200_000||slices>2_000_000{return Err("计时账本容量已达上限，请先导出备份".into())}Ok(())
+}
+impl PracticeTimeSlice {
+    pub fn intersection_ms(&self,from:u64,to:u64)->u64{let a=self.from.max(from);let b=self.to.min(to);if a>=b{return 0}let length=u128::from(self.to-self.from);let part=|at:u64|u128::from(self.running_ms)*u128::from(at-self.from)/length;(part(b)-part(a)) as u64}
+}
+
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
 struct PracticeHistoryV1 {
+    #[serde(default)]
+    time_ledger:PracticeTimeLedger,
     songs: BTreeMap<String, SongPracticeHistory>,
 }
 
@@ -713,6 +735,7 @@ impl PracticeHistoryStore {
             }
         };
 
+        let file=match &file {PracticeHistoryFile::V1(value) if validate_time_ledger(&value.time_ledger).is_err()=>{log::error!("Practice time ledger is damaged and will be quarantined");quarantine_corrupt_file(&path);PracticeHistoryFile::default()},_=>file};
         Self { path, file }
     }
 
@@ -734,6 +757,18 @@ impl PracticeHistoryStore {
         session.annotation=Some(annotation);
         candidate.save().map_err(|e|e.to_string())?;
         *self=candidate;Ok(())
+    }
+    pub fn time_ledger(&self)->&PracticeTimeLedger {match &self.file{PracticeHistoryFile::V1(file)=>&file.time_ledger}}
+    pub fn merge_time_ledger(&mut self,incoming:PracticeTimeLedger)->Result<usize,String>{
+        validate_time_ledger(&incoming)?;let mut merged=self.time_ledger().clone();let mut added=0;
+        for (cid,entries) in incoming {let target=merged.entry(cid).or_default();for(id,entry)in entries{if let Some(existing)=target.get(&id){if existing!=&entry{return Err("相同保存记录的计时账本内容冲突，资料未合并".into())}}else{target.insert(id,entry);added+=1;}}}
+        validate_time_ledger(&merged)?;match &mut self.file{PracticeHistoryFile::V1(file)=>file.time_ledger=merged};Ok(added)
+    }
+    pub fn record_session_with_time(&mut self,song_id:&str,display_name:&str,session:PracticeSession,entry:PracticeTimeEntry)->Result<(),String>{
+        let id=session.stable_id();let mut candidate=self.clone();let mut incoming=PracticeTimeLedger::new();incoming.entry(song_id.into()).or_default().insert(id.clone(),entry);
+        let added=candidate.merge_time_ledger(incoming)?;if added==0{return Ok(())}
+        let song=candidate.ensure_song(song_id,display_name);song.display_name=display_name.into();song.sessions.push(session);let excess=song.sessions.len().saturating_sub(MAX_SESSIONS_PER_SONG);if excess>0{song.sessions.drain(..excess);}
+        candidate.save().map_err(|e|e.to_string())?;*self=candidate;Ok(())
     }
     pub fn record_session(
         &mut self,

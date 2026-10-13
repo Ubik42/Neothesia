@@ -535,11 +535,14 @@ pub enum Command {
         #[serde(default)] hands: String,
         #[serde(default)] range: String,
         #[serde(default)] days: u32,
+        #[serde(default)] from:Option<u64>,
+        #[serde(default)] to:Option<u64>,
         #[serde(default)] offset: usize,
         #[serde(default)] limit: usize,
     },
     AnnotateHistory {content_id:String,id:String,note:String,teacher:String,next:String,expected:Option<neothesia_core::practice_history::PracticeAnnotation>},
     PracticeTime {content_id:String,from:u64,to:u64},
+    PracticeCalendar{from:u64,to:u64,#[serde(default)]content_id:Option<String>},
     HistoryPerformance {content_id:String,id:String},
     StartHistoryReplay {content_id:String,id:String,source:String,rate:f64},
     HistoryReplayControl {id:String,action:String,#[serde(default)] position:Option<f64>,#[serde(default)] rate:Option<f64>},
@@ -852,6 +855,11 @@ struct Player {
     events: Vec<midi_file::MidiEvent>,
     event_cursor: usize,
     matcher: PracticeMatcher,
+    pending_time:Vec<neothesia_core::practice_history::PracticeTimeSlice>,
+    pending_untracked:u64,
+    time_fraction:Duration,
+    time_connected:bool,
+    time_last_end:Option<u64>,
     session_clock: Duration,
     history: PracticeHistoryStore,
     title: String,
@@ -910,6 +918,7 @@ impl Player {
             events: vec![],
             event_cursor: 0,
             matcher: PracticeMatcher::new(KeyboardRange::new(0..=127)),
+            pending_time:vec![],pending_untracked:0,time_fraction:Duration::ZERO,time_connected:false,time_last_end:None,
             session_clock: Duration::ZERO,
             history: PracticeHistoryStore::load(data.join("web-practice-history.ron")),
             title: String::new(),
@@ -1745,7 +1754,9 @@ impl Player {
                         .clamp(1., 65535.) as u16,
                 ));
         performance_archive::save(&self.data,&file.content_id,&session.stable_id(),&self.performance_capture,self.session_clock.as_secs_f64(),self.matcher.results())?;
-        self.history.record_session(&file.content_id,&self.title,session).map_err(|e|e.to_string())?;
+        let entry=neothesia_core::practice_history::PracticeTimeEntry{saved_at_unix_ms:session.recorded_at_unix_ms,slices:self.pending_time.clone(),untracked_ms:self.pending_untracked};
+        self.history.record_session_with_time(&file.content_id,&self.title,session,entry)?;
+        self.pending_time.clear();self.pending_untracked=0;
         self.previous_summary = Some(self.matcher.summary());
         self.previous_mode = Some(self.state.mode.clone());
         self.state.saved = true;
@@ -1756,6 +1767,7 @@ impl Player {
         self.matcher.reset();
         self.performance_capture=Default::default();
         self.session_clock = Duration::ZERO;
+        self.pending_time.clear();self.pending_untracked=0;self.time_fraction=Duration::ZERO;self.time_connected=false;self.time_last_end=None;
         self.state.position = position;
         if self.state.metronome {
             let snap = self.snapshot();
@@ -1938,12 +1950,13 @@ impl Player {
         match &command {
             Command::WeakPractice=>return self.weak_practice(),
             Command::AcceptWeakPractice{ids,routine_id,day,name}=>return self.accept_weak_practice(ids,routine_id.as_deref(),day.as_deref(),name),
-            Command::HistoryQuery { query, mode, hands, range, days, offset, limit } => {
-                return self.history_query(query, mode, hands, range, *days, *offset, *limit);
+            Command::HistoryQuery { query, mode, hands, range, days, offset, limit,from,to } => {
+                return self.history_query_window(query, mode, hands, range, *days, *offset, *limit,*from,*to);
             }
             Command::AnnotateHistory{content_id,id,note,teacher,next,expected}=>return self.annotate_history(content_id,id,note.clone(),teacher.clone(),next.clone(),expected.clone()),
             Command::SetLibraryCollection{path,content_id,favorite,queued} => return self.set_library_collection(path,content_id,*favorite,*queued),
             Command::PracticeTime {content_id,from,to} => return self.practice_time(content_id,*from,*to),
+            Command::PracticeCalendar{from,to,content_id}=>return self.practice_calendar(*from,*to,content_id.as_deref()),
             Command::HistoryPerformance{content_id,id}=>return self.history_performance(content_id,id),
             Command::StartHistoryReplay{content_id,id,source,rate}=>return self.start_history_replay(content_id,id,source,*rate),
             Command::HistoryReplayControl{id,action,position,rate}=>return self.history_replay_control(id,action,*position,*rate),
@@ -3223,6 +3236,7 @@ impl Player {
                 return self.command(Command::CurrentSong);
             }
             Command::Play => {
+                if self.state.status!="playing"{self.time_connected=false;}
                 if self.recorder.is_recording() {
                     return Err("请先停止录音，再开始曲目练习".into());
                 }
@@ -3271,7 +3285,7 @@ impl Player {
             | Command::History
             | Command::HistoryQuery { .. }
             | Command::AnnotateHistory { .. }
-            | Command::PracticeTime { .. }
+            | Command::PracticeTime { .. } | Command::PracticeCalendar{..}
             | Command::HistoryPerformance{..}|Command::StartHistoryReplay{..}|Command::HistoryReplayControl{..}|Command::HistoryReplayLoop{..}|Command::HistoryProblemNotes{..}|Command::PreviewProblemCuts{..}|Command::PreviewMultiProblemPlan{..}|Command::SaveMultiProblemPlan{..}|Command::PreviewHistoryProblemPlan{..}|Command::SaveHistoryProblemPlan{..}|Command::HistoryReplayClips{..}|Command::SaveHistoryReplayClip{..}|Command::DeleteHistoryReplayClip{..}
             | Command::HistoryDetail { .. }
             | Command::HistoryOpen { .. }
@@ -3344,6 +3358,7 @@ impl Player {
                 self.reset(if enabled { start } else { 0. });
             }
             Command::Pause => {
+                self.time_connected=false;
                 self.panic();
                 self.state.status = "paused".into();
             }
@@ -3571,6 +3586,20 @@ impl Player {
         if !self.track_routing.lanes.is_empty() && routed[0]<240 {routed[0]&=240;}
         self.send(&routed);
     }
+    fn capture_running_time(&mut self,delta:Duration,now:u64){
+        self.time_fraction=self.time_fraction.saturating_add(delta);let raw=self.time_fraction.as_millis().min(u128::from(u64::MAX)) as u64;self.time_fraction=self.time_fraction.saturating_sub(Duration::from_millis(raw));if raw==0{return}
+        self.state.saved=false;
+        let ms=raw.min(5_000);self.pending_untracked=self.pending_untracked.saturating_add(raw-ms);
+        if now>9_000_000_000_000_000||self.pending_time.len()>=20_000{self.pending_untracked=self.pending_untracked.saturating_add(ms);self.time_connected=false;return}
+        let expected=self.time_last_end.and_then(|last|last.checked_add(ms));
+        let contiguous=self.time_connected&&expected.is_some_and(|end|end.abs_diff(now)<=2_000)&&raw<=5_000;
+        let (mut from,to)=if contiguous{(self.time_last_end.unwrap(),expected.unwrap())}else{(now.saturating_sub(ms),now)};
+        if let Some(last)=self.time_last_end{if from<last{let omitted=last.min(to)-from;self.pending_untracked=self.pending_untracked.saturating_add(omitted);from=last;}}
+        if from>=to{self.time_connected=false;return}
+        let running=to-from;
+        if contiguous&&self.pending_time.last().is_some_and(|s|s.to==from){let last=self.pending_time.last_mut().unwrap();last.to=to;last.running_ms=last.running_ms.saturating_add(running);}else{self.pending_time.push(neothesia_core::practice_history::PracticeTimeSlice{from,to,running_ms:running});}
+        self.time_last_end=Some(to);self.time_connected=true;
+    }
     fn tick(&mut self, delta: Duration) {
         self.tick_finger_demo(delta);
         if let Some(vst) = &self.vst {
@@ -3582,6 +3611,7 @@ impl Player {
             self.state.error = Some("MIDI 输入过载，已停止发声并暂停播放".into());
             while self.input_rx.try_recv().is_ok() {}
         }
+        if self.state.status!="playing"||self.state.mode=="listen"||self.state.recording{self.time_connected=false;}
         if self.state.status == "countIn" {
             let snap = self.snapshot();
             let denominator = self
@@ -3613,6 +3643,10 @@ impl Player {
         }
         if self.state.status != "playing" {
             return;
+        }
+        if self.state.mode!="listen" && !self.state.recording {
+            let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().min(u128::from(u64::MAX)) as u64;
+            self.capture_running_time(delta,now);
         }
         let capture_clock=self.session_clock.as_secs_f64();
         let capture_position=self.state.position;
@@ -4934,6 +4968,21 @@ mod tests {
     }
 
     #[test]
+    fn saved_time_ledger_delta_midnight_trim_and_restart(){
+        use neothesia_core::practice_history::{PracticeTimeEntry,PracticeTimeSlice};
+        let mut p=player();let cid=p.file.as_ref().unwrap().content_id.clone();let midnight=20_000*86_400_000u64;
+        p.command(Command::Play).unwrap();p.tick(Duration::from_millis(5));p.midi(&[144,60,90]);p.midi(&[128,60,0]);p.pending_time.clear();p.time_last_end=None;p.time_connected=false;
+        p.capture_running_time(Duration::from_millis(1000),midnight+500);p.command(Command::Pause).unwrap();p.command(Command::Save).unwrap();p.command(Command::Save).unwrap();assert_eq!(p.history.time_ledger()[&cid].len(),1);
+        assert_eq!(p.practice_time(&cid,midnight-1000,midnight).unwrap()["periodMs"],500);
+        assert_eq!(p.practice_time(&cid,midnight,midnight+1000).unwrap()["periodMs"],500);
+        p.command(Command::Play).unwrap();p.capture_running_time(Duration::from_millis(700),midnight+2000);p.command(Command::Pause).unwrap();p.command(Command::Save).unwrap();assert_eq!(p.practice_time(&cid,0,9_000_000_000_000_000).unwrap()["totalMs"],1700);assert_eq!(p.history.time_ledger()[&cid].len(),2);
+        let example=p.history.song(&cid).unwrap().sessions[0].clone();
+        for i in 0..201{let mut record=example.clone();record.id=Some(format!("retention-{i}"));record.recorded_at_unix_ms=midnight+10_000+i*10;let entry=PracticeTimeEntry{saved_at_unix_ms:record.recorded_at_unix_ms,slices:vec![PracticeTimeSlice{from:midnight+10_000+i*10,to:midnight+10_000+i*10+1,running_ms:1}],untracked_ms:0};p.history.record_session_with_time(&cid,"计时",record,entry).unwrap();}
+        assert_eq!(p.history.session_count(&cid),200);assert_eq!(p.history.time_ledger()[&cid].len(),203);assert_eq!(p.practice_calendar(midnight-1000,midnight+100_000,Some(&cid)).unwrap()["totalMs"],1901);
+        let root=p.data.clone();drop(p);let p=Player::new(root,PathBuf::new(),true);assert_eq!(p.practice_time(&cid,0,9_000_000_000_000_000).unwrap()["totalMs"],1901);assert_eq!(p.practice_time(&cid,0,9_000_000_000_000_000).unwrap()["legacySessions"],0);
+        let day=p.history_query_window("","","","",0,0,200,Some(midnight),Some(midnight+86_400_000)).unwrap();assert_eq!(day["total"],200);
+    }
+    #[test]
     fn saved_practice_time_excludes_pause_count_in_and_survives_reload() {
         let mut p=player();let cid=p.file.as_ref().unwrap().content_id.clone();
         p.state.count_in=1;p.command(Command::Play).unwrap();p.tick(Duration::from_secs(5));
@@ -4943,12 +4992,12 @@ mod tests {
         p.command(Command::Play).unwrap();p.midi(&[144,60,90]);p.midi(&[128,60,0]);p.tick(Duration::from_millis(100));
         p.command(Command::Pause).unwrap();p.command(Command::Save).unwrap();p.command(Command::Save).unwrap();
         let stats=p.practice_time(&cid,0,9_000_000_000_000_000).unwrap();
-        assert_eq!(stats["totalMs"],2100);assert_eq!(stats["periodMs"],2100);assert_eq!(stats["retainedSessions"],1);
+        let exact=stats["totalMs"].as_u64().unwrap();assert_eq!(exact+stats["untrackedMs"].as_u64().unwrap(),2100);assert_eq!(stats["periodMs"],exact);assert_eq!(stats["retainedSessions"],1);
         let path=p.data.clone();drop(p);let mut reloaded=Player::new(path,PathBuf::new(),true);
-        assert_eq!(reloaded.practice_time(&cid,0,9_000_000_000_000_000).unwrap()["totalMs"],2100);
+        assert_eq!(reloaded.practice_time(&cid,0,9_000_000_000_000_000).unwrap()["totalMs"],exact);
         let mut legacy=reloaded.history.song(&cid).unwrap().sessions[0].clone();legacy.id=Some("old-untimed".into());legacy.playing_ms=None;
         reloaded.history.record_session(&cid,"old",legacy).unwrap();
-        let stats=reloaded.practice_time(&cid,0,9_000_000_000_000_000).unwrap();assert_eq!(stats["totalMs"],2100);assert_eq!(stats["unknownSessions"],1);
+        let stats=reloaded.practice_time(&cid,0,9_000_000_000_000_000).unwrap();assert_eq!(stats["totalMs"],exact);assert_eq!(stats["unknownSessions"],1);
         assert_eq!(reloaded.practice_time(&cid,0,1).unwrap()["periodMs"],0);
         assert!(reloaded.practice_time(&cid,1,0).is_err());
     }

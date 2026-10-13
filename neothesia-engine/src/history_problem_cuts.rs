@@ -315,7 +315,7 @@ mod tests {
         let backup: Backup =
             serde_json::from_value(p.practice_backup_snapshot(&Selection::default()).unwrap())
                 .unwrap();
-        assert_eq!(backup.version(), 10);
+        assert_eq!(backup.version(), 12);
         let backup = Backup::decode(&backup.encode().unwrap()).unwrap();
         assert!(matches!(
             backup.routines[0].items[0].target,

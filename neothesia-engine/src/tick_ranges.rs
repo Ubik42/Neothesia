@@ -376,12 +376,17 @@ mod tests {
             goal,
         )
         .unwrap();
-        assert!(matches!(
-            p.preferences.routines[0].items[1].target,
-            RoutineTarget::PrecisePassage { .. }
-        ));
+        // Current loops preserve a matching MusicXML route, including its beat trims.
+        // The explicitly selected saved preset above remains a precise MIDI passage.
+        let RoutineTarget::ScorePassage { range: score_range } =
+            &p.preferences.routines[0].items[1].target
+        else { panic!("MusicXML current loop should retain its score route"); };
+        assert!(score_range.start_trim > 0 && score_range.end_trim > 0);
+        let score_preview = p.validate_score_range(score_range).unwrap();
+        assert_eq!(score_preview["start"], 1.25);
+        assert_eq!(score_preview["end"], 3.5);
         let b:Backup = serde_json::from_value(p.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
-        assert_eq!(b.version(), 10);
+        assert_eq!(b.version(), 11);
         let b = Backup::decode(&b.encode().unwrap()).unwrap();
         assert_eq!(
             b.passages.values().next().unwrap()[0].precise_range,

@@ -1,0 +1,64 @@
+.practice-calendar {
+  margin: 2px 0 6px;
+  border-bottom: 1px solid #414956;
+  padding-bottom: 5px;
+}
+.practice-calendar summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.practice-calendar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 5px 0;
+}
+.practice-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  max-width: 850px;
+}
+.practice-calendar-weekday {
+  text-align: center;
+  padding: 2px;
+}
+.practice-calendar-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  min-height: 42px;
+  padding: 2px 6px;
+  font-variant-numeric: tabular-nums;
+}
+.practice-calendar-grid button span,
+.practice-calendar-grid button small {
+  font-size: 10px;
+}
+.practice-calendar-grid .has-practice {
+  background: #293d3d;
+  border-color: #587e78;
+}
+.practice-calendar-grid button[aria-pressed="true"] {
+  outline: 2px solid #d2b272;
+  outline-offset: -2px;
+}
+.practice-calendar p {
+  margin: 3px 0;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .practice-calendar-grid {
+    gap: 2px;
+  }
+  .practice-calendar-grid button {
+    padding: 5px 3px;
+    min-height: 42px;
+  }
+  .practice-calendar-grid button span,
+  .practice-calendar-grid button small {
+    font-size: 10px;
+  }
+}

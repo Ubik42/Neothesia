@@ -428,7 +428,7 @@ mod flow_tests {
         let backup = p.practice_backup_snapshot(&Default::default()).unwrap();
         let backup: crate::practice_backup::Backup = serde_json::from_value(backup).unwrap();
         backup.validate().unwrap();
-        assert_eq!(backup.version(), 8);
+        assert_eq!(backup.version(), 12);
         let restored = crate::practice_backup::Backup::decode(&backup.encode().unwrap()).unwrap();
         assert_eq!(
             restored.routines[0].items[0]

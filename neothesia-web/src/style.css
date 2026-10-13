@@ -2204,6 +2204,10 @@ button.icon-button {
 .routine-schedule-dates { display:flex; flex-wrap:wrap; gap:18px; }
 .routine-schedule-dates label { display:grid; gap:6px; font-size:12px; }
 .routine-schedule-enable { display:flex; gap:6px; align-items:center; margin:12px 0; }
+.routine-schedule-exceptions { border-top:1px solid var(--line); margin-top:12px; padding-top:8px; }
+.routine-schedule-exceptions > p { margin:0 0 8px; font-size:12px; }
+.routine-schedule-exceptions .routine-schedule-dates { align-items:end; gap:8px; }
+.routine-schedule-exception-list { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; font-size:12px; }
 
 .history-annotation {padding:10px 0;margin:8px 0 15px;border-bottom:1px solid var(--line);}
 .history-annotation summary {cursor:pointer;margin-bottom:9px;}

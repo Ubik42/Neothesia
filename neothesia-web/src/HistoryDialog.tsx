@@ -8,6 +8,7 @@ import type {
 } from "./historyScoreFocus";
 import { HistoryPerformance } from "./HistoryPerformance";
 import { practiceDuration } from "./practiceTime";
+import { PracticeCalendar } from "./PracticeCalendar";
 import { expressionGoalText } from "./ExpressionGoalControl";
 import { useEffect, useState } from "react";
 import {
@@ -208,6 +209,8 @@ export function HistoryDialog({
     hands: "",
     range: "",
     days: 0,
+    from: null as number | null,
+    to: null as number | null,
   });
   const [offset, setOffset] = useState(0),
     [entries, setEntries] = useState<Entry[]>([]),
@@ -448,6 +451,17 @@ export function HistoryDialog({
           openPlan={openPlan}
           dirtyChanged={setMultiDirty}
         />
+        <PracticeCalendar
+          selected={filters.from}
+          disabled={busy || notesDirty}
+          choose={(range) =>
+            changeFilter({
+              from: range?.from ?? null,
+              to: range?.to ?? null,
+              days: 0,
+            })
+          }
+        />
         <div className="history-filters">
           <input
             aria-label="查找历史曲目"
@@ -496,7 +510,13 @@ export function HistoryDialog({
             disabled={busy || notesDirty}
             aria-label="历史日期范围"
             value={filters.days}
-            onChange={(e) => changeFilter({ days: Number(e.target.value) })}
+            onChange={(e) =>
+              changeFilter({
+                days: Number(e.target.value),
+                from: null,
+                to: null,
+              })
+            }
           >
             <option value="0">全部日期</option>
             <option value="1">最近 24 小时</option>

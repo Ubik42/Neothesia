@@ -757,7 +757,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(backup.version(), 8);
+        assert_eq!(backup.version(), 12);
         assert_eq!(serde_json::to_value(backup.performances[&cid][&id].measures.as_ref()).unwrap(),serde_json::to_value(a.measures.as_ref()).unwrap());
         let decoded = crate::practice_backup::Backup::decode(&backup.encode().unwrap()).unwrap();
         let target_data = data.join("restored");

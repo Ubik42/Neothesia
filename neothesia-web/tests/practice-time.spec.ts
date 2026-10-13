@@ -58,6 +58,39 @@ test("实际练习用时：暂停排除、保存去重、历史与本周目标",
   expect(stats.timedSessions).toBe(1);
   await page.getByRole("button", { name: "练习历史", exact: true }).click();
   const history = page.getByRole("dialog", { name: "练习历史", exact: true });
+  const day = await page.evaluate(() => {
+    const now = new Date(),
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    return {
+      key: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
+      from: start.getTime(),
+      to: end.getTime(),
+    };
+  });
+  const calendar = history.locator(".practice-calendar");
+  const dateButton = calendar.getByRole("button", {
+    name: new RegExp(`^${day.key}，`),
+  });
+  await expect(dateButton).toBeEnabled();
+  const query = page.waitForRequest(
+    (r) =>
+      r.url().includes("/api/command") &&
+      r.postDataJSON()?.type === "historyQuery" &&
+      r.postDataJSON()?.from === day.from,
+  );
+  await dateButton.click();
+  expect((await query).postDataJSON()).toMatchObject({
+    from: day.from,
+    to: day.to,
+    offset: 0,
+    limit: 50,
+  });
+  await expect(dateButton).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: "../outputs/Neothesia-练习日历.png" });
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.screenshot({ path: "../outputs/Neothesia-练习日历-窄窗.png" });
+  await page.setViewportSize({ width: 1440, height: 960 });
   await history.getByLabel("查找历史曲目").fill("本周用时课堂");
   await history.locator(".history-list button").first().click();
   await expect(history).toContainText("练习运行用时");
@@ -66,7 +99,7 @@ test("实际练习用时：暂停排除、保存去重、历史与本周目标",
   await page.getByLabel("管理曲库搜索").fill("本周用时课堂");
   await page.locator(".library-manager-table tbody tr").first().click();
   let panel = page.getByRole("region", { name: "已保存练习用时" });
-  await expect(panel).toContainText("1 次有用时记录");
+  await expect(panel).toContainText("1 次保存");
   await page.getByRole("button", { name: "学习目标", exact: true }).click();
   const d = page.getByRole("dialog", { name: "曲目学习", exact: true });
   await d.getByLabel("曲目每周计划分钟").fill("30");
@@ -81,7 +114,7 @@ test("实际练习用时：暂停排除、保存去重、历史与本周目标",
     String(paused),
   );
   await panel.getByRole("button", { name: "刷新用时" }).click();
-  await expect(panel).toContainText("1 次有用时记录");
+  await expect(panel).toContainText("1 次保存");
   await page.screenshot({
     path: "../outputs/Neothesia-学习目标与真实用时.png",
   });

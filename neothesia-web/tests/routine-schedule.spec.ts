@@ -70,6 +70,13 @@ test("星期规则、独立日期、暂停恢复和实际练习", async ({ page,
   expect(await date("2026-10-03")).toHaveLength(0);
   expect(await date("2026-10-23")).toHaveLength(0);
   expect(await date("2026-10-02")).toHaveLength(1);
+  await page.getByLabel("例外日期").fill("2026-10-16");
+  await page.getByRole("button", { name: "这天跳过" }).click();
+  await page.getByLabel("例外日期").fill("2026-10-03");
+  await page.getByRole("button", { name: "这天加练" }).click();
+  await page.getByRole("button", { name: "保存周期安排", exact: true }).click();
+  expect(await date("2026-10-16")).toHaveLength(0);
+  expect(await date("2026-10-03")).toHaveLength(1);
   await cmd({
     type: "skipRoutineItem",
     routine_id: plan.id,

@@ -567,7 +567,7 @@ mod tests {
         );
         std::fs::write(
             &version.path,
-            xml("G", r#"<direction><sound dacapo="yes"/></direction>"#),
+            xml("G", r#"<direction><sound dalsegno="missing"/></direction>"#),
         )
         .unwrap();
         let row = inspect(&data, Some(&cid)).unwrap()["entries"][0].clone();
