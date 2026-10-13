@@ -59,6 +59,7 @@ type Summary = {
   exercises: number;
   trackSounds?: number;
   trackAppearances?: number;
+  songExpressionGoals?: number;
   conflicts: number;
   dayConflicts: number;
   presetConflicts: number;
@@ -348,13 +349,13 @@ export function PracticeBackupDialog({
           </button>
         </div>
         <p className="parameter-help">
-          备份按曲目内容身份关联。MIDI、谱面、指法、逐音分手及拍号修正请通过曲目包迁移；这里保留练习计划、日期安排、曲目学习资料、资料修改历史、片段、阶梯、资料模板、成绩历史和已有演奏回放。设备选择与设备校准保留本机设置。
+          备份按曲目内容身份关联。MIDI、谱面、指法、逐音分手及拍号修正请通过曲目包迁移；这里保留练习计划、日期安排、曲目学习资料、单曲力度与踏板目标、资料修改历史、片段、阶梯、资料模板、成绩历史和已有演奏回放。设备选择与设备校准保留本机设置。
         </p>
         <div className="practice-backup-selection">
           {[
             ["plans", "计划、日课与曲目学习"],
             ["records", "个人成绩与演奏回放"],
-            ["presets", "片段、阶梯、技术练习、音轨、资料模板与修改历史"],
+            ["presets", "片段、阶梯、技术练习、音轨、单曲目标、资料模板与修改历史"],
           ].map(([key, label]) => (
             <label key={key}>
               <input
@@ -660,6 +661,9 @@ export function PracticeBackupDialog({
                     {summary.trackSounds
                       ? ` · ${summary.trackSounds} 个音轨声音设置`
                       : ""}
+                    {summary.songExpressionGoals
+                      ? ` · ${summary.songExpressionGoals} 首曲目的力度与踏板目标`
+                      : ""}
                   </dd>
                 </div>
                 <div>
@@ -688,7 +692,7 @@ export function PracticeBackupDialog({
                 </p>
               )}
               {!!summary.metadataHistoryError && selection.presets && (
-                <p role="alert">本机资料修改历史无法安全合并：{summary.metadataHistoryError}。请先修复本机历史，或取消“片段、阶梯、技术练习、音轨、资料模板与修改历史”。</p>
+                <p role="alert">本机资料修改历史无法安全合并：{summary.metadataHistoryError}。请先修复本机历史，或取消“片段、阶梯、技术练习、音轨、单曲目标、资料模板与修改历史”。</p>
               )}
               {!!summary.metadataHistoryUnmatched && selection.presets && (
                 <p className="parameter-help">有 {summary.metadataHistoryUnmatched} 条资料修改历史没有找到已索引的同内容 MIDI。导入后，这些记录会保存在上方的待认领列表。</p>

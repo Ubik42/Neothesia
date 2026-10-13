@@ -130,6 +130,8 @@ pub struct Snapshot {
     pub repetitions: usize,
     pub ladder: Option<preferences::LadderRun>,
     pub routine:Option<serde_json::Value>,
+    pub song_expression_goal:Option<expression_goal::ExpressionGoal>,
+    pub song_expression_goal_result:Option<expression_goal::ExpressionGoalResult>,
     pub volume: f64,
     pub mode: String,
     pub measure: usize,
@@ -170,6 +172,8 @@ impl Default for Snapshot {
             repetitions: 0,
             ladder: None,
             routine:None,
+            song_expression_goal:None,
+            song_expression_goal_result:None,
             volume: 0.8,
             mode: "wait".into(),
             measure: 1,
@@ -525,6 +529,7 @@ pub enum Command {
         name: String,
     },
     CurrentSong,
+    SetSongExpressionGoal{goal:Option<expression_goal::ExpressionGoal>},
     Routines{day:String},
     SaveRoutine{id:Option<String>,day:Option<String>,name:String,notes:String,copy_of:Option<String>},
     SaveRoutineSchedule{id:String,schedule:Option<routine_commands::RoutineSchedule>},
@@ -904,6 +909,8 @@ struct Player {
     coach: AdaptiveTempoCoach,
     ladder: Option<preferences::LadderRun>,
     routine:Option<routine_commands::ActiveRoutine>,
+    active_expression_goal:Option<expression_goal::ExpressionGoal>,
+    expression_attempt_started:bool,
     last_click: Option<(usize, usize)>,
     finger_demo: Option<finger_demo::Demo>,
     recorder: neothesia_core::recorder::FreeplayRecorder,
@@ -972,6 +979,8 @@ impl Player {
             coach: AdaptiveTempoCoach::default(),
             ladder: None,
             routine:None,
+            active_expression_goal:None,
+            expression_attempt_started:false,
             last_click: None,
             finger_demo: None,
         }
@@ -1065,6 +1074,10 @@ impl Player {
         Ok(())
     }
     fn begin_play(&mut self) {
+        if self.session_clock == Duration::ZERO {
+            self.active_expression_goal = self.effective_expression_goal();
+        }
+        self.expression_attempt_started = true;
         if self.state.count_in > 0 && self.session_clock == Duration::ZERO {
             let snap = self.snapshot();
             let f = self.file.as_ref().unwrap();
@@ -1785,6 +1798,8 @@ impl Player {
         Ok(())
     }
     fn reset(&mut self, position: f64) {
+        self.active_expression_goal = None;
+        self.expression_attempt_started = false;
         self.panic();
         self.matcher.reset();
         self.performance_capture=Default::default();
@@ -1815,6 +1830,9 @@ impl Player {
         self.end_hold = 0.;
     }
     fn command(&mut self, command: Command) -> Result<serde_json::Value, String> {
+        if let Command::SetSongExpressionGoal { goal } = command {
+            return self.set_song_expression_goal(goal);
+        }
         if let Command::PreviewLegacyExerciseHistory{content_id}=command {return legacy_exercise_history::preview(self,&content_id);}
         if let Command::ReviewLegacyExerciseHistory{content_id,old_id,current_id,fingerprint,approve}=command {return legacy_exercise_history::update(self,&content_id,&old_id,&current_id,&fingerprint,approve);}
         if let Command::PreviewLegacyExerciseTracks { content_id } = command {
@@ -3120,6 +3138,9 @@ impl Player {
                 if !["wait", "flow", "listen", "recital", "memory"].contains(&value.as_str()) {
                     return Err("练习模式无效".into());
                 }
+                if value == "wait" && self.routine.is_none() && self.current_song_expression_goal().is_some_and(|g| g.pedal_offset_ms.is_some()) {
+                    return Err("当前曲目设有踏板时机目标；请先关闭该目标，再切换等音模式".into());
+                }
                 self.state.wait = value == "wait";
                 let recital = is_recital_mode(&value);
                 self.state.mode = value;
@@ -3373,6 +3394,11 @@ impl Player {
                         self.reset(p.start);
                     }
                 }
+                if self.session_clock == Duration::ZERO && self.routine.is_none() && !self.ladder.as_ref().is_some_and(|ladder| ladder.active) {
+                    if let Some(goal) = self.current_song_expression_goal() {
+                        self.validate_current_expression_source(&goal)?;
+                    }
+                }
                 self.begin_play();
             }
             Command::IndexLibrary { .. }
@@ -3381,6 +3407,7 @@ impl Player {
             | Command::ResumeIndex
             | Command::CancelIndex => return Err("请通过后台索引服务执行此命令".into()),
             Command::CurrentSong
+            | Command::SetSongExpressionGoal{..}
             | Command::PassageCatalog{..}|Command::ComposePassages{..}|Command::Routines{..}|Command::SaveRoutine{..}|Command::RemoveRoutine{..}|Command::SaveRoutineItem{..}
             |Command::MoveRoutineItem{..}|Command::RemoveRoutineItem{..}|Command::OpenRoutineItem{..}
             |Command::PreviewTickRange{..}|Command::ApplyTickRange{..}|Command::SaveTickPassage{..}
@@ -3494,6 +3521,9 @@ impl Player {
                 self.state.speed = value;
             }
             Command::Wait { enabled } => {
+                if enabled && self.routine.is_none() && self.current_song_expression_goal().is_some_and(|g| g.pedal_offset_ms.is_some()) {
+                    return Err("当前曲目设有踏板时机目标；请先关闭该目标，再切换等音模式".into());
+                }
                 if self.state.wait != enabled {
                     self.state.wait = enabled;
                     self.state.mode = if enabled { "wait" } else { "listen" }.into();
@@ -3959,6 +3989,10 @@ impl Player {
         state.practice_ms=self.session_clock.as_millis().min(u128::from(u64::MAX)) as u64;
         state.ladder = self.ladder.clone();
         state.routine=self.routine_status();
+        state.song_expression_goal=self.current_song_expression_goal();
+        state.song_expression_goal_result=if self.state.status=="finished" && self.routine.is_none() && !self.ladder.as_ref().is_some_and(|ladder| ladder.active) {
+            self.active_expression_goal.as_ref().map(|g|g.result(self.matcher.summary().expression))
+        } else { None };
         state.input_connected = self.input_connection.is_some();
         state.required = self.matcher.required_note_pitches();
         state.score = self.matcher.snapshot();

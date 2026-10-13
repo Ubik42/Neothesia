@@ -14,6 +14,7 @@ type Version = {
   active: boolean;
   available: boolean;
 };
+type OriginalSource = { versionId: string; status: string; path: string };
 export function ScoresDialog({
   song,
   close,
@@ -27,6 +28,8 @@ export function ScoresDialog({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
+  const [originals, setOriginals] = useState<OriginalSource[]>([]);
+  const [editMessage, setEditMessage] = useState("");
   const [tab, setTab] = useState("notation"),
     [paperBusy, setPaperBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -46,10 +49,18 @@ export function ScoresDialog({
       type: "scoreVersions",
     });
     setVersions(data.versions);
+    if (api.desktop) {
+      const sources = await api.command<{ entries: OriginalSource[] }>({
+        type: "scoreSources",
+        content_id: song.contentId,
+      });
+      setOriginals(sources.entries);
+    }
   };
   useEffect(() => {
     setVersionPreview(null);
     setFilePreview(null);
+    setEditMessage("");
     void refresh().catch((e) => setError(String(e.message)));
   }, [song.contentId]);
   const previewVersion = async (version: Version) => {
@@ -185,6 +196,9 @@ export function ScoresDialog({
               同一首曲目可以保留不同版本的 MusicXML / MXL
               谱面。切换时重新核对音符对应关系；移除版本会从管理列表移除，文件仍保留。
             </p>
+            {api.desktop && <p className="parameter-help">
+              编辑原谱时，先为版本关联磁盘上的原文件，再用 MuseScore Studio 打开。保存修改后，返回这里点“检查原谱更新”，预览差异并决定是否采用。当前练习不会因外部保存而自动切换谱面。
+            </p>}
             <div className="dialog-actions">
               <button
                 className="primary-button"
@@ -265,6 +279,7 @@ export function ScoresDialog({
                 {error}
               </p>
             )}
+            {editMessage && <p role="status" className="parameter-help">{editMessage}</p>}
             <div className="fingering-table-wrap">
               <table className="fingering-table">
                 <thead>
@@ -276,6 +291,7 @@ export function ScoresDialog({
                 </thead>
                 <tbody>
                   {versions.map((v) => {
+                    const original = originals.find((entry) => entry.versionId === v.id);
                     const currentPreview =
                       versionPreview?.id === v.id &&
                       versionPreview.path === v.path &&
@@ -334,6 +350,18 @@ export function ScoresDialog({
                                 }
                               >
                                 关联原谱文件
+                              </button>
+                            )}
+                            {api.desktop && original && (
+                              <button
+                                disabled={busy || original.status !== "ready"}
+                                title={original.status !== "ready" ? "原谱已变化或无法读取，请先检查原谱更新" : original.path}
+                                onClick={() => void perform(async () => {
+                                  await api.openScoreInMuseScore(song.contentId, v.id);
+                                  setEditMessage("MuseScore Studio 已打开原谱。保存修改后，请返回点“检查原谱更新”，核对并采用新内容。");
+                                })}
+                              >
+                                在 MuseScore 中编辑原谱
                               </button>
                             )}
                             <button

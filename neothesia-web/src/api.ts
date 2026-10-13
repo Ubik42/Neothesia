@@ -177,6 +177,8 @@ export interface LadderRun {
   };
 }
 export interface Snapshot {
+  songExpressionGoal: import("./ExpressionGoalControl").ExpressionGoal | null;
+  songExpressionGoalResult: { passed: boolean; message: string } | null;
   routine: RoutineState | null;
   ladder: LadderRun | null;
   status: string;
@@ -221,6 +223,8 @@ export interface Snapshot {
   summary: Feedback | null;
 }
 export const emptyState: Snapshot = {
+  songExpressionGoal: null,
+  songExpressionGoalResult: null,
   routine: null,
   ladder: null,
   status: "idle",
@@ -500,6 +504,8 @@ export const api = {
       contentId,
       versionId,
     }),
+  openScoreInMuseScore: (contentId: string, versionId: string) =>
+    invoke<void>("open_score_in_musescore", { contentId, versionId }),
   exportPaperPage: (name: string, bytes: Uint8Array) =>
     invoke<string | null>("export_paper_page", {
       name,

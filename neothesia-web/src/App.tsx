@@ -69,6 +69,7 @@ import {
   MetadataDialog,
 } from "./PracticeDialogs";
 import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
+import { ExpressionGoalControl, expressionGoalText, type ExpressionGoal } from "./ExpressionGoalControl";
 type Tab = "全部" | "收藏" | "最近" | "队列";
 const normalize = (path: string | null | undefined) =>
   (path || "").replaceAll("\\", "/").toLowerCase();
@@ -108,6 +109,11 @@ export default function App() {
     [songs, setSongs] = useState<SongRow[]>([]),
     [song, setSong] = useState<LoadedSong | null>(null),
     [collection, setCollection] = useState<CollectionSong[]>([]);
+  const [expressionDraft, setExpressionDraft] = useState<ExpressionGoal | null>(null);
+  useEffect(() => {
+    setExpressionDraft(state.songExpressionGoal ?? null);
+  }, [song?.contentId, state.songExpressionGoal?.velocityDifference, state.songExpressionGoal?.contourPercent, state.songExpressionGoal?.pedalOffsetMs]);
+  const expressionChanged = JSON.stringify(expressionDraft) !== JSON.stringify(state.songExpressionGoal ?? null);
   const [devices, setDevices] = useState({
     inputs: [] as string[],
     outputs: [] as string[],
@@ -1993,6 +1999,31 @@ export default function App() {
                   * 文件缺少拍号，暂按 4/4 显示。
                 </p>
               )}
+            </section>
+            <section className="inspector-section song-expression-goal">
+              <h2>力度与踏板目标</h2>
+              <p className="parameter-help">这首曲目的目标会保存到下次打开。每次成绩按演奏开始时的目标记录，修改目标不会改动旧成绩。</p>
+              <ExpressionGoalControl
+                value={expressionDraft}
+                change={setExpressionDraft}
+                disabled={!song || busy || attemptLocked || state.recording || state.mode === "listen"}
+                wait={state.mode === "wait"}
+                labelPrefix="当前曲目"
+              />
+              <div className="song-expression-actions">
+                <button
+                  disabled={!song || busy || attemptLocked || state.recording || state.mode === "listen" || !expressionChanged}
+                  onClick={() => action({ type: "setSongExpressionGoal", goal: expressionDraft })}
+                >保存目标</button>
+                <button disabled={!expressionChanged || busy} onClick={() => setExpressionDraft(state.songExpressionGoal ?? null)}>撤销修改</button>
+              </div>
+              {state.songExpressionGoal && <p className="parameter-help">已保存：{expressionGoalText(state.songExpressionGoal)}</p>}
+              {state.songExpressionGoalResult && state.status === "finished" && (
+                <p className={state.songExpressionGoalResult.passed ? "song-expression-passed" : "song-expression-failed"}>
+                  本轮目标：{state.songExpressionGoalResult.message}
+                </p>
+              )}
+              {(routineActive || ladderActive) && <p className="parameter-help">当前按计划或阶梯项目的要求练习；单曲目标暂不参与本轮。</p>}
             </section>
             <section
               className="inspector-section loop-section"

@@ -48,6 +48,8 @@ pub struct Backup {
         BTreeMap<String, BTreeMap<usize, crate::track_appearance::TrackAppearance>>,
     #[serde(default)]
     pub track_sounds: BTreeMap<String, BTreeMap<usize, crate::track_sound::TrackSound>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub song_expression_goals: BTreeMap<String, crate::expression_goal::ExpressionGoal>,
     pub history: BTreeMap<String, SongPracticeHistory>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub time_ledger: PracticeTimeLedger,
@@ -225,6 +227,7 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
 
 impl Backup {
     pub fn version(&self) -> u8 {
+        if !self.song_expression_goals.is_empty() { return 14; }
         if !self.metadata_history.is_empty() {
             return 13;
         }
@@ -450,8 +453,14 @@ impl Backup {
             || self.passages.len() > 10000
             || self.ladders.len() > 10000
             || self.ladder_runs.len() > 10000
+            || self.song_expression_goals.len() > 10000
         {
             return Err("备份条目超过容量限制".into());
+        }
+        for (content_id, goal) in &self.song_expression_goals {
+            identity(content_id)?;
+            if content_id.len()!=64 || !content_id.bytes().all(|b|b.is_ascii_hexdigit()) {return Err("备份曲目专项目标身份无效".into());}
+            goal.validate("flow")?;
         }
         let mut ids = BTreeSet::new();
         for r in &self.routines {
@@ -575,7 +584,7 @@ impl Backup {
                     return Err("备份练习用时超出有效范围".into());
                 }
                 if let Some(c) = &s.context {
-                    if let Some(e) = c.routine.as_ref().and_then(|r| r.expression.as_ref()) {
+                    if let Some(e) = c.expression.as_ref().or_else(||c.routine.as_ref().and_then(|r| r.expression.as_ref())) {
                         crate::expression_goal::ExpressionGoal {
                             velocity_difference: e.velocity_difference,
                             contour_percent: e.contour_percent,
@@ -660,7 +669,7 @@ impl Backup {
         if header["format"] != "neothesia-practice"
             || !matches!(
                 header["version"].as_u64(),
-                Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13)
+                Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14)
             )
             || header["size"].as_u64() != Some(data.len() as u64)
             || header["hash"].as_str() != Some(blake3::hash(data).to_hex().as_str())
@@ -675,7 +684,7 @@ impl Backup {
         Ok(backup)
     }
     pub fn summary(&self) -> Value {
-        let mut value = json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()});
+        let mut value = json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"songExpressionGoals":self.song_expression_goals.len(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()});
         value["metadataHistory"] = json!(
             self.metadata_history
                 .iter()
@@ -745,6 +754,7 @@ fn selected(mut b: Backup, s: &Selection) -> Backup {
         b.exercises.clear();
         b.track_sounds.clear();
         b.track_appearances.clear();
+        b.song_expression_goals.clear();
     }
     if !s.records {
         b.history.clear();
@@ -1025,6 +1035,7 @@ impl Player {
             ladder_runs: self.preferences.ladder_runs.clone(),
             exercises: self.preferences.exercise_presets.clone(),
             track_sounds: self.preferences.track_sounds.clone(),
+            song_expression_goals: self.preferences.song_expression_goals.clone(),
             track_appearances: self.preferences.track_appearances.clone(),
             history: self.history.snapshot(),
             time_ledger: self.history.time_ledger().clone(),
@@ -1210,6 +1221,22 @@ impl Player {
                     .count()
             })
             .sum::<usize>();
+        let describe_goal = |goal: &crate::expression_goal::ExpressionGoal| {
+            let mut parts = Vec::new();
+            if let Some(value) = goal.velocity_difference { parts.push(format!("力度平均差 ≤ {value}")); }
+            if let Some(value) = goal.contour_percent { parts.push(format!("起伏一致率 ≥ {value}%")); }
+            if let Some(value) = goal.pedal_offset_ms { parts.push(format!("踏板偏移 ≤ {value} ms")); }
+            parts.join(" · ")
+        };
+        for (cid, incoming) in &b.song_expression_goals {
+            if let Some(local) = self.preferences.song_expression_goals.get(cid).filter(|local| *local != incoming) {
+                preset_conflicts += 1;
+                let title = known.as_ref().and_then(|workspace| workspace.entries.values().find(|entry| entry.content_id.as_ref() == Some(cid)))
+                    .and_then(|entry| entry.metadata.title.as_deref())
+                    .map(str::to_owned).unwrap_or_else(|| format!("曲目 {}…", &cid[..12]));
+                conflict_rows.push(json!({"kind":"单曲力度与踏板目标","local":format!("{title}：{}",describe_goal(local)),"incoming":format!("{title}：{}",describe_goal(incoming))}));
+            }
+        }
         let templates = crate::metadata_templates::snapshot_unlocked(&self.data);
         if let Ok(local) = &templates {
             for (name, rules) in &b.metadata_templates {
@@ -1511,6 +1538,11 @@ impl Player {
             }
         }
         if s.presets {
+            for (cid, goal) in b.song_expression_goals {
+                if replace || !prefs.song_expression_goals.contains_key(&cid) {
+                    prefs.song_expression_goals.insert(cid, goal);
+                }
+            }
             for (cid, rows) in b.track_appearances {
                 for (id, a) in rows {
                     let local = prefs.track_appearances.entry(cid.clone()).or_default();
@@ -1648,6 +1680,28 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn song_expression_goals_preview_conflicts_and_follow_import_policy() {
+        let content_id = "a".repeat(64);
+        let incoming = crate::expression_goal::ExpressionGoal { contour_percent: Some(85), ..Default::default() };
+        let local = crate::expression_goal::ExpressionGoal { velocity_difference: Some(12), ..Default::default() };
+        let mut source = player();
+        source.preferences.song_expression_goals.insert(content_id.clone(), incoming.clone());
+        let selection = Selection { plans: false, records: false, presets: true, days: 0 };
+        let backup: Backup = serde_json::from_value(source.practice_backup_snapshot(&selection).unwrap()).unwrap();
+        assert_eq!(backup.version(), 14);
+        let backup = Backup::decode(&backup.encode().unwrap()).unwrap();
+        let mut target = player();
+        target.preferences.song_expression_goals.insert(content_id.clone(), local.clone());
+        let preview = target.inspect_practice_backup(&backup);
+        assert_eq!(preview["songExpressionGoals"], 1);
+        assert_eq!(preview["presetConflicts"], 1);
+        assert_eq!(preview["conflictRows"][0]["kind"], "单曲力度与踏板目标");
+        target.apply_practice_backup(backup.clone(), selection.clone(), "keep".into()).unwrap();
+        assert_eq!(target.preferences.song_expression_goals[&content_id], local);
+        target.apply_practice_backup(backup, selection, "backup".into()).unwrap();
+        assert_eq!(target.preferences.song_expression_goals[&content_id], incoming);
+    }
     fn player() -> Player {
         static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

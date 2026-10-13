@@ -3,8 +3,8 @@ import {api, pitchName, type LoadedSong} from "./api";
 import {musicalActionPosition} from "./fingerActions";
 import {HeldFingerDemo} from "./HeldFingerDemo";
 type Action={track:number;index:number;pitch:number;measure:number;beforeTrack:number;beforeIndex:number;beforeMeasure:number;at:number;from:number;to:number};
-type Proposal={track:number;index:number;pitch:number;measure:number;finger:number};
-type Result={request:Record<string,unknown>;fingerprint:string;plans:{cost:number;proposals:Proposal[];substitutions:Action[]}[]};
+type Proposal={track:number;index:number;pitch:number;measure:number;finger:number;reason:string};
+type Result={request:Record<string,unknown>;fingerprint:string;plans:{cost:number;proposals:Proposal[];substitutions:Action[]}[];scoreArticulations?:{paired:boolean;slurLinks:number;staccatoNotes:number}};
 export function HeldFingerPlans({song,request,disabled,changed,onBusy}:{song:LoadedSong;request:Record<string,unknown>;disabled:boolean;changed:()=>Promise<void>;onBusy:(busy:boolean)=>void}){
  const [result,setResult]=useState<Result|null>(null),[selected,setSelected]=useState(0),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
  const [demoSource,setDemoSource]=useState<{track:number;index:number}|null>(null);
@@ -25,9 +25,12 @@ export function HeldFingerPlans({song,request,disabled,changed,onBusy}:{song:Loa
   <p>保持琴键按下，在下一次发音前换用另一根手指。起音指法与换指动作一起保存，请先确认整个选段。</p>
   {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
   {result&&<>
+   <p>{result.scoreArticulations?.paired
+    ? `已对照当前曲目的原谱标记：${result.scoreArticulations.slurLinks} 处连线、${result.scoreArticulations.staccatoNotes} 个断奏音。下方说明会标出相关音符。`
+    : "当前曲目没有匹配的原谱连线与断奏标记；方案按 MIDI 时值、手型与已保存指法计算。"}</p>
    <div className="fingering-selection">{result.plans.map((p,i)=><button key={i} disabled={busy||disabled} aria-pressed={selected===i} onClick={()=>setSelected(i)}>方案 {i+1} · {p.substitutions.length} 次换指</button>)}</div>
    {plan&&<>
-    <div className="held-onsets"><strong>起音指法 · {plan.proposals.length} 个音符</strong><div>{plan.proposals.map(p=><span key={`${p.track}:${p.index}`}>第 {p.measure} 小节 {pitchName(p.pitch)}：{p.finger} 指</span>)}</div></div>
+    <div className="held-onsets"><strong>起音指法 · {plan.proposals.length} 个音符</strong><div>{plan.proposals.map(p=><span key={`${p.track}:${p.index}`} title={p.reason}>第 {p.measure} 小节 {pitchName(p.pitch)}：{p.finger} 指 · {p.reason}</span>)}</div></div>
     {plan.substitutions.map((a,i)=><div className="held-action-row" key={i}><strong>{beatAt(a.at)}</strong><span>{pitchName(a.pitch)} 保持按下 · {a.from} 指 → {a.to} 指</span><small>在第 {a.beforeMeasure} 小节下一音发音前完成</small></div>)}
     {!plan.substitutions.length&&<p>这个方案不需要持音换指，可通过普通指法建议保存。</p>}
     <button className="primary-button" disabled={busy||disabled||!plan.substitutions.length} onClick={()=>void run(async()=>{

@@ -50,6 +50,11 @@ interface Detail extends Entry {
   summary: Feedback;
   expressionGoalResult?: { passed: boolean; message: string };
   context: {
+    expression?: {
+      velocity_difference: number | null;
+      contour_percent: number | null;
+      pedal_offset_ms: number | null;
+    } | null;
     routine?: {
       expression?: {
         velocity_difference: number | null;
@@ -839,6 +844,16 @@ export function HistoryDialog({
                         {detail.context.routine.item_notes}
                       </>
                     )}
+                  </p>
+                )}
+                {!detail.context?.routine && detail.context?.expression && (
+                  <p className="parameter-help">
+                    本次单曲目标：{expressionGoalText({
+                      velocityDifference: detail.context.expression.velocity_difference,
+                      contourPercent: detail.context.expression.contour_percent,
+                      pedalOffsetMs: detail.context.expression.pedal_offset_ms,
+                    })}
+                    {detail.expressionGoalResult && <><br />本轮目标：{detail.expressionGoalResult.message}</>}
                   </p>
                 )}
                 {detail.context?.ladder && (

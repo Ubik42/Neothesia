@@ -501,16 +501,27 @@ pub fn plans(p: Prepared) -> Result<serde_json::Value, String> {
 pub fn held_plans(p:Prepared)->Result<serde_json::Value,String>{
     let hand=if p.request.hand==PracticePart::LeftHand{FingeringHand::Left}else{FingeringHand::Right};
     let targets:Vec<_>=p.positions.iter().enumerate().filter_map(|(i,n)|n.target.then_some(i)).collect();
-    let plans=neothesia_core::fingering::suggest_fingering_plans_with_substitutions(&p.notes,hand,p.request.profile,&targets,3,p.request.practice_rate,true)
+    let plans=neothesia_core::fingering::suggest_fingering_plans_with_expression(&p.notes,hand,p.request.profile,&targets,3,p.request.practice_rate,true,&p.expression)
         .map_err(|e|format!("第 {} 小节不能安排安全的持音换指动作（{}），请调整固定指法、分手或速度",p.positions[e.index.min(p.positions.len()-1)].measure,e.kind))?;
     let result:Vec<_>=plans.iter().enumerate().map(|(rank,plan)|{
         let changes:Vec<_>=plan.substitutions.iter().map(|s|{let n=&p.positions[s.note];let before=&p.positions[s.before_note];
             serde_json::json!({"track":n.track,"index":n.index,"pitch":n.pitch,"measure":n.measure,"beforeTrack":before.track,"beforeIndex":before.index,
                 "beforeMeasure":before.measure,"at":s.at.as_secs_f64(),"from":s.from,"to":s.to})}).collect();
-        let proposals:Vec<_>=p.positions.iter().zip(&plan.suggestions).filter(|(n,_)|n.target).map(|(n,f)|Proposal{track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,finger:f.finger,saved:n.saved,confidence:f.confidence_percent,reason:explanation(f.reason)}).collect();
+        let proposals:Vec<_>=p.positions.iter().zip(&plan.suggestions).enumerate().filter(|(_, (n,_))|n.target).map(|(i,(n,f))|{
+            let source_substituted=p.expression.get(i).and_then(|mark|mark.slur_from)
+                .is_some_and(|from|plan.substitutions.iter().any(|change|change.note==from && change.before_note==i));
+            let reason=if source_substituted {
+                "谱面连线：前音保持发声，先在该音换指，再衔接此音"
+            } else {
+                expression_reason(&p.expression,&plan.suggestions,i).unwrap_or_else(||explanation(f.reason))
+            };
+            Proposal{track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,finger:f.finger,saved:n.saved,confidence:f.confidence_percent,reason}
+        }).collect();
         serde_json::json!({"rank":rank+1,"cost":plan.cost,"proposals":proposals,"substitutions":changes,"contextFingers":plan.suggestions.iter().map(|s|s.finger).collect::<Vec<_>>()})
     }).collect();
-    Ok(serde_json::json!({"contentId":p.request.content_id,"request":p.request,"fingerprint":p.fingerprint,"context":p.positions,"plans":result,"readOnly":true}))
+    Ok(serde_json::json!({"contentId":p.request.content_id,"request":p.request,"fingerprint":p.fingerprint,"context":p.positions,"plans":result,"readOnly":true,
+        "scoreArticulations":{"paired":p.score_fingerprint.is_some(),"slurLinks":p.expression.iter().filter(|mark|mark.slur_from.is_some()).count(),
+            "staccatoNotes":p.expression.iter().filter(|mark|mark.staccato).count()}}))
 }
 pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Value, String> {
     if edits.is_empty() || edits.len() > 4096 { return Err("请选择 1 至 4096 个音符".into()); }
@@ -674,6 +685,32 @@ mod acceptance_tests {
         assert_eq!(r["tracks"][0]["track"],2);assert_eq!(r["tracks"][1]["track"],7);
         assert_eq!(r["tracks"][0]["selected"],1);assert_eq!(r["tracks"][1]["selected"],1);
         assert_eq!(r["contextFingers"][0],1);assert_eq!(r["contextFingers"][1],3);
+    }
+    #[test]
+    fn held_plan_reports_only_trusted_score_expression_and_keeps_empty_evidence_neutral() {
+        let mut p=fixture(PracticePart::RightHand,&[None,None,None]);
+        p.notes.truncate(2);p.positions.truncate(2);
+        p.notes[0]=FingeringNote{pitch:60,onset:Duration::ZERO,end:Duration::from_secs(3),anchored_finger:Some(3)};
+        p.notes[1]=FingeringNote{pitch:64,onset:Duration::from_secs(1),end:Duration::from_millis(1500),anchored_finger:Some(3)};
+        p.positions[0].target=true;p.positions[0].end=3.;
+        p.positions[1].onset=1.;p.positions[1].end=1.5;
+        let unmarked=held_plans(Prepared{expression:vec![],score_fingerprint:None,..fixture_for_held(&p)}).unwrap();
+        assert_eq!(unmarked["scoreArticulations"]["paired"],false);
+        assert_eq!(unmarked["scoreArticulations"]["slurLinks"],0);
+        assert!(!unmarked["plans"][0]["proposals"][1]["reason"].as_str().unwrap().contains("谱面连线"));
+        p.expression=vec![FingeringExpression::default(),FingeringExpression{slur_from:Some(0),..Default::default()}];
+        p.score_fingerprint=Some("trusted-source".into());
+        let marked=held_plans(p).unwrap();
+        assert_eq!(marked["scoreArticulations"]["paired"],true);
+        assert_eq!(marked["scoreArticulations"]["slurLinks"],1);
+        assert!(marked["plans"][0]["cost"].as_i64().unwrap()>unmarked["plans"][0]["cost"].as_i64().unwrap());
+        assert!(marked["plans"][0]["proposals"][1]["reason"].as_str().unwrap().contains("谱面连线"));
+    }
+    fn fixture_for_held(p:&Prepared)->Prepared {
+        Prepared{request:p.request.clone(),notes:p.notes.clone(),positions:p.positions.iter().map(|n|Position{
+            track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,saved:n.saved,target:n.target,onset:n.onset,end:n.end
+        }).collect(),focus:p.focus,fingerprint:p.fingerprint.clone(),expression:vec![],score_fingerprint:None,
+            opposite_notes:vec![],opposite_positions:vec![]}
     }
     #[test]
     fn cross_hand_review_keeps_saved_other_hand_and_uses_accepted_finger() {

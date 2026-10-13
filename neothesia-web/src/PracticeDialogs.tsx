@@ -347,6 +347,11 @@ export function FeedbackDialog({
                 {summary.overall.missed_notes}
               </span>
             </div>
+            {state.songExpressionGoalResult && !state.routine && !state.ladder?.active && (
+              <p className={state.songExpressionGoalResult?.passed ? "song-expression-passed" : "song-expression-failed"}>
+                本轮目标：{state.songExpressionGoalResult.message}
+              </p>
+            )}
             {["flow", "recital", "memory"].includes(
               summary.mode ?? state.mode,
             ) ? (

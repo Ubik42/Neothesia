@@ -230,6 +230,27 @@ pub fn inspect(data: &Path, cid: Option<&str>) -> Result<Value, String> {
     });
     Ok(json!({"entries":rows}))
 }
+
+/// Resolve only a registered, unchanged original. The caller may pass the path
+/// to a score editor; portable score copies are never edited by this action.
+pub fn original_for_edit(data: &Path, cid: &str, version_id: &str) -> Result<PathBuf, String> {
+    let store = load(data)?;
+    let source = store.entries.values()
+        .find(|source| source.content_id == cid && source.version_id == version_id)
+        .ok_or("此谱面版本尚未关联原谱文件。请先关联原谱文件")?;
+    let prefs = Preferences::load(&data.join("web-preferences.json"))?;
+    version(&prefs, source).ok_or("谱面版本已改变或移除，请刷新列表")?;
+    let path = std::fs::canonicalize(&source.path)
+        .map_err(|e| format!("原谱文件无法打开：{e}"))?;
+    if path != source.path {
+        return Err("原谱文件位置已改变，请重新关联原谱".into());
+    }
+    let bytes = read_original(&path)?;
+    if blake3::hash(&bytes).to_hex().as_str() != source.baseline {
+        return Err("原谱文件已经变化。请先检查原谱更新，再决定如何保存新内容".into());
+    }
+    Ok(path)
+}
 pub fn preview(data: &Path, id: &str, expected: &str) -> Result<Value, String> {
     let (source, bytes) = checked(data, id, expected)?;
     let score =
@@ -557,6 +578,8 @@ mod tests {
         assert_ne!(snapshot, version.path);
         let row = inspect(&data, Some(&cid)).unwrap()["entries"][0].clone();
         assert_eq!(row["defaultBpm"], 60);
+        assert_eq!(original_for_edit(&data, &cid, &version.id).unwrap(), std::fs::canonicalize(&version.path).unwrap());
+        assert!(original_for_edit(&data, &cid, "another-version").is_err());
         assert!(
             unlink(
                 &data,
@@ -571,6 +594,7 @@ mod tests {
             inspect(&data, Some(&cid)).unwrap()["entries"][0]["status"],
             "changed"
         );
+        assert!(original_for_edit(&data, &cid, &version.id).is_err());
         let clean=inspect(&data,Some(&cid)).unwrap()["entries"][0].clone();
         let clean_preview=preview(&data,clean["id"].as_str().unwrap(),clean["fingerprint"].as_str().unwrap()).unwrap();
         assert_eq!(clean_preview["performanceReady"],true);

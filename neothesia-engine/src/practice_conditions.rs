@@ -43,8 +43,8 @@ pub(super) fn same_attempt_conditions(a: &PracticeSession, b: &PracticeSession) 
             == b.pedal_latency_ms.unwrap_or(b.latency)
         && a.rounds == b.rounds
         && a.adaptive == b.adaptive
-        && a.routine.as_ref().and_then(|r| r.expression.as_ref())
-            == b.routine.as_ref().and_then(|r| r.expression.as_ref())
+        && a.expression.as_ref().or_else(||a.routine.as_ref().and_then(|r| r.expression.as_ref()))
+            == b.expression.as_ref().or_else(||b.routine.as_ref().and_then(|r| r.expression.as_ref()))
 }
 
 /// Compare a reviewed old single-left-track attempt with a current attempt.
@@ -182,8 +182,8 @@ pub(super) fn attempt_difference_reasons(
     if a.adaptive != b.adaptive {
         reasons.push("自适应速度设置不同");
     }
-    if a.routine.as_ref().and_then(|r| r.expression.as_ref())
-        != b.routine.as_ref().and_then(|r| r.expression.as_ref())
+    if a.expression.as_ref().or_else(||a.routine.as_ref().and_then(|r| r.expression.as_ref()))
+        != b.expression.as_ref().or_else(||b.routine.as_ref().and_then(|r| r.expression.as_ref()))
     {
         reasons.push("力度或踏板专项目标不同");
     }
@@ -267,6 +267,7 @@ mod tests {
             annotation: None,
             id: None,
             context: Some(PracticeSessionContext {
+                expression: None,
                 routine: None,
                 ladder: None,
                 target_notes: 12,

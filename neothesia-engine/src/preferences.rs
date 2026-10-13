@@ -35,6 +35,7 @@ pub struct Preferences {
     pub passage: Option<Passage>,
     pub volume: Option<f64>,
     pub songs: BTreeMap<String, SessionSettings>,
+    pub song_expression_goals: BTreeMap<String, crate::expression_goal::ExpressionGoal>,
     pub track_appearances:BTreeMap<String,BTreeMap<usize,crate::track_appearance::TrackAppearance>>,
     pub track_sounds: BTreeMap<String, BTreeMap<usize, crate::track_sound::TrackSound>>,
     pub input_configured: bool,

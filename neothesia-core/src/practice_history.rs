@@ -92,6 +92,8 @@ pub struct PracticeRoutineCondition {
 /// Immutable conditions of a saved attempt. Absent in older histories.
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
 pub struct PracticeSessionContext {
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub expression: Option<PracticeExpressionCondition>,
     #[serde(default)]
     pub routine:Option<PracticeRoutineCondition>,
     #[serde(default)]

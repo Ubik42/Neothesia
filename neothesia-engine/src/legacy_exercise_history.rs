@@ -450,6 +450,7 @@ mod tests {
         value.mode = Some("flow".into());
         value.effective_tempo_bpm = Some(spec.tempo_bpm);
         value.context = Some(PracticeSessionContext {
+            expression: None,
             routine: None,
             ladder: None,
             target_notes: file.tracks.iter().map(|t| t.notes.len()).sum(),

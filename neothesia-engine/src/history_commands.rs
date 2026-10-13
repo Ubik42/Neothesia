@@ -46,7 +46,7 @@ fn condition_summary(session: &PracticeSession) -> Value {
         "pedalLatencyMs":context.pedal_latency_ms.unwrap_or(context.latency),
         "pedalLatencySource":if context.pedal_latency_ms.is_some(){"saved"}else{"legacyInputLatency"},
         "rounds":context.rounds,"adaptive":context.adaptive,
-        "expressionGoal":context.routine.as_ref().and_then(|r|r.expression.as_ref())})
+        "expressionGoal":context.expression.as_ref().or_else(||context.routine.as_ref().and_then(|r|r.expression.as_ref()))})
 }
 impl Player {
     pub(super) fn set_library_collection(&mut self,path:&PathBuf,content_id:&str,favorite:Option<bool>,queued:Option<bool>) -> Result<Value,String> {
@@ -80,6 +80,7 @@ impl Player {
 
     pub(super) fn history_context(&self) -> PracticeSessionContext {
         PracticeSessionContext {
+            expression:self.active_expression_goal.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
             routine: self.routine.as_ref().map(|a| {
                 neothesia_core::practice_history::PracticeRoutineCondition {
                     expression:a.item.goal.expression.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
@@ -243,7 +244,7 @@ impl Player {
         );
         row["performanceAvailable"]=json!(crate::performance_archive::available(&self.data,content_id,id));
         row["summary"] = json!(session.summary);
-        if let Some(e)=session.context.as_ref().and_then(|c|c.routine.as_ref()).and_then(|r|r.expression.as_ref()){let g=crate::expression_goal::ExpressionGoal{velocity_difference:e.velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms};let result=g.assess(session.summary.expression);row["expressionGoalResult"]=json!({"passed":result.is_ok(),"message":result.err().unwrap_or_else(||"本轮力度/踏板要求达标".into())});}
+        if let Some(e)=session.context.as_ref().and_then(|c|c.expression.as_ref().or_else(||c.routine.as_ref().and_then(|r|r.expression.as_ref()))){let g=crate::expression_goal::ExpressionGoal{velocity_difference:e.velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms};row["expressionGoalResult"]=json!(g.result(session.summary.expression));}
         row["context"] = json!(session.context);
         let conditions=condition_summary(session);
         let (reason_code,reason)=if !peers.is_empty(){(None,None)}
@@ -364,6 +365,7 @@ mod tests {
         let session = PracticeSession {
             replay_clips: vec![], playing_ms: None, annotation: None, id: None,
             context: Some(PracticeSessionContext {
+                expression: None,
                 routine: None, ladder: None, target_notes: 18, judged_notes: 17,
                 tracks: vec![], parts, hands: "right".into(), count_in: 2,
                 metronome: true, latency: 24, pedal_latency_ms: None,

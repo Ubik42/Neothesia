@@ -364,6 +364,50 @@ async fn export_paper_page(state:tauri::State<'_,State>,name: String, bytes: Vec
     remember_location(&state.data,"exportPaper",file.path(),false);
     file.write(&bytes).await.map_err(|e|e.to_string())?;Ok(Some(file.path().to_string_lossy().into()))
 }
+
+#[cfg(target_os="windows")]
+fn installed_musescore() -> Option<PathBuf> {
+    let mut roots = Vec::new();
+    for key in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(root) = std::env::var_os(key) { roots.push(PathBuf::from(root)); }
+    }
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(PathBuf::from(root).join("Programs"));
+    }
+    for root in roots {
+        for name in ["MuseScore 4", "MuseScore Studio 4"] {
+            let path = root.join(name).join("bin").join("MuseScore4.exe");
+            if path.is_file() { return Some(path); }
+        }
+    }
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join("MuseScore4.exe")).find(|path|path.is_file())
+}
+
+#[tauri::command]
+async fn open_score_in_musescore(state:tauri::State<'_,State>,content_id:String,version_id:String)->Result<(),String>{
+    let data=state.data.clone();
+    // The frontend supplies identities only. The engine resolves and hashes the registered file.
+    let path=tauri::async_runtime::spawn_blocking(move||neothesia_engine::score_sources::original_for_edit(&data,&content_id,&version_id)).await.map_err(|e|e.to_string())??;
+    #[cfg(target_os="windows")]
+    let executable=match installed_musescore(){
+        Some(path)=>path,
+        None=>{
+            let Some(file)=rfd::AsyncFileDialog::new().set_title("选择 MuseScore Studio 程序")
+                .add_filter("MuseScore 程序", &["exe"]).pick_file().await else {
+                return Err("未找到 MuseScore Studio。请安装程序，或选择便携版 MuseScore4.exe".into());
+            };
+            let executable=file.path().to_path_buf();
+            if executable.file_name().and_then(|name|name.to_str()).is_none_or(|name|!name.eq_ignore_ascii_case("MuseScore4.exe")) {
+                return Err("请选择 MuseScore Studio 的 MuseScore4.exe 程序".into());
+            }
+            executable
+        }
+    };
+    #[cfg(target_os="windows")]
+    {let text=path.to_string_lossy();let score_arg=if let Some(unc)=text.strip_prefix(r"\\?\UNC\"){format!(r"\\{unc}")}else{text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()};std::process::Command::new(executable).arg(score_arg).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
+    #[cfg(not(target_os="windows"))]
+    {let program=if cfg!(target_os="macos"){"open"}else{"musescore"};let mut command=std::process::Command::new(program);if cfg!(target_os="macos"){command.arg("-a").arg("MuseScore 4");}command.arg(path).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
+}
 #[tauri::command]
 async fn export_paper_book(state:tauri::State<'_,State>,name:String,bytes:Vec<u8>) -> Result<Option<String>,String> {
     if bytes.len()<100 || bytes.len()>64_000_000 || !bytes.starts_with(b"%PDF-") || !bytes[bytes.len().saturating_sub(1024)..].windows(5).any(|part|part==b"%%EOF") {
@@ -547,6 +591,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             score_batch_export::begin_score_batch_export,score_batch_export::begin_workspace_export,score_batch_export::write_score_batch_export,score_batch_export::finish_score_batch_export,score_batch_export::cancel_score_batch_export,
             reveal_library_file,
+            open_score_in_musescore,
             library_list,
             engine_state,
             engine_song,

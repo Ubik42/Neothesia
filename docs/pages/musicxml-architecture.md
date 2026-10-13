@@ -271,7 +271,7 @@ correlated notes is still renderable, but is no longer reported as synchronized.
 | --- | --- | --- | --- |
 | Build engraving in native wgpu | Full visual control | Professional notation layout is a large product by itself | Do not pursue |
 | Verovio to SVG | Portable, open source, embeddable, MusicXML input | 6.66 MiB module; requires page virtualization and a native display boundary | Approved for an isolated proof of concept |
-| MuseScore conversion | Broad import/export and mature engraving | Large external application; poor embedded runtime boundary | Optional authoring/export tool |
+| MuseScore conversion | Broad import/export and mature engraving | Large external application; poor embedded runtime boundary | Optional external authoring tool; registered originals open from the desktop app |
 | React rewrite | Easy SVG/DOM display | Replaces a working native interaction/render loop without improving score semantics | Not required |
 
 MusicXML 4.0 supports much more than this first slice. The importer emits
@@ -279,6 +279,10 @@ warnings for recognized deferred notation rather than silently claiming full
 support. See the [MusicXML 4.0 specification](https://www.w3.org/2021/06/musicxml40/),
 [Verovio input documentation](https://book.verovio.org/toolkit-reference/input-formats.html)
 and [MuseScore MusicXML guidance](https://handbook.musescore.org/file-management/working-with-musicxml-files).
+The desktop score manager can launch MuseScore Studio for a registered,
+unchanged MusicXML/MXL original. The user returns to the existing original-
+update review after saving. The embedded practice renderer remains Verovio;
+this handoff does not embed MuseScore or silently replace the current version.
 The pinned real-score evidence and exact counts live in the
 [compatibility matrix](../development/musicxml-compatibility).
 The renderer measurements and adoption constraints live in the

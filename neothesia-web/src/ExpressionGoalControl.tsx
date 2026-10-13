@@ -20,10 +20,12 @@ export function ExpressionGoalControl({
   disabled,
   change,
   wait = false,
+  labelPrefix = "计划项目",
 }: {
   value?: ExpressionGoal | null;
   disabled: boolean;
   wait?: boolean;
+  labelPrefix?: string;
   change: (g: ExpressionGoal | null) => void;
 }) {
   const update = (key: keyof ExpressionGoal, v: number | null) => {
@@ -78,7 +80,7 @@ export function ExpressionGoalControl({
                 row.key === "pedalOffsetMs" &&
                 value?.pedalOffsetMs == null
               }
-              aria-label={`计划项目要求${row.label}`}
+                aria-label={`${labelPrefix}要求${row.label}`}
               checked={value?.[row.key] != null}
               onChange={(e) =>
                 update(row.key, e.target.checked ? row.initial : null)
@@ -91,7 +93,7 @@ export function ExpressionGoalControl({
               {row.key === "contourPercent" ? "至少" : "最多"}
               <input
                 type="number"
-                aria-label={`计划项目${row.label}`}
+                aria-label={`${labelPrefix}${row.label}`}
                 min={row.min}
                 max={row.max}
                 value={value[row.key]!}

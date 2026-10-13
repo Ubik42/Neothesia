@@ -177,7 +177,7 @@ mod tests {
         let summary=AttemptSummary{overall:PracticeSnapshot{matched_notes:judged,required_notes:10,..Default::default()},..Default::default()};
         let mut s=PracticeSession::new(kind,PracticeHands::Both,1.,summary);
         s.id=Some(id.into());s.recorded_at_unix_ms=at;s.mode=Some("flow".into());s.scope=Some(scope.into());s.effective_tempo_bpm=bpm;
-        s.context=Some(PracticeSessionContext{routine:None,ladder:None,target_notes:10,judged_notes:judged,tracks:vec![],parts:BTreeMap::new(),hands:"both".into(),count_in:0,metronome:false,latency:0,pedal_latency_ms:None,rounds:1,adaptive:false,grid:"grid".into(),source_path:None,exercise_spec:None});
+        s.context=Some(PracticeSessionContext{expression:None,routine:None,ladder:None,target_notes:10,judged_notes:judged,tracks:vec![],parts:BTreeMap::new(),hands:"both".into(),count_in:0,metronome:false,latency:0,pedal_latency_ms:None,rounds:1,adaptive:false,grid:"grid".into(),source_path:None,exercise_spec:None});
         s
     }
     #[test]

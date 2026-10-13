@@ -1,5 +1,8 @@
 use neothesia_core::practice::ExpressionSummary;
 use serde::{Deserialize, Serialize};
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpressionGoalResult { pub passed: bool, pub message: String }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ExpressionGoal {
@@ -8,6 +11,12 @@ pub struct ExpressionGoal {
     pub pedal_offset_ms: Option<u16>,
 }
 impl ExpressionGoal {
+    pub(crate) fn result(&self, e: ExpressionSummary) -> ExpressionGoalResult {
+        match self.assess(e) {
+            Ok(()) => ExpressionGoalResult { passed: true, message: "本轮力度/踏板要求达标".into() },
+            Err(message) => ExpressionGoalResult { passed: false, message },
+        }
+    }
     pub(crate) fn validate(&self, mode: &str) -> Result<(), String> {
         if self.velocity_difference.is_none()
             && self.contour_percent.is_none()
@@ -82,6 +91,47 @@ impl ExpressionGoal {
     }
 }
 impl crate::Player {
+    pub(crate) fn current_song_expression_goal(&self) -> Option<ExpressionGoal> {
+        self.file.as_ref().and_then(|file| self.preferences.song_expression_goals.get(&file.content_id)).cloned()
+    }
+    pub(crate) fn effective_expression_goal(&self) -> Option<ExpressionGoal> {
+        if let Some(active) = &self.routine { return active.item.goal.expression.clone(); }
+        if self.ladder.as_ref().is_some_and(|ladder| ladder.active) { return None; }
+        self.current_song_expression_goal()
+    }
+    pub(crate) fn set_song_expression_goal(&mut self, goal: Option<ExpressionGoal>) -> Result<serde_json::Value, String> {
+        let content_id = self.file.as_ref().ok_or("请先选择曲目")?.content_id.clone();
+        if self.routine.is_some() || self.ladder.as_ref().is_some_and(|l| l.active) {
+            return Err("请先结束练习计划或速度阶梯，再修改曲目专项要求".into());
+        }
+        let empty_attempt = self.session_clock == std::time::Duration::ZERO
+            && self.matcher.snapshot().matched_notes + self.matcher.snapshot().wrong_notes + self.matcher.snapshot().missed_notes == 0;
+        let editable = matches!(self.state.status.as_str(), "ready" | "idle")
+            || self.state.status == "finished" && self.state.saved
+            || self.state.status == "paused" && empty_attempt && !self.expression_attempt_started;
+        if self.recorder.is_recording() || !editable {
+            return Err("请先完成或重新开始当前练习，再修改曲目专项要求".into());
+        }
+        if let Some(g) = &goal { self.validate_current_expression_source(g)?; }
+        let previous = self.preferences.song_expression_goals.get(&content_id).cloned();
+        if let Some(g) = &goal { self.preferences.song_expression_goals.insert(content_id.clone(), g.clone()); }
+        else { self.preferences.song_expression_goals.remove(&content_id); }
+        if let Err(e) = self.preferences.save(&self.preferences_path) {
+            if let Some(old) = previous { self.preferences.song_expression_goals.insert(content_id, old); }
+            else { self.preferences.song_expression_goals.remove(&content_id); }
+            return Err(e);
+        }
+        // The finished summary belongs to the previous frozen target; its history retains that target.
+        self.active_expression_goal = None;
+        Ok(serde_json::json!({"contentId": content_id, "goal": goal}))
+    }
+    pub(crate) fn validate_current_expression_source(&mut self, goal: &ExpressionGoal) -> Result<(), String> {
+        goal.validate(&self.state.mode)?;
+        if self.state.mode == "listen" { return Err("听曲模式不保存演奏成绩，请选择等音、连续或完整演奏".into()); }
+        let range = self.state.passage.as_ref().map_or((0., self.state.duration), |p| (p.start,p.end));
+        if range.0 < 0. || range.1 <= range.0 || !range.1.is_finite() { return Err("当前练习范围无效".into()); }
+        self.inspect_expression_reference(goal, std::time::Duration::from_secs_f64(range.0), std::time::Duration::from_secs_f64(range.1))
+    }
     pub(crate) fn validate_expression_source(
         &mut self,
         item: &crate::routine_commands::RoutineItem,
@@ -139,6 +189,12 @@ impl crate::Player {
             }
         }
         self.state.hands = item.settings.hands.clone();
+        let result = self.inspect_expression_reference(goal, start, end);
+        self.config = old;
+        self.state.hands = hands;
+        result
+    }
+    fn inspect_expression_reference(&self, goal: &ExpressionGoal, start: std::time::Duration, end: std::time::Duration) -> Result<(), String> {
         let mut points = std::collections::BTreeMap::new();
         let mut count = 0;
         for n in &self.notes {
@@ -177,8 +233,6 @@ impl crate::Player {
                 }
             }
         }
-        self.config = old;
-        self.state.hands = hands;
         if goal.velocity_difference.is_some() && count < 4 {
             return Err("所选练习范围的参考力度不足 4 个音符".into());
         }
@@ -454,6 +508,43 @@ mod flow_tests {
 mod source_tests {
     use super::*;
     use crate::{Command, Player, routine_commands::RoutineGoal};
+    #[test]
+    fn song_goal_persists_isolated_and_frozen_for_saved_attempt() {
+        let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/song-expression-unit")
+            .join(format!("{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut p = Player::new(data.clone(), std::path::PathBuf::new(), true);
+        p.command(Command::Generate { spec: Default::default() }).unwrap();
+        let cid = p.file.as_ref().unwrap().content_id.clone();
+        let goal = ExpressionGoal { velocity_difference: Some(20), ..Default::default() };
+        p.command(Command::SetSongExpressionGoal { goal: Some(goal.clone()) }).unwrap();
+        assert_eq!(p.snapshot().song_expression_goal, Some(goal.clone()));
+        assert_eq!(p.preferences.song_expression_goals.get(&cid), Some(&goal));
+        p.command(Command::Generate { spec: neothesia_core::exercise::ExerciseSpec { tonic: 2, ..Default::default() } }).unwrap();
+        assert_ne!(p.file.as_ref().unwrap().content_id, cid);
+        assert_eq!(p.snapshot().song_expression_goal, None);
+        p.command(Command::Generate { spec: Default::default() }).unwrap();
+        assert_eq!(p.snapshot().song_expression_goal, Some(goal.clone()));
+        let backup = p.practice_backup_snapshot(&Default::default()).unwrap();
+        let backup: crate::practice_backup::Backup = serde_json::from_value(backup).unwrap();
+        assert_eq!(backup.version(), 14);
+        assert_eq!(crate::practice_backup::Backup::decode(&backup.encode().unwrap()).unwrap().song_expression_goals.get(&cid), Some(&goal));
+        let mut reopened = Player::new(data, std::path::PathBuf::new(), true);
+        reopened.restore();
+        assert_eq!(reopened.current_song_expression_goal(), Some(goal.clone()));
+        reopened.command(Command::CountIn { bars: 0 }).unwrap();
+        reopened.command(Command::Play).unwrap();
+        assert_eq!(reopened.active_expression_goal, Some(goal.clone()));
+        assert!(reopened.command(Command::SetSongExpressionGoal { goal: None }).is_err());
+        let context = reopened.history_context();
+        assert_eq!(context.expression.unwrap().velocity_difference, Some(20));
+        reopened.command(Command::Pause).unwrap();
+        assert!(reopened.command(Command::SetSongExpressionGoal { goal: None }).is_err());
+        reopened.command(Command::Restart).unwrap();
+        reopened.command(Command::SetSongExpressionGoal { goal: None }).unwrap();
+        assert_eq!(reopened.snapshot().song_expression_goal, None);
+        assert_eq!(reopened.preferences.song_expression_goals.get(&cid), None);
+    }
     #[test]
     fn reject_flat_reference_without_modifying_plan_or_scope() {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

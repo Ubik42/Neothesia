@@ -691,6 +691,20 @@ mod substitution_tests {
  use super::*;
  fn note(pitch:u8,onset:f64,end:f64,finger:u8)->FingeringNote{FingeringNote{pitch,onset:Duration::from_secs_f64(onset),end:Duration::from_secs_f64(end),anchored_finger:Some(finger)}}
  #[test]
+ fn held_search_uses_trusted_expression_and_empty_evidence_keeps_legacy_order(){
+  let notes=[note(60,0.,3.,3),note(64,1.,1.5,3)];
+  let plain=suggest_fingering_plans_with_substitutions(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],3,1.,true).unwrap();
+  let absent=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],3,1.,true,&[]).unwrap();
+  assert_eq!(plain.iter().map(|p|p.cost).collect::<Vec<_>>(),absent.iter().map(|p|p.cost).collect::<Vec<_>>());
+  let expression=[FingeringExpression::default(),FingeringExpression{slur_from:Some(0),..Default::default()}];
+  let marked=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],3,1.,true,&expression).unwrap();
+  assert!(marked[0].cost>plain[0].cost);
+  assert!(!marked[0].substitutions.is_empty());
+ }
+ #[test]
  fn opt_in_preserves_attack_and_frees_held_finger_for_both_hands(){
   for (hand,pitches) in [(FingeringHand::Right,[60,64]),(FingeringHand::Left,[64,60])]{
    let notes=[note(pitches[0],0.,3.,3),note(pitches[1],1.,1.5,3)];
