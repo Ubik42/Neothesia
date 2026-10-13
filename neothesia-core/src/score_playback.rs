@@ -99,6 +99,33 @@ fn grace_percent(value: &str) -> Option<ScoreTime> {
     (amount > 0 && amount < 100 * scale).then(|| ScoreTime::new(amount, (100 * scale) as u32))
 }
 
+fn grace_divisions(value: &str, divisions: u32) -> Option<ScoreTime> {
+    let value = value.trim();
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    if divisions == 0
+        || whole.is_empty()
+        || !whole.bytes().all(|c| c.is_ascii_digit())
+        || fraction.len() > 3
+        || !fraction.bytes().all(|c| c.is_ascii_digit())
+        || value.contains('.') && fraction.is_empty()
+    {
+        return None;
+    }
+    let scale = 10_i128.pow(fraction.len() as u32);
+    let amount = whole
+        .parse::<i128>()
+        .ok()?
+        .checked_mul(scale)?
+        .checked_add(if fraction.is_empty() {
+            0
+        } else {
+            fraction.parse::<i128>().ok()?
+        })?;
+    (amount > 0)
+        .then(|| checked_time(amount, scale * i128::from(divisions)))
+        .flatten()
+}
+
 fn fraction_of(duration: ScoreTime, ratio: ScoreTime) -> Option<ScoreTime> {
     checked_time(
         i128::from(duration.numerator) * i128::from(ratio.numerator),
@@ -132,8 +159,9 @@ fn checked_add_time(left: ScoreTime, right: ScoreTime) -> Option<ScoreTime> {
     )
 }
 
-/// Resolves only grace groups with explicit time borrowed from their following
-/// note. Every returned span remains in written score coordinates.
+/// Resolves explicit grace timing without changing written measure lengths.
+/// `make-time` is resolved only when the voice already has sufficient silence
+/// before the following note; inserting new score time requires a different plan.
 pub(crate) fn grace_note_timing(part: &Part) -> Result<BTreeMap<ScoreEventId, NoteTiming>, String> {
     let mut spans = BTreeMap::new();
     for (measure_index, measure) in part.measures.iter().enumerate() {
@@ -154,7 +182,7 @@ pub(crate) fn grace_note_timing(part: &Part) -> Result<BTreeMap<ScoreEventId, No
                 entry.1.push((position, note));
             }
         }
-        for ((_, _, _), (graces, regular)) in groups {
+        for ((anchor, staff, voice), (graces, regular)) in groups {
             if graces.is_empty() {
                 continue;
             }
@@ -180,31 +208,149 @@ pub(crate) fn grace_note_timing(part: &Part) -> Result<BTreeMap<ScoreEventId, No
             {
                 return Err(problem("装饰音与主音的顺序、音高、时值或延音关系不明确"));
             }
+            let modes: Vec<_> = graces
+                .iter()
+                .map(|(_, note)| {
+                    note.grace_timing.as_ref().map(|mark| {
+                        (
+                            mark.steal_time_following.is_some(),
+                            mark.steal_time_previous.is_some(),
+                            mark.make_time.is_some(),
+                        )
+                    })
+                })
+                .collect();
+            if modes.iter().any(|mode| mode.is_none()) {
+                return Err(problem("缺少 grace 记号的时间信息"));
+            }
+            let mode = modes[0].unwrap();
+            if mode.0 as u8 + mode.1 as u8 + mode.2 as u8 != 1
+                || modes.iter().any(|candidate| *candidate != Some(mode))
+            {
+                return Err(problem("同一组装饰音必须明确且一致地选择一种计时方式"));
+            }
+            let previous: Vec<_> = measure
+                .events
+                .iter()
+                .enumerate()
+                .filter_map(|(position, event)| {
+                    let ScoreEvent::Note(note) = event else {
+                        return None;
+                    };
+                    (!note.grace
+                        && note.staff == staff
+                        && note.voice == voice
+                        && note.onset < anchor
+                        && note.onset.add(note.duration) == anchor)
+                        .then_some((position, note))
+                })
+                .collect();
+            let previous_onset = previous.iter().map(|(_, note)| note.onset).max();
+            let ambiguous_previous = previous
+                .iter()
+                .any(|(_, note)| Some(note.onset) != previous_onset);
+            let previous: Vec<_> = previous
+                .into_iter()
+                .filter(|(_, note)| Some(note.onset) == previous_onset)
+                .collect();
+            if mode.1
+                && (ambiguous_previous
+                    || previous.is_empty()
+                    || previous.iter().any(|(position, note)| {
+                        *position >= graces[0].0
+                            || note.pitch.is_none()
+                            || !note.ties.is_empty()
+                            || note.duration.numerator <= 0
+                            || spans.contains_key(&note.id)
+                    }))
+            {
+                return Err(problem(
+                    "steal-time-previous 须有本小节同声部、紧接装饰音且未延音的前音",
+                ));
+            }
+            let donor_duration = if mode.1 {
+                previous[0].1.duration
+            } else {
+                principal.duration
+            };
+            if mode.1
+                && previous
+                    .iter()
+                    .any(|(_, note)| note.duration != donor_duration)
+            {
+                return Err(problem("前音和弦的时值不一致"));
+            }
             let mut borrowed = ScoreTime::default();
+            let mut lengths = Vec::new();
             for (_, grace) in &graces {
-                let Some(mark) = &grace.grace_timing else {
-                    return Err(problem("缺少 grace 记号的时间信息"));
-                };
+                let mark = grace.grace_timing.as_ref().unwrap();
                 if mark
                     .slash
                     .as_deref()
                     .is_some_and(|v| v != "yes" && v != "no")
-                    || mark.make_time.is_some()
-                    || mark.steal_time_previous.is_some()
                 {
-                    return Err(problem("当前只支持明确从后续主音借时值的短倚音或长倚音"));
+                    return Err(problem("grace slash 只接受 yes 或 no"));
                 }
-                let Some(ratio) = mark.steal_time_following.as_deref().and_then(grace_percent)
-                else {
+                let length = if mode.2 {
+                    mark.make_time
+                        .as_deref()
+                        .and_then(|value| grace_divisions(value, mark.divisions))
+                        .ok_or_else(|| {
+                            problem("make-time 须为正数，最多三位小数，且当前 divisions 有效")
+                        })?
+                } else {
+                    let value = if mode.0 {
+                        mark.steal_time_following.as_deref()
+                    } else {
+                        mark.steal_time_previous.as_deref()
+                    };
+                    let ratio = value.and_then(grace_percent).ok_or_else(|| {
+                        problem("steal-time 百分数须大于 0 且小于 100，最多三位小数")
+                    })?;
+                    fraction_of(donor_duration, ratio)
+                        .ok_or_else(|| problem("借用时值超过可表示的乐谱精度"))?
+                };
+                lengths.push(length);
+                borrowed = checked_add_time(borrowed, length)
+                    .ok_or_else(|| problem("借用时值超出可表示的乐谱精度"))?;
+            }
+            let grace_start = if mode.0 {
+                anchor
+            } else {
+                checked_time(
+                    i128::from(anchor.numerator) * i128::from(borrowed.denominator)
+                        - i128::from(borrowed.numerator) * i128::from(anchor.denominator),
+                    i128::from(anchor.denominator) * i128::from(borrowed.denominator),
+                )
+                .ok_or_else(|| problem("装饰音起点超出可表示的乐谱精度"))?
+            };
+            if mode.0 && borrowed >= principal.duration || mode.1 && borrowed >= donor_duration {
+                return Err(problem("装饰音合计借用的时间必须小于被借时的音符时值"));
+            }
+            if mode.2 {
+                let latest_end = measure
+                    .events
+                    .iter()
+                    .filter_map(|event| {
+                        let ScoreEvent::Note(note) = event else {
+                            return None;
+                        };
+                        (!note.grace
+                            && note.staff == staff
+                            && note.voice == voice
+                            && note.onset < anchor)
+                            .then_some(note.onset.add(note.duration))
+                    })
+                    .max()
+                    .unwrap_or(measure.start);
+                if grace_start < latest_end || grace_start < measure.start {
                     return Err(problem(
-                        "steal-time-following 须为大于 0 且小于 100 的百分数，最多三位小数",
+                        "make-time 需要主音前已有足够的同声部空隙；不能凭空延长小节",
                     ));
-                };
-                let Some(length) = fraction_of(principal.duration, ratio) else {
-                    return Err(problem("借用时值超过可表示的乐谱精度"));
-                };
-                let onset = checked_add_time(grace.onset, borrowed)
-                    .ok_or_else(|| problem("装饰音位置超出可表示的乐谱精度"))?;
+                }
+            }
+            let mut onset = grace_start;
+            for ((_, grace), length) in graces.iter().zip(lengths) {
                 spans.insert(
                     grace.id.clone(),
                     NoteTiming {
@@ -212,21 +358,29 @@ pub(crate) fn grace_note_timing(part: &Part) -> Result<BTreeMap<ScoreEventId, No
                         duration: length,
                     },
                 );
-                borrowed = checked_add_time(borrowed, length)
-                    .ok_or_else(|| problem("借用时值超出可表示的乐谱精度"))?;
+                onset = checked_add_time(onset, length)
+                    .ok_or_else(|| problem("装饰音位置超出可表示的乐谱精度"))?;
             }
-            if borrowed >= principal.duration {
-                return Err(problem("装饰音合计借用的时间必须小于主音时值"));
-            }
-            for (_, note) in regular {
-                let onset = checked_add_time(note.onset, borrowed)
-                    .ok_or_else(|| problem("主音位置超出可表示的乐谱精度"))?;
+            let donors = if mode.0 {
+                regular
+            } else if mode.1 {
+                previous
+            } else {
+                Vec::new()
+            };
+            for (_, note) in donors {
+                let onset = if mode.0 {
+                    checked_add_time(note.onset, borrowed)
+                        .ok_or_else(|| problem("主音位置超出可表示的乐谱精度"))?
+                } else {
+                    note.onset
+                };
                 let remainder = checked_time(
                     i128::from(note.duration.numerator) * i128::from(borrowed.denominator)
                         - i128::from(borrowed.numerator) * i128::from(note.duration.denominator),
                     i128::from(note.duration.denominator) * i128::from(borrowed.denominator),
                 )
-                .ok_or_else(|| problem("主音剩余时值超出可表示的乐谱精度"))?;
+                .ok_or_else(|| problem("剩余时值超出可表示的乐谱精度"))?;
                 spans.insert(
                     note.id.clone(),
                     NoteTiming {

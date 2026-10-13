@@ -69,6 +69,12 @@ test("实际练习用时：暂停排除、保存去重、历史与本周目标",
     };
   });
   const calendar = history.locator(".practice-calendar");
+  await calendar.getByRole("button", { name: "最近十二周" }).click();
+  const trend = calendar.getByRole("group", { name: "按周查看练习用时" });
+  await expect(trend.getByRole("button")).toHaveCount(12);
+  await expect(trend.getByRole("button").last()).toHaveAttribute("aria-label", /已保存运行.+练习[1-7]天/);
+  await page.screenshot({ path: "../outputs/Neothesia-最近十二周练习.png" });
+  await calendar.getByRole("button", { name: "最近十二周" }).click();
   const dateButton = calendar.getByRole("button", {
     name: new RegExp(`^${day.key}，`),
   });

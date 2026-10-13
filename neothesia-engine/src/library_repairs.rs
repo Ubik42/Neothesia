@@ -22,6 +22,104 @@ pub struct RelinkItem {
     pub from: PathBuf,
     pub to: PathBuf,
 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplacementReview {
+    pub old_content_id: String,
+    pub new_content_id: String,
+    pub action: String,
+    pub target: Option<PathBuf>,
+}
+
+fn replacement_candidates(w: &Workspace, old_id: &str, replaced: &Path) -> Vec<PathBuf> {
+    w.entries.values()
+        .filter(|e| e.content_id.as_deref() == Some(old_id) && key(&e.path) != key(replaced))
+        .filter(|e| e.path.is_file())
+        .filter(|e| midi_file::MidiFile::new(&e.path).is_ok_and(|f| f.content_id == old_id))
+        .map(|e| e.path.clone())
+        .collect()
+}
+
+pub fn replacements(data: &Path, query: &str, include_reviewed: bool, offset: usize, limit: usize) -> Result<Value, String> {
+    let lock = lock_for(data)?;
+    let _guard = lock.lock().map_err(|_| "文件处理信息正忙")?;
+    let w = Workspace::load(data)?;
+    let mut rows = Vec::new();
+    for (record, old) in &w.retired_entries {
+        let Some(old_id) = old.content_id.as_ref() else { continue };
+        let Some(current) = w.entries.get(&key(&old.path)) else { continue };
+        let Some(new_id) = current.content_id.as_ref() else { continue };
+        if old_id == new_id { continue; }
+        let review = w.replacement_reviews.get(record).filter(|r| &r.new_content_id == new_id);
+        if review.is_some() && !include_reviewed { continue; }
+        let title = old.metadata.title.clone().filter(|s| !s.is_empty()).unwrap_or_else(||old.path.file_stem().unwrap_or_default().to_string_lossy().into());
+        let haystack = format!("{title} {} {old_id} {new_id}",old.path.display()).to_lowercase();
+        if !query.to_lowercase().split_whitespace().all(|t|haystack.contains(t)) { continue; }
+        let candidates = replacement_candidates(&w,old_id,&old.path);
+        rows.push(json!({"path":old.path,"title":title,"oldContentId":old_id,"newContentId":new_id,"oldNotes":old.notes,"newNotes":current.notes,"oldDuration":old.duration,"newDuration":current.duration,"oldTracks":old.tracks,"newTracks":current.tracks,"candidates":candidates,"review":review,"reviewed":review.is_some(),"available":current.available,"error":current.error}));
+    }
+    rows.sort_by(|a,b|a["title"].as_str().cmp(&b["title"].as_str()).then(a["path"].as_str().cmp(&b["path"].as_str())));
+    let total=rows.len();
+    let limit=limit.clamp(1,100);
+    let offset=offset.min(total.saturating_sub(1)/limit*limit);
+    Ok(json!({"rows":rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>(),"total":total,"offset":offset,"limit":limit,"revision":w.revision}))
+}
+
+fn replacement_state(w: &Workspace, path: &Path, old_id: &str, new_id: &str) -> Result<(Entry, midi_file::MidiFile),String> {
+    let old = w.retired_entries.get(&record_key(old_id,path)).filter(|e|e.content_id.as_deref()==Some(old_id)).cloned().ok_or("旧曲目身份已改变，请刷新文件位置")?;
+    let current=w.entries.get(&key(path)).ok_or("当前文件尚未索引，请先检查文件位置")?;
+    if current.content_id.as_deref()!=Some(new_id) { return Err("当前曲目身份已改变，请刷新文件位置".into()); }
+    let stat=std::fs::metadata(path).map_err(|e|format!("当前文件无法读取：{e}"))?;
+    if !stat.is_file() || stat.len()>32_000_000 { return Err("当前 MIDI 需要是 32 MB 以内的文件".into()); }
+    let file=midi_file::MidiFile::new(path)?;
+    if file.content_id!=new_id { return Err("MIDI 文件在索引后发生变化，请先重新检查文件位置".into()); }
+    Ok((old,file))
+}
+
+fn notes(file:&midi_file::MidiFile)->BTreeMap<(usize,u8,u8,u8,u64,u64),usize>{
+    let mut notes=BTreeMap::new();
+    for track in file.tracks.iter(){for n in track.notes.iter(){
+        *notes.entry((track.track_id,n.note,n.velocity,n.channel,n.start.as_micros().min(u64::MAX as u128) as u64,n.end.as_micros().min(u64::MAX as u128) as u64)).or_default()+=1;
+    }}
+    notes
+}
+
+pub fn preview_replacement(data:&Path,path:&Path,old_id:&str,new_id:&str)->Result<Value,String>{
+    let lock=lock_for(data)?;
+    let _guard=lock.lock().map_err(|_|"文件处理信息正忙")?;
+    let w=Workspace::load(data)?;
+    let (old,new_file)=replacement_state(&w,path,old_id,new_id)?;
+    let candidates=replacement_candidates(&w,old_id,path);
+    let old_file=candidates.iter().find_map(|p|midi_file::MidiFile::new(p).ok());
+    let exact=old_file.as_ref().map(|file|{
+        let a=notes(file);let b=notes(&new_file);
+        let common=a.iter().map(|(k,count)|count.min(b.get(k).unwrap_or(&0))).sum::<usize>();
+        json!({"matched":common,"oldOnly":a.values().sum::<usize>()-common,"newOnly":b.values().sum::<usize>()-common})
+    });
+    let token=blake3::hash(format!("{}|{}|{}|{}",w.revision,key(path),old_id,new_id).as_bytes()).to_hex().to_string();
+    Ok(json!({"path":path,"oldContentId":old_id,"newContentId":new_id,"oldNotes":old.notes,"newNotes":new_file.tracks.iter().map(|t|t.notes.len()).sum::<usize>(),"oldDuration":old.duration,"newDuration":new_file.duration.as_secs_f64(),"oldTracks":old.tracks,"newTracks":new_file.tracks.iter().filter(|t|!t.notes.is_empty()).count(),"exact":exact,"oldSource":old_file.as_ref().and_then(|f|f.source_path.clone()),"candidates":candidates,"token":token,"revision":w.revision,"review":w.replacement_reviews.get(&record_key(old_id,path))}))
+}
+
+pub fn decide_replacement(data:&Path,path:&Path,old_id:&str,new_id:&str,token:&str,action:&str,target:Option<PathBuf>)->Result<Value,String>{
+    if !matches!(action,"keep"|"new"|"relink"){return Err("请选择有效的文件处理方式".into());}
+    let lock=lock_for(data)?;
+    let _guard=lock.lock().map_err(|_|"文件处理正忙")?;
+    let mut w=Workspace::load(data)?;
+    let expected=blake3::hash(format!("{}|{}|{}|{}",w.revision,key(path),old_id,new_id).as_bytes()).to_hex().to_string();
+    if expected!=token{return Err("文件位置在预览后发生变化，请重新预览".into());}
+    replacement_state(&w,path,old_id,new_id)?;
+    let target=if action=="relink"{
+        let to=target.ok_or("请选择保存旧曲目内容的位置")?;
+        if !replacement_candidates(&w,old_id,path).iter().any(|p|key(p)==key(&to)){return Err("所选位置不再包含旧曲目内容，请重新预览".into());}
+        relink_one(&mut w,&RelinkItem{content_id:old_id.into(),from:path.into(),to:to.clone()})?;
+        Some(to)
+    }else{None};
+    let new_key=record_key(new_id,path);
+    if action=="keep" {w.ignored_paths.insert(new_key);}else{w.ignored_paths.remove(&new_key);}
+    w.replacement_reviews.insert(record_key(old_id,path),ReplacementReview{old_content_id:old_id.into(),new_content_id:new_id.into(),action:action.into(),target});
+    w.save(data)?;
+    Ok(json!({"ok":true,"revision":w.revision,"action":action}))
+}
 pub fn page_size() -> usize {
     50
 }
@@ -139,6 +237,10 @@ pub fn query(
         paths.insert(key(&r.to), r.to.clone());
     }
     let mut groups = Vec::new();
+    let replacement_count=w.retired_entries.iter().filter(|(record,old)|{
+        let Some(old_id)=old.content_id.as_ref() else {return false};
+        w.entries.get(&key(&old.path)).and_then(|e|e.content_id.as_ref()).is_some_and(|new_id|new_id!=old_id && !w.replacement_reviews.get(*record).is_some_and(|r|&r.new_content_id==new_id))
+    }).count();
     let mut missing_files = 0;
     let mut duplicate_groups = 0;
     let mut unverified_files = 0;
@@ -277,7 +379,7 @@ pub fn query(
     let limit = limit.clamp(1, 100);
     let offset = offset.min(total.saturating_sub(1) / limit * limit);
     Ok(
-        json!({"groups":groups.into_iter().skip(offset).take(limit).collect::<Vec<_>>(),"total":total,"missingFiles":missing_files,"duplicateGroups":duplicate_groups,"unverifiedFiles":unverified_files,"resolvedFiles":resolved_files,"offset":offset,"limit":limit,"revision":w.revision}),
+        json!({"groups":groups.into_iter().skip(offset).take(limit).collect::<Vec<_>>(),"total":total,"missingFiles":missing_files,"duplicateGroups":duplicate_groups,"unverifiedFiles":unverified_files,"resolvedFiles":resolved_files,"replacementCount":replacement_count,"offset":offset,"limit":limit,"revision":w.revision}),
     )
 }
 fn fill_metadata(
@@ -535,6 +637,47 @@ mod tests {
         let w = Workspace::load(&data).unwrap();
         assert_eq!(w.entries[&key(&old)].content_id, changed.content_id);
         assert_eq!(w.entries[&key(&new)].rating, 4);
+    }
+    #[test]
+    fn replacement_review_keeps_identities_separate_and_rejects_stale_files() {
+        let (data, path, duplicate, old_id) = fixture();
+        let mut side = neothesia_core::library::SongSidecar::default();
+        side.fingerings.push(neothesia_core::library::FingerHint { track_id:1,note_index:0,finger:3 });
+        neothesia_core::library::save_song_sidecar(&path,&old_id,side).unwrap();
+        std::fs::write(&path,include_bytes!("../assets/basic-chords.mid")).unwrap();
+        let mut w=Workspace::load(&data).unwrap();
+        let current=w.inspect(path.clone(),true).unwrap();
+        let new_id=current.content_id.unwrap();
+        assert_ne!(old_id,new_id);
+        assert!(current.groups.is_empty());
+        w.save(&data).unwrap();
+        let listed=replacements(&data,"",false,0,25).unwrap();
+        assert_eq!(listed["total"],1);
+        let preview=preview_replacement(&data,&path,&old_id,&new_id).unwrap();
+        assert_eq!(preview["exact"]["matched"].as_u64().is_some(),true);
+        assert!(preview["exact"]["oldOnly"].as_u64().unwrap()>0);
+        let stale=preview["token"].as_str().unwrap().to_string();
+        std::fs::write(&path,include_bytes!("../assets/five-finger.mid")).unwrap();
+        assert!(decide_replacement(&data,&path,&old_id,&new_id,&stale,"new",None).is_err());
+        std::fs::write(&path,include_bytes!("../assets/basic-chords.mid")).unwrap();
+        let token=preview_replacement(&data,&path,&old_id,&new_id).unwrap()["token"].as_str().unwrap().to_string();
+        decide_replacement(&data,&path,&old_id,&new_id,&token,"keep",None).unwrap();
+        assert!(!library::enriched(&[],&data).iter().any(|r|r.path==path));
+        let reopened=Workspace::load(&data).unwrap();
+        assert_eq!(reopened.replacement_reviews[&record_key(&old_id,&path)].action,"keep");
+        assert_eq!(replacements(&data,"",false,0,25).unwrap()["total"],0);
+        assert_eq!(replacements(&data,"",true,0,25).unwrap()["total"],1);
+        let token=preview_replacement(&data,&path,&old_id,&new_id).unwrap()["token"].as_str().unwrap().to_string();
+        decide_replacement(&data,&path,&old_id,&new_id,&token,"new",None).unwrap();
+        assert!(library::enriched(&[],&data).iter().any(|r|r.path==path));
+        let token=preview_replacement(&data,&path,&old_id,&new_id).unwrap()["token"].as_str().unwrap().to_string();
+        decide_replacement(&data,&path,&old_id,&new_id,&token,"relink",Some(duplicate.clone())).unwrap();
+        let reopened=Workspace::load(&data).unwrap();
+        assert_eq!(reopened.replacement_reviews[&record_key(&old_id,&path)].action,"relink");
+        assert_eq!(reopened.entries[&key(&path)].content_id.as_deref(),Some(new_id.as_str()));
+        assert_eq!(library::available_path(&reopened,&old_id,None),Some(duplicate.clone()));
+        assert_eq!(neothesia_core::library::load_song_sidecar(&duplicate,&old_id).unwrap().fingerings[0].finger,3);
+        assert!(neothesia_core::library::load_song_sidecar(&path,&new_id).is_err());
     }
     #[test]
     fn batches_report_mismatches_and_primary_checks_actual_content() {

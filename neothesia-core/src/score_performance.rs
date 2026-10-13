@@ -594,12 +594,16 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                     let Some(span) = grace_spans.get(&note.id) else {
                         continue;
                     };
-                    if note.grace || span.onset <= note.onset {
-                        continue;
-                    }
-                    if source < span.onset && source > note.onset
-                        || source_end > note.onset && source_end <= span.onset
-                    {
+                    let split = if note.grace && span.onset < note.onset {
+                        source > span.onset && source <= note.onset
+                            || source_end > span.onset && source_end <= note.onset
+                    } else if !note.grace && span.onset > note.onset {
+                        source > note.onset && source <= span.onset
+                            || source_end > note.onset && source_end <= span.onset
+                    } else {
+                        false
+                    };
+                    if split {
                         return Err(format!(
                             "第 {} 小节的跳转切开了装饰音和主音，请调整跳转位置",
                             index + 1
@@ -1116,6 +1120,108 @@ mod tests {
                 6
             );
             assert!((file.duration.as_secs_f64() - 2.0).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn previous_note_grace_keeps_repeat_occurrences_and_midi_length() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><note><grace slash="yes" steal-time-previous="25"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(
+            notes
+                .iter()
+                .map(|n| (n.pitch, n.start, n.end))
+                .collect::<Vec<_>>(),
+            [
+                (60, 0, 720),
+                (62, 720, 960),
+                (64, 960, 1920),
+                (60, 1920, 2640),
+                (62, 2640, 2880),
+                (64, 2880, 3840)
+            ]
+        );
+        let plan = crate::score_playback::build_playback_plan(&score.parts[0], Default::default());
+        let events = crate::score_playback::expand_event_occurrences(&score.parts[0], &plan);
+        let grace: Vec<_> = events
+            .iter()
+            .filter(|e| e.id.source_id.ordinal == 1)
+            .collect();
+        assert_eq!(grace.len(), 2);
+        assert_eq!(grace[0].onset, ScoreTime::new(3, 4));
+        assert_eq!(grace[1].onset, ScoreTime::new(11, 4));
+        assert_eq!(grace[0].duration, Some(ScoreTime::new(1, 4)));
+        assert_eq!(grace[0].id.source_id, grace[1].id.source_id);
+        assert_ne!(grace[0].id, grace[1].id);
+        let midi = midi_file::MidiFile::from_smf("previous-grace", &performance.smf).unwrap();
+        assert!((midi.duration.as_secs_f64() - 2.0).abs() < 0.00001);
+    }
+
+    #[test]
+    fn several_previous_graces_shorten_the_whole_preceding_chord() {
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><note><grace steal-time-previous="20"/><pitch><step>D</step><octave>4</octave></pitch></note><note><grace steal-time-previous="30"/><pitch><step>F</step><octave>4</octave></pitch></note><note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(
+            performance.tracks[0]
+                .notes
+                .iter()
+                .map(|n| (n.pitch, n.start, n.end))
+                .collect::<Vec<_>>(),
+            [
+                (60, 0, 480),
+                (64, 0, 480),
+                (62, 480, 672),
+                (65, 672, 960),
+                (67, 960, 1920)
+            ]
+        );
+    }
+
+    #[test]
+    fn make_time_uses_only_an_existing_voice_gap_and_its_own_divisions() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><attributes><divisions>8</divisions></attributes><forward><duration>4</duration></forward><note><grace slash="no" make-time="4"/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(
+            performance.tracks[0]
+                .notes
+                .iter()
+                .map(|n| (n.pitch, n.start, n.end))
+                .collect::<Vec<_>>(),
+            [(60, 0, 960), (62, 960, 1440), (64, 1440, 1920)]
+        );
+        let plan = crate::score_playback::build_playback_plan(&score.parts[0], Default::default());
+        let events = crate::score_playback::expand_event_occurrences(&score.parts[0], &plan);
+        let grace = events.iter().find(|e| e.id.source_id.ordinal == 1).unwrap();
+        assert_eq!(grace.onset, ScoreTime::new(1, 1));
+        assert_eq!(grace.duration, Some(ScoreTime::new(1, 2)));
+        let midi = midi_file::MidiFile::from_smf("gap-grace", &performance.smf).unwrap();
+        assert!((midi.duration.as_secs_f64() - 1.0).abs() < 0.00001);
+    }
+
+    #[test]
+    fn previous_and_make_time_reject_overlong_or_conflicting_hints() {
+        for (hint, expected) in [
+            ("steal-time-previous=\"100\"", "百分数"),
+            (
+                "steal-time-previous=\"70\" steal-time-following=\"20\"",
+                "一种计时方式",
+            ),
+            ("make-time=\"1\"", "足够的同声部空隙"),
+            ("make-time=\"0\"", "make-time 须为正数"),
+        ] {
+            let xml = format!(
+                r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><note><grace {hint}/><pitch><step>D</step><octave>4</octave></pitch></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#
+            );
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let error = generate(&score, 120).err().unwrap();
+            assert!(
+                error.contains("第 1 小节") && error.contains(expected),
+                "{hint}: {error}"
+            );
         }
     }
 

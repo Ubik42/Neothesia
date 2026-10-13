@@ -122,6 +122,8 @@ pub struct GraceTiming {
     pub steal_time_following: Option<String>,
     pub steal_time_previous: Option<String>,
     pub make_time: Option<String>,
+    /// Divisions per quarter note at this grace element, before later changes.
+    pub divisions: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -837,7 +839,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     b"grace" if note.is_some() => {
                         let built = note.as_mut().unwrap();
                         built.grace = true;
-                        built.grace_timing = Some(grace_timing(&start)?);
+                        built.grace_timing = Some(grace_timing(&start, divisions)?);
                     }
                     b"tie" | b"tied" if note.is_some() => {
                         push_span(&start, &mut note.as_mut().unwrap().ties)?
@@ -953,7 +955,14 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         divisions,
                     );
                 } else {
-                    handle_empty(&start, &path, &mut note, &mut direction, &mut barline)?;
+                    handle_empty(
+                        &start,
+                        &path,
+                        &mut note,
+                        &mut direction,
+                        &mut barline,
+                        divisions,
+                    )?;
                 }
             }
             Event::Text(text) => {
@@ -1278,6 +1287,7 @@ fn handle_empty(
     note: &mut Option<NoteBuilder>,
     direction: &mut Option<DirectionBuilder>,
     barline: &mut Option<BarlineBuilder>,
+    divisions: u32,
 ) -> Result<(), ImportError> {
     match start.name().as_ref() {
         b"segno" if direction.is_some() && parent_is(path, 1, b"direction-type") => {
@@ -1294,7 +1304,7 @@ fn handle_empty(
         b"grace" if note.is_some() => {
             let built = note.as_mut().unwrap();
             built.grace = true;
-            built.grace_timing = Some(grace_timing(start)?);
+            built.grace_timing = Some(grace_timing(start, divisions)?);
         }
         b"tie" | b"tied" if note.is_some() => push_span(start, &mut note.as_mut().unwrap().ties)?,
         b"slur" if note.is_some() => {
@@ -1421,12 +1431,13 @@ fn parse_barline_location(value: Option<String>) -> BarlineLocation {
     }
 }
 
-fn grace_timing(start: &BytesStart<'_>) -> Result<GraceTiming, ImportError> {
+fn grace_timing(start: &BytesStart<'_>, divisions: u32) -> Result<GraceTiming, ImportError> {
     Ok(GraceTiming {
         slash: attribute(start, b"slash")?,
         steal_time_following: attribute(start, b"steal-time-following")?,
         steal_time_previous: attribute(start, b"steal-time-previous")?,
         make_time: attribute(start, b"make-time")?,
+        divisions,
     })
 }
 

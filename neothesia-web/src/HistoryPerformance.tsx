@@ -48,7 +48,25 @@ type Archive = {
     referencePedalDown: boolean | null;
     actualPedalDown: boolean | null;
     pedalSame: boolean | null;
+    pedalEvidence?: "paired" | "noReferenceEvents" | "noActualEvents" | "beforeReferenceEvent" | "beforeActualEvent";
   } | null)[];
+};
+type ExpressionNote = NonNullable<NonNullable<Archive["expressionReview"]>[number]>;
+const pedalEvidenceText = (note: ExpressionNote) => {
+  if (note.pedalSame === false) return `踏板状态不同：参考${note.referencePedalDown ? "踩下" : "松开"}，实际${note.actualPedalDown ? "踩下" : "松开"}。重练时检查该音起音前的踏板动作。`;
+  if (note.pedalSame === true) return "起音时踏板状态一致";
+  switch (note.pedalEvidence) {
+    case "noReferenceEvents": return "本轮没有参考踏板动作，无法逐音判断踏板";
+    case "noActualEvents": return "本轮没有采到实际踏板动作，无法判断踏板是否松开";
+    case "beforeReferenceEvent": return "这个音早于首个参考踏板动作，参考状态未知";
+    case "beforeActualEvent": return "这个音早于首个实际踏板动作，实际状态未知";
+    default: return "踏板对照证据不足";
+  }
+};
+const velocityFeedback = (note: ExpressionNote, threshold: number) => {
+  const difference = Math.abs(note.velocityDelta);
+  if (difference < threshold) return "力度差未达到当前筛查值";
+  return `MIDI 力度值${note.velocityDelta > 0 ? "偏高" : "偏低"} ${difference} 级；重练时${note.velocityDelta > 0 ? "减轻" : "增加"}这个音的落键力度`;
 };
 type Actual = {
   input: number;
@@ -237,8 +255,9 @@ export function HistoryPerformance({
       };
     });
   }, [actual, data, decisions]);
-  const rows = pairs.filter(
-    (p) =>
+  const rows = pairs.filter((p) => {
+    const expression = data?.expressionReview?.[p.index];
+    return (
       (!measure || p.reference.measure === measure) &&
       (!exact ||
         gradeFilter === "all" ||
@@ -247,9 +266,15 @@ export function HistoryPerformance({
           : p.grade === gradeFilter)) &&
       (expressionFilter === "all" ||
         (expressionFilter === "velocity"
-          ? Math.abs(data?.expressionReview?.[p.index]?.velocityDelta ?? 0) >= velocityThreshold
-          : data?.expressionReview?.[p.index]?.pedalSame === false)),
-  );
+          ? expression != null && Math.abs(expression.velocityDelta) >= velocityThreshold
+          : expression?.pedalSame === false))
+    );
+  });
+  const expressionNotes = data?.expressionReview ?? [];
+  const pairedExpressionCount = expressionNotes.filter((note) => note != null).length;
+  const velocityIssueCount = expressionNotes.filter((note) => note != null && Math.abs(note.velocityDelta) >= velocityThreshold).length;
+  const pedalIssueCount = expressionNotes.filter((note) => note?.pedalSame === false).length;
+  const pedalEvidenceCount = expressionNotes.filter((note) => note?.pedalSame != null).length;
   const wrong = (data?.judgments ?? []).filter(
     (d) => d.kind === "wrong" && (!measure || d.measure === measure),
   );
@@ -301,6 +326,12 @@ export function HistoryPerformance({
               <p className="muted">
                 演奏回放随“个人成绩与演奏回放”一起备份，可迁移到其他机器。
               </p>
+              {exact && (
+                <p aria-label="逐音力度踏板反馈概况">
+                  全轮逐音表达 · 确切配对 {pairedExpressionCount} 个音 · 力度差达到 {velocityThreshold} 级的 {velocityIssueCount} 个音 · 有踏板证据 {pedalEvidenceCount} 个音，其中状态不同 {pedalIssueCount} 个音。
+                  力度 {velocityThreshold} 级是本页默认筛查值，可在下方调整；它不等于练习计划的平均力度要求，也不改变原来的音符准确率。
+                </p>
+              )}
               {data.truncated && (
                 <p>本轮达到回放容量上限，后续数据未完整保留。</p>
               )}
@@ -381,12 +412,10 @@ export function HistoryPerformance({
                   <>
                     <select aria-label="逐音表现筛选" value={expressionFilter} onChange={(e) => setExpressionFilter(e.target.value)}>
                       <option value="all">全部力度与踏板</option>
-                      <option value="velocity">力度差达到阈值</option>
+                      <option value="velocity">力度差达到筛查值</option>
                       <option value="pedal">踏板状态不同</option>
                     </select>
-                    {expressionFilter === "velocity" && (
-                      <label>力度差至少 <input aria-label="力度差阈值" type="number" min={1} max={127} value={velocityThreshold} onChange={(e) => setVelocityThreshold(Math.max(1, Math.min(127, Number(e.target.value) || 1)))} /></label>
-                    )}
+                    <label>逐音力度差至少 <input aria-label="逐音力度差筛查值" type="number" min={1} max={127} value={velocityThreshold} onChange={(e) => setVelocityThreshold(Math.max(1, Math.min(127, Number(e.target.value) || 1)))} /> 级</label>
                   </>
                 )}
                 <select
@@ -565,6 +594,7 @@ export function HistoryPerformance({
                       <th>起音差值</th>
                       <th>力度对照</th>
                       <th>踏板对照</th>
+                      <th>专项反馈</th>
                       <th>持音对照</th>
                       <th>练习</th>
                     </tr>
@@ -589,7 +619,8 @@ export function HistoryPerformance({
                             ? `${p.actual.velocity} / ${p.reference.velocity}${data.expressionReview?.[p.index] ? `（${data.expressionReview[p.index]!.velocityDelta > 0 ? "+" : ""}${data.expressionReview[p.index]!.velocityDelta}）` : ""}`
                             : "—"}
                         </td>
-                        <td>{data.expressionReview?.[p.index]?.pedalSame == null ? "—" : `实际${data.expressionReview[p.index]!.actualPedalDown ? "踩" : "松"} / 参考${data.expressionReview[p.index]!.referencePedalDown ? "踩" : "松"}`}</td>
+                        <td>{data.expressionReview?.[p.index] ? pedalEvidenceText(data.expressionReview[p.index]!) : "没有确切配对，不作踏板判断"}</td>
+                        <td>{data.expressionReview?.[p.index] ? velocityFeedback(data.expressionReview[p.index]!, velocityThreshold) : "没有确切配对，不作力度判断"}</td>
                         <td>
                           {p.actual
                             ? `${(p.actual.end - p.actual.at).toFixed(2)} / ${(p.reference.end - p.reference.at).toFixed(2)} 秒`
@@ -635,7 +666,7 @@ export function HistoryPerformance({
                   </tbody>
                 </table>
                 {!rows.length && <p>该筛选范围没有对应参考音。</p>}
-                {exact && <p className="muted">力度差与起音时刻踏板状态只比较当轮计分器确切配对的按键。没有参考踏板动作时不显示踏板对照；这些对照不更改原成绩。</p>}
+                {exact && <p className="muted">本页只对当轮计分器确切配对的按键给出力度差。踏板对照还需要参考和实际两侧在该音之前各有踏板动作。用户可通过本行“重练这里”恢复原练习条件并定位小节；逐音反馈只用于筛查，不更改原成绩。</p>}
                 {rows.length > 200 && (
                   <p>本页只显示前 200 个参考音，选择具体小节查看其余位置。</p>
                 )}

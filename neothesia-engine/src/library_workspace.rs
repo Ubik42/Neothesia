@@ -17,6 +17,7 @@ pub struct Workspace {
     pub ignored_paths:std::collections::BTreeSet<String>,
     pub path_relinks:BTreeMap<String,crate::library_repairs::RelinkRecord>,
     pub retired_entries:BTreeMap<String,Entry>,
+    pub replacement_reviews:BTreeMap<String,crate::library_repairs::ReplacementReview>,
 }
 #[cfg(test)]
 mod tests {

@@ -6,6 +6,7 @@ import {
   practiceDuration,
   practiceIntervalDays,
 } from "./practiceTime";
+import { PracticeTrend } from "./PracticeTrend";
 import "./practiceCalendar.css";
 
 type CalendarData = {
@@ -40,7 +41,8 @@ export function PracticeCalendar({
   const [data, setData] = useState<CalendarData | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false),
-    [refresh, setRefresh] = useState(0);
+    [refresh, setRefresh] = useState(0),
+    [showTrend, setShowTrend] = useState(false);
   const from = month.getTime(),
     to = new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime();
   useEffect(() => {
@@ -120,12 +122,25 @@ export function PracticeCalendar({
         >
           刷新日历
         </button>
+        <button
+          type="button"
+          aria-expanded={showTrend}
+          disabled={disabled}
+          onClick={() => setShowTrend((value) => !value)}
+        >
+          最近十二周
+        </button>
         {selected !== null && (
           <button disabled={disabled} onClick={() => choose(null)}>
             清除日期筛选
           </button>
         )}
       </div>
+      {showTrend && <PracticeTrend
+        refresh={refresh}
+        disabled={disabled}
+        openMonth={(date) => setMonth(new Date(date.getFullYear(), date.getMonth(), 1))}
+      />}
       {error && <p role="alert">{error}</p>}
       <div
         className="practice-calendar-grid"

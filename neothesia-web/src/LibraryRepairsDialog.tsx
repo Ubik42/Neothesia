@@ -34,9 +34,22 @@ type Inventory = {
   duplicateGroups: number;
   unverifiedFiles: number;
   resolvedFiles: number;
+  replacementCount: number;
   offset: number;
   limit: number;
   revision: number;
+};
+type Replacement = {
+  path: string; title: string; oldContentId: string; newContentId: string;
+  oldNotes: number; newNotes: number; oldDuration: number; newDuration: number;
+  oldTracks: number; newTracks: number; candidates: string[];
+  reviewed: boolean; review?: { action: string; target: string | null } | null;
+  available: boolean; error?: string | null;
+};
+type Replacements = { rows: Replacement[]; total: number; offset: number; limit: number; revision: number };
+type ReplacementPreview = Replacement & {
+  token: string; exact: { matched: number; oldOnly: number; newOnly: number } | null;
+  oldSource: string | null;
 };
 type Item = { contentId: string; from: string; to: string };
 export type RepairResult = {
@@ -68,6 +81,9 @@ export function LibraryRepairsDialog({
     [resolved, setResolved] = useState(false),
     [offset, setOffset] = useState(0);
   const [data, setData] = useState<Inventory | null>(null),
+    [replacementData, setReplacementData] = useState<Replacements | null>(null),
+    [replacementPreview, setReplacementPreview] = useState<ReplacementPreview | null>(null),
+    [replacementTarget, setReplacementTarget] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [results, setResults] = useState<RepairResult[]>([]);
@@ -78,6 +94,14 @@ export function LibraryRepairsDialog({
     working = useRef(false);
   const reload = async () => {
     const version = ++requestVersion.current;
+    if (kind === "replacements") {
+      const next = await api.command<Replacements>({ type: "midiReplacements", query, include_reviewed: resolved, offset, limit: 25 });
+      if (alive.current && version === requestVersion.current) {
+        setReplacementData(next);
+        if (next.offset !== offset) setOffset(next.offset);
+      }
+      return;
+    }
     const next = await api.command<Inventory>({
       type: "libraryRepairs",
       query,
@@ -130,6 +154,8 @@ export function LibraryRepairsDialog({
     setSelected({});
     setChoices({});
     setResults([]);
+    setReplacementPreview(null);
+    setReplacementData(null);
   }, [kind, query, resolved]);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
@@ -260,6 +286,7 @@ export function LibraryRepairsDialog({
         >
           {[
             ["missing", `缺失文件 ${data?.missingFiles ?? ""}`],
+            ["replacements", `原路径内容变化 ${kind === "replacements" ? replacementData?.total ?? "" : data?.replacementCount ?? ""}`],
             ["duplicates", `重复路径 ${data?.duplicateGroups ?? ""}`],
             ["unverified", `待核对 ${data?.unverifiedFiles ?? ""}`],
             ["resolved", `已处理 ${data?.resolvedFiles ?? ""}`],
@@ -338,10 +365,45 @@ export function LibraryRepairsDialog({
             </p>
           )}
         <p className="library-repair-help">
-          关联前再次核对 MIDI
-          内容；相同名称不代表同一首曲目。新位置已有附加信息优先，原文件保留。
+          {kind === "replacements"
+            ? "文件在原路径换成新内容后，旧指法、批注和练习记录仍按旧 MIDI 内容保存。先预览，再选择旧曲目和新文件各自的去向。"
+            : "关联前再次核对 MIDI 内容；相同名称不代表同一首曲目。新位置已有附加信息优先，原文件保留。"}
         </p>
         <div className="library-repair-scroll">
+          {kind === "replacements" && replacementData?.rows.map((r) => {
+            const preview = replacementPreview?.path === r.path && replacementPreview.oldContentId === r.oldContentId ? replacementPreview : null;
+            const decided = r.review?.action === "keep" ? "保留旧曲目，暂不显示新文件" : r.review?.action === "new" ? "新文件作为新曲目显示" : r.review?.action === "relink" ? `旧曲目已关联至 ${r.review.target}` : "待审阅";
+            return <section key={`${r.oldContentId}|${r.path}`} className="library-repair-group">
+              <div className="library-repair-heading"><h3>{r.title}</h3><small>{decided}</small></div>
+              <p title={r.path}>{r.path}</p>
+              <p>旧 MIDI：{r.oldNotes} 个音符 · {r.oldTracks} 条声部 · {r.oldDuration.toFixed(1)} 秒 · 内容 {r.oldContentId.slice(0, 12)}</p>
+              <p>现有 MIDI：{r.newNotes} 个音符 · {r.newTracks} 条声部 · {r.newDuration.toFixed(1)} 秒 · 内容 {r.newContentId.slice(0, 12)}</p>
+              <button disabled={busy || !r.available} onClick={() => void work(async () => {
+                const next = await api.command<ReplacementPreview>({type:"previewMidiReplacement",path:r.path,old_content_id:r.oldContentId,new_content_id:r.newContentId});
+                setReplacementPreview(next);
+                setReplacementTarget(next.candidates[0] ?? "");
+              })}>核对音符与处理方式</button>
+              {r.error && <p role="alert" className="dialog-error">{r.error}</p>}
+              {preview && <div className="library-repair-path" aria-label="MIDI 内容变化预览">
+                <div>
+                  {preview.exact
+                    ? <p>逐音核对：相同 {preview.exact.matched} 个，旧曲目独有 {preview.exact.oldOnly} 个，新文件独有 {preview.exact.newOnly} 个。核对所用旧文件：{preview.oldSource}</p>
+                    : <p>旧 MIDI 原件暂不可用。当前只能比较索引记录中的音符数、声部数和时长；系统不会据此迁移旧指法或批注。</p>}
+                  <p>旧内容和新内容的身份不同。练习历史继续归属旧内容。</p>
+                  <label>旧曲目的正确位置 <select aria-label={`旧曲目的正确位置 ${r.path}`} value={replacementTarget} onChange={e=>setReplacementTarget(e.target.value)}>
+                    <option value="">尚未找到</option>{preview.candidates.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select></label>
+                </div>
+                <div className="library-repair-path-actions">
+                  <button disabled={busy} onClick={()=>void work(async()=>{await api.command({type:"decideMidiReplacement",path:r.path,old_content_id:r.oldContentId,new_content_id:r.newContentId,token:preview.token,action:"keep",target:null});setReplacementPreview(null);})}>保留旧曲目，隐藏新文件</button>
+                  <button disabled={busy} onClick={()=>void work(async()=>{await api.command({type:"decideMidiReplacement",path:r.path,old_content_id:r.oldContentId,new_content_id:r.newContentId,token:preview.token,action:"new",target:null});setReplacementPreview(null);})}>新文件建立独立曲目</button>
+                  <button disabled={busy || !replacementTarget} onClick={()=>void work(async()=>{await api.command({type:"decideMidiReplacement",path:r.path,old_content_id:r.oldContentId,new_content_id:r.newContentId,token:preview.token,action:"relink",target:replacementTarget});setReplacementPreview(null);})}>旧曲目重新关联到所选位置</button>
+                </div>
+              </div>}
+            </section>;
+          })}
+          {kind === "replacements" && replacementData && !replacementData.rows.length && <p className="library-empty">{resolved ? "没有原路径内容变化记录" : "没有待审阅的原路径内容变化"}</p>}
+          {kind !== "replacements" && <>
           {data?.groups.map((g) => (
             <section
               key={g.contentId}
@@ -546,6 +608,7 @@ export function LibraryRepairsDialog({
             </p>
           )}
           {!data && <p className="library-empty">正在读取文件位置…</p>}
+          </>}
         </div>
         {results.length > 0 && (
           <div className="library-repair-results" role="status">
@@ -569,9 +632,9 @@ export function LibraryRepairsDialog({
         )}
         <div className="library-repair-footer">
           <span>
-            {data?.total ?? 0} 首 · 已选择 {Object.keys(selected).length} 个位置
+            {kind === "replacements" ? `${replacementData?.total ?? 0} 处内容变化` : `${data?.total ?? 0} 首 · 已选择 ${Object.keys(selected).length} 个位置`}
           </span>
-          <button disabled={busy || !data?.groups.length} onClick={selectPage}>
+          {kind !== "replacements" && <><button disabled={busy || !data?.groups.length} onClick={selectPage}>
             选择本页可匹配项
           </button>
           <button
@@ -586,7 +649,7 @@ export function LibraryRepairsDialog({
             onClick={() => void work(() => repair(Object.values(selected)))}
           >
             关联所选位置
-          </button>
+          </button></>}
           <span className="menu-spacer" />
           <button
             aria-label="上一页文件位置"
@@ -600,11 +663,11 @@ export function LibraryRepairsDialog({
           </button>
           <span>
             {Math.floor(offset / 25) + 1}/
-            {Math.max(1, Math.ceil((data?.total ?? 0) / 25))}
+            {Math.max(1, Math.ceil((kind === "replacements" ? replacementData?.total ?? 0 : data?.total ?? 0) / 25))}
           </span>
           <button
             aria-label="下一页文件位置"
-            disabled={busy || offset + 25 >= (data?.total ?? 0)}
+            disabled={busy || offset + 25 >= (kind === "replacements" ? (replacementData?.total ?? 0) : (data?.total ?? 0))}
             onClick={() => {
               setOffset(offset + 25);
               setSelected({});

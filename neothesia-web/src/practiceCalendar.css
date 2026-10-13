@@ -49,7 +49,52 @@
   margin: 3px 0;
   font-size: 11px;
 }
+.practice-trend {
+  max-width: 850px;
+  padding: 6px 0 10px;
+}
+.practice-trend-weeks {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+  min-height: 126px;
+  margin-top: 6px;
+}
+.practice-trend-weeks button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 4px 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.practice-trend-bar {
+  display: block;
+  width: min(28px, 80%);
+  min-height: 3px;
+  max-height: 80px;
+  margin-top: auto;
+  background: #6caaa0;
+  border-radius: 2px 2px 0 0;
+}
+.practice-trend-date,
+.practice-trend-time {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  white-space: nowrap;
+  text-align: center;
+  text-overflow: ellipsis;
+}
+.practice-trend-time { color: #d3dbd9; }
 @media (max-width: 700px) {
+  .practice-trend-weeks {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    min-height: 0;
+  }
+  .practice-trend-weeks button { min-height: 112px; }
   .practice-calendar-grid {
     gap: 2px;
   }

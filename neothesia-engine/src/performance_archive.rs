@@ -283,9 +283,9 @@ fn pedal_events(inputs: &[Input]) -> Vec<(f64, bool)> {
     events.sort_by(|a, b| a.0.total_cmp(&b.0));
     events
 }
-fn pedal_at(events: &[(f64, bool)], at: f64) -> bool {
+fn pedal_at(events: &[(f64, bool)], at: f64) -> Option<bool> {
     let previous = events.partition_point(|event| event.0 <= at);
-    previous.checked_sub(1).map(|index| events[index].1).unwrap_or(false)
+    previous.checked_sub(1).map(|index| events[index].1)
 }
 impl Archive {
     fn expression_review(&self) -> Vec<Value> {
@@ -294,19 +294,23 @@ impl Archive {
         let mut result = vec![Value::Null; self.references.len()];
         let Some(decisions) = &self.judgments else { return result; };
         for decision in decisions {
+            if !matches!(decision.kind.as_str(), "onTime" | "early" | "late") { continue; }
             let (Some(reference_index), Some(input_index)) = (decision.reference, decision.input) else { continue; };
             let (Some(reference), Some(input)) = (self.references.get(reference_index), self.inputs.get(input_index)) else { continue; };
-            let reference_pedal_down = if reference_pedals.is_empty() {
-                None
-            } else {
-                Some(pedal_at(&reference_pedals, reference.at))
-            };
-            let actual_pedal_down = reference_pedal_down.map(|_| pedal_at(&actual_pedals, input.at));
+            if reference.velocity == 0 || input.synthetic || input.bytes[0] != 144 || input.bytes[2] == 0 || input.bytes[1] != reference.pitch { continue; }
+            let reference_pedal_down = pedal_at(&reference_pedals, reference.at);
+            let actual_pedal_down = pedal_at(&actual_pedals, input.at);
+            let pedal_evidence = if reference_pedals.is_empty() { "noReferenceEvents" }
+                else if actual_pedals.is_empty() { "noActualEvents" }
+                else if reference_pedal_down.is_none() { "beforeReferenceEvent" }
+                else if actual_pedal_down.is_none() { "beforeActualEvent" }
+                else { "paired" };
             result[reference_index] = serde_json::json!({
                 "velocityDelta": i16::from(input.bytes[2]) - i16::from(reference.velocity),
                 "referencePedalDown": reference_pedal_down,
                 "actualPedalDown": actual_pedal_down,
                 "pedalSame": reference_pedal_down.zip(actual_pedal_down).map(|(r,a)|r==a),
+                "pedalEvidence": pedal_evidence,
             });
         }
         result
@@ -809,11 +813,22 @@ mod tests {
         expression.reference_pedals.clear();
         assert!(expression.expression_review()[0]["pedalSame"].is_null());
         expression.reference_pedals.push(Input { at: 0., judged_at: 0., song_time: 0., bytes: [176, 64, 127], synthetic: false });
+        assert_eq!(expression.expression_review()[0]["pedalEvidence"], "noActualEvents");
+        assert!(expression.expression_review()[0]["pedalSame"].is_null());
+        expression.inputs.push(Input { at: expression.inputs[matched.input.unwrap()].at + 0.1, judged_at: 0., song_time: 0., bytes: [176, 64, 0], synthetic: false });
+        assert_eq!(expression.expression_review()[0]["pedalEvidence"], "beforeActualEvent");
+        assert!(expression.expression_review()[0]["pedalSame"].is_null());
+        expression.inputs.pop();
         expression.inputs.push(Input { at: expression.inputs[matched.input.unwrap()].at, judged_at: 0., song_time: 0., bytes: [176, 64, 0], synthetic: false });
         let review = expression.expression_review();
         assert_eq!(review[0]["referencePedalDown"], true);
         assert_eq!(review[0]["actualPedalDown"], false);
         assert_eq!(review[0]["pedalSame"], false);
+        assert_eq!(review[0]["pedalEvidence"], "paired");
+        let original_velocity = expression.references[0].velocity;
+        expression.references[0].velocity = 0;
+        assert!(expression.expression_review()[0].is_null());
+        expression.references[0].velocity = original_velocity;
         expression.judgments = None;
         assert!(expression.expression_review().iter().all(Value::is_null));
         let wrong = rows.iter().find(|r| r.kind == "wrong").unwrap();

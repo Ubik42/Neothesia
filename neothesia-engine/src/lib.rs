@@ -485,6 +485,9 @@ pub enum Command {
         value: neothesia_core::library::SongMetadata,
     },
     LibraryRepairs {#[serde(default)] query:String,#[serde(default)] kind:String,#[serde(default)] include_resolved:bool,#[serde(default)] offset:usize,#[serde(default="library_repairs::page_size")] limit:usize},
+    MidiReplacements {#[serde(default)] query:String,#[serde(default)] include_reviewed:bool,#[serde(default)] offset:usize,#[serde(default="library_repairs::page_size")] limit:usize},
+    PreviewMidiReplacement {path:PathBuf,old_content_id:String,new_content_id:String},
+    DecideMidiReplacement {path:PathBuf,old_content_id:String,new_content_id:String,token:String,action:String,target:Option<PathBuf>},
     RelinkLibrary {items:Vec<library_repairs::RelinkItem>},
     SetLibraryPrimary {content_id:String,path:Option<PathBuf>},
     RestoreLibraryPath {content_id:String,path:PathBuf},
@@ -751,11 +754,14 @@ impl Engine {
         }
         match &command {
           Command::LibraryRepairs{query,kind,include_resolved,offset,limit}=>{let known=self.command(Command::Collection)?;return library_repairs::query(&self.data,&known,query,kind,*include_resolved,*offset,*limit);},
+          Command::MidiReplacements{query,include_reviewed,offset,limit}=>return library_repairs::replacements(&self.data,query,*include_reviewed,*offset,*limit),
+          Command::PreviewMidiReplacement{path,old_content_id,new_content_id}=>return library_repairs::preview_replacement(&self.data,path,old_content_id,new_content_id),
           Command::RelinkLibrary{..}|Command::SetLibraryPrimary{..}|Command::RestoreLibraryPath{..}|Command::IgnoreLibraryPath{..}=>{}
           _=>{}
         }
         match command {
           Command::RelinkLibrary{items}=>return library_repairs::relink(&self.data,items),
+          Command::DecideMidiReplacement{path,old_content_id,new_content_id,token,action,target}=>return library_repairs::decide_replacement(&self.data,&path,&old_content_id,&new_content_id,&token,&action,target),
           Command::SetLibraryPrimary{content_id,path}=>return library_repairs::set_primary(&self.data,&content_id,path),
           Command::IgnoreLibraryPath{content_id,path}=>return library_repairs::ignore_path(&self.data,&content_id,&path),
           Command::RestoreLibraryPath{content_id,path}=>return library_repairs::restore_path(&self.data,&content_id,&path),
@@ -2534,6 +2540,9 @@ impl Player {
                 return score_attachments::set_mapping(&self.data,&content_id,&id,mapping);
             }
             Command::LibraryRepairs{..}
+            | Command::MidiReplacements{..}
+            | Command::PreviewMidiReplacement{..}
+            | Command::DecideMidiReplacement{..}
             | Command::RelinkLibrary{..}
             | Command::SetLibraryPrimary{..}
             | Command::ScoreAttachments{..}
