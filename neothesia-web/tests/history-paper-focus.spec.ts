@@ -47,6 +47,7 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
     type: "setPaperMapping", content_id: song.contentId, id: paper.active,
     mapping: { grid: practice.grid, enabled: false, anchors: [{ measure: 1, page: 1 }, { measure: 2, page: 2 }] },
   });
+  await command({ type: "restart" });
   await command({ type: "track", id: song.notes[0].track, mode: "human", part: "right", visible: true });
   await command({ type: "countIn", bars: 0 });
   await command({ type: "mode", value: "recital" });
@@ -54,6 +55,7 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
   await expect.poll(async () => (await state()).status).toBe("finished");
 
   await page.goto("/");
+  await page.getByRole("button", { name: "关闭练习反馈" }).click();
   await page.getByRole("button", { name: "练习历史", exact: true }).click();
   await page.getByLabel("查找历史曲目").fill(song.title);
   await page.locator(".history-record").first().click();
