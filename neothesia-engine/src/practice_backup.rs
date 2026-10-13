@@ -31,6 +31,8 @@ impl Default for Selection {
 #[serde(rename_all = "camelCase")]
 pub struct Backup {
     pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metadata_history: Vec<crate::metadata_history::Portable>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata_templates: BTreeMap<String, crate::metadata_templates::Rules>,
     pub routines: Vec<PracticeRoutine>,
@@ -181,7 +183,7 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
             Value::Number(n) => {
                 let max = if matches!(
                     key,
-                    "createdAt"
+                    "createdAt" | "timeMs"
                         | "generatedAt" | "recordedAt" | "from" | "to" | "runningMs"
                         | "recorded_at_unix_ms"
                         | "last_used_unix_ms"
@@ -209,6 +211,7 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
 
 impl Backup {
     pub fn version(&self) -> u8 {
+        if !self.metadata_history.is_empty() { return 13; }
         if !self.time_ledger.is_empty() || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.schedule.as_ref().is_some_and(|s|!s.skip_dates.is_empty()||!s.extra_dates.is_empty())) { return 12; }
         let trimmed=|r:&crate::score_ranges::ScoreRange|r.start_trim>0||r.end_trim>0;
         if self.passages.values().flatten().any(|p|p.score_range.as_ref().is_some_and(trimmed)) || self.routines.iter().chain(self.runs.values().map(|r|&r.routine)).any(|r|r.items.iter().any(|i|matches!(&i.target,RoutineTarget::ScorePassage{range} if trimmed(range)))){return 11;}
@@ -269,6 +272,7 @@ impl Backup {
         }
     }
     pub fn validate(&self) -> Result<(), String> {
+        crate::metadata_history::validate_backup(&self.metadata_history)?;
         validate_time_ledger(&self.time_ledger)?;
         if self.time_ledger.len()>10000 {return Err("备份累计时长的曲目数量超过上限".into());}
         let mut total_time=0u64;
@@ -574,7 +578,7 @@ impl Backup {
             serde_json::from_slice(&files["manifest.json"]).map_err(|e| e.to_string())?;
         let data = &files["practice.json"];
         if header["format"] != "neothesia-practice"
-            || !matches!(header["version"].as_u64(), Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12))
+            || !matches!(header["version"].as_u64(), Some(1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13))
             || header["size"].as_u64() != Some(data.len() as u64)
             || header["hash"].as_str() != Some(blake3::hash(data).to_hex().as_str())
         {
@@ -588,7 +592,10 @@ impl Backup {
         Ok(backup)
     }
     pub fn summary(&self) -> Value {
-        json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()})
+        let mut value = json!({"timeLedgerEntries":self.time_ledger.values().map(BTreeMap::len).sum::<usize>(),"timeLedgerRunningMs":self.time_ledger.values().flat_map(|rows|rows.values()).flat_map(|e|e.slices.iter()).map(|s|s.running_ms).sum::<u64>(),"timeLedgerUntrackedMs":self.time_ledger.values().flat_map(|rows|rows.values()).map(|e|e.untracked_ms).sum::<u64>(),"replayClips":self.history.values().flat_map(|h|h.sessions.iter()).map(|s|s.replay_clips.len()).sum::<usize>(),"performances":self.performances.values().map(BTreeMap::len).sum::<usize>(),"performanceBytes":self.performances.values().flat_map(|rows|rows.values()).filter_map(|a|a.bytes().ok()).map(|b|b.len()).sum::<usize>(),"metadataTemplates":self.metadata_templates.len(),"metadataTemplateRows":self.metadata_templates.iter().map(|(name,rules)|json!({"name":name,"rules":rules})).collect::<Vec<_>>(),"learning":self.learning.len(),"createdAt":self.created_at,"plans":self.routines.iter().map(|r|json!({"id":r.id,"name":r.name,"notes":r.notes,"schedule":r.schedule,"items":r.items.len()})).collect::<Vec<_>>(),"days":self.runs.len(),"songs":self.history.len(),"records":self.history.values().map(|h|h.sessions.len()).sum::<usize>(),"passages":self.passages.values().map(Vec::len).sum::<usize>(),"ladders":self.ladders.values().map(Vec::len).sum::<usize>(),"exercises":self.exercises.len(),"trackSounds":self.track_sounds.values().map(BTreeMap::len).sum::<usize>(),"trackAppearances":self.track_appearances.values().map(BTreeMap::len).sum::<usize>()});
+        value["metadataHistory"] = json!(self.metadata_history.iter().map(|row| row.records.len()).sum::<usize>());
+        value["metadataHistorySongs"] = json!(self.metadata_history.iter().map(|row| &row.content_id).collect::<BTreeSet<_>>().len());
+        value
     }
 }
 fn session_key(s: &PracticeSession) -> String {
@@ -631,6 +638,7 @@ fn selected(mut b: Backup, s: &Selection) -> Backup {
         b.learning.clear();
     }
     if !s.presets {
+        b.metadata_history.clear();
         b.metadata_templates.clear();
         b.passages.clear();
         b.ladders.clear();
@@ -662,6 +670,8 @@ fn selected(mut b: Backup, s: &Selection) -> Backup {
 struct Journal {
     #[serde(default)]
     performances: BTreeMap<String, bool>,
+    #[serde(default)]
+    metadata_histories: BTreeMap<String, bool>,
     folder: String,
     prefs: bool,
     history: bool,
@@ -702,6 +712,9 @@ pub fn recover(data: &Path) -> Result<(), String> {
     }) {
         return Err("练习导入回放恢复路径无效".into());
     }
+    if j.metadata_histories.keys().any(|name| {
+        name.len() != 69 || !name.ends_with(".json") || !name.as_bytes()[..64].iter().all(|b| b.is_ascii_hexdigit())
+    }) { return Err("练习导入资料历史恢复路径无效".into()); }
     if !j.committed {
         let old = data.join("practice-restore-points").join(&j.folder);
         for (name, exists) in [
@@ -736,6 +749,15 @@ pub fn recover(data: &Path) -> Result<(), String> {
                 std::fs::remove_file(path).map_err(|e| e.to_string())?;
             }
         }
+        for (name, exists) in &j.metadata_histories {
+            let path = data.join("metadata-history").join(name);
+            if *exists {
+                std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+                atomic(&path, &std::fs::read(old.join("metadata-history").join(name)).map_err(|e|e.to_string())?)?;
+            } else if path.exists() {
+                std::fs::remove_file(path).map_err(|e|e.to_string())?;
+            }
+        }
     }
     std::fs::remove_file(journal).map_err(|e| e.to_string())
 }
@@ -746,6 +768,7 @@ fn commit(
     workspace: &library_workspace::Workspace,
     templates: Option<&[u8]>,
     performances: &BTreeMap<String, Vec<u8>>,
+    metadata_histories: &BTreeMap<String, Vec<u8>>,
 ) -> Result<String, String> {
     recover(data)?;
     std::fs::create_dir_all(data).map_err(|e| e.to_string())?;
@@ -760,6 +783,7 @@ fn commit(
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let mut j = Journal {
         performances: BTreeMap::new(),
+        metadata_histories: BTreeMap::new(),
         folder: folder.clone(),
         prefs: false,
         history: false,
@@ -796,6 +820,15 @@ fn commit(
         }
         j.performances.insert(name.clone(), exists);
     }
+    if !metadata_histories.is_empty() {
+        std::fs::create_dir_all(root.join("metadata-history")).map_err(|e|e.to_string())?;
+    }
+    for name in metadata_histories.keys() {
+        let path = data.join("metadata-history").join(name);
+        let exists = path.exists();
+        if exists { std::fs::copy(&path, root.join("metadata-history").join(name)).map_err(|e|e.to_string())?; }
+        j.metadata_histories.insert(name.clone(), exists);
+    }
     let journal = data.join("practice-import-journal.json");
     atomic(&journal, &serde_json::to_vec(&j).unwrap())?;
     let result = (|| {
@@ -820,6 +853,10 @@ fn commit(
         for (name, bytes) in performances {
             atomic(&data.join("performance-history").join(name), bytes)?;
         }
+        if !metadata_histories.is_empty() { std::fs::create_dir_all(data.join("metadata-history")).map_err(|e|e.to_string())?; }
+        for (name, bytes) in metadata_histories {
+            atomic(&data.join("metadata-history").join(name), bytes)?;
+        }
         j.committed = true;
         atomic(&journal, &serde_json::to_vec(&j).unwrap())?;
         Ok::<_, String>(())
@@ -843,6 +880,7 @@ impl Player {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64,
+            metadata_history: if s.presets { crate::metadata_history::snapshot(&self.data)? } else { vec![] },
             metadata_templates: if s.presets {
                 crate::metadata_templates::snapshot_unlocked(&self.data)?
             } else {
@@ -1085,6 +1123,18 @@ impl Player {
             }
         }
         let mut v = b.summary();
+        let metadata_history_plan = library_workspace::Workspace::load(&self.data)
+            .and_then(|mut workspace| crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history));
+        match metadata_history_plan {
+            Ok(plan) => {
+                v["metadataHistoryAdded"] = json!(plan.added);
+                v["metadataHistoryDuplicates"] = json!(plan.duplicates);
+                v["metadataHistoryUnmatched"] = json!(plan.unmatched);
+                v["metadataHistoryAmbiguous"] = json!(plan.ambiguous);
+                v["metadataHistoryError"] = Value::Null;
+            }
+            Err(error) => { v["metadataHistoryError"] = json!(error); }
+        }
         v["performanceConflicts"] = json!(performance_conflicts);
         v["duplicatePerformances"] = json!(performance_duplicates);
         v["performanceErrors"] = json!(performance_errors);
@@ -1161,6 +1211,7 @@ impl Player {
         let _guard = lock.lock().map_err(|_| "曲库资料正忙")?;
         let mut workspace = library_workspace::Workspace::load(&self.data)?;
         let mut b = selected(b, &s);
+        let metadata_history_plan = crate::metadata_history::merge(&self.data, &mut workspace, &b.metadata_history)?;
         let mut history = self.history.clone();
         let added_time_entries = history.merge_time_ledger(b.time_ledger.clone())?;
         let mut learning_changed = 0;
@@ -1398,6 +1449,7 @@ impl Player {
             &workspace,
             templates.as_deref(),
             &performance_files,
+            &metadata_history_plan.files,
         )?;
         let sound_changed = self.preferences.track_sounds != prefs.track_sounds;
         self.preferences = prefs;
@@ -1406,7 +1458,7 @@ impl Player {
             self.reset(self.state.position);
         }
         Ok(
-            json!({"addedTimeEntries":added_time_entries,"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
+            json!({"metadataHistoryAdded":metadata_history_plan.added,"metadataHistoryDuplicates":metadata_history_plan.duplicates,"metadataHistoryUnmatched":metadata_history_plan.unmatched,"metadataHistoryAmbiguous":metadata_history_plan.ambiguous,"addedTimeEntries":added_time_entries,"importedPerformances":imported_performances,"duplicatePerformances":duplicate_performances,"keptPerformances":kept_performances,"replacedPerformances":replaced_performances,"trimmedPerformances":trimmed_performances,"learningChanged":learning_changed,"addedRecords":added,"duplicateRecords":duplicates,"renamedRecords":collisions,"trimmedRecords":trimmed,"restorePoint":restore}),
         )
     }
 }
@@ -1564,7 +1616,7 @@ mod tests {
         std::fs::write(p.data.join("performance-history"),b"block directory creation").unwrap();
         let performances=BTreeMap::from([(format!("{}.json","a".repeat(64)),b"{}".to_vec())]);
         let workspace=library_workspace::Workspace::load(&p.data).unwrap();
-        assert!(commit(&p.data,&p.preferences,&changed,&workspace,None,&performances).is_err());
+        assert!(commit(&p.data,&p.preferences,&changed,&workspace,None,&performances,&BTreeMap::new()).is_err());
         assert_eq!(std::fs::read(p.history.path()).unwrap(),before);
         let restored=PracticeHistoryStore::load(p.history.path());
         assert!(restored.time_ledger()[&cid].contains_key("before"));assert!(!restored.time_ledger()[&cid].contains_key("after"));
@@ -1923,6 +1975,7 @@ mod tests {
         std::fs::write(&path, b"partial new templates").unwrap();
         let journal = Journal {
             performances: BTreeMap::new(),
+            metadata_histories: BTreeMap::new(),
             folder: folder.into(),
             prefs: false,
             history: false,
@@ -2146,6 +2199,7 @@ mod tests {
         std::fs::write(&new_path, b"new").unwrap();
         let j = Journal {
             folder: "restore-performance-test".into(),
+            metadata_histories: BTreeMap::new(),
             prefs: false,
             history: false,
             workspace: None,
@@ -2184,6 +2238,7 @@ mod tests {
         std::fs::write(&p.preferences_path, b"partial new preferences").unwrap();
         let journal = Journal {
             performances: BTreeMap::new(),
+            metadata_histories: BTreeMap::new(),
             folder: folder.into(),
             prefs: true,
             history: true,
@@ -2200,6 +2255,111 @@ mod tests {
         assert_eq!(std::fs::read(&p.preferences_path).unwrap(), old_prefs);
         assert_eq!(std::fs::read(p.history.path()).unwrap(), old_history);
         assert!(!p.data.join("practice-import-journal.json").exists());
+    }
+    #[test]
+    fn metadata_history_moves_by_content_and_survives_reopen_without_duplicates() {
+        let source = player();
+        let source_path = source.data.join("original.mid");
+        std::fs::create_dir_all(&source.data).unwrap();
+        std::fs::write(&source_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut source_workspace = library_workspace::Workspace::default();
+        let cid = source_workspace.inspect(source_path.clone(), true).unwrap().content_id.unwrap();
+        source_workspace.save(&source.data).unwrap();
+        let mut before = neothesia_core::library::SongMetadata::default();
+        let mut after = before.clone();
+        after.title = Some("迁移前的标题".into());
+        let id = crate::metadata_history::prepare(&source.data, &source_path, &cid, before.clone(), after.clone(), None).unwrap();
+        crate::metadata_history::finish(&source.data, &source_path, &id, true).unwrap();
+        before = after;
+        after = before.clone();
+        after.notes = Some("第二次修改".into());
+        let id2 = crate::metadata_history::prepare(&source.data, &source_path, &cid, before, after, None).unwrap();
+        crate::metadata_history::finish(&source.data, &source_path, &id2, true).unwrap();
+        let backup: Backup = serde_json::from_value(source.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
+        assert_eq!(backup.version(), 13);
+        let backup = Backup::decode(&backup.encode().unwrap()).unwrap();
+        assert_eq!(backup.summary()["metadataHistory"], 2);
+        let mut target = player();
+        std::fs::create_dir_all(&target.data).unwrap();
+        let target_path = target.data.join("moved.mid");
+        std::fs::write(&target_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut target_workspace = library_workspace::Workspace::default();
+        target_workspace.inspect(target_path.clone(), true).unwrap();
+        target_workspace.save(&target.data).unwrap();
+        assert_eq!(target.inspect_practice_backup(&backup)["metadataHistoryAdded"], 2);
+        let first = target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap();
+        assert_eq!(first["metadataHistoryAdded"], 2);
+        assert_eq!(first["metadataHistoryUnmatched"], 0);
+        let second = target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap();
+        assert_eq!(second["metadataHistoryAdded"], 0);
+        assert_eq!(second["metadataHistoryDuplicates"], 2);
+        let reopened = Player::new(target.data.clone(), PathBuf::from("unused.sf2"), true);
+        assert_eq!(crate::metadata_history::inspect(&reopened.data, &target_path, &cid, None).unwrap()["records"].as_array().unwrap().len(), 2);
+        assert_eq!(crate::metadata_history::record(&reopened.data, &target_path, &cid, &id).unwrap().state, "applied");
+        let duplicate_path = target.data.join("duplicate.mid");
+        std::fs::copy(&target_path, &duplicate_path).unwrap();
+        let mut indexed = library_workspace::Workspace::load(&target.data).unwrap();
+        indexed.inspect(duplicate_path, true).unwrap();
+        indexed.save(&target.data).unwrap();
+        assert_eq!(reopened.inspect_practice_backup(&backup)["metadataHistoryAmbiguous"], 2);
+        let mut broken = backup;
+        broken.metadata_history[0].records[0].id = "invalid".into();
+        assert!(broken.encode().is_err());
+    }
+    #[test]
+    fn metadata_history_rejects_replaced_content_and_corrupt_local_journal() {
+        let source = player();
+        std::fs::create_dir_all(&source.data).unwrap();
+        let source_path = source.data.join("piece.mid");
+        std::fs::write(&source_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut indexed = library_workspace::Workspace::default();
+        let cid = indexed.inspect(source_path.clone(), true).unwrap().content_id.unwrap();
+        indexed.save(&source.data).unwrap();
+        let mut after = neothesia_core::library::SongMetadata::default();
+        after.title = Some("原曲".into());
+        let id = crate::metadata_history::prepare(&source.data, &source_path, &cid, Default::default(), after, None).unwrap();
+        crate::metadata_history::finish(&source.data, &source_path, &id, true).unwrap();
+        let backup: Backup = serde_json::from_value(source.practice_backup_snapshot(&Selection::default()).unwrap()).unwrap();
+        let source_journal = source.data.join("metadata-history").join(format!("{}.json", blake3::hash(library_workspace::key(&source_path).as_bytes())));
+        let verified_source = std::fs::read(&source_journal).unwrap();
+        std::fs::write(&source_journal, b"broken").unwrap();
+        assert!(source.practice_backup_snapshot(&Selection::default()).is_err());
+        std::fs::write(&source_journal, verified_source).unwrap();
+        let mut target = player();
+        std::fs::create_dir_all(&target.data).unwrap();
+        let target_path = target.data.join("piece.mid");
+        std::fs::write(&target_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let mut local = library_workspace::Workspace::default();
+        local.inspect(target_path.clone(), true).unwrap();
+        local.save(&target.data).unwrap();
+        std::fs::write(&target_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        assert_eq!(target.inspect_practice_backup(&backup)["metadataHistoryUnmatched"], 1);
+        assert_eq!(target.apply_practice_backup(backup.clone(), Selection::default(), "keep".into()).unwrap()["metadataHistoryAdded"], 0);
+        assert!(crate::metadata_history::inspect(&target.data, &target_path, &cid, None).unwrap()["records"].as_array().unwrap().is_empty());
+        std::fs::write(&target_path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let journal_path = target.data.join("metadata-history").join(format!("{}.json", blake3::hash(library_workspace::key(&target_path).as_bytes())));
+        std::fs::create_dir_all(journal_path.parent().unwrap()).unwrap();
+        std::fs::write(&journal_path, b"broken").unwrap();
+        assert!(target.inspect_practice_backup(&backup)["metadataHistoryError"].as_str().is_some());
+        assert!(target.apply_practice_backup(backup, Selection::default(), "backup".into()).is_err());
+        assert_eq!(std::fs::read(journal_path).unwrap(), b"broken");
+    }
+    #[test]
+    fn metadata_history_recovery_restores_existing_and_removes_new_files() {
+        let p = player();
+        std::fs::create_dir_all(p.data.join("metadata-history")).unwrap();
+        let old = format!("{}.json", "a".repeat(64));
+        let new = format!("{}.json", "b".repeat(64));
+        let restore = p.data.join("practice-restore-points/restore-metadata-test/metadata-history");
+        std::fs::create_dir_all(&restore).unwrap();
+        std::fs::write(restore.join(&old), b"original").unwrap();
+        std::fs::write(p.data.join("metadata-history").join(&old), b"partial").unwrap();
+        std::fs::write(p.data.join("metadata-history").join(&new), b"new").unwrap();
+        let journal = Journal { folder: "restore-metadata-test".into(), prefs: false, history: false, workspace: None, templates: None, committed: false, performances: BTreeMap::new(), metadata_histories: BTreeMap::from([(old.clone(),true),(new.clone(),false)]) };
+        std::fs::write(p.data.join("practice-import-journal.json"), serde_json::to_vec(&journal).unwrap()).unwrap();
+        recover(&p.data).unwrap();
+        assert_eq!(std::fs::read(p.data.join("metadata-history").join(old)).unwrap(), b"original");
+        assert!(!p.data.join("metadata-history").join(new).exists());
     }
 }
 

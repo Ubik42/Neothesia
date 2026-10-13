@@ -41,7 +41,7 @@ test("仅资料模板的备份导出、字段预览、保留与覆盖及范围�
     exact: true,
   });
   await dialog.getByLabel("计划、日课与曲目学习").uncheck();
-  await dialog.getByLabel("个人成绩记录").uncheck();
+  await dialog.getByLabel("个人成绩与演奏回放").uncheck();
   const downloadPromise = page.waitForEvent("download");
   await dialog
     .getByRole("button", { name: "导出练习备份", exact: true })
@@ -76,7 +76,7 @@ test("仅资料模板的备份导出、字段预览、保留与覆盖及范围�
   await expect(dialog).toContainText("追加备注");
   await expect(dialog).toContainText("添加标签");
   await dialog
-    .getByText("查看计划、学习资料与模板冲突", { exact: true })
+    .getByText("查看资料与回放冲突", { exact: true })
     .click();
   await page.screenshot({
     path: "../outputs/Neothesia-资料模板备份预览.png",
@@ -117,7 +117,7 @@ test("仅资料模板的备份导出、字段预览、保留与覆盖及范围�
   await expect(
     dialog.getByRole("button", { name: "按所选范围导入", exact: true }),
   ).toBeEnabled();
-  await dialog.getByLabel("片段、阶梯、技术练习、音轨与资料模板").uncheck();
+  await dialog.getByLabel("片段、阶梯、技术练习、音轨、资料模板与修改历史").uncheck();
   await dialog.getByLabel("计划、日课与曲目学习").check();
   await expect(
     dialog.getByRole("button", { name: "按所选范围导入", exact: true }),

@@ -34,12 +34,25 @@ pub struct MeasureVisit {
     /// Half-open written interval within this measure, in quarter-note units.
     pub source_start: ScoreTime,
     pub source_end: ScoreTime,
+    /// The last written note/rest can have a different duration on the final
+    /// return to Fine. The source interval stays in written coordinates.
+    pub fine_tail: Option<FineTail>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FineTail {
+    pub onset: ScoreTime,
+    pub written_duration: ScoreTime,
+    pub actual_duration: ScoreTime,
 }
 
 impl MeasureVisit {
     pub fn performed_end(&self) -> ScoreTime {
         self.performed_start
             .add(self.source_end.subtract(self.source_start))
+            .add(self.fine_tail.map_or(ScoreTime::default(), |tail| {
+                tail.actual_duration.subtract(tail.written_duration)
+            }))
     }
 }
 
@@ -80,6 +93,95 @@ struct Navigation {
 struct RepeatFrame {
     start: (usize, ScoreTime),
     pass: u16,
+}
+
+fn numeric_fine_duration(value: &str) -> Option<ScoreTime> {
+    // MusicXML does not state a unit for numeric Fine. A published
+    // nwc2musicxml D.C. al Fine fixture uses divisions=480, a final half note
+    // with duration=960, and fine=3. Interpreting 3 as quarter notes produces
+    // its intended three-beat ending; treating it as divisions would produce
+    // a 3/480-beat ending. See TestFiles/TestDCalFine.xml in musescore/nwc2musicxml.
+    let (whole, fraction) = value.trim().split_once('.').unwrap_or((value.trim(), ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() > 3
+        || (value.contains('.') && fraction.is_empty())
+    {
+        return None;
+    }
+    let scale = 10_u32.checked_pow(fraction.len() as u32)?;
+    let units = whole
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(u64::from(scale))?
+        .checked_add(if fraction.is_empty() {
+            0
+        } else {
+            fraction.parse::<u64>().ok()?
+        })?;
+    if units == 0 || units > u64::try_from(i64::MAX).ok()? {
+        return None;
+    }
+    let duration = ScoreTime::new(units as i64, scale);
+    (duration <= ScoreTime::new(64, 1)).then_some(duration)
+}
+
+fn numeric_fine_tail(
+    part: &Part,
+    index: usize,
+    offset: ScoreTime,
+    value: &str,
+) -> Result<FineTail, String> {
+    let measure = &part.measures[index];
+    let actual_duration = numeric_fine_duration(value).ok_or_else(|| {
+        "数值 Fine 须为大于零、最多三位小数且不超过 64 拍的四分音符时值".to_string()
+    })?;
+    let terminal: Vec<_> = measure
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            ScoreEvent::Note(note)
+                if !note.grace
+                    && note.duration > ScoreTime::default()
+                    && note.onset.subtract(measure.start).add(note.duration) == offset =>
+            {
+                Some(note)
+            }
+            _ => None,
+        })
+        .collect();
+    let Some(last) = terminal.first() else {
+        return Err("数值 Fine 前没有在该位置结束的音符或休止符".into());
+    };
+    let onset = last.onset.subtract(measure.start);
+    if terminal.iter().any(|note| {
+        note.onset != last.onset
+            || note.duration != last.duration
+            || note.staff != last.staff
+            || note.voice != last.voice
+            || note.pitch.is_none() != last.pitch.is_none()
+            || !note.ties.is_empty()
+    }) || !last.ties.is_empty()
+        || measure.events.iter().any(|event| {
+            matches!(event, ScoreEvent::Note(note)
+                if !note.grace
+                    && note.duration > ScoreTime::default()
+                    && note.onset.subtract(measure.start) < offset
+                    && note.onset.subtract(measure.start).add(note.duration) > onset
+                    && (note.onset != last.onset
+                        || note.duration != last.duration
+                        || note.staff != last.staff
+                        || note.voice != last.voice))
+        })
+    {
+        return Err("数值 Fine 涉及多个声部、谱表或延音线，无法唯一确定末音时值".into());
+    }
+    Ok(FineTail {
+        onset,
+        written_duration: last.duration,
+        actual_duration,
+    })
 }
 
 fn forward_boundaries(
@@ -273,11 +375,9 @@ fn navigation(
                 }
                 if let Some(v) = sound.attributes.get("fine") {
                     if v != "yes" {
-                        diagnose(
-                            plan,
-                            Some(index),
-                            "数值 Fine 的最后音延长时值尚未支持，请使用明确时值与 fine=yes".into(),
-                        );
+                        if let Err(message) = numeric_fine_tail(part, index, offset, v) {
+                            diagnose(plan, Some(index), message);
+                        }
                     }
                 }
                 for kind in ["segno", "coda"] {
@@ -390,13 +490,10 @@ fn navigation(
                 diagnose(plan, Some(index), "文字 Fine 的位置超出本小节".into());
                 continue;
             }
-            if !marks[index].iter().any(|mark| {
-                mark.offset == offset
-                    && mark
-                        .attributes
-                        .get("fine")
-                        .is_some_and(|value| value == "yes")
-            }) {
+            if !marks[index]
+                .iter()
+                .any(|mark| mark.offset == offset && mark.attributes.contains_key("fine"))
+            {
                 marks[index].push(Navigation {
                     offset,
                     attributes: BTreeMap::from([("fine".into(), "yes".into())]),
@@ -595,6 +692,26 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                 let (kind, label, key) = commands.pop().unwrap();
                 action = Some((kind, n.offset, label, key, n.passes.is_some()));
             }
+            let fine_tail = action.as_ref().and_then(|(kind, offset, value, _, _)| {
+                (kind == &"fine" && value != "yes")
+                    .then(|| numeric_fine_tail(part, cursor, *offset, value))
+            });
+            let fine_tail = match fine_tail {
+                Some(Err(message)) => {
+                    diagnose(&mut plan, Some(cursor), message);
+                    return plan;
+                }
+                Some(Ok(tail)) if tail.onset < source_start => {
+                    diagnose(
+                        &mut plan,
+                        Some(cursor),
+                        "数值 Fine 的末音跨过当前反复起点，无法确定实际演奏时值".into(),
+                    );
+                    return plan;
+                }
+                Some(Ok(tail)) => Some(tail),
+                None => None,
+            };
             let source_end = action
                 .as_ref()
                 .map_or(measure.duration, |(_, offset, _, _, _)| *offset)
@@ -608,7 +725,7 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                     );
                     break;
                 };
-                plan.visits.push(MeasureVisit {
+                let visit = MeasureVisit {
                     part_id: part.id.clone(),
                     source_measure_ordinal: cursor as u32,
                     occurrence_ordinal,
@@ -616,8 +733,10 @@ pub fn build_playback_plan(part: &Part, limits: PlaybackLimits) -> PlaybackPlan 
                     performed_start: performed_cursor,
                     source_start,
                     source_end,
-                });
-                performed_cursor = performed_cursor.add(source_end.subtract(source_start));
+                    fine_tail,
+                };
+                performed_cursor = visit.performed_end();
+                plan.visits.push(visit);
             }
         }
         if let Some(next_forward) = next_forward {
@@ -756,10 +875,17 @@ pub fn expand_event_occurrences(part: &Part, plan: &PlaybackPlan) -> Vec<Perform
             }
             let clipped_onset = relative_onset.max(visit.source_start);
             let duration = duration.map(|d| {
-                relative_onset
-                    .add(d)
-                    .min(visit.source_end)
-                    .subtract(clipped_onset)
+                if let Some(tail) = visit
+                    .fine_tail
+                    .filter(|tail| relative_onset == tail.onset && d == tail.written_duration)
+                {
+                    tail.actual_duration
+                } else {
+                    relative_onset
+                        .add(d)
+                        .min(visit.source_end)
+                        .subtract(clipped_onset)
+                }
             });
             result.push(PerformedScoreEvent {
                 id: ScoreEventOccurrenceId {
@@ -882,6 +1008,101 @@ mod tests {
             .iter()
             .map(|visit| visit.source_measure_ordinal)
             .collect()
+    }
+
+    #[test]
+    fn numeric_fine_changes_only_the_returned_terminal_occurrence() {
+        for (fine, expected) in [("0.5", ScoreTime::new(1, 2)), ("2", ScoreTime::new(2, 1))] {
+            let source = format!(
+                r#"<measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+                <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note><sound fine="{fine}"/></measure>
+                <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><sound dacapo="yes"/></measure>"#
+            );
+            let part = part(&source);
+            let plan = build_playback_plan(&part, PlaybackLimits::default());
+            assert!(plan.complete, "{fine}: {:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1]);
+            assert_eq!(plan.visits[1].fine_tail, None);
+            assert_eq!(plan.visits[4].fine_tail.unwrap().actual_duration, expected);
+            assert_eq!(
+                plan.visits[4].performed_end(),
+                ScoreTime::new(4, 1).add(expected)
+            );
+            let notes: Vec<_> = expand_event_occurrences(&part, &plan)
+                .into_iter()
+                .filter(|event| event.id.source_id.kind == crate::musicxml::ScoreEventKind::Note)
+                .collect();
+            assert_eq!(notes[1].duration, Some(ScoreTime::new(1, 1)));
+            assert_eq!(notes[4].duration, Some(expected));
+            assert_ne!(notes[1].id, notes[4].id);
+            assert_eq!(notes[1].id.source_id, notes[4].id.source_id);
+        }
+    }
+
+    #[test]
+    fn numeric_fine_three_is_three_quarter_notes_even_with_480_divisions() {
+        // Mirrors the divisions=480, half-note ending, fine="3" relationship
+        // in musescore/nwc2musicxml TestFiles/TestDCalFine.xml.
+        let source = r#"<measure number="1"><attributes><divisions>480</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>480</duration></note></measure>
+        <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>960</duration></note><direction><direction-type><words>Fine</words></direction-type><sound fine="3"/></direction></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>480</duration></note><sound dacapo="yes"/></measure>"#;
+        let part = part(source);
+        let plan = build_playback_plan(&part, PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(
+            plan.visits
+                .last()
+                .unwrap()
+                .fine_tail
+                .unwrap()
+                .actual_duration,
+            ScoreTime::new(3, 1)
+        );
+        let occurrences = expand_event_occurrences(&part, &plan);
+        assert_eq!(
+            occurrences.iter().filter_map(|e| e.duration).last(),
+            Some(ScoreTime::new(3, 1))
+        );
+    }
+
+    #[test]
+    fn numeric_fine_accepts_a_terminal_rest_and_reports_ambiguous_voices() {
+        let base = r#"<measure number="1"><attributes><divisions>4</divisions></attributes><note><rest/><duration>4</duration></note><sound fine="2"/></measure>
+        <measure number="2"><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><sound dacapo="yes"/></measure>"#;
+        let plan = build_playback_plan(&part(base), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(
+            plan.visits.last().unwrap().performed_end(),
+            ScoreTime::new(4, 1)
+        );
+
+        let ambiguous = base.replace(
+            r#"<sound fine="2"/>"#,
+            r#"<backup><duration>4</duration></backup><note><rest/><duration>4</duration><voice>2</voice></note><sound fine="2"/>"#,
+        );
+        let plan = build_playback_plan(&part(&ambiguous), PlaybackLimits::default());
+        assert!(!plan.complete);
+        assert!(
+            plan.diagnostics
+                .iter()
+                .any(|d| d.message.contains("多个声部"))
+        );
+
+        let printed = base.replace(
+            r#"<sound fine="2"/>"#,
+            r#"<direction><direction-type><words>Fine</words></direction-type><sound fine="2"/></direction>"#,
+        );
+        let plan = build_playback_plan(&part(&printed), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(
+            plan.visits
+                .last()
+                .unwrap()
+                .fine_tail
+                .unwrap()
+                .actual_duration,
+            ScoreTime::new(2, 1)
+        );
     }
 
     #[test]

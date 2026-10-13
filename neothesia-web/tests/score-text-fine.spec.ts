@@ -108,3 +108,33 @@ test("文字 D.C. al Fine 和文字 Fine 生成准确演奏，歧义预览不能
     0, 1, 2, 0, 1,
   ]);
 });
+
+test("数值 Fine 把返回后的末音延为指定拍数，谱面与曲长一致", async ({ page, request }) => {
+  test.setTimeout(60000);
+  test.skip(!process.env.NEOTHESIA_TEXT_FINE_TEST_DATA, "需要独立的文字跳转测试服务");
+  const xml = `<score-partwise version="4.0"><work><work-title>数值 Fine 练习</work-title></work><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+    <measure number="1"><attributes><divisions>480</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes><direction><sound tempo="60"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>480</duration><type>quarter</type></note><note><pitch><step>D</step><octave>4</octave></pitch><duration>960</duration><type>half</type></note><direction><direction-type><words>Fine</words></direction-type><sound fine="3"/></direction></measure>
+    <measure number="2"><note><pitch><step>E</step><octave>4</octave></pitch><duration>480</duration><type>quarter</type></note><direction><direction-type><words>D.C. al Fine</words></direction-type><sound dacapo="yes"/></direction></measure>
+    </part></score-partwise>`;
+  const response = await request.post(`${api}/api/command`, {
+    headers: { "X-Neothesia-Client": "web" },
+    data: { type: "importScore", bytes: [...Buffer.from(xml)], name: "数值 Fine 练习.musicxml", default_bpm: 60 },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const imported = await response.json();
+  expect(imported.notes.map((note: { pitch: number }) => note.pitch)).toEqual([60, 62, 64, 60, 62]);
+  expect(imported.notes.map((note: { start: number }) => note.start)).toEqual([0, 1, 3, 4, 5]);
+  expect(imported.notes.at(-1).duration).toBeCloseTo(3, 3);
+  expect(imported.duration).toBeCloseTo(8, 3);
+  const routeResponse = await request.post(`${api}/api/command`, {
+    headers: { "X-Neothesia-Client": "web" }, data: { type: "score" },
+  });
+  expect(routeResponse.ok(), await routeResponse.text()).toBeTruthy();
+  const route = await routeResponse.json();
+  expect(route.route.complete).toBe(true);
+  expect(route.route.visits.map((visit: { measure: number }) => visit.measure)).toEqual([0, 1, 0]);
+  expect(route.route.visits.at(-1).end).toBeCloseTo(8, 3);
+  await page.goto("/");
+  await page.getByRole("button", { name: "乐谱", exact: true }).click();
+  await expect(page.locator('.score-paper g.note[role="button"]')).toHaveCount(3);
+});

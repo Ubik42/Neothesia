@@ -249,6 +249,22 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
         return Err("谱面含未支持的移调，请提供实际音高谱面".into());
     }
     let score = normalized(source)?;
+    if score.parts.len() > 1
+        && score
+            .parts
+            .iter()
+            .flat_map(|part| &part.measures)
+            .flat_map(|measure| &measure.events)
+            .any(|event| {
+                matches!(event, ScoreEvent::Direction(direction)
+                if direction.navigation.iter().any(|mark|
+                    mark.attributes.get("fine").is_some_and(|value| value != "yes")))
+            })
+    {
+        return Err(
+            "数值 Fine 在多个分谱中可能对应不同末音或休止符，请先校对并拆成唯一演奏声部".into(),
+        );
+    }
     let master = score
         .parts
         .iter()
@@ -345,6 +361,12 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
             }
         }
     }
+    for visit in &plan.visits {
+        if let Some(tail) = visit.fine_tail {
+            include(tail.actual_duration)?;
+            include(visit.performed_end())?;
+        }
+    }
     let tick = |t: ScoreTime| -> Result<u64, String> {
         if t.numerator < 0 {
             return Err("谱面存在负时间音符或标记".into());
@@ -431,6 +453,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
     for visit in &plan.visits {
         let m = &master.measures[visit.source_measure_ordinal as usize];
         let at = tick(visit.performed_start)?;
+        let performed_end = tick(visit.performed_end())?;
         let source = tick(m.start.add(visit.source_start))?;
         tempos.insert(
             at,
@@ -441,7 +464,10 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
         );
         for (&written, &value) in written_tempos.range(source..tick(m.start.add(visit.source_end))?)
         {
-            tempos.insert(at + written - source, value);
+            let position = at + written - source;
+            if position <= performed_end {
+                tempos.insert(position, value);
+            }
         }
     }
     let mut tracks = vec![];
@@ -527,10 +553,10 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                 let index = visit.source_measure_ordinal as usize;
                 let m = &part.measures[index];
                 let start = tick(visit.performed_start)?;
-                let extent = tick(visit.source_end.subtract(visit.source_start))?;
+                let visit_end = tick(visit.performed_end())?;
                 let source = m.start.add(visit.source_start);
                 let source_end = m.start.add(visit.source_end);
-                total = total.max(start + extent);
+                total = total.max(visit_end);
                 let mut velocity = bases[index].0;
                 if previous_end != Some(source) {
                     ties.clear();
@@ -544,7 +570,10 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                         if a.onset <= source {
                             meters.insert(start, meter(t)?);
                         } else if a.onset < source_end {
-                            meters.insert(start + tick(a.onset.subtract(source))?, meter(t)?);
+                            let at = start + tick(a.onset.subtract(source))?;
+                            if at <= visit_end {
+                                meters.insert(at, meter(t)?);
+                            }
                         }
                     }
                 }
@@ -579,6 +608,9 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                                 continue;
                             }
                             let at = start + tick(d.onset.subtract(source))?;
+                            if at > visit_end {
+                                continue;
+                            }
                             if d.staff.is_none_or(|s| s == staff) {
                                 velocity = dynamic(&d.dynamics, velocity);
                                 for p in &d.pedals {
@@ -625,8 +657,17 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                             }
                             let pitch = pitch(written)?;
                             let onset = start + tick(n.onset.max(source).subtract(source))?;
-                            let end = start
-                                + tick(n.onset.add(n.duration).min(source_end).subtract(source))?;
+                            let end = if let Some(tail) = visit.fine_tail.filter(|tail| {
+                                n.onset.subtract(m.start) == tail.onset
+                                    && n.duration == tail.written_duration
+                            }) {
+                                onset + tick(tail.actual_duration)?
+                            } else {
+                                start
+                                    + tick(
+                                        n.onset.add(n.duration).min(source_end).subtract(source),
+                                    )?
+                            };
                             let key = (pitch, n.voice.clone());
                             let stop = n.ties.contains(&SpanType::Stop);
                             let begin = n.ties.contains(&SpanType::Start);
@@ -904,6 +945,103 @@ mod tests {
                 .note,
             62
         );
+    }
+    #[test]
+    fn numeric_fine_keeps_midi_notes_occurrences_and_end_of_track_in_sync() {
+        for (fine, final_end) in [("0.5", 4320_u64), ("2", 5760_u64)] {
+            let xml = format!(
+                r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+            <measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+            <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note><sound fine="{fine}"/></measure>
+            <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><sound dacapo="yes"/></measure>
+            </part></score-partwise>"#
+            );
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let performance = generate(&score, 120).unwrap();
+            let notes = &performance.tracks[0].notes;
+            assert_eq!(
+                notes.iter().map(|note| note.pitch).collect::<Vec<_>>(),
+                [60, 62, 64, 60, 62]
+            );
+            assert_eq!(notes[1].end, 1920);
+            assert_eq!(notes[4].start, 3840);
+            assert_eq!(notes[4].end, final_end);
+            for track in &performance.smf.tracks {
+                let end = track
+                    .iter()
+                    .map(|event| u64::from(event.delta.as_int()))
+                    .sum::<u64>();
+                assert_eq!(end, final_end);
+                assert!(matches!(
+                    track.last().unwrap().kind,
+                    TrackEventKind::Meta(MetaMessage::EndOfTrack)
+                ));
+            }
+            let file = midi_file::MidiFile::from_smf("numeric-fine", &performance.smf).unwrap();
+            assert!((file.duration.as_secs_f64() - final_end as f64 / 1920.0).abs() < 0.00001);
+        }
+    }
+
+    #[test]
+    fn numeric_fine_rest_extends_the_silent_midi_tail() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+        <measure number="2"><note><rest/><duration>4</duration></note><sound fine="2"/></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><sound dacapo="yes"/></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(
+            performance.tracks[0]
+                .notes
+                .iter()
+                .map(|note| note.pitch)
+                .collect::<Vec<_>>(),
+            [60, 64, 60]
+        );
+        for track in &performance.smf.tracks {
+            assert_eq!(
+                track
+                    .iter()
+                    .map(|event| u64::from(event.delta.as_int()))
+                    .sum::<u64>(),
+                5760
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_fine_rejects_multiple_parts_with_unresolved_final_durations() {
+        let xml = r#"<score-partwise version="4.0"><part-list>
+        <score-part id="P1"><part-name>Upper</part-name></score-part>
+        <score-part id="P2"><part-name>Lower</part-name></score-part>
+        </part-list>
+        <part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><sound fine="2"/></measure><measure number="2"><note><rest/><duration>4</duration></note><sound dacapo="yes"/></measure></part>
+        <part id="P2"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration></note><note><rest/><duration>2</duration></note></measure><measure number="2"><note><rest/><duration>4</duration></note></measure></part>
+        </score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        assert!(generate(&score, 120).err().unwrap().contains("多个分谱"));
+    }
+
+    #[test]
+    fn shortened_numeric_fine_omits_later_pedal_events_from_final_return() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure>
+        <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note><direction><direction-type><pedal type="start"/></direction-type><offset>-1</offset></direction><sound fine="0.5"/></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note><sound dacapo="yes"/></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        assert_eq!(performance.tracks[0].notes.last().unwrap().end, 4320);
+        for track in &performance.smf.tracks {
+            assert_eq!(
+                track
+                    .iter()
+                    .map(|event| u64::from(event.delta.as_int()))
+                    .sum::<u64>(),
+                4320
+            );
+        }
     }
     #[test]
     fn partial_bar_return_clips_sound_and_alignment_and_propagates_to_other_parts() {

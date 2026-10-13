@@ -30,6 +30,13 @@ type Summary = {
   duplicatePerformances?: number;
   performanceErrors?: { contentId: string; id: string; error: string }[];
   metadataTemplates?: number;
+  metadataHistory?: number;
+  metadataHistorySongs?: number;
+  metadataHistoryAdded?: number;
+  metadataHistoryDuplicates?: number;
+  metadataHistoryUnmatched?: number;
+  metadataHistoryAmbiguous?: number;
+  metadataHistoryError?: string | null;
   metadataTemplateRows?: { name: string; rules: Partial<Rules> }[];
   templateError?: string | null;
   learning?: number;
@@ -236,6 +243,10 @@ export function PracticeBackupDialog({
             duplicateRecords: number;
             renamedRecords: number;
             trimmedRecords: number;
+            metadataHistoryAdded?: number;
+            metadataHistoryDuplicates?: number;
+            metadataHistoryUnmatched?: number;
+            metadataHistoryAmbiguous?: number;
           }>({
             type: "importStagedPracticeBackup",
             token: summary.token,
@@ -247,7 +258,7 @@ export function PracticeBackupDialog({
           setWorkspace(null);
           batchSaved.current = false;
           setMessage(
-            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：新增记录 ${result.addedRecords}，跳过重复 ${result.duplicateRecords}，区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。累计时长新增 ${result.addedTimeEntries ?? 0} 条，相同条目已跳过。本机导入前副本已保留。`,
+            `${savedCount ? `整理批次已保存 ${savedCount} 个。` : ""}导入完成：曲目资料历史新增 ${result.metadataHistoryAdded ?? 0} 条、跳过重复 ${result.metadataHistoryDuplicates ?? 0} 条、未找到同内容曲目 ${result.metadataHistoryUnmatched ?? 0} 条、多处同内容路径无法确定归属 ${result.metadataHistoryAmbiguous ?? 0} 条。成绩新增 ${result.addedRecords} 条、跳过重复 ${result.duplicateRecords} 条、区分同编号记录 ${result.renamedRecords}${result.trimmedRecords ? `；每曲保留上限淘汰最早 ${result.trimmedRecords} 条` : ""}。回放新增 ${result.importedPerformances ?? 0} 次、恢复/替换 ${result.replacedPerformances ?? 0} 次、保留本地 ${result.keptPerformances ?? 0} 次、跳过重复 ${result.duplicatePerformances ?? 0} 次${result.trimmedPerformances ? `，随淘汰成绩跳过 ${result.trimmedPerformances} 次` : ""}。累计时长新增 ${result.addedTimeEntries ?? 0} 条。本机导入前副本已保留。`,
           );
           try {
             await changed();
@@ -284,7 +295,8 @@ export function PracticeBackupDialog({
           summary.exercises +
           (summary.trackSounds ?? 0) +
           (summary.trackAppearances ?? 0) +
-          (summary.metadataTemplates ?? 0)));
+          (summary.metadataTemplates ?? 0) +
+          (summary.metadataHistory ?? 0)));
   return (
     <div
       className="modal-backdrop"
@@ -314,13 +326,13 @@ export function PracticeBackupDialog({
           </button>
         </div>
         <p className="parameter-help">
-          备份按曲目内容身份关联。MIDI、谱面、指法、逐音分手及拍号修正请通过曲目包迁移；这里保留练习计划、日期安排、曲目学习资料、片段、阶梯、资料模板、成绩历史和已有演奏回放。设备选择与设备校准保留本机设置。
+          备份按曲目内容身份关联。MIDI、谱面、指法、逐音分手及拍号修正请通过曲目包迁移；这里保留练习计划、日期安排、曲目学习资料、资料修改历史、片段、阶梯、资料模板、成绩历史和已有演奏回放。设备选择与设备校准保留本机设置。
         </p>
         <div className="practice-backup-selection">
           {[
             ["plans", "计划、日课与曲目学习"],
             ["records", "个人成绩与演奏回放"],
-            ["presets", "片段、阶梯、技术练习、音轨与资料模板"],
+            ["presets", "片段、阶梯、技术练习、音轨、资料模板与修改历史"],
           ].map(([key, label]) => (
             <label key={key}>
               <input
@@ -610,6 +622,14 @@ export function PracticeBackupDialog({
                   </dd>
                 </div>
                 <div>
+                  <dt>曲目资料修改历史 / 曲目数</dt>
+                  <dd>{summary.metadataHistory ?? 0} / {summary.metadataHistorySongs ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>资料修改历史预计新增 / 重复 / 未定位 / 多路径待核对</dt>
+                  <dd>{summary.metadataHistoryAdded ?? 0} / {summary.metadataHistoryDuplicates ?? 0} / {summary.metadataHistoryUnmatched ?? 0} / {summary.metadataHistoryAmbiguous ?? 0}</dd>
+                </div>
+                <div>
                   <dt>同编号内容冲突 · 计划 / 日期 / 方案</dt>
                   <dd>
                     {summary.conflicts} / {summary.dayConflicts} /{" "}
@@ -625,6 +645,15 @@ export function PracticeBackupDialog({
                   本机与备份有 {summary.timeLedgerConflicts}{" "}
                   条同编号累计时长不同。系统会拒绝导入这部分成绩资料，以免重复计算。您可以取消“个人成绩与演奏回放”，先导入其他资料。
                 </p>
+              )}
+              {!!summary.metadataHistoryError && selection.presets && (
+                <p role="alert">本机资料修改历史无法安全合并：{summary.metadataHistoryError}。请先修复本机历史，或取消“片段、阶梯、技术练习、音轨、资料模板与修改历史”。</p>
+              )}
+              {!!summary.metadataHistoryUnmatched && selection.presets && (
+                <p className="parameter-help">有 {summary.metadataHistoryUnmatched} 条资料修改历史没有找到已索引的同内容 MIDI。请先将对应曲目加入本机曲库并重新预览备份。</p>
+              )}
+              {!!summary.metadataHistoryAmbiguous && selection.presets && (
+                <p className="parameter-help">有 {summary.metadataHistoryAmbiguous} 条资料修改历史对应本机多个相同内容路径。软件不会猜测修改归属。请先整理重复路径并重新预览备份。</p>
               )}
               <p className="parameter-help">
                 本机已有相同成绩 {summary.duplicateRecords} 条，合并时跳过。
@@ -784,6 +813,7 @@ export function PracticeBackupDialog({
                 disabled={
                   busy ||
                   (selection.records && !!summary.timeLedgerConflicts) ||
+                  (selection.presets && !!summary.metadataHistoryError) ||
                   (!available &&
                     !(
                       workspace &&

@@ -1,6 +1,7 @@
 use neothesia_core::library::SongMetadata;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Record {
@@ -17,6 +18,20 @@ struct Journal {
     version: u8,
     path: PathBuf,
     records: Vec<Record>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Portable {
+    pub source_path: PathBuf,
+    pub content_id: String,
+    pub records: Vec<Record>,
+}
+pub struct Merge {
+    pub files: BTreeMap<String, Vec<u8>>,
+    pub added: usize,
+    pub duplicates: usize,
+    pub unmatched: usize,
+    pub ambiguous: usize,
 }
 pub const FIELDS: &[&str] = &[
     "title",
@@ -53,14 +68,131 @@ fn load(data: &Path, path: &Path) -> Result<Journal, String> {
         || crate::library_workspace::key(&journal.path) != crate::library_workspace::key(path)
         || journal.records.len() > 200
         || journal.records.iter().any(|r| {
-            r.id.len() != 64
-                || r.content_id.len() != 64
+            !hex(&r.id)
+                || !hex(&r.content_id)
                 || !["prepared", "applied", "failed"].contains(&r.state.as_str())
+                || r.restored_from.as_ref().is_some_and(|id| !hex(id))
         })
     {
         return Err("资料历史记录无效，未覆盖".into());
     }
     Ok(journal)
+}
+fn hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+fn validate_portable(row: &Portable) -> Result<(), String> {
+    if !hex(&row.content_id)
+        || row.source_path.as_os_str().is_empty()
+        || row.source_path.to_string_lossy().len() > 4096
+        || row.records.is_empty()
+        || row.records.len() > 200
+    {
+        return Err("备份曲目资料历史身份或数量无效".into());
+    }
+    let mut ids = BTreeSet::new();
+    for record in &row.records {
+        if !hex(&record.id)
+            || record.content_id != row.content_id
+            || record.state != "applied"
+            || record.restored_from.as_ref().is_some_and(|id| !hex(id))
+            || !ids.insert(&record.id)
+            || changed(&record.before, &record.after).is_empty()
+        {
+            return Err("备份曲目资料历史记录无效".into());
+        }
+    }
+    Ok(())
+}
+pub fn validate_backup(rows: &[Portable]) -> Result<(), String> {
+    if rows.len() > 10000 || rows.iter().map(|r| r.records.len()).sum::<usize>() > 100_000 {
+        return Err("备份曲目资料历史超过容量限制".into());
+    }
+    for row in rows { validate_portable(row)?; }
+    Ok(())
+}
+pub fn snapshot(data: &Path) -> Result<Vec<Portable>, String> {
+    let folder = data.join("metadata-history");
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(format!("资料历史目录无法读取：{e}")),
+    };
+    let mut result = vec![];
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".json") { continue; }
+        let bytes = std::fs::read(entry.path()).map_err(|e| e.to_string())?;
+        if bytes.len() > 64_000_000 { return Err("资料历史文件过大".into()); }
+        let journal: Journal = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("资料历史无法读取，备份已中止：{e}"))?;
+        if name != file(data, &journal.path).file_name().unwrap().to_string_lossy() {
+            return Err("资料历史路径校验失败，备份已中止".into());
+        }
+        let checked = load(data, &journal.path)?;
+        let mut grouped: BTreeMap<String, Vec<Record>> = BTreeMap::new();
+        for record in checked.records.into_iter().filter(|r| r.state == "applied") {
+            grouped.entry(record.content_id.clone()).or_default().push(record);
+        }
+        for (content_id, records) in grouped {
+            let row = Portable { source_path: journal.path.clone(), content_id, records };
+            validate_portable(&row)?;
+            result.push(row);
+        }
+    }
+    validate_backup(&result)?;
+    Ok(result)
+}
+pub fn merge(data: &Path, workspace: &mut crate::library_workspace::Workspace, incoming: &[Portable]) -> Result<Merge, String> {
+    validate_backup(incoming)?;
+    let mut result = Merge { files: BTreeMap::new(), added: 0, duplicates: 0, unmatched: 0, ambiguous: 0 };
+    if incoming.is_empty() { return Ok(result); }
+    let mut by_content: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    let indexed = workspace.entries.values().map(|entry| entry.path.clone()).collect::<Vec<_>>();
+    for path in indexed {
+        let entry = workspace.inspect(path.clone(), true)?;
+        if entry.available && entry.error.is_none() {
+            if let Some(cid) = entry.content_id {
+                let paths = by_content.entry(cid).or_default();
+                if !paths.iter().any(|existing| crate::library_workspace::key(existing) == crate::library_workspace::key(&path)) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+    let mut planned: BTreeMap<String, Journal> = BTreeMap::new();
+    for row in incoming {
+        let candidates = by_content.get(&row.content_id).map(Vec::as_slice).unwrap_or(&[]);
+        let exact = candidates.iter().find(|path| crate::library_workspace::key(path) == crate::library_workspace::key(&row.source_path));
+        let target = if let Some(path) = exact { Some(path.clone()) } else if candidates.len() == 1 { Some(candidates[0].clone()) } else { None };
+        let Some(target) = target else {
+            if candidates.is_empty() { result.unmatched += row.records.len(); }
+            else { result.ambiguous += row.records.len(); }
+            continue;
+        };
+        let name = file(data, &target).file_name().unwrap().to_string_lossy().into_owned();
+        if !planned.contains_key(&name) { planned.insert(name.clone(), load(data, &target)?); }
+        let journal = planned.get_mut(&name).unwrap();
+        for record in &row.records {
+            if let Some(local) = journal.records.iter().find(|r| r.id == record.id) {
+                if local.content_id != record.content_id || serde_json::to_vec(local).map_err(|e|e.to_string())? != serde_json::to_vec(record).map_err(|e|e.to_string())? {
+                    return Err("曲目资料历史编号发生内容冲突，导入已中止".into());
+                }
+                result.duplicates += 1;
+            } else {
+                journal.records.push(record.clone());
+                result.added += 1;
+            }
+        }
+    }
+    for (name, journal) in planned {
+        if journal.records.len() > 200 {
+            return Err("合并后的单曲资料历史超过 200 条，请先整理本地历史".into());
+        }
+        result.files.insert(name, serde_json::to_vec_pretty(&journal).map_err(|e|e.to_string())?);
+    }
+    Ok(result)
 }
 fn write(data: &Path, journal: &Journal) -> Result<(), String> {
     let path = file(data, &journal.path);

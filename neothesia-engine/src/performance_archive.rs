@@ -581,11 +581,6 @@ impl Player {
         self.persist()?;
         let mut result = self.command(Command::CurrentSong)?;
         result["practiceRange"] = serde_json::json!({"start":start,"end":end,"measure":measure,"reference":reference,"songTime":target.song_time});
-        result["paperFocus"] = serde_json::json!({
-            "contentId":cid,"measure":measure,"historyId":id,"reference":reference,
-            "pitch":target.pitch,"track":target.track,"songTime":target.song_time,
-            "startMeasure":start,"endMeasure":end,
-        });
         let candidates: Vec<_> = self
             .notes
             .iter()
@@ -595,6 +590,23 @@ impl Player {
                     && (n.start.as_secs_f64() - target.song_time).abs() < 0.001
             })
             .collect();
+        result["paperFocus"] = serde_json::json!({
+            "contentId":cid,"measure":measure,"historyId":id,"reference":reference,
+            "pitch":target.pitch,"track":target.track,"songTime":target.song_time,
+            "startMeasure":start,"endMeasure":end,
+        });
+        if candidates.len()==1 {
+            result["paperFocus"]["index"]=serde_json::json!(candidates[0].index);
+            if let Ok(papers)=crate::score_attachments::list(&self.data,cid) {
+                let active=papers["active"].as_str();
+                if let Some(anchor)=papers["attachments"].as_array().into_iter().flatten()
+                    .find(|a|a["id"].as_str()==active)
+                    .and_then(|a|a["noteAnchors"].as_array())
+                    .and_then(|rows|rows.iter().find(|n|n["track"].as_u64()==Some(target.track as u64)&&n["index"].as_u64()==Some(candidates[0].index as u64)&&n["pitch"].as_u64()==Some(target.pitch as u64)&&n["measure"].as_u64()==Some(measure as u64)&&n["grid"].as_str()==Some(self.grid_signature().as_str()))) {
+                    result["paperFocus"]["noteAnchor"]=anchor.clone();
+                }
+            }
+        }
         result["scoreFocus"] = if candidates.len() == 1 && self.notation.is_some() {
             serde_json::json!({"contentId":cid,"scoreRevision":self.score_revision,"historyId":id,"reference":reference,"track":target.track,"index":candidates[0].index,"pitch":target.pitch,"measure":measure,"kind":a.judgments.as_ref().map(|rows|rows.iter().find(|r|r.reference==Some(reference)).map(|r|r.kind.as_str()).unwrap_or("pending")).unwrap_or("approximate")})
         } else {
@@ -897,6 +909,18 @@ mod tests {
         assert_eq!(result["paperFocus"]["track"], archive.references[index].track);
         assert_eq!(result["paperFocus"]["startMeasure"], 3);
         assert_eq!(result["paperFocus"]["endMeasure"], 4);
+        assert_eq!(result["paperFocus"]["index"],result["scoreFocus"]["index"]);
+        let paper=crate::score_attachments::add(&data,&cid,"反复练习谱",b"\x89PNG\r\n\x1a\nrepeat".to_vec(),None).unwrap();
+        let book=paper["active"].as_str().unwrap().to_string();
+        let asset=paper["attachments"][0]["pages"][0]["id"].as_str().unwrap().to_string();
+        let note_index=result["paperFocus"]["index"].as_u64().unwrap() as usize;
+        p.command(Command::EditPaperNoteAnchor{content_id:cid.clone(),book,track:archive.references[index].track,index:note_index,draft:Some(crate::score_attachments::NoteAnchorDraft{pitch:60,measure:3,asset_id:asset,page:1,region:crate::score_attachments::PageRegion{x:0.2,y:0.3,width:0.08,height:0.04}}),expected:None}).unwrap();
+        let exact=p.history_practice_range(&cid,&id,index,0,1).unwrap();
+        assert_eq!(exact["paperFocus"]["noteAnchor"]["index"],note_index);
+        let repeated=p.history_practice_range(&cid,&id,0,0,0).unwrap();
+        assert_ne!(repeated["paperFocus"]["index"],note_index);
+        assert!(repeated["paperFocus"]["noteAnchor"].is_null());
+        p.history_practice_range(&cid,&id,index,0,1).unwrap();
         assert_eq!(result["scoreFocus"]["measure"], 3);
         assert_eq!(result["scoreFocus"]["pitch"], 60);
         assert_eq!(result["scoreFocus"]["kind"], "missed");

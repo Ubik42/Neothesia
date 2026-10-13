@@ -179,7 +179,7 @@ impl Player {
         }
         let manifest = Manifest {
             format: "neothesia-piece".into(),
-            version: if self.meter_map.is_some(){10}else if papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some()||n.width.is_some())||p.mapping.as_ref().is_some_and(|m|m.anchors.iter().any(|a|a.region.is_some()))){9}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.as_ref().is_some_and(|r|r.start_trim>0||r.end_trim>0))){8}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.precise_range.is_some())){7}else if !self.saved_actions()?.is_empty(){6}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.is_some())){5}else if papers.iter().any(|p|!p.annotations.is_empty()){4}else if papers.iter().any(|p|p.mapping.is_some()){3}else{2},
+            version: if papers.iter().any(|p|!p.note_anchors.is_empty()){11}else if self.meter_map.is_some(){10}else if papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some()||n.width.is_some())||p.mapping.as_ref().is_some_and(|m|m.anchors.iter().any(|a|a.region.is_some()))){9}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.as_ref().is_some_and(|r|r.start_trim>0||r.end_trim>0))){8}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.precise_range.is_some())){7}else if !self.saved_actions()?.is_empty(){6}else if self.preferences.passages.get(&id).is_some_and(|p|p.iter().any(|p|p.score_range.is_some())){5}else if papers.iter().any(|p|!p.annotations.is_empty()){4}else if papers.iter().any(|p|p.mapping.is_some()){3}else{2},
             content_id: blake3::hash(&midi).to_hex().to_string(),
             title: self.title.clone(),
             metadata,
@@ -633,6 +633,34 @@ mod tests {
     }
     fn exported(p: &mut Player) -> Vec<u8> {
         serde_json::from_value(p.command(Command::ExportPackage).unwrap()["bytes"].clone()).unwrap()
+    }
+    #[test]
+    fn package_note_anchor_v11_roundtrip_and_midi_identity_validation(){
+        let mut source=prepared();
+        let cid=source.file.as_ref().unwrap().content_id.clone();
+        let paper=score_attachments::add(&source.data,&cid,"逐音练习谱",b"\x89PNG\r\n\x1a\nfirst".to_vec(),None).unwrap();
+        let book=paper["active"].as_str().unwrap().to_string();
+        let asset=paper["attachments"][0]["pages"][0]["id"].as_str().unwrap().to_string();
+        let note=source.notes.first().unwrap();
+        let track=note.track_id;let index=note.index;let pitch=note.note;
+        let measure=source.file.as_ref().unwrap().measures.partition_point(|t|t.as_secs_f64()<=note.start.as_secs_f64());
+        source.command(Command::EditPaperNoteAnchor{content_id:cid.clone(),book:book.clone(),track,index,draft:Some(score_attachments::NoteAnchorDraft{pitch,measure,asset_id:asset,page:1,region:score_attachments::PageRegion{x:0.3,y:0.4,width:0.05,height:0.05}}),expected:None}).unwrap();
+        let bytes=exported(&mut source);
+        let mut package=Package::decode(&bytes).unwrap();assert_eq!(package.manifest.version,11);
+        let mut target=blank();target.command(Command::ImportPackage{bytes:bytes.clone(),policy:"merge".into()}).unwrap();
+        let imported=score_attachments::list(&target.data,&cid).unwrap();
+        assert_eq!(imported["attachments"][0]["noteAnchors"][0]["track"],track);
+        assert_eq!(imported["attachments"][0]["noteAnchors"][0]["index"],index);
+        target.command(Command::ImportPackage{bytes:bytes.clone(),policy:"merge".into()}).unwrap();
+        let imported=score_attachments::list(&target.data,&cid).unwrap();
+        assert_eq!(imported["attachments"][0]["noteAnchors"].as_array().unwrap().len(),1);
+        let local_book=imported["attachments"][0]["id"].as_str().unwrap().to_string();
+        let local_anchor:score_attachments::NoteAnchor=serde_json::from_value(imported["attachments"][0]["noteAnchors"][0].clone()).unwrap();
+        score_attachments::edit_note_anchor(&target.data,&cid,&local_book,track,index,Some(score_attachments::NoteAnchorDraft{pitch,measure,asset_id:local_anchor.asset_id.clone(),page:1,region:score_attachments::PageRegion{x:0.5,y:0.4,width:0.05,height:0.05}}),Some(local_anchor),&target.grid_signature()).unwrap();
+        assert!(target.command(Command::ImportPackage{bytes:bytes.clone(),policy:"merge".into()}).is_err());
+        assert_eq!(score_attachments::list(&target.data,&cid).unwrap()["attachments"][0]["noteAnchors"][0]["region"]["x"],0.5);
+        package.manifest.version=10;assert!(package.encode().is_err());
+        package.manifest.version=11;package.manifest.papers[0].note_anchors[0].pitch=if pitch==60{61}else{60};assert!(package.encode().is_err());
     }
     #[test]
     fn package_ink_v9_roundtrip_and_older_manifest_refusal(){

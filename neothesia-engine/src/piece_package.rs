@@ -29,6 +29,8 @@ pub struct Paper {
     pub mapping:Option<crate::score_attachments::Mapping>,
     #[serde(default,skip_serializing_if="Vec::is_empty")]
     pub annotations:Vec<crate::score_attachments::Annotation>,
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub note_anchors:Vec<crate::score_attachments::NoteAnchor>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,10 +155,11 @@ impl Package {
                 .as_slice(),
         )
         .map_err(|e| format!("曲目包清单无效：{e}"))?;
-        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&manifest.version) {
+        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&manifest.version) {
             return Err("曲目包版本暂不支持".into());
         }
         if manifest.version<10 && manifest.meter_map.is_some(){return Err("分段拍号需要第 10 版曲目包，请使用新版软件重新导出".into());}
+        if manifest.version<11 && manifest.papers.iter().any(|p|!p.note_anchors.is_empty()){return Err("逐音纸谱位置需要第 11 版曲目包，请使用新版软件重新导出".into());}
         if manifest.version<9&&manifest.papers.iter().any(|p|p.annotations.iter().any(|n|n.ink.is_some())){return Err("手写笔迹需要第 9 版曲目包，请使用新版软件重新导出".into());}
         if manifest.version<3&&manifest.papers.iter().any(|p|p.mapping.is_some()){return Err("谱页小节对应需要第 3 版曲目包".into());}
         if manifest.version<4&&manifest.papers.iter().any(|p|!p.annotations.is_empty()){return Err("谱页批注需要第 4 版曲目包".into());}
@@ -238,7 +241,18 @@ impl Package {
         for (id,a) in &manifest.track_appearances{a.validate()?;if !file.tracks.iter().any(|t|t.track_id==*id&&!t.notes.is_empty()){return Err("曲目包音轨名称或颜色的音轨不存在".into())}}
         if manifest.track_sounds.iter().any(|(id,s)| !file.tracks.iter().any(|t|t.track_id==*id&&!t.notes.is_empty())||s.volume>100||s.pan.is_some_and(|p|p>127)||s.program.is_some_and(|p|p>127)){return Err("曲目包音轨声音设置无效".into())}
         if !manifest.track_sounds.is_empty(){let events:Vec<_>=file.tracks.iter().flat_map(|t|t.events.iter().cloned()).collect();crate::track_sound::Routing::build(&events)?;}
-        let bars = crate::Player::sidecar_grid(&file,&neothesia_core::library::SongSidecar{meter:manifest.meter,meter_map:manifest.meter_map.clone(),..Default::default()})?.measures.len();
+        let mut grid_file=file.clone();
+        grid_file.musical_time=crate::Player::sidecar_grid(&file,&neothesia_core::library::SongSidecar{meter:manifest.meter,meter_map:manifest.meter_map.clone(),..Default::default()})?;
+        let bars = grid_file.musical_time.measures.len();
+        let grid=crate::practice_conditions::grid(&grid_file);
+        for paper in &manifest.papers {
+            for anchor in &paper.note_anchors {
+                let note=file.tracks.iter().find(|t|t.track_id==anchor.track).and_then(|t|t.notes.get(anchor.index)).ok_or("曲目包逐音位置的音符身份无效")?;
+                let tick=file.tempo_track.seconds_to_pulses(note.start.as_secs_f64()).round() as u64;
+                let measure=grid_file.musical_time.measures.partition_point(|m|m.start_tick<=tick);
+                if note.note!=anchor.pitch||anchor.grid==grid&&measure!=anchor.measure {return Err("曲目包逐音位置与 MIDI 音符或小节网格不符".into());}
+            }
+        }
         if manifest
             .settings
             .mode

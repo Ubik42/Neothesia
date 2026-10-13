@@ -298,6 +298,7 @@ pub enum Command {
     PreviewPaperPractice{content_id:String,book:String,measure:usize},
     SavePaperPractice{request:paper_practice::Request},
     EditPaperAnnotation{content_id:String,book:String,#[serde(default)] id:Option<String>,draft:Option<score_attachments::AnnotationDraft>,#[serde(default)] expected:Option<score_attachments::Annotation>},
+    EditPaperNoteAnchor{content_id:String,book:String,track:usize,index:usize,draft:Option<score_attachments::NoteAnchorDraft>,#[serde(default)] expected:Option<score_attachments::NoteAnchor>},
     SetPaperMapping{content_id:String,id:String,mapping:Option<score_attachments::Mapping>},
     AddScoreAttachment{content_id:String,name:String,bytes:Vec<u8>,#[serde(default)] append:Option<String>},
     UpdateScoreAttachment{content_id:String,#[serde(default)] id:Option<String>,action:String,#[serde(default)] name:Option<String>,#[serde(default)] view:Option<score_attachments::View>,#[serde(default)] page:usize,#[serde(default)] direction:i32},
@@ -2484,6 +2485,17 @@ impl Player {
                 self.preferences.exercise_presets.retain(|p| p.id != id)
             }
             Command::EditPaperAnnotation{content_id,book,id,draft,expected}=>return score_attachments::edit_annotation(&self.data,&content_id,&book,id.as_deref(),draft,expected),
+            Command::EditPaperNoteAnchor{content_id,book,track,index,draft,expected}=>{
+                let file=self.file.as_ref().filter(|f|f.content_id==content_id).ok_or("曲目已切换，请重新打开谱页音符位置")?;
+                let grid=self.grid_signature();
+                if let Some(d)=&draft {
+                    let candidates:Vec<_>=self.notes.iter().filter(|n|n.track_id==track&&n.index==index).collect();
+                    if candidates.len()!=1||candidates[0].note!=d.pitch {return Err("参考音已改变或存在重复身份，请重新选择音符".into());}
+                    let measure=file.measures.partition_point(|t|t.as_secs_f64()<=candidates[0].start.as_secs_f64());
+                    if measure==0||measure!=d.measure||measure>file.musical_time.measures.len(){return Err("音符所在小节已改变，请重新选择音符".into());}
+                }
+                return score_attachments::edit_note_anchor(&self.data,&content_id,&book,track,index,draft,expected,&grid);
+            }
             Command::EditPaperInk{content_id,book,asset_id,page,expected,strokes}=>return score_attachments::edit_ink(&self.data,&content_id,&book,&asset_id,page,expected,strokes),
             Command::PaperPracticeContext=>return Ok(serde_json::json!({"contentId":self.file.as_ref().map(|f|&f.content_id),"grid":self.grid_signature(),"measures":self.file.as_ref().map_or(0,|f|f.musical_time.measures.len()),"measure":self.snapshot().measure})),
             Command::PreviewPaperPractice{content_id,book,measure}=>return self.preview_paper_practice(&content_id,&book,measure),

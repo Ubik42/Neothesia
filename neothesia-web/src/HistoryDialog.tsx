@@ -15,6 +15,7 @@ export type HistoryPaperTarget = {
   pitch: number;
   track: number;
   songTime: number;
+  index?: number | null;
   startMeasure: number;
   endMeasure: number;
 };
@@ -402,6 +403,8 @@ export function HistoryDialog({
             result.paperFocus.track < 0 ||
             !Number.isFinite(result.paperFocus.songTime) ||
             result.paperFocus.songTime < 0 ||
+            (result.paperFocus.index != null &&
+              (!Number.isSafeInteger(result.paperFocus.index) || result.paperFocus.index < 0)) ||
             !Number.isSafeInteger(result.paperFocus.startMeasure) ||
             !Number.isSafeInteger(result.paperFocus.endMeasure) ||
             result.paperFocus.startMeasure < 1 ||

@@ -121,7 +121,7 @@ test("完整资料导出、批次预览、部分失败重试与仅批次恢复",
   for (const name of [
     "计划、日课与曲目学习",
     "个人成绩与演奏回放",
-    "片段、阶梯、技术练习、音轨与资料模板",
+    "片段、阶梯、技术练习、音轨、资料模板与修改历史",
   ])
     await dialog.getByLabel(name, { exact: true }).uncheck();
   await expect(

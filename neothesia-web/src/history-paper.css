@@ -41,3 +41,70 @@
   color: #54320f;
   font-weight: 700;
 }
+.paper-note-editor {
+  flex-basis: 100%;
+  border-top: 1px solid #3d4852;
+  padding-top: 8px;
+}
+.paper-note-editor > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #e5edf4;
+  font-weight: 600;
+}
+.paper-note-editor-controls,
+.paper-note-anchor-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 7px 0;
+}
+.paper-note-editor-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.paper-note-editor-controls input {
+  width: 74px;
+}
+.paper-note-editor-controls select {
+  max-width: min(440px, 75vw);
+}
+.paper-note-anchor-row {
+  color: #cbd6df;
+  border-top: 1px solid #38434d;
+}
+.paper-note-region {
+  position: absolute !important;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid #2f7e73;
+  border-radius: 3px;
+  background: #53b6a344 !important;
+  color: #164a43;
+  font-size: 11px;
+}
+.paper-note-region span {
+  background: #d9f7ef;
+  padding: 1px 4px;
+  font-weight: 700;
+}
+.paper-note-region.history-target {
+  border-color: #c98234;
+  background: #f2ae504d !important;
+  box-shadow: 0 0 0 4px #382713aa;
+}
+.paper-note-region.history-target span {
+  background: #fff0c9;
+  color: #54320f;
+}
+.paper-note-region.draft {
+  pointer-events: none;
+  border-style: dashed;
+  border-color: #e8ba5e;
+  background: #e8ba5e33 !important;
+}

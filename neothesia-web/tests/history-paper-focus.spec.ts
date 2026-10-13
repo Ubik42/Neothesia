@@ -89,6 +89,37 @@ test("历史问题音先恢复练习，再在自动翻页关闭时定位纸谱",
     await details.getByRole("button", { name: "查看这次演奏", exact: true }).click();
     await details.getByRole("button", { name: "在纸谱中重练演奏第 2 小节参考音 2", exact: true }).click();
   };
+  await reader.locator(".paper-note-editor summary").click();
+  await reader.getByLabel("音符位置演奏小节").fill("2");
+  await expect(reader.getByLabel("纸谱位置目标音")).toContainText("D4");
+  await reader.getByRole("button", { name: "框选音符位置" }).click();
+  const sheet = reader.locator(".paper-annotation-sheet");
+  await sheet.scrollIntoViewIfNeeded();
+  const box = await sheet.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.35, box!.y + box!.height * 0.38);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * 0.43, box!.y + box!.height * 0.47, { steps: 8 });
+  await page.mouse.up();
+  await expect(reader.getByRole("button", { name: "保存音符位置" })).toBeEnabled();
+  await reader.getByRole("button", { name: "保存音符位置" }).click();
+  await expect(reader.getByRole("button", { name: "D4 在第 2 小节的纸谱位置" })).toBeVisible();
+  const savedPaper = await command({ type: "scoreAttachments", content_id: song.contentId });
+  expect(savedPaper.attachments[0].noteAnchors).toHaveLength(1);
+  expect(savedPaper.attachments[0].noteAnchors[0].grid).toBe(practice.grid);
+
+  await page.getByRole("button", { name: "键盘", exact: true }).click();
+  await relaunch();
+  await expect(reader.locator(".paper-history-result")).toContainText("已标出手动核对的目标音符位置");
+  await expect(reader.getByRole("button", { name: "历史参考音 D4 的纸谱位置" })).toHaveClass(/history-target/);
+  await expect(reader.locator(".paper-measure-region.history-target")).toHaveCount(0);
+  await page.screenshot({ path: "../outputs/Neothesia-历史逐音纸谱定位.png" });
+  if (!(await reader.locator(".paper-note-editor").evaluate((element) => (element as HTMLDetailsElement).open)))
+    await reader.locator(".paper-note-editor summary").click();
+  await reader.getByLabel("音符位置演奏小节").fill("2");
+  await reader.getByRole("button", { name: "移除音符位置" }).click();
+  await expect(reader.locator(".paper-note-region:not(.draft)")).toHaveCount(0);
+
   await reader.getByLabel("谱页页码").fill("1");
   await expect(reader.getByLabel("谱页页码")).toHaveValue("1");
   await page.getByRole("button", { name: "键盘", exact: true }).click();
