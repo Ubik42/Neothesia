@@ -25,6 +25,14 @@ fn headless_check() -> bool {
 fn startup_check() -> bool {
     headless_check() || std::env::args().any(|a| a == "--window-check")
 }
+fn startup_stage(label: &str) {
+    if !startup_check() { return; }
+    let Some(path)=std::env::var_os("NEOTHESIA_STARTUP_CHECK_LOG") else { return; };
+    if let Ok(mut file)=std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        use std::io::Write;
+        let _=writeln!(file,"stage={label}");
+    }
+}
 
 #[tauri::command]
 async fn reveal_library_file(state:tauri::State<'_,State>,path:PathBuf)->Result<(),String>{
@@ -56,12 +64,14 @@ async fn native_startup_check(
     if !startup_check() {
         return Err("启动检查仅在隐藏验证模式启用".into());
     }
+    startup_stage("native_check_called");
     if std::env::args().any(|a| a == "--window-check") {
         let window = app.get_webview_window("main").ok_or("主窗口未创建")?;
         if !window.is_visible().map_err(|e| e.to_string())? {
+            startup_stage("window_not_visible");
             return Err("主窗口没有显示".into());
         }
-        println!("Visible desktop window verified");
+        startup_stage("window_visible");
     }
     let engine = state.engine.clone();
     let row = state
@@ -74,25 +84,29 @@ async fn native_startup_check(
     let count = state.songs.lock().map_err(|e| e.to_string())?.len();
     let font = state.font.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        startup_stage("native_worker_started");
         if !pdf_ready {return Err("PDF 谱页渲染器未通过桌面检查".into());}
         if !notation_ready {return Err("桌面乐谱 WASM 渲染器未通过启动检查".into());}
         if !ready { return Err("桌面前端未完成真实引擎连接".into()); }
+        startup_stage("frontend_evidence_ready");
         let song = engine.command(Command::Load { path: row.path, title: row.title })?;
+        startup_stage("song_loaded");
         if song["notes"].as_array().map(Vec::len) != Some(9) { return Err("内置练习解析失败".into()); }
         engine.command(Command::Speed { value: 0.5 })?;
+        startup_stage("speed_set");
         neothesia_engine::probe_audio(&font)?;
-        println!("Tauri native startup passed: frontend DOM, IPC, {count} library rows, 9 MIDI notes, SoundFont and audio output");
+        startup_stage("audio_ready");
         if let Some(path) = std::env::var_os("NEOTHESIA_STARTUP_CHECK_LOG") {
             std::fs::write(path, format!("PASS\nvisible={}\nfrontend=ready\nIPC=ready\nlibraryRows={count}\nnotes=9\naudio=ready\nnotationWasm=ready\npdfPages=ready\nmidiConnected={}\n", !headless_check(),engine.snapshot().input_connected)).map_err(|e| e.to_string())?;
         }
         Ok(())
-    }).await.map_err(|e| e.to_string())?;
+    }).await.unwrap_or_else(|error|Err(format!("启动检查线程未完成：{error}")));
     match result {
         Ok(()) => app.exit(0),
         Err(e) => {
-            eprintln!("{e}");
             if let Some(path) = std::env::var_os("NEOTHESIA_STARTUP_CHECK_LOG") {
-                let _ = std::fs::write(path, format!("FAILED\n{e}\n"));
+                let stages=std::fs::read_to_string(&path).unwrap_or_default();
+                let _ = std::fs::write(path, format!("FAILED\n{e}\n{stages}"));
             }
             app.exit(1);
         }
@@ -449,6 +463,67 @@ fn convert_musescore_pdf(executable:&std::path::Path,source:&std::path::Path,des
     Ok(bytes)
 }
 
+#[cfg(target_os="windows")]
+fn convert_musescore_midi_to_musicxml(executable:&std::path::Path,source:&std::path::Path,destination:&std::path::Path)->Result<Vec<u8>,String>{
+    use std::os::windows::process::CommandExt;
+    let mut child=std::process::Command::new(executable).arg("-o").arg(musescore_path_arg(destination)).arg(musescore_path_arg(source))
+        .creation_flags(0x08000000).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().map_err(|e|format!("MuseScore MIDI 转谱无法启动：{e}"))?;
+    let start=std::time::Instant::now();
+    loop {
+        if let Some(status)=child.try_wait().map_err(|e|format!("MuseScore MIDI 转谱状态无法读取：{e}"))? {
+            if !status.success(){return Err(format!("MuseScore MIDI 转谱失败，退出码：{}",status.code().unwrap_or(-1)))}
+            break;
+        }
+        if start.elapsed()>std::time::Duration::from_secs(90){let _=child.kill();let _=child.wait();return Err("MuseScore MIDI 转谱超过 90 秒，已停止".into())}
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let size=std::fs::metadata(destination).map_err(|e|format!("MuseScore 没有生成 MusicXML：{e}"))?.len();
+    if !(100..=4_000_000).contains(&size){return Err("MuseScore 生成的 MusicXML 不完整或超过 4 MB，未加入谱面".into())}
+    let bytes=std::fs::read(destination).map_err(|e|format!("MuseScore 生成的 MusicXML 无法读取：{e}"))?;
+    let xml=std::str::from_utf8(&bytes).map_err(|_|"MuseScore 生成的 MusicXML 不是 UTF-8，未加入谱面")?;
+    if !xml.contains("<score-partwise") && !xml.contains("<score-timewise") {return Err("MuseScore 生成的文件不是 MusicXML 乐谱".into())}
+    Ok(bytes)
+}
+
+#[tauri::command]
+async fn generate_musescore_score(state:tauri::State<'_,State>,content_id:String)->Result<serde_json::Value,String>{
+    let current=state.engine.command(Command::CurrentSong)?;
+    if current["contentId"].as_str()!=Some(&content_id){return Err("曲目已切换，请重新打开谱面管理".into())}
+    let source=PathBuf::from(current["sourcePath"].as_str().ok_or("当前曲目没有 MIDI 文件")?);
+    let ext=source.extension().and_then(|s|s.to_str()).unwrap_or("").to_ascii_lowercase();
+    if ext!="mid"&&ext!="midi" {return Err("当前曲目来自乐谱文件，请直接管理已有原谱".into())}
+    let size=std::fs::metadata(&source).map_err(|e|format!("MIDI 文件无法读取：{e}"))?.len();
+    if size==0||size>20_000_000{return Err("MIDI 文件为空或超过 20 MB".into())}
+    if midi_file::MidiFile::new(&source).map_err(|e|format!("MIDI 文件无法读取：{e}"))?.content_id!=content_id {
+        return Err("MIDI 文件内容已改变，请重新打开曲目".into())
+    }
+    let executable=musescore_executable(&state.data).await?;
+    #[cfg(target_os="windows")]
+    {
+        let data=state.data.clone();let engine=state.engine.clone();
+        tauri::async_runtime::spawn_blocking(move||{
+            let dir=data.join("musescore-midi-temp");std::fs::create_dir_all(&dir).map_err(|e|format!("临时目录无法创建：{e}"))?;
+            let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+            let output=dir.join(format!("score-{}-{unique}.musicxml",std::process::id()));
+            let result=(||{
+                let bytes=convert_musescore_midi_to_musicxml(&executable,&source,&output)?;
+                let latest=engine.command(Command::CurrentSong)?;
+                if latest["contentId"].as_str()!=Some(&content_id){return Err("曲目已切换，请重新生成谱面".into())}
+                if midi_file::MidiFile::new(&source).map_err(|e|format!("MIDI 文件无法复查：{e}"))?.content_id!=content_id {
+                    return Err("MIDI 文件内容已改变，请重新生成谱面".into())
+                }
+                let stem=source.file_stem().and_then(|s|s.to_str()).unwrap_or("当前曲目").chars().take(80).collect::<String>();
+                Ok(serde_json::json!({"name":format!("{stem} · MuseScore 转谱初稿.musicxml"),"bytes":bytes}))
+            })();
+            let _=std::fs::remove_file(output);
+            result
+        }).await.map_err(|e|e.to_string())?
+    }
+    #[cfg(not(target_os="windows"))]
+    {let _=(source,executable);Err("当前平台尚未接入 MuseScore MIDI 转谱".into())}
+}
+
 #[tauri::command]
 async fn add_musescore_pdf(state:tauri::State<'_,State>,content_id:String,version_id:String)->Result<serde_json::Value,String>{
     let data=state.data.clone();let engine=state.engine.clone();
@@ -647,6 +722,7 @@ fn main() {
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
+                    startup_stage("window_shown");
                 }
             }
             Ok(())
@@ -656,6 +732,7 @@ fn main() {
             reveal_library_file,
             open_score_in_musescore,
             add_musescore_pdf,
+            generate_musescore_score,
             library_list,
             engine_state,
             engine_song,
@@ -692,7 +769,8 @@ fn main() {
         ])
         .on_page_load(|window, payload| {
             if startup_check() && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
-                let _ = window.eval(r#"
+                startup_stage(&format!("page_finished:{}",payload.url()));
+                if let Err(error) = window.eval(r#"
                     (function check(attempt) {
                         const ready = document.querySelector('h1') && document.body.innerText.includes('本地引擎已连接');
                         if ((ready || attempt > 100) && !window.__neothesiaChecking) {
@@ -707,7 +785,7 @@ fn main() {
                         }
                         else setTimeout(() => check(attempt + 1), 100);
                     })(0);
-                "#);
+                "#) { startup_stage(&format!("eval_failed:{error}")); }
             }
         })
         .on_window_event(|window, event| {
@@ -741,6 +819,31 @@ mod musescore_tests {
         let output=std::env::temp_dir().join(format!("neothesia-musescore-test-{}.pdf",std::process::id()));
         let bytes=convert_musescore_pdf(&program,&input,&output).unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
+        let _=std::fs::remove_file(output);
+    }
+    #[test]
+    fn installed_musescore_converts_real_midi_to_musicxml(){
+        let Some(program)=installed_musescore() else{return};
+        let input=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../neothesia-engine/assets/five-finger.mid");
+        let output=std::env::temp_dir().join(format!("neothesia-musescore-midi-{}.musicxml",std::process::id()));
+        let bytes=convert_musescore_midi_to_musicxml(&program,&input,&output).unwrap();
+        let xml=std::str::from_utf8(&bytes).unwrap();
+        assert!(xml.contains("<score-partwise"));
+        assert!(xml.contains("<measure"));
+        assert!(xml.contains("<note"));
+        let data=std::env::temp_dir().join(format!("neothesia-musescore-preview-{}",std::process::id()));
+        let engine=Engine::start(data.clone(),PathBuf::new(),true);
+        let song=engine.command(Command::Load{path:input,title:"MuseScore fixture".into()}).unwrap();
+        let preview=engine.command(Command::PreviewScoreBytesRoute{
+            bytes,name:"MuseScore 转谱初稿.musicxml".into(),
+            content_id:song["contentId"].as_str().unwrap().into(),
+        }).unwrap();
+        assert_eq!(preview["contentId"],song["contentId"]);
+        assert!(preview["fingerprint"].as_str().is_some());
+        drop(engine);
+        if data.parent()==Some(std::env::temp_dir().as_path()) && data.file_name().and_then(|name|name.to_str()).is_some_and(|name|name.starts_with("neothesia-musescore-preview-")) {
+            let _=std::fs::remove_dir_all(data);
+        }
         let _=std::fs::remove_file(output);
     }
 }

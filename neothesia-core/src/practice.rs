@@ -196,11 +196,25 @@ pub struct PartSummary {
     pub timing: TimingSummary,
 }
 
+/// A judged score-note group with enough identity to revisit the same voice.
+/// Wrong presses have no proven target and are deliberately not assigned here.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MeasurePartSummary {
+    pub measure: usize,
+    pub part: PracticePart,
+    pub track_id: usize,
+    pub breakdown: PracticeBreakdown,
+    #[serde(default)]
+    pub timing: TimingSummary,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Serialize)]
 pub struct AttemptSummary {
     pub overall: PracticeSnapshot,
     pub measures: Vec<MeasureSummary>,
     pub parts: Vec<PartSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measure_parts: Vec<MeasurePartSummary>,
     #[serde(default)]
     pub timing: TimingSummary,
     #[serde(default)]
@@ -1105,6 +1119,8 @@ impl PracticeMatcher {
         let mut measure_timing = BTreeMap::<usize, Vec<i32>>::new();
         let mut parts = BTreeMap::<PracticePart, PracticeBreakdown>::new();
         let mut part_timing = BTreeMap::<PracticePart, Vec<i32>>::new();
+        let mut measure_parts = BTreeMap::<(usize, PracticePart, usize), PracticeBreakdown>::new();
+        let mut measure_part_timing = BTreeMap::<(usize, PracticePart, usize), Vec<i32>>::new();
         let mut chords = BTreeMap::<(Duration, usize), (usize, Vec<i32>)>::new();
 
         for result in &self.results {
@@ -1122,6 +1138,15 @@ impl PracticeMatcher {
                         .entry(target.measure)
                         .or_default()
                         .push(offset);
+                }
+                // The contextual target carried by a wrong press is only the nearest
+                // score note, not the note that press actually attempted to play.
+                if matches!(result.judgement, PracticeJudgement::Matched(_) | PracticeJudgement::Missed) {
+                    let key = (target.measure, target.part, target.track_id);
+                    measure_parts.entry(key).or_default().record(result.judgement);
+                    if let Some(offset) = result.timing_offset_ms {
+                        measure_part_timing.entry(key).or_default().push(offset);
+                    }
                 }
             }
             parts
@@ -1169,6 +1194,21 @@ impl PracticeMatcher {
                     timing: summarize_timing_offsets(
                         part_timing
                             .get(&part)
+                            .map(Vec::as_slice)
+                            .unwrap_or_default(),
+                    ),
+                })
+                .collect(),
+            measure_parts: measure_parts
+                .into_iter()
+                .map(|((measure, part, track_id), breakdown)| MeasurePartSummary {
+                    measure,
+                    part,
+                    track_id,
+                    breakdown,
+                    timing: summarize_timing_offsets(
+                        measure_part_timing
+                            .get(&(measure, part, track_id))
                             .map(Vec::as_slice)
                             .unwrap_or_default(),
                     ),
@@ -1708,6 +1748,54 @@ mod tests {
             .unwrap();
         assert_eq!(left_hand.breakdown.missed_notes, 1);
         assert_eq!(left_hand.breakdown.wrong_notes, 1);
+
+        assert_eq!(summary.measure_parts.len(), 2);
+        let right_cell = summary.measure_parts.iter().find(|item| item.measure == 3).unwrap();
+        assert_eq!((right_cell.part, right_cell.track_id), (PracticePart::RightHand, 1));
+        assert_eq!(right_cell.breakdown.target_notes, 1);
+        assert_eq!(right_cell.breakdown.matched_notes, 1);
+        assert_eq!(right_cell.timing.median_offset_ms, Some(40));
+        let left_cell = summary.measure_parts.iter().find(|item| item.measure == 5).unwrap();
+        assert_eq!((left_cell.part, left_cell.track_id), (PracticePart::LeftHand, 2));
+        assert_eq!(left_cell.breakdown.target_notes, 1);
+        assert_eq!(left_cell.breakdown.missed_notes, 1);
+        assert_eq!(left_cell.breakdown.wrong_notes, 0);
+    }
+
+    #[test]
+    fn measure_part_summary_keeps_track_and_note_level_hand_separate() {
+        let mut matcher = matcher();
+        let target = |note, part, track_id| PracticeTarget {
+            note,
+            velocity: 90,
+            score_time: Duration::from_secs(2),
+            duration: Duration::from_millis(300),
+            track_id,
+            measure: 4,
+            part,
+        };
+        matcher.score_target(Duration::from_secs(2), target(72, PracticePart::RightHand, 3), true);
+        matcher.user_note(Duration::from_millis(1_850), 72, true);
+        matcher.score_target(Duration::from_secs(2), target(48, PracticePart::LeftHand, 3), true);
+        matcher.score_target(Duration::from_secs(2), target(76, PracticePart::RightHand, 4), true);
+        // An accompaniment note that was not selected for human scoring has no cell.
+        matcher.score_target(Duration::from_secs(2), target(80, PracticePart::Other, 9), false);
+        matcher.user_note(Duration::from_millis(2_140), 77, true);
+        matcher.finish();
+
+        let cells = matcher.summary().measure_parts;
+        assert_eq!(cells.len(), 3);
+        let right_track_3 = cells.iter().find(|cell| cell.part == PracticePart::RightHand && cell.track_id == 3).unwrap();
+        assert_eq!(right_track_3.breakdown.target_notes, 1);
+        assert_eq!(right_track_3.breakdown.early_notes, 1);
+        assert_eq!(right_track_3.timing.median_offset_ms, Some(-150));
+        let left_track_3 = cells.iter().find(|cell| cell.part == PracticePart::LeftHand && cell.track_id == 3).unwrap();
+        assert_eq!(left_track_3.breakdown.target_notes, 1);
+        assert_eq!(left_track_3.breakdown.missed_notes, 1);
+        let right_track_4 = cells.iter().find(|cell| cell.part == PracticePart::RightHand && cell.track_id == 4).unwrap();
+        assert_eq!(right_track_4.breakdown.missed_notes, 1);
+        assert!(cells.iter().all(|cell| cell.breakdown.wrong_notes == 0));
+        assert_eq!(matcher.summary().overall.wrong_notes, 1);
     }
 
     #[test]

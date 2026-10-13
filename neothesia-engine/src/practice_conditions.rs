@@ -239,6 +239,7 @@ pub(super) fn scope(
             && match wanted {
                 "left" => part == PracticePart::LeftHand,
                 "right" => part == PracticePart::RightHand,
+                "other" => part == PracticePart::Other,
                 _ => true,
             }
         {

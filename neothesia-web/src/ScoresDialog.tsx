@@ -35,6 +35,7 @@ export function ScoresDialog({
   const input = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const canGenerateMuseScorePdf = api.desktop && /Windows/i.test(navigator.userAgent);
+  const canGenerateMuseScoreScore = canGenerateMuseScorePdf && /\.midi?$/i.test(song.sourcePath);
   const [versionPreview, setVersionPreview] = useState<{
     id: string;
     path: string;
@@ -44,6 +45,7 @@ export function ScoresDialog({
     name: string;
     bytes: number[];
     evidence: ScoreRouteEvidence;
+    generated?: boolean;
   } | null>(null);
   const refresh = async () => {
     const data = await api.command<{ versions: Version[] }>({
@@ -108,6 +110,25 @@ export function ScoresDialog({
         content_id: song.contentId,
       });
       setFilePreview({ name: file.name, bytes, evidence });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const generateScore = async () => {
+    setBusy(true);
+    setError("");
+    setFilePreview(null);
+    try {
+      const draft = await api.generateMuseScoreScore(song.contentId);
+      const evidence = await api.command<ScoreRouteEvidence>({
+        type: "previewScoreBytesRoute",
+        bytes: draft.bytes,
+        name: draft.name,
+        content_id: song.contentId,
+      });
+      setFilePreview({ ...draft, evidence, generated: true });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -211,7 +232,7 @@ export function ScoresDialog({
               谱面。切换时重新核对音符对应关系；移除版本会从管理列表移除，文件仍保留。
             </p>
             {api.desktop && <p className="parameter-help">
-              编辑原谱时，先为版本关联磁盘上的原文件，再用 MuseScore Studio 打开。保存修改后，返回这里点“检查原谱更新”，预览差异并决定是否采用。已核对的原谱也可以经 MuseScore 排版为 PDF，加入“PDF / 图片谱面”供阅读和批注。当前练习不会因外部保存而自动切换谱面。
+              MuseScore Studio 可以把当前 MIDI 转成可编辑的 MusicXML 初稿。生成后先核对音符、节奏与演奏顺序，再决定保存或使用。已有原谱可以关联磁盘文件，在 MuseScore 中编辑并检查更新；原谱也可以排版成 PDF 谱页。
             </p>}
             <div className="dialog-actions">
               <button
@@ -221,6 +242,11 @@ export function ScoresDialog({
               >
                 添加谱面版本
               </button>
+              {canGenerateMuseScoreScore && (
+                <button disabled={busy} onClick={() => void generateScore()}>
+                  从 MIDI 生成谱面初稿
+                </button>
+              )}
               <span>{versions.length} 份谱面</span>
               <button disabled={busy} onClick={() => setSourcesOpen(true)}>
                 检查原谱更新
@@ -257,6 +283,11 @@ export function ScoresDialog({
                 aria-label="待添加谱面预览"
               >
                 <h3>{filePreview.name}</h3>
+                {filePreview.generated && (
+                  <p className="parameter-help">
+                    这是 MuseScore Studio 根据当前 MIDI 推出的谱面初稿。请检查谱号、左右手、时值和小节；MIDI 通常没有完整的记谱信息。
+                  </p>
+                )}
                 <ScoreRoutePreview
                   evidence={filePreview.evidence}
                   title="这份谱面的演奏顺序"

@@ -1146,7 +1146,7 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::practice::{MeasureSummary, PracticeSnapshot, TimingSummary};
+    use crate::practice::{MeasurePartSummary, MeasureSummary, PracticeSnapshot, TimingSummary};
 
     fn temp_history_path(name: &str) -> PathBuf {
         let directory = std::env::temp_dir().join(format!(
@@ -1189,6 +1189,7 @@ mod tests {
                     timing: Default::default(),
                 }],
                 parts: Vec::new(),
+                measure_parts: Vec::new(),
                 timing: Default::default(),
                 chords: Default::default(),
                 expression: Default::default(),
@@ -1270,6 +1271,39 @@ mod tests {
         assert_eq!(summary.chords, Default::default());
         assert_eq!(summary.expression, Default::default());
         assert!(summary.exercise_passes.is_empty());
+        assert!(summary.measure_parts.is_empty());
+    }
+
+    #[test]
+    fn measured_part_evidence_survives_history_save_and_reopen() {
+        let path = temp_history_path("measure-part-evidence");
+        let mut attempt = session(7, 2, 1);
+        attempt.summary.measure_parts.push(MeasurePartSummary {
+            measure: 7,
+            part: PracticePart::LeftHand,
+            track_id: 4,
+            breakdown: PracticeBreakdown {
+                target_notes: 3,
+                matched_notes: 2,
+                late_notes: 1,
+                on_time_notes: 1,
+                missed_notes: 1,
+                ..PracticeBreakdown::default()
+            },
+            timing: TimingSummary {
+                matched_samples: 2,
+                median_offset_ms: Some(58),
+                median_deviation_ms: Some(22),
+            },
+        });
+        let mut store = PracticeHistoryStore::load(&path);
+        store.record_session("song-content", "Test.mid", attempt).unwrap();
+        let reopened = PracticeHistoryStore::load(&path);
+        let cell = &reopened.song("song-content").unwrap().sessions[0].summary.measure_parts[0];
+        assert_eq!((cell.measure, cell.part, cell.track_id), (7, PracticePart::LeftHand, 4));
+        assert_eq!((cell.breakdown.target_notes, cell.breakdown.missed_notes), (3, 1));
+        assert_eq!(cell.timing.median_offset_ms, Some(58));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

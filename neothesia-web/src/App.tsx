@@ -68,6 +68,7 @@ import {
   FeedbackDialog,
   MetadataDialog,
   type FeedbackPlanSource,
+  type MeasurePartFeedback,
 } from "./PracticeDialogs";
 import { HistoryProblemPlan } from "./HistoryProblemPlan";
 import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
@@ -2485,6 +2486,43 @@ export default function App() {
           close={() => setFeedback(false)}
           state={state}
           contentId={song?.contentId ?? null}
+          trackNames={Object.fromEntries((song?.tracks ?? []).map((track) => [track.id, track.name]))}
+          practicePart={async (target: MeasurePartFeedback) => {
+            if (!song) throw new Error("请先选择曲目");
+            if (requestBusy.current) throw new Error("请等待当前操作完成");
+            requestBusy.current = true;
+            setBusy(true);
+            try {
+              if ((await api.song())?.contentId !== song.contentId)
+                throw new Error("曲目已切换，请重新打开练习反馈");
+              const current = await api.state();
+              if (current.recording) throw new Error("请先停止录音，再重练指定小节和声部");
+              if (current.routine) await api.command({ type: "stopRoutine" });
+              else if (current.ladder?.active) await api.command({ type: "stopLadder" });
+              if (["recital", "memory"].includes(current.mode))
+                await api.command({ type: "mode", value: "flow" });
+              await api.command({
+                type: "prepareMeasurePart",
+                contentId: song.contentId,
+                measure: target.measure,
+                part: target.part,
+                trackId: target.track_id,
+              });
+              setSong(await api.song());
+              setState(await api.state());
+              setFeedback(false);
+              setError("");
+            } catch (e) {
+              try {
+                setSong(await api.song());
+                setState(await api.state());
+              } catch { /* Keep the command error visible in the feedback dialog. */ }
+              throw e;
+            } finally {
+              requestBusy.current = false;
+              setBusy(false);
+            }
+          }}
           arrangeNext={(source) => {
             if (!song || song.contentId !== source.contentId || state.currentHistoryId !== source.id) return;
             setFeedbackPlan({source, scoreRevision: song.scoreRevision});

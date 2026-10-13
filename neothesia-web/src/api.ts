@@ -510,6 +510,8 @@ export const api = {
     invoke<void>("open_score_in_musescore", { contentId, versionId }),
   addMuseScorePdf: (contentId: string, versionId: string) =>
     invoke<{ active: string }>("add_musescore_pdf", { contentId, versionId }),
+  generateMuseScoreScore: (contentId: string) =>
+    invoke<{ name: string; bytes: number[] }>("generate_musescore_score", { contentId }),
   exportPaperPage: (name: string, bytes: Uint8Array) =>
     invoke<string | null>("export_paper_page", {
       name,
@@ -648,6 +650,25 @@ export interface Feedback {
       missed_notes: number;
     };
     timing: {
+      median_offset_ms: number | null;
+      median_deviation_ms: number | null;
+    };
+  }[];
+  measure_parts?: {
+    measure: number;
+    part: "LeftHand" | "RightHand" | "Other";
+    track_id: number;
+    breakdown: {
+      target_notes: number;
+      matched_notes: number;
+      on_time_notes: number;
+      early_notes: number;
+      late_notes: number;
+      wrong_notes: number;
+      missed_notes: number;
+    };
+    timing: {
+      matched_samples: number;
       median_offset_ms: number | null;
       median_deviation_ms: number | null;
     };

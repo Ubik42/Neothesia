@@ -295,11 +295,16 @@ export type FeedbackPlanSource = {
   total: number;
   notes: { reference: number; measure: number; pitch: number; kind: string }[];
 };
+export type MeasurePartFeedback = NonNullable<Feedback["measure_parts"]>[number];
+const feedbackPartName = (part: MeasurePartFeedback["part"]) =>
+  part === "LeftHand" ? "左手" : part === "RightHand" ? "右手" : "其他声部";
 export function FeedbackDialog({
   close,
   state,
   contentId,
   practice,
+  practicePart,
+  trackNames,
   retry,
   arrangeNext,
 }: {
@@ -307,13 +312,17 @@ export function FeedbackDialog({
   state: Snapshot;
   contentId: string | null;
   practice: (start: number, end: number) => Promise<void>;
+  practicePart: (target: MeasurePartFeedback) => Promise<void>;
+  trackNames: Record<number, string>;
   retry: () => Promise<void>;
   arrangeNext: (source: FeedbackPlanSource) => void;
 }) {
   const [summary, setSummary] = useState<Feedback | null>(state.summary),
     [error, setError] = useState(""),
     [planSource, setPlanSource] = useState<FeedbackPlanSource | null>(null),
-    [planLoading, setPlanLoading] = useState(false);
+    [planLoading, setPlanLoading] = useState(false),
+    [selectedPart, setSelectedPart] = useState<MeasurePartFeedback | null>(null),
+    [partLoading, setPartLoading] = useState(false);
   useEffect(() => {
     api
       .command<Feedback>({ type: "feedback" })
@@ -351,6 +360,15 @@ export function FeedbackDialog({
         b.breakdown.wrong_notes -
         (a.breakdown.missed_notes + a.breakdown.wrong_notes),
     )[0];
+  const measureParts = summary?.measure_parts ?? [];
+  const problemParts = measureParts.filter(
+    ({ breakdown: b }) => b.missed_notes + b.early_notes + b.late_notes > 0,
+  );
+  const selectedPartLabel = selectedPart
+    ? selectedPart.part === "Other"
+      ? `第 ${selectedPart.measure} 小节 · 其他声部 · ${trackNames[selectedPart.track_id] ?? `音轨 ${selectedPart.track_id + 1}`}`
+      : `第 ${selectedPart.measure} 小节 · ${feedbackPartName(selectedPart.part)} · ${trackNames[selectedPart.track_id] ?? `音轨 ${selectedPart.track_id + 1}`}`
+    : "";
   return (
     <div className="modal-backdrop" onClick={close}>
       <section
@@ -446,11 +464,54 @@ export function FeedbackDialog({
                     ? "左手"
                     : p.part === "RightHand"
                       ? "右手"
-                      : "未分手"}{" "}
+                      : "其他声部"}{" "}
                   {percentage(p.breakdown)}
                 </span>
               ))}
             </div>
+            <section className="feedback-part-review" aria-label="本轮分手问题">
+              <h3>本轮小节与声部</h3>
+              {measureParts.length === 0 ? (
+                <p className="parameter-help">本轮没有可核对的小节与声部记录。旧记录不会按曲目当前分手重新推断。</p>
+              ) : problemParts.length === 0 ? (
+                <p className="parameter-help">本轮有 {measureParts.length} 组已评判的目标音，没有偏早、偏晚或漏音。</p>
+              ) : (
+                <>
+                  <p className="parameter-help">下列问题来自本轮已评判的目标音。无法定位到目标音的误弹只计入总成绩，不会猜测归属到某只手。</p>
+                  <div className="feedback-table feedback-part-table">
+                    <table>
+                      <thead><tr><th>小节</th><th>声部 / 音轨</th><th>目标音</th><th>偏早</th><th>偏晚</th><th>漏音</th><th /></tr></thead>
+                      <tbody>
+                        {problemParts.map((item) => (
+                          <tr key={`${item.measure}:${item.part}:${item.track_id}`}>
+                            <td>{item.measure}</td>
+                            <td>{feedbackPartName(item.part)} · {trackNames[item.track_id] ?? `音轨 ${item.track_id + 1}`}</td>
+                            <td>{item.breakdown.matched_notes}/{item.breakdown.target_notes}</td>
+                            <td>{item.breakdown.early_notes}</td>
+                            <td>{item.breakdown.late_notes}</td>
+                            <td>{item.breakdown.missed_notes}</td>
+                            <td><button onClick={() => setSelectedPart(item)}>准备重练</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {selectedPart && (
+                <div className="feedback-part-prepare" role="group" aria-label="分手重练设置预览">
+                  <strong>重练设置：{selectedPartLabel}</strong>
+                  <p>重练会只将这个音轨中所选声部的目标音交给你弹，其他音轨或声部作为伴奏。循环范围为第 {selectedPart.measure} 小节。{state.routine || state.ladder?.active ? "当前计划或速度阶梯会先结束。" : ""}{["recital", "memory", "listen"].includes(state.mode) ? "当前模式会先切换到连续练习。" : ""}{state.recording ? "请先停止录音。" : ""}</p>
+                  <div>
+                    <button disabled={partLoading} onClick={() => setSelectedPart(null)}>取消</button>
+                    <button className="primary" disabled={partLoading || state.recording} onClick={() => {
+                      setPartLoading(true);
+                      void practicePart(selectedPart).catch((e) => setError(String(e instanceof Error ? e.message : e))).finally(() => setPartLoading(false));
+                    }}>应用设置并重练</button>
+                  </div>
+                </div>
+              )}
+            </section>
             {weakest && (
               <button
                 onClick={() => void practice(weakest.measure, weakest.measure)}

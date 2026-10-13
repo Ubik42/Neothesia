@@ -224,6 +224,7 @@ pub enum Command {
         end: usize,
         enabled: bool,
     },
+    PrepareMeasurePart { #[serde(rename="contentId")] content_id: String, measure: usize, part: PracticePart, #[serde(rename="trackId")] track_id: usize },
     SeekMeasure {
         measure: usize,
     },
@@ -1602,6 +1603,7 @@ impl Player {
         let wanted = match self.state.hands.as_str() {
             "left" => Some(PracticePart::LeftHand),
             "right" => Some(PracticePart::RightHand),
+            "other" => Some(PracticePart::Other),
             _ => None,
         };
         if wanted.is_some_and(|h| hands::part(&self.config, &self.note_hands, track, index) != h) {
@@ -1645,6 +1647,30 @@ impl Player {
             }
         }
         self.state.hands = value.into();
+        Ok(())
+    }
+    fn prepare_measure_part(&mut self, content_id: &str, measure: usize, part: PracticePart, track_id: usize) -> Result<(), String> {
+        let file = self.file.as_ref().ok_or("请先选择曲目")?;
+        if file.content_id != content_id { return Err("曲目已切换，请重新打开练习反馈".into()); }
+        let bar = file.musical_time.measures.get(measure.checked_sub(1).ok_or("小节从 1 开始")?).ok_or("小节超出曲目")?;
+        let start = file.tempo_track.pulses_to_duration(bar.start_tick).as_secs_f64();
+        let end = file.tempo_track.pulses_to_duration(bar.end_tick).as_secs_f64().min(self.state.duration);
+        if end - start < 0.1 { return Err("这个小节没有可练习的时长".into()); }
+        let has_notes = self.notes.iter().any(|note| note.track_id == track_id
+            && note.start.as_secs_f64() >= start && note.start.as_secs_f64() < end
+            && hands::part(&self.config, &self.note_hands, note.track_id, note.index) == part);
+        if !has_notes { return Err("该小节的指定手与音轨没有可练习音符".into()); }
+        for track in &mut self.config.tracks {
+            track.player = if track.track_id == track_id { PlayerConfig::Human } else { PlayerConfig::Auto };
+        }
+        self.state.hands = match part { PracticePart::LeftHand => "left", PracticePart::RightHand => "right", PracticePart::Other => "other" }.into();
+        if self.state.mode == "listen" { self.state.mode = "flow".into(); self.state.wait = false; }
+        self.state.passage = Some(Passage { start, end });
+        self.state.repetitions = 0;
+        self.previous_summary = None;
+        self.previous_mode = None;
+        self.coach = AdaptiveTempoCoach::default();
+        self.reset(start);
         Ok(())
     }
     fn write_hands(
@@ -1758,7 +1784,7 @@ impl Player {
         let hands = match self.state.hands.as_str() {
             "left" => PracticeHands::Left,
             "right" => PracticeHands::Right,
-            "custom" => PracticeHands::Custom,
+            "custom" | "other" => PracticeHands::Custom,
             _ => PracticeHands::Both,
         };
         let session=PracticeSession::new(
@@ -1852,7 +1878,7 @@ impl Player {
         if self.routine.is_some() && matches!(command,
             Command::Mode{..}|Command::Wait{..}|Command::Speed{..}|Command::Hands{..}|Command::Track{..}
             |Command::Meter{..}|Command::SaveMeterMap{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
-            |Command::MeasureLoop{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
+            |Command::MeasureLoop{..}|Command::PrepareMeasurePart{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
             |Command::Seek{..}|Command::SeekMeasure{..}|Command::SeekBeat{..}|Command::StepBeat{..}
             |Command::CountIn{..}|Command::Metronome{..}|Command::Latency{..}|Command::Save|Command::Recording{active:true}) {
             return Err("正在练习计划项目，请先结束本项再修改条件".into());
@@ -1881,7 +1907,7 @@ impl Player {
         if self.ladder.as_ref().is_some_and(|r|r.active) && matches!(command,
             Command::Mode{..}|Command::Wait{..}|Command::Speed{..}|Command::Hands{..}|Command::Track{..}
             |Command::Meter{..}|Command::SaveMeterMap{..}|Command::ApplyHands{..}|Command::NoteHand{..}|Command::UndoHands
-            |Command::MeasureLoop{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
+            |Command::MeasureLoop{..}|Command::PrepareMeasurePart{..}|Command::Loop{..}|Command::ApplyScoreRange{..}|Command::Rounds{..}|Command::Adaptive{..}
             |Command::OpenPassage{..}|Command::Seek{..}|Command::SeekMeasure{..}|Command::SeekBeat{..}|Command::StepBeat{..}
             |Command::CountIn{..}|Command::Metronome{..}|Command::Latency{..}|Command::Save|Command::Recording{active:true}) {
             return Err("速度阶梯进行中，请先结束阶梯再修改练习条件".into());
@@ -1929,6 +1955,7 @@ impl Player {
                     | Command::StepBeat { .. }
                     | Command::SeekMeasure { .. }
                     | Command::MeasureLoop { .. }
+                    | Command::PrepareMeasurePart { .. }
                     | Command::Loop { .. }
                     | Command::ApplyScoreRange { .. }
                     | Command::Mode { .. }
@@ -1945,7 +1972,8 @@ impl Player {
         if is_recital_mode(&self.state.mode) {
             if matches!(
                 command,
-                Command::MeasureLoop { enabled: true, .. }
+                Command::PrepareMeasurePart { .. }
+                    | Command::MeasureLoop { enabled: true, .. }
                     | Command::Loop { enabled: true, .. }
                     | Command::OpenPassage { .. }
                     | Command::SavePassage { .. }
@@ -3609,6 +3637,9 @@ impl Player {
                 self.restore_latency();
                 self.reset(self.state.position);
             }
+            Command::PrepareMeasurePart { content_id, measure, part, track_id } => {
+                self.prepare_measure_part(&content_id, measure, part, track_id)?;
+            }
             Command::PreviewLegacyExerciseTracks { .. } | Command::ApplyLegacyExerciseTracks { .. }
                 | Command::PreviewLegacyExerciseHistory { .. } | Command::ReviewLegacyExerciseHistory { .. } => unreachable!(),
         }
@@ -4679,6 +4710,42 @@ mod tests {
             .is_err()
         );
         assert_eq!(hands::hints(&p.note_hands), before);
+    }
+    #[test]
+    fn measure_part_preparation_targets_only_the_requested_track_and_hand() {
+        let mut p = player();
+        let content_id = p.file.as_ref().unwrap().content_id.clone();
+        let first = p.notes[0].clone();
+        let second = p.notes.iter().find(|n| n.track_id == first.track_id && n.index != first.index).unwrap().clone();
+        p.note_hands.insert((first.track_id, first.index), PracticePart::LeftHand);
+        p.note_hands.insert((second.track_id, second.index), PracticePart::RightHand);
+        let old_hands = p.state.hands.clone();
+        assert!(p.command(Command::PrepareMeasurePart { content_id: "wrong".into(), measure: 1, part: PracticePart::LeftHand, track_id: first.track_id }).is_err());
+        assert_eq!(p.state.hands, old_hands);
+        p.command(Command::PrepareMeasurePart { content_id, measure: 1, part: PracticePart::LeftHand, track_id: first.track_id }).unwrap();
+        assert_eq!(p.state.hands, "left");
+        assert_eq!(p.note_player(first.track_id, first.index), PlayerConfig::Human);
+        assert_eq!(p.note_player(second.track_id, second.index), PlayerConfig::Auto);
+        assert!(p.state.passage.is_some());
+    }
+    #[test]
+    fn measure_part_command_accepts_browser_fields_and_other_notes() {
+        let mut p = player();
+        let content_id = p.file.as_ref().unwrap().content_id.clone();
+        let note = p.notes[0].clone();
+        let other_hand = p.notes.iter().find(|n| n.track_id == note.track_id && n.index != note.index).unwrap().clone();
+        p.note_hands.insert((note.track_id, note.index), PracticePart::Other);
+        p.note_hands.insert((other_hand.track_id, other_hand.index), PracticePart::RightHand);
+        p.state.mode = "listen".into();
+        let command: Command = serde_json::from_value(serde_json::json!({
+            "type":"prepareMeasurePart", "contentId":content_id,
+            "measure":1, "part":"Other", "trackId":note.track_id
+        })).unwrap();
+        p.command(command).unwrap();
+        assert_eq!(p.state.hands, "other");
+        assert_eq!(p.state.mode, "flow");
+        assert_eq!(p.note_player(note.track_id, note.index), PlayerConfig::Human);
+        assert_eq!(p.note_player(other_hand.track_id, other_hand.index), PlayerConfig::Auto);
     }
     #[test]
     fn cross_paper_transfer_preserves_identities_and_target_grid(){
