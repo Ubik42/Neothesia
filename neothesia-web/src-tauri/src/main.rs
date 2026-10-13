@@ -383,30 +383,93 @@ fn installed_musescore() -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join("MuseScore4.exe")).find(|path|path.is_file())
 }
 
+async fn musescore_executable(data:&std::path::Path)->Result<PathBuf,String>{
+    #[cfg(target_os="windows")]
+    {
+        let saved=data.join("musescore-program.json");
+        if let Ok(bytes)=std::fs::read(&saved){
+            if let Ok(path)=serde_json::from_slice::<PathBuf>(&bytes){
+                if path.is_file() && path.file_name().and_then(|name|name.to_str()).is_some_and(|name|name.eq_ignore_ascii_case("MuseScore4.exe")){return Ok(path)}
+            }
+        }
+        if let Some(path)=installed_musescore(){return Ok(path)}
+        let Some(file)=rfd::AsyncFileDialog::new().set_title("选择 MuseScore Studio 程序")
+            .add_filter("MuseScore 程序", &["exe"]).pick_file().await else {
+            return Err("未找到 MuseScore Studio。请安装程序，或选择便携版 MuseScore4.exe".into());
+        };
+        let path=std::fs::canonicalize(file.path()).map_err(|e|format!("MuseScore 程序无法读取：{e}"))?;
+        if path.file_name().and_then(|name|name.to_str()).is_none_or(|name|!name.eq_ignore_ascii_case("MuseScore4.exe")) {
+            return Err("请选择 MuseScore Studio 的 MuseScore4.exe 程序".into());
+        }
+        std::fs::write(saved,serde_json::to_vec(&path).map_err(|e|e.to_string())?).map_err(|e|format!("MuseScore 程序位置无法保存：{e}"))?;
+        Ok(path)
+    }
+    #[cfg(not(target_os="windows"))]
+    {let _=data;Ok(PathBuf::from(if cfg!(target_os="macos"){"open"}else{"musescore"}))}
+}
+#[cfg(target_os="windows")]
+fn musescore_path_arg(path:&std::path::Path)->String{
+    let text=path.to_string_lossy();
+    if let Some(unc)=text.strip_prefix(r"\\?\UNC\"){format!(r"\\{unc}")}
+    else{text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()}
+}
+
 #[tauri::command]
 async fn open_score_in_musescore(state:tauri::State<'_,State>,content_id:String,version_id:String)->Result<(),String>{
     let data=state.data.clone();
     // The frontend supplies identities only. The engine resolves and hashes the registered file.
     let path=tauri::async_runtime::spawn_blocking(move||neothesia_engine::score_sources::original_for_edit(&data,&content_id,&version_id)).await.map_err(|e|e.to_string())??;
     #[cfg(target_os="windows")]
-    let executable=match installed_musescore(){
-        Some(path)=>path,
-        None=>{
-            let Some(file)=rfd::AsyncFileDialog::new().set_title("选择 MuseScore Studio 程序")
-                .add_filter("MuseScore 程序", &["exe"]).pick_file().await else {
-                return Err("未找到 MuseScore Studio。请安装程序，或选择便携版 MuseScore4.exe".into());
-            };
-            let executable=file.path().to_path_buf();
-            if executable.file_name().and_then(|name|name.to_str()).is_none_or(|name|!name.eq_ignore_ascii_case("MuseScore4.exe")) {
-                return Err("请选择 MuseScore Studio 的 MuseScore4.exe 程序".into());
-            }
-            executable
-        }
-    };
+    let executable=musescore_executable(&state.data).await?;
     #[cfg(target_os="windows")]
-    {let text=path.to_string_lossy();let score_arg=if let Some(unc)=text.strip_prefix(r"\\?\UNC\"){format!(r"\\{unc}")}else{text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()};std::process::Command::new(executable).arg(score_arg).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
+    {std::process::Command::new(executable).arg(musescore_path_arg(&path)).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
     #[cfg(not(target_os="windows"))]
     {let program=if cfg!(target_os="macos"){"open"}else{"musescore"};let mut command=std::process::Command::new(program);if cfg!(target_os="macos"){command.arg("-a").arg("MuseScore 4");}command.arg(path).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
+}
+
+#[cfg(target_os="windows")]
+fn convert_musescore_pdf(executable:&std::path::Path,source:&std::path::Path,destination:&std::path::Path)->Result<Vec<u8>,String>{
+    use std::os::windows::process::CommandExt;
+    let mut child=std::process::Command::new(executable).arg("-o").arg(musescore_path_arg(destination)).arg(musescore_path_arg(source))
+        .creation_flags(0x08000000).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().map_err(|e|format!("MuseScore PDF 导出无法启动：{e}"))?;
+    let start=std::time::Instant::now();
+    loop{
+        if let Some(status)=child.try_wait().map_err(|e|format!("MuseScore PDF 导出状态无法读取：{e}"))?{
+            if !status.success(){return Err(format!("MuseScore PDF 导出失败，退出码：{}",status.code().unwrap_or(-1)))}
+            break;
+        }
+        if start.elapsed()>std::time::Duration::from_secs(60){let _=child.kill();let _=child.wait();return Err("MuseScore PDF 导出超过 60 秒，已停止".into())}
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let bytes=std::fs::read(destination).map_err(|e|format!("MuseScore 没有生成 PDF：{e}"))?;
+    if bytes.len()<100||bytes.len()>48_000_000||!bytes.starts_with(b"%PDF-")||!bytes[bytes.len().saturating_sub(1024)..].windows(5).any(|part|part==b"%%EOF"){
+        return Err("MuseScore 导出的 PDF 不完整或超过 48 MB，未加入谱面".into())
+    }
+    Ok(bytes)
+}
+
+#[tauri::command]
+async fn add_musescore_pdf(state:tauri::State<'_,State>,content_id:String,version_id:String)->Result<serde_json::Value,String>{
+    let data=state.data.clone();let engine=state.engine.clone();
+    let source=neothesia_engine::score_sources::original_for_edit(&data,&content_id,&version_id)?;
+    let executable=musescore_executable(&data).await?;
+    #[cfg(target_os="windows")]
+    {tauri::async_runtime::spawn_blocking(move||{
+        let dir=data.join("musescore-pdf-temp");std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
+        let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+        let pdf=dir.join(format!("export-{}-{unique}.pdf",std::process::id()));
+        let result=(||{
+            let bytes=convert_musescore_pdf(&executable,&source,&pdf)?;
+            neothesia_engine::score_sources::original_for_edit(&data,&content_id,&version_id)?;
+            let base=source.file_stem().and_then(|s|s.to_str()).unwrap_or("乐谱");
+            engine.command(Command::AddScoreAttachment{content_id,name:format!("{base} · MuseScore.pdf"),bytes,append:None})
+        })();
+        let _=std::fs::remove_file(pdf);
+        result
+    }).await.map_err(|e|e.to_string())?}
+    #[cfg(not(target_os="windows"))]
+    {let _=(source,executable,engine);Err("当前平台尚未接入 MuseScore PDF 导出".into())}
 }
 #[tauri::command]
 async fn export_paper_book(state:tauri::State<'_,State>,name:String,bytes:Vec<u8>) -> Result<Option<String>,String> {
@@ -592,6 +655,7 @@ fn main() {
             score_batch_export::begin_score_batch_export,score_batch_export::begin_workspace_export,score_batch_export::write_score_batch_export,score_batch_export::finish_score_batch_export,score_batch_export::cancel_score_batch_export,
             reveal_library_file,
             open_score_in_musescore,
+            add_musescore_pdf,
             library_list,
             engine_state,
             engine_song,
@@ -660,4 +724,23 @@ fn main() {
             let _ = std::fs::write(&log, &message);
             rfd::MessageDialog::new().set_title("Neothesia 启动失败").set_description(format!("{message}\n诊断文件：{}", log.display())).set_level(rfd::MessageLevel::Error).show();
         });
+}
+
+#[cfg(all(test,target_os="windows"))]
+mod musescore_tests {
+    use super::*;
+    #[test]
+    fn score_path_arg_removes_extended_prefix(){
+        assert_eq!(musescore_path_arg(std::path::Path::new(r"\\?\C:\Music\score.mxl")),r"C:\Music\score.mxl");
+        assert_eq!(musescore_path_arg(std::path::Path::new(r"\\?\UNC\server\share\score.mxl")),r"\\server\share\score.mxl");
+    }
+    #[test]
+    fn installed_musescore_converts_real_musicxml_to_pdf(){
+        let Some(program)=installed_musescore() else{return};
+        let input=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../neothesia-core/src/score_performance_test.musicxml");
+        let output=std::env::temp_dir().join(format!("neothesia-musescore-test-{}.pdf",std::process::id()));
+        let bytes=convert_musescore_pdf(&program,&input,&output).unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        let _=std::fs::remove_file(output);
+    }
 }

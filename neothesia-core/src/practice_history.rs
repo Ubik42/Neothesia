@@ -306,6 +306,7 @@ pub struct RecentSongSummary {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ReviewReason {
     NeedsEvidence,
+    IncompleteConditions,
     NeedsReinforcement,
     FirstMastery,
     Consolidating,
@@ -326,29 +327,18 @@ pub struct ReviewStatus {
 impl SongPracticeHistory {
     pub fn review_status(&self, now_unix_ms: u64) -> Option<ReviewStatus> {
         let latest = self.sessions.last()?;
-        let scope = (
-            latest.kind,
-            latest.hands,
-            latest.mode.as_deref(),
-            latest.scope.as_deref(),
-        );
-        let mastery_streak = self
-            .sessions
-            .iter()
-            .rev()
-            .filter(|session| {
-                (
-                    session.kind,
-                    session.hands,
-                    session.mode.as_deref(),
-                    session.scope.as_deref(),
-                ) == scope
-            })
-            .take_while(|session| session_is_mastered(session))
-            .count();
+        let complete = review_conditions_complete(latest);
+        let mastery_streak = if complete {
+            self.sessions.iter().rev()
+                .filter(|session| same_review_conditions(latest, session))
+                .take_while(|session| session_is_mastered(session))
+                .count()
+        } else { 0 };
         let latest_accuracy = latest.summary.overall.accuracy();
         let (interval_days, reason) = if latest_accuracy.is_none() {
             (0, ReviewReason::NeedsEvidence)
+        } else if !complete {
+            (0, ReviewReason::IncompleteConditions)
         } else if mastery_streak == 0 {
             (0, ReviewReason::NeedsReinforcement)
         } else if mastery_streak == 1 {
@@ -616,6 +606,44 @@ impl SongPracticeHistory {
                 .collect(),
         }
     }
+}
+
+/// A review interval is earned only by attempts whose saved task is complete
+/// and identical. Older records without the frozen context remain readable,
+/// but cannot establish a comparable mastery streak.
+fn review_conditions_complete(session: &PracticeSession) -> bool {
+    let Some(context) = session.context.as_ref() else { return false; };
+    session.scope.as_deref().is_some_and(|value| !value.is_empty())
+        && session.mode.as_deref().is_some_and(|value| !value.is_empty())
+        && session.speed.is_finite()
+        && !context.grid.is_empty()
+        && !context.hands.is_empty()
+        && context.target_notes > 0
+        && context.judged_notes > 0
+}
+
+fn same_review_conditions(a: &PracticeSession, b: &PracticeSession) -> bool {
+    if !review_conditions_complete(a) || !review_conditions_complete(b)
+        || a.scope != b.scope || a.mode != b.mode || a.kind != b.kind
+        || a.hands != b.hands || (a.speed - b.speed).abs() >= 0.0001
+        || a.effective_tempo_bpm != b.effective_tempo_bpm
+    { return false; }
+    let (a, b) = (a.context.as_ref().unwrap(), b.context.as_ref().unwrap());
+    a.grid == b.grid
+        && a.tracks == b.tracks
+        && a.parts == b.parts
+        && a.hands == b.hands
+        && a.exercise_spec == b.exercise_spec
+        && a.target_notes == b.target_notes
+        && a.judged_notes == b.judged_notes
+        && a.count_in == b.count_in
+        && a.metronome == b.metronome
+        && a.latency == b.latency
+        && a.pedal_latency_ms.unwrap_or(a.latency) == b.pedal_latency_ms.unwrap_or(b.latency)
+        && a.rounds == b.rounds
+        && a.adaptive == b.adaptive
+        && a.expression.as_ref().or_else(|| a.routine.as_ref().and_then(|r| r.expression.as_ref()))
+            == b.expression.as_ref().or_else(|| b.routine.as_ref().and_then(|r| r.expression.as_ref()))
 }
 
 fn is_reliable_weakness(measure: &WeakMeasure) -> bool {
@@ -1169,6 +1197,24 @@ mod tests {
         }
     }
 
+    fn review_session(recorded_at_unix_ms: u64) -> PracticeSession {
+        let mut item = session(2, 10, 0);
+        item.recorded_at_unix_ms = recorded_at_unix_ms;
+        item.summary.overall.on_time_notes = 8;
+        item.scope = Some("practice-v1-same-notes".into());
+        item.mode = Some("flow".into());
+        item.context = Some(PracticeSessionContext {
+            expression: None, routine: None, ladder: None,
+            target_notes: 10, judged_notes: 10,
+            tracks: vec![PracticeTrackSetup {track_id: 1, mode: PracticeTrackMode::Human, visible: true}],
+            parts: BTreeMap::new(), hands: "both".into(),
+            count_in: 1, metronome: true, latency: 12,
+            pedal_latency_ms: Some(9), rounds: 1, adaptive: false,
+            grid: "grid-v1-original".into(), source_path: None, exercise_spec: None,
+        });
+        item
+    }
+
     fn rhythm_session(
         measure: usize,
         samples: usize,
@@ -1714,17 +1760,11 @@ mod tests {
     #[test]
     fn spaced_review_uses_mastery_streak_and_explains_due_state() {
         let day = 24 * 60 * 60 * 1_000_u64;
-        let mastered = |recorded_at_unix_ms| {
-            let mut item = session(2, 10, 0);
-            item.recorded_at_unix_ms = recorded_at_unix_ms;
-            item.summary.overall.on_time_notes = 8;
-            item
-        };
         let history = SongPracticeHistory {
             display_name: "Song.mid".to_owned(),
             setup: None,
             library: SongLibraryState::default(),
-            sessions: vec![mastered(day), mastered(day * 2), mastered(day * 3)],
+            sessions: vec![review_session(day), review_session(day * 2), review_session(day * 3)],
         };
 
         let waiting = history.review_status(day * 9).unwrap();
@@ -1741,7 +1781,9 @@ mod tests {
 
     #[test]
     fn weak_latest_take_is_due_immediately() {
-        let mut weak = session(2, 7, 3);
+        let mut weak = review_session(100);
+        weak.summary.overall.matched_notes = 7;
+        weak.summary.overall.missed_notes = 3;
         weak.recorded_at_unix_ms = 100;
         weak.summary.overall.on_time_notes = 7;
         let history = SongPracticeHistory {
@@ -1755,6 +1797,45 @@ mod tests {
         assert!(review.is_due);
         assert_eq!(review.interval_days, 0);
         assert_eq!(review.reason, ReviewReason::NeedsReinforcement);
+    }
+
+    #[test]
+    fn review_streak_requires_same_frozen_practice_conditions() {
+        let day = 86_400_000_u64;
+        let baseline = review_session(day);
+        let mut variants = Vec::new();
+        let mut grid = baseline.clone(); grid.context.as_mut().unwrap().grid = "grid-v1-revised".into(); variants.push(grid);
+        let mut range = baseline.clone(); range.kind = PracticeSessionKind::Loop {start_measure: 2, end_measure: 3}; variants.push(range);
+        let mut scope = baseline.clone(); scope.scope = Some("practice-v1-other-notes".into()); variants.push(scope);
+        let mut track = baseline.clone(); track.context.as_mut().unwrap().tracks[0].mode = PracticeTrackMode::Auto; variants.push(track);
+        let mut speed = baseline.clone(); speed.speed = 0.6; variants.push(speed);
+        let mut tempo = baseline.clone(); tempo.effective_tempo_bpm = Some(80); variants.push(tempo);
+        let mut input = baseline.clone(); input.context.as_mut().unwrap().latency = 13; variants.push(input);
+        let mut pedal = baseline.clone(); pedal.context.as_mut().unwrap().pedal_latency_ms = Some(10); variants.push(pedal);
+        let mut mode = baseline.clone(); mode.mode = Some("wait".into()); variants.push(mode);
+        for variant in variants {
+            let latest = review_session(day * 2);
+            let history = SongPracticeHistory {sessions: vec![variant, latest], ..Default::default()};
+            let status = history.review_status(day * 2).unwrap();
+            assert_eq!(status.mastery_streak, 1);
+            assert_eq!(status.interval_days, 1);
+            assert_eq!(status.reason, ReviewReason::FirstMastery);
+        }
+    }
+
+    #[test]
+    fn old_attempts_without_frozen_conditions_are_preserved_but_do_not_extend_review() {
+        let day = 86_400_000_u64;
+        let mut legacy = review_session(day);
+        legacy.context = None;
+        let history = SongPracticeHistory {sessions: vec![legacy.clone(), review_session(day * 2)], ..Default::default()};
+        assert_eq!(history.review_status(day * 2).unwrap().mastery_streak, 1);
+        assert_eq!(history.sessions.len(), 2);
+        let legacy_latest = SongPracticeHistory {sessions: vec![legacy], ..Default::default()};
+        let status = legacy_latest.review_status(day).unwrap();
+        assert_eq!(status.reason, ReviewReason::IncompleteConditions);
+        assert_eq!(status.mastery_streak, 0);
+        assert!(status.is_due);
     }
 
     #[test]

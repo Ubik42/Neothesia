@@ -6,8 +6,11 @@ import {
 } from "./HistoryProblemCut";
 import { useEffect, useRef, useState } from "react";
 import { api, pitchName } from "./api";
-import { historyGradeName, type HistoryScoreReview } from "./historyScoreFocus";
+import { historyGradeName, type HistoryReviewNote, type HistoryScoreReview } from "./historyScoreFocus";
 import type { RoutineGoal } from "./RoutineDialog";
+type ProblemPlanReview = Pick<HistoryScoreReview, "contentId" | "historyId" | "scoreRevision" | "recordedAt" | "title" | "exact"> & {
+  notes: (Pick<HistoryReviewNote, "reference" | "measure" | "pitch" | "kind"> & Pick<HistoryReviewNote, "sourceTitle" | "sourceContentId" | "sourceHistoryId" | "sourceReference">)[];
+};
 type DraftEdit = { title: string; notes: string; cut?: ProblemCut | null };
 type Row = {
   cutBounds: CutBounds;
@@ -32,18 +35,27 @@ const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+const tomorrow = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 export function HistoryProblemPlan({
   review,
   disabled,
   openPlan,
   dirtyChanged,
   multi = false,
+  launchImmediately = false,
+  onClose,
 }: {
   multi?: boolean;
-  review: HistoryScoreReview;
+  review: ProblemPlanReview;
   disabled: boolean;
   openPlan: (id: string, day: string | null) => void;
   dirtyChanged: (dirty: boolean) => void;
+  launchImmediately?: boolean;
+  onClose?: () => void;
 }) {
   const cached = useRef<Record<string, any>>(
     (() => {
@@ -58,10 +70,11 @@ export function HistoryProblemPlan({
       }
     })(),
   );
+  const initialProblems = review.notes.filter((n) => ["early", "late", "missed"].includes(n.kind));
   const [cutsChecked, setCutsChecked] = useState(true);
   const [open, setOpen] = useState(false),
     [chosen, setChosen] = useState<number[]>(
-      (Array.isArray(cached.current.chosen) ? cached.current.chosen : [])
+      (launchImmediately ? initialProblems.map((n) => n.reference).slice(0, 60) : Array.isArray(cached.current.chosen) ? cached.current.chosen : [])
         .filter(
           (v: unknown) =>
             typeof v === "number" && Number.isSafeInteger(v) && v >= 0,
@@ -98,9 +111,9 @@ export function HistoryProblemPlan({
     [target, setTarget] = useState(
       typeof cached.current.target === "string" ? cached.current.target : "",
     ),
-    [dated, setDated] = useState(cached.current.dated === true),
+    [dated, setDated] = useState(launchImmediately || cached.current.dated === true),
     [day, setDay] = useState(() =>
-      typeof cached.current.day === "string" &&
+      launchImmediately ? tomorrow() : typeof cached.current.day === "string" &&
       /^\d{4}-\d{2}-\d{2}$/.test(cached.current.day)
         ? cached.current.day
         : today(),
@@ -190,7 +203,7 @@ export function HistoryProblemPlan({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        if (!working.current) setOpen(false);
+        if (!working.current) { setOpen(false); onClose?.(); }
       }
       if (e.key === "Tab") {
         e.stopPropagation();
@@ -219,7 +232,7 @@ export function HistoryProblemPlan({
       document.removeEventListener("keydown", trap, true);
       if (previous?.isConnected) previous.focus();
     };
-  }, [open]);
+  }, [open, onClose]);
   const problems = review.notes.filter((n) =>
     ["early", "late", "missed"].includes(n.kind),
   );
@@ -361,6 +374,17 @@ export function HistoryProblemPlan({
       if (alive.current && request === epoch.current) setPlans(data.plans);
     });
   }
+  useEffect(() => {
+    if (!launchImmediately) return;
+    let cancelled = false;
+    void (async () => {
+      await show();
+      if (!cancelled && initialProblems.length) await generate();
+    })();
+    return () => { cancelled = true; };
+    // This mode mounts once for the saved attempt selected in feedback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchImmediately]);
   const toggle = (reference: number) => {
     invalidate();
     setChosen((old) =>
@@ -482,12 +506,12 @@ export function HistoryProblemPlan({
   };
   return (
     <>
-      <button
+      {!launchImmediately && <button
         disabled={disabled || !review.exact || !problems.length}
         onClick={() => void show()}
       >
         {multi ? "跨记录复习编排" : "编排问题段落"}
-      </button>
+      </button>}
       {open && (
         <div className="modal-backdrop">
           <section
@@ -505,13 +529,14 @@ export function HistoryProblemPlan({
                   {new Date(review.recordedAt).toLocaleString("zh-CN")}
                 </p>
               </div>
-              <button disabled={busy} onClick={() => setOpen(false)}>
+              <button disabled={busy} onClick={() => { setOpen(false); onClose?.(); }}>
                 关闭编排
               </button>
             </div>
             <p>
               挑选问题音并安排顺序，同一范围合成一项，重叠范围分别练习。关闭此窗口保留输入，离开批阅前请保存。
             </p>
+            {launchImmediately && <p>这些问题来自刚保存的一次练习。计划日期默认是明天；单次结果不代表长期弱项。</p>}
             <div className="history-problem-layout">
               <div className="history-problem-source">
                 <div className="history-range-controls">

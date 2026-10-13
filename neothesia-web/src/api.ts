@@ -55,7 +55,7 @@ export interface CollectionSong {
   generated: boolean;
   available: boolean;
   recommended: [number, number] | null;
-  review: { due: boolean; days: number; streak: number } | null;
+  review: { due: boolean; days: number; streak: number; intervalDays?: number; reason?: "NeedsEvidence" | "IncompleteConditions" | "NeedsReinforcement" | "FirstMastery" | "Consolidating" | "Stable" } | null;
 }
 export interface TrackSound {
   volume: number;
@@ -201,6 +201,7 @@ export interface Snapshot {
   output: string;
   error: string | null;
   saved: boolean;
+  currentHistoryId: string | null;
   passage: { start: number; end: number } | null;
   repetitions: number;
   volume: number;
@@ -247,6 +248,7 @@ export const emptyState: Snapshot = {
   output: "内置钢琴",
   error: null,
   saved: false,
+  currentHistoryId: null,
   passage: null,
   repetitions: 0,
   volume: 0.8,
@@ -506,6 +508,8 @@ export const api = {
     }),
   openScoreInMuseScore: (contentId: string, versionId: string) =>
     invoke<void>("open_score_in_musescore", { contentId, versionId }),
+  addMuseScorePdf: (contentId: string, versionId: string) =>
+    invoke<{ active: string }>("add_musescore_pdf", { contentId, versionId }),
   exportPaperPage: (name: string, bytes: Uint8Array) =>
     invoke<string | null>("export_paper_page", {
       name,

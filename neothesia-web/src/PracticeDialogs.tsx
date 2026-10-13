@@ -287,25 +287,62 @@ const percentage = (b: {
   const total = b.matched_notes + b.wrong_notes + b.missed_notes;
   return total ? `${Math.round((b.matched_notes / total) * 100)}%` : "—";
 };
+export type FeedbackPlanSource = {
+  contentId: string;
+  id: string;
+  title: string;
+  recordedAt: number;
+  total: number;
+  notes: { reference: number; measure: number; pitch: number; kind: string }[];
+};
 export function FeedbackDialog({
   close,
   state,
+  contentId,
   practice,
   retry,
+  arrangeNext,
 }: {
   close: () => void;
   state: Snapshot;
+  contentId: string | null;
   practice: (start: number, end: number) => Promise<void>;
   retry: () => Promise<void>;
+  arrangeNext: (source: FeedbackPlanSource) => void;
 }) {
   const [summary, setSummary] = useState<Feedback | null>(state.summary),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [planSource, setPlanSource] = useState<FeedbackPlanSource | null>(null),
+    [planLoading, setPlanLoading] = useState(false);
   useEffect(() => {
     api
       .command<Feedback>({ type: "feedback" })
       .then(setSummary)
       .catch((e) => setError(String(e.message)));
   }, []);
+  useEffect(() => {
+    const id = state.currentHistoryId;
+    if (!state.saved || !contentId || !id || state.routine || state.ladder?.active) {
+      setPlanSource(null);
+      return;
+    }
+    let cancelled = false;
+    setPlanLoading(true);
+    void api.command<FeedbackPlanSource>({
+      type: "historyProblemNotes",
+      content_id: contentId,
+      id,
+      offset: 0,
+    }).then((source) => {
+      if (!cancelled && source.contentId === contentId && source.id === id)
+        setPlanSource(source.total > 0 && source.notes.length > 0 ? source : null);
+    }).catch(() => {
+      if (!cancelled) setPlanSource(null);
+    }).finally(() => {
+      if (!cancelled) setPlanLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [contentId, state.saved, state.currentHistoryId, state.routine, state.ladder?.active]);
   const weakest = summary?.measures
     .filter((m) => m.breakdown.missed_notes + m.breakdown.wrong_notes > 0)
     .sort(
@@ -420,6 +457,14 @@ export function FeedbackDialog({
               >
                 重练第 {weakest.measure} 小节
               </button>
+            )}
+            {planSource && state.saved && state.currentHistoryId === planSource.id && (
+              <div className="feedback-next-practice">
+                <p>本轮保存的演奏记录发现 {planSource.total} 个偏早、偏晚或漏音。这是单次练习证据，不代表长期弱项。</p>
+                <button className="primary" disabled={planLoading} onClick={() => arrangeNext(planSource)}>
+                  预览并安排下次练习
+                </button>
+              </div>
             )}
             <div className="feedback-table">
               <table>

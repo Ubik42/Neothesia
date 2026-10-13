@@ -55,6 +55,25 @@ type Workspace = {
   revision: number;
   learning?: Record<string, SongLearning>;
 };
+function reviewLabel(review: CollectionSong["review"]): string {
+  if (!review) return "";
+  const reasons: Record<string, string> = {
+    NeedsEvidence: "这次练习缺少有效音符成绩",
+    IncompleteConditions: "这次练习缺少完整条件，旧成绩不能证明同条件连胜",
+    NeedsReinforcement: "最近一次同条件练习尚未达标",
+    FirstMastery: "同条件达标 1 次",
+    Consolidating: "同条件连续达标 2 次",
+    Stable: `同条件连续达标 ${review.streak} 次`,
+  };
+  const reason = reasons[review.reason ?? ""] ?? "复习日期已根据最近一次练习计算";
+  return review.due ? `待复习：${reason}` : `${reason}，${review.days} 天后复习`;
+}
+function reviewShort(review: CollectionSong["review"]): string {
+  if (!review) return "";
+  if (review.reason === "IncompleteConditions") return "条件不足 · 待复习";
+  if (review.reason === "NeedsEvidence") return "成绩不足 · 待复习";
+  return review.due ? "待复习" : `${review.days} 天后复习`;
+}
 export function LibraryDialog({
   rows,
   close,
@@ -1259,7 +1278,7 @@ export function LibraryDialog({
                         </td>
                         <td title={r.path}>
                           <strong>{m?.title ?? r.title}</strong>
-                          <small>
+                          <small title={reviewLabel(historyFor(r)?.review ?? null)}>
                             {(m?.tags ?? r.tags ?? []).join(" · ") ||
                               r.category ||
                               r.source}
@@ -1331,7 +1350,7 @@ export function LibraryDialog({
                                   historyFor(r)!.lastPracticed!,
                                 ).toLocaleDateString("zh-CN")
                               : ""}
-                            {historyFor(r)?.review?.due ? " · 待复习" : ""}
+                            {historyFor(r)?.review ? ` · ${reviewShort(historyFor(r)?.review ?? null)}` : ""}
                           </small>
                         </td>
                       </tr>

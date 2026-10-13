@@ -34,6 +34,7 @@ export function ScoresDialog({
     [paperBusy, setPaperBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const canGenerateMuseScorePdf = api.desktop && /Windows/i.test(navigator.userAgent);
   const [versionPreview, setVersionPreview] = useState<{
     id: string;
     path: string;
@@ -62,6 +63,19 @@ export function ScoresDialog({
     setFilePreview(null);
     setEditMessage("");
     void refresh().catch((e) => setError(String(e.message)));
+  }, [song.contentId]);
+  useEffect(() => {
+    if (!api.desktop) return;
+    const update = () => {
+      if (document.visibilityState === "visible")
+        void refresh().catch((e) => setError(String(e.message)));
+    };
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
   }, [song.contentId]);
   const previewVersion = async (version: Version) => {
     setBusy(true);
@@ -197,7 +211,7 @@ export function ScoresDialog({
               谱面。切换时重新核对音符对应关系；移除版本会从管理列表移除，文件仍保留。
             </p>
             {api.desktop && <p className="parameter-help">
-              编辑原谱时，先为版本关联磁盘上的原文件，再用 MuseScore Studio 打开。保存修改后，返回这里点“检查原谱更新”，预览差异并决定是否采用。当前练习不会因外部保存而自动切换谱面。
+              编辑原谱时，先为版本关联磁盘上的原文件，再用 MuseScore Studio 打开。保存修改后，返回这里点“检查原谱更新”，预览差异并决定是否采用。已核对的原谱也可以经 MuseScore 排版为 PDF，加入“PDF / 图片谱面”供阅读和批注。当前练习不会因外部保存而自动切换谱面。
             </p>}
             <div className="dialog-actions">
               <button
@@ -362,6 +376,19 @@ export function ScoresDialog({
                                 })}
                               >
                                 在 MuseScore 中编辑原谱
+                              </button>
+                            )}
+                            {canGenerateMuseScorePdf && original && (
+                              <button
+                                disabled={busy || original.status !== "ready"}
+                                title={original.status !== "ready" ? "请先检查原谱更新" : "用 MuseScore Studio 排版 PDF，并作为新谱页版本加入当前曲目"}
+                                onClick={() => void perform(async () => {
+                                  await api.addMuseScorePdf(song.contentId, v.id);
+                                  setEditMessage("PDF 已加入当前曲目。请在“PDF / 图片谱面”中核对页码和排版。");
+                                  setTab("paper");
+                                })}
+                              >
+                                生成 PDF 谱面
                               </button>
                             )}
                             <button

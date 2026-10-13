@@ -126,6 +126,7 @@ pub struct Snapshot {
     pub output: String,
     pub error: Option<String>,
     pub saved: bool,
+    pub current_history_id: Option<String>,
     pub passage: Option<Passage>,
     pub repetitions: usize,
     pub ladder: Option<preferences::LadderRun>,
@@ -168,6 +169,7 @@ impl Default for Snapshot {
             output: "内置钢琴".into(),
             error: None,
             saved: false,
+            current_history_id: None,
             passage: None,
             repetitions: 0,
             ladder: None,
@@ -1788,13 +1790,15 @@ impl Player {
                         .round()
                         .clamp(1., 65535.) as u16,
                 ));
-        performance_archive::save(&self.data,&file.content_id,&session.stable_id(),&self.performance_capture,self.session_clock.as_secs_f64(),self.matcher.results())?;
+        let history_id = session.stable_id();
+        performance_archive::save(&self.data,&file.content_id,&history_id,&self.performance_capture,self.session_clock.as_secs_f64(),self.matcher.results())?;
         let entry=neothesia_core::practice_history::PracticeTimeEntry{saved_at_unix_ms:session.recorded_at_unix_ms,slices:self.pending_time.clone(),untracked_ms:self.pending_untracked};
         self.history.record_session_with_time(&file.content_id,&self.title,session,entry)?;
         self.pending_time.clear();self.pending_untracked=0;
         self.previous_summary = Some(self.matcher.summary());
         self.previous_mode = Some(self.state.mode.clone());
         self.state.saved = true;
+        self.state.current_history_id = Some(history_id);
         Ok(())
     }
     fn reset(&mut self, position: f64) {
@@ -1817,6 +1821,7 @@ impl Player {
             }
         }
         self.state.saved = false;
+        self.state.current_history_id = None;
         self.note_cursor = self
             .notes
             .partition_point(|n| n.start.as_secs_f64() < position);
@@ -1979,7 +1984,7 @@ impl Player {
             let songs: Vec<_> = self.history.recent_songs(usize::MAX).into_iter().map(|s| serde_json::json!({
                 "contentId": s.content_id, "title": s.display_name, "storedPath":s.source_path, "path": library::available_path(&index,&s.content_id,s.source_path.as_deref()),
                 "favorite": s.favorite, "queuePosition": s.queue_position, "lastUsed": s.last_used_unix_ms,
-                "lastPracticed":self.history.song(&s.content_id).and_then(|h|h.sessions.last()).map(|s|s.recorded_at_unix_ms), "sessions": s.session_count, "accuracy": s.latest_accuracy,"available":s.source_path.is_none()||library::available_path(&index,&s.content_id,s.source_path.as_deref()).is_some(),"recommended":s.recommended_measures,"review":s.review.map(|r|serde_json::json!({"due":r.is_due,"days":r.days_until_due,"streak":r.mastery_streak})), "generated":self.history.setup(&s.content_id).is_some_and(|s|s.exercise_spec.is_some())
+                "lastPracticed":self.history.song(&s.content_id).and_then(|h|h.sessions.last()).map(|s|s.recorded_at_unix_ms), "sessions": s.session_count, "accuracy": s.latest_accuracy,"available":s.source_path.is_none()||library::available_path(&index,&s.content_id,s.source_path.as_deref()).is_some(),"recommended":s.recommended_measures,"review":s.review.map(|r|serde_json::json!({"due":r.is_due,"days":r.days_until_due,"streak":r.mastery_streak,"intervalDays":r.interval_days,"reason":format!("{:?}",r.reason)})), "generated":self.history.setup(&s.content_id).is_some_and(|s|s.exercise_spec.is_some())
             })).collect();
             return Ok(serde_json::json!({ "songs": songs }));
         }
@@ -3715,6 +3720,7 @@ impl Player {
                     performance_input,
                 );
                 self.state.saved = false;
+                self.state.current_history_id = None;
             }
         }
         if kind == 176 && note == 64 {
@@ -3730,6 +3736,7 @@ impl Player {
     fn capture_running_time(&mut self,delta:Duration,now:u64){
         self.time_fraction=self.time_fraction.saturating_add(delta);let raw=self.time_fraction.as_millis().min(u128::from(u64::MAX)) as u64;self.time_fraction=self.time_fraction.saturating_sub(Duration::from_millis(raw));if raw==0{return}
         self.state.saved=false;
+        self.state.current_history_id=None;
         let ms=raw.min(5_000);self.pending_untracked=self.pending_untracked.saturating_add(raw-ms);
         if now>9_000_000_000_000_000||self.pending_time.len()>=20_000{self.pending_untracked=self.pending_untracked.saturating_add(ms);self.time_connected=false;return}
         let expected=self.time_last_end.and_then(|last|last.checked_add(ms));
@@ -4297,6 +4304,11 @@ mod tests {
         assert_eq!(p.state.status, "finished");
         assert_eq!(p.snapshot().score.missed_notes, 9);
         assert!(p.state.saved);
+        let history_id = p.snapshot().current_history_id.expect("完成后应指向刚保存的成绩");
+        let content_id = p.file.as_ref().unwrap().content_id.clone();
+        assert!(p.history.song(&content_id).unwrap().sessions.iter().any(|row| row.stable_id() == history_id));
+        p.reset(0.);
+        assert!(p.snapshot().current_history_id.is_none());
         assert!(!p.previous_summary.as_ref().unwrap().measures.is_empty());
     }
     #[test]

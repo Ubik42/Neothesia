@@ -67,7 +67,9 @@ import {
   ExerciseDialog,
   FeedbackDialog,
   MetadataDialog,
+  type FeedbackPlanSource,
 } from "./PracticeDialogs";
+import { HistoryProblemPlan } from "./HistoryProblemPlan";
 import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
 import { ExpressionGoalControl, expressionGoalText, type ExpressionGoal } from "./ExpressionGoalControl";
 type Tab = "全部" | "收藏" | "最近" | "队列";
@@ -135,6 +137,7 @@ export default function App() {
     >(null),
     [exerciseDialog, setExerciseDialog] = useState(false),
     [feedback, setFeedback] = useState(false),
+    [feedbackPlan, setFeedbackPlan] = useState<{source: FeedbackPlanSource; scoreRevision: number} | null>(null),
     [metadata, setMetadata] = useState(false),
     [fingeringDialog, setFingeringDialog] = useState(false),
     [legacyExerciseDialog, setLegacyExerciseDialog] = useState(false),
@@ -174,6 +177,10 @@ export default function App() {
     if (historyScoreReview && song?.contentId !== historyScoreReview.contentId)
       setHistoryScoreReview(null);
   }, [song?.contentId, historyScoreReview]);
+  useEffect(() => {
+    if (feedbackPlan && song?.contentId !== feedbackPlan.source.contentId)
+      setFeedbackPlan(null);
+  }, [song?.contentId, feedbackPlan]);
   useEffect(() => {
     if (historyPaperFocus && song?.contentId !== historyPaperFocus.contentId)
       setHistoryPaperFocus(null);
@@ -2477,6 +2484,12 @@ export default function App() {
         <FeedbackDialog
           close={() => setFeedback(false)}
           state={state}
+          contentId={song?.contentId ?? null}
+          arrangeNext={(source) => {
+            if (!song || song.contentId !== source.contentId || state.currentHistoryId !== source.id) return;
+            setFeedbackPlan({source, scoreRevision: song.scoreRevision});
+            setFeedback(false);
+          }}
           retry={async () => {
             await run({ type: "restart" });
             setFeedback(false);
@@ -2488,6 +2501,29 @@ export default function App() {
             if (recital) await run({ type: "mode", value: "flow" });
             await run({ type: "measureLoop", start, end, enabled: true });
             setFeedback(false);
+          }}
+        />
+      )}
+      {feedbackPlan && song?.contentId === feedbackPlan.source.contentId && (
+        <HistoryProblemPlan
+          key={`${feedbackPlan.source.contentId}:${feedbackPlan.source.id}`}
+          launchImmediately
+          review={{
+            contentId: feedbackPlan.source.contentId,
+            historyId: feedbackPlan.source.id,
+            scoreRevision: feedbackPlan.scoreRevision,
+            recordedAt: feedbackPlan.source.recordedAt,
+            title: feedbackPlan.source.title,
+            exact: true,
+            notes: feedbackPlan.source.notes,
+          }}
+          disabled={busy || state.status === "playing" || state.status === "countIn"}
+          dirtyChanged={() => {}}
+          onClose={() => setFeedbackPlan(null)}
+          openPlan={(id, day) => {
+            setFeedbackPlan(null);
+            setRoutineLaunch({id, day});
+            setRoutineDialog(true);
           }}
         />
       )}

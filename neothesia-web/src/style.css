@@ -1204,6 +1204,20 @@ button.icon-button {
   gap: 20px;
   margin: 16px 0;
 }
+.feedback-next-practice {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid #426044;
+  border-radius: 10px;
+  background: #1c2a24;
+}
+.feedback-next-practice p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+.feedback-next-practice .primary {
+  margin-top: 0;
+}
 .feedback-table {
   overflow: auto;
   margin-top: 16px;
