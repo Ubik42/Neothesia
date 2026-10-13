@@ -10,7 +10,7 @@
 
 原仓库已有路线见 [roadmap.md](roadmap.md)、[backlog.md](backlog.md) 和 [指法算法文档](../pages/fingering-suggestions.md)。原生已实现、Web 已接入、仍需扩展分开记录。
 
-当前批次：Cycle 219（MuseScore 转谱初稿的外部编辑与更新回收）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
+当前批次：Cycle 220（独立 D.C./D.S. 的实际演奏顺序）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
 
 ## A. 本地曲目与谱面管理
 
@@ -73,6 +73,7 @@
 - [x] 数值 Fine 调整 D.C./D.S. 返回后最后音符或休止符的实际时值，MIDI、原谱出现次数、曲长和结束事件一致；多分谱/重叠声部/末音延音线等歧义诊断（Cycle 211）。数值按四分音符拍数解释，依据[公开 MusicXML 样本](https://github.com/musescore/nwc2musicxml/blob/14737b1c8263e27f82ea9ceec9bf62f9ccea5bce/TestFiles/TestDCalFine.xml)；[W3C 说明](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/sound/)只明确其表示实际时值。
 - [x] 唯一印刷 Segno、文字 D.S. al Fine 与 Fine 可展开实际演奏；显式 sound 目标保持优先，目标重复或冲突时保留诊断并拒绝含糊路线（Cycle 212）。
 - [x] 唯一印刷 D.C./D.S. al Coda、To Coda 与 Coda 可展开返回后进入尾声的实际顺序；小节线符号和位置一致的 sound 标签共同核对，缺失/重复/冲突位置保留诊断（Cycle 213）。
+- [x] 唯一的独立文字 D.C. 或 D.S. 可以在谱面预览、导入和生成 MIDI 时回到曲首或印刷 Segno，第二次到达返回点后继续演奏到曲末。同位置的 sound 跳转与目标须一致；重复返回、重复 Segno 或混用 Fine/Coda 时提示校对并拒绝含糊路线（Cycle 220）。
 - [x] MusicXML 明确写有 `steal-time-following` 的短/长倚音按比例借用唯一主音时间，连续倚音、反复来源与 MIDI 曲长保留；时值不明确或主音冲突时诊断小节（Cycle 214）。
 - [x] 明确写有 `steal-time-previous` 的倚音按比例借用同声部前音；`make-time` 按当前 divisions 换算，仅在主音前已有足够空隙时安放。连续倚音、和弦、反复身份和曲长经过核对（Cycle 215）。
 - [ ] 其他文字跳转、无明确播放时值的装饰音与其余复杂演奏解释。

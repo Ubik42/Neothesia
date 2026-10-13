@@ -1031,6 +1031,23 @@ mod tests {
         assert!((file.duration.as_secs_f64() - 3.0).abs() < 0.00001);
     }
     #[test]
+    fn printed_plain_dal_segno_generates_both_passages_through_the_last_measure() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="2"><direction><direction-type><segno/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="4"><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>D.S.</words></direction-type></direction></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let pitches: Vec<_> = performance.tracks[0].notes.iter().map(|note| note.pitch).collect();
+        assert_eq!(pitches, [60, 62, 64, 65, 62, 64, 65]);
+        assert_eq!(performance.tracks[0].notes.last().unwrap().end, 6720);
+        let file = midi_file::MidiFile::from_smf("printed-ds", &performance.smf).unwrap();
+        assert_eq!(file.tracks.iter().flat_map(|track| track.notes.iter()).count(), 7);
+        assert!((file.duration.as_secs_f64() - 3.5).abs() < 0.00001);
+    }
+    #[test]
     fn printed_dal_segno_coda_preserves_notes_source_occurrences_and_midi_end() {
         let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
         <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>

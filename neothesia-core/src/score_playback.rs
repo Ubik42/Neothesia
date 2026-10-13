@@ -591,7 +591,9 @@ fn navigation(
     let mut targets = BTreeMap::new();
     let mut text_fines = Vec::new();
     let mut text_da_capos = Vec::new();
+    let mut text_plain_da_capos = Vec::new();
     let mut text_dal_segnos = Vec::new();
+    let mut text_plain_dal_segnos = Vec::new();
     let mut text_coda_da_capos = Vec::new();
     let mut text_coda_dal_segnos = Vec::new();
     let mut text_to_codas = Vec::new();
@@ -620,8 +622,12 @@ fn navigation(
                 }
             }
             let recognized_dc = printed_command == "dcalfine" || printed_command == "dacapoalfine";
+            let recognized_plain_dc =
+                printed_command == "dc" || printed_command == "dacapo";
             let recognized_ds =
                 printed_command == "dsalfine" || printed_command == "dalsegnoalfine";
+            let recognized_plain_ds =
+                printed_command == "ds" || printed_command == "dalsegno";
             let recognized_dc_coda =
                 printed_command == "dcalcoda" || printed_command == "dacapoalcoda";
             let recognized_ds_coda =
@@ -629,8 +635,14 @@ fn navigation(
             if recognized_dc {
                 text_da_capos.push((index, offset));
             }
+            if recognized_plain_dc {
+                text_plain_da_capos.push((index, offset));
+            }
             if recognized_ds {
                 text_dal_segnos.push((index, offset));
+            }
+            if recognized_plain_ds {
+                text_plain_dal_segnos.push((index, offset));
             }
             if recognized_dc_coda {
                 text_coda_da_capos.push((index, offset));
@@ -670,7 +682,9 @@ fn navigation(
                 });
             if !has_command
                 && !recognized_dc
+                && !recognized_plain_dc
                 && !recognized_ds
+                && !recognized_plain_ds
                 && !recognized_dc_coda
                 && !recognized_ds_coda
                 && d.words.iter().any(|w| {
@@ -1168,6 +1182,110 @@ fn navigation(
                     .then(a.attributes.cmp(&b.attributes))
             });
             local.dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
+        }
+    }
+    if !text_plain_da_capos.is_empty() {
+        let command = text_plain_da_capos[0];
+        if text_plain_da_capos.len() != 1
+            || !text_plain_dal_segnos.is_empty()
+            || !fine_positions.is_empty()
+            || !text_da_capos.is_empty()
+            || !text_dal_segnos.is_empty()
+            || !text_coda_da_capos.is_empty()
+            || !text_coda_dal_segnos.is_empty()
+            || !text_to_codas.is_empty()
+            || !printed_codas.is_empty()
+            || dc_positions.len() > 1
+            || !dc_positions.is_empty() && !dc_positions.contains(&command)
+            || !ds_positions.is_empty()
+            || has_coda_jump
+        {
+            diagnose(
+                plan,
+                Some(command.0),
+                "单独 D.C. 需要唯一的返回记号，且不能混用 Fine、Coda 或其他跳转".into(),
+            );
+        } else if command.1 < ScoreTime::default()
+            || command.1 > part.measures[command.0].duration
+            || command == (0, ScoreTime::default())
+        {
+            diagnose(plan, Some(command.0), "单独 D.C. 的返回位置无效".into());
+        } else if !dc_positions.contains(&command) {
+            marks[command.0].push(Navigation {
+                offset: command.1,
+                attributes: BTreeMap::from([("dacapo".into(), "yes".into())]),
+                passes: None,
+            });
+            marks[command.0].sort_by(|a, b| {
+                a.offset.cmp(&b.offset).then(a.attributes.cmp(&b.attributes))
+            });
+        }
+    }
+    if !text_plain_dal_segnos.is_empty() {
+        let command = text_plain_dal_segnos[0];
+        let printed_segnos: BTreeSet<_> = printed_segnos.iter().copied().collect();
+        let sound_segnos: Vec<_> = targets
+            .iter()
+            .filter(|((kind, _), _)| kind == "segno")
+            .map(|((_, label), point)| (label.clone(), *point))
+            .collect();
+        if text_plain_dal_segnos.len() != 1
+            || printed_segnos.len() != 1
+            || !fine_positions.is_empty()
+            || !text_da_capos.is_empty()
+            || !text_plain_da_capos.is_empty()
+            || !text_dal_segnos.is_empty()
+            || !text_coda_da_capos.is_empty()
+            || !text_coda_dal_segnos.is_empty()
+            || !text_to_codas.is_empty()
+            || !printed_codas.is_empty()
+            || !dc_positions.is_empty()
+            || has_coda_jump
+            || ds_positions.len() > 1
+            || !ds_positions.is_empty() && !ds_positions.contains_key(&command)
+            || sound_segnos.len() > 1
+        {
+            diagnose(
+                plan,
+                Some(command.0),
+                "单独 D.S. 需要唯一的返回记号和 Segno，且不能混用 Fine、Coda 或其他跳转".into(),
+            );
+        } else if command.1 < ScoreTime::default()
+            || command.1 > part.measures[command.0].duration
+        {
+            diagnose(plan, Some(command.0), "单独 D.S. 的位置超出本小节".into());
+        } else {
+            let printed = *printed_segnos.iter().next().unwrap();
+            let label = ds_positions
+                .get(&command)
+                .cloned()
+                .or_else(|| sound_segnos.first().map(|(name, _)| name.clone()))
+                .unwrap_or_else(|| "__printed_segno__".into());
+            let sound_point = targets.get(&("segno".into(), label.clone())).copied();
+            if sound_segnos
+                .iter()
+                .any(|(name, point)| name != &label || *point != printed)
+                || sound_point.is_some_and(|point| point != printed)
+                || printed >= command
+            {
+                diagnose(
+                    plan,
+                    Some(command.0),
+                    "单独 D.S. 的印刷 Segno 与 sound 目标或返回位置冲突".into(),
+                );
+            } else {
+                targets.insert(("segno".into(), label.clone()), printed);
+                if !ds_positions.contains_key(&command) {
+                    marks[command.0].push(Navigation {
+                        offset: command.1,
+                        attributes: BTreeMap::from([("dalsegno".into(), label)]),
+                        passes: None,
+                    });
+                    marks[command.0].sort_by(|a, b| {
+                        a.offset.cmp(&b.offset).then(a.attributes.cmp(&b.attributes))
+                    });
+                }
+            }
         }
     }
     for (index, local) in marks.iter().enumerate() {
@@ -2210,6 +2328,89 @@ mod tests {
             assert_ne!(notes[1].id, notes[5].id);
             assert_eq!(notes[6].onset, ScoreTime::new(6, 1));
         }
+    }
+
+    #[test]
+    fn printed_plain_dal_segno_returns_once_and_then_reaches_the_end() {
+        let sign = r#"<direction><direction-type><segno/></direction-type><sound segno="S"/></direction>"#;
+        let command = r#"<direction><direction-type><words>D.S.</words></direction-type><sound dalsegno="S"/></direction>"#;
+        for (target, jump) in [
+            (sign, command),
+            (r#"<direction><direction-type><segno/></direction-type></direction>"#, r#"<direction><direction-type><words>D.S.</words></direction-type></direction>"#),
+        ] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, target, ""),
+                measure(3, "", ""),
+                measure(4, "", jump),
+            ].join("");
+            let part = part(&source);
+            let plan = build_playback_plan(&part, PlaybackLimits::default());
+            assert!(plan.complete, "{:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 3, 1, 2, 3]);
+            let events = expand_event_occurrences(&part, &plan);
+            let notes: Vec<_> = events.iter().filter(|event| event.duration.is_some()).collect();
+            assert_eq!(notes.len(), 7);
+            assert_eq!(notes[1].id.source_id, notes[4].id.source_id);
+            assert_ne!(notes[1].id, notes[4].id);
+        }
+    }
+
+    #[test]
+    fn printed_plain_da_capo_returns_once_and_then_reaches_the_end() {
+        for jump in [
+            r#"<direction><direction-type><words>D.C.</words></direction-type></direction>"#,
+            r#"<direction><direction-type><words>Da Capo</words></direction-type><sound dacapo="yes"/></direction>"#,
+        ] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, "", ""),
+                measure(3, "", jump),
+            ].join("");
+            let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+            assert!(plan.complete, "{:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn printed_plain_da_capo_rejects_other_or_ambiguous_returns() {
+        let jump = r#"<direction><direction-type><words>D.C.</words></direction-type></direction>"#;
+        let source = [measure(1, "", ""), measure(2, "", jump)].join("");
+        for broken in [
+            source.replace(jump, &format!("{jump}{jump}")),
+            source.replace(jump, &format!(r#"{jump}<sound fine="yes"/>"#)),
+            source.replace(jump, &format!(r#"{jump}<sound dalsegno="S"/>"#)),
+            source.replace(jump, &format!(r#"{jump}<direction><direction-type><words>To Coda</words></direction-type></direction>"#)),
+            source.replace(&measure(1, "", ""), &measure(1, "", jump)),
+        ] {
+            assert!(!build_playback_plan(&part(&broken), PlaybackLimits::default()).complete, "{broken}");
+        }
+    }
+
+    #[test]
+    fn printed_plain_dal_segno_rejects_ambiguous_routes() {
+        let sign = r#"<direction><direction-type><segno/></direction-type></direction>"#;
+        let jump = r#"<direction><direction-type><words>D.S.</words></direction-type></direction>"#;
+        let base = [measure(1, "", ""), measure(2, sign, ""), measure(3, "", jump)].join("");
+        for broken in [
+            base.replace(sign, ""),
+            base.replace(&measure(1, "", ""), &measure(1, sign, "")),
+            base.replace(jump, &format!("{jump}{jump}")),
+            base.replace(jump, &format!(r#"{jump}<sound fine="yes"/>"#)),
+            base.replace(jump, &format!(r#"{jump}<sound dacapo="yes"/>"#)),
+            base.replace(jump, &format!(r#"{jump}<direction><direction-type><words>To Coda</words></direction-type></direction>"#)),
+            base.replace(jump, &format!("{jump}{sign}")),
+        ] {
+            let plan = build_playback_plan(&part(&broken), PlaybackLimits::default());
+            assert!(!plan.complete, "{broken}");
+        }
+        let wrong_label = [
+            measure(1, r#"<sound segno="A"/>"#, ""),
+            measure(2, sign, ""),
+            measure(3, "", r#"<direction><direction-type><words>D.S.</words></direction-type><sound dalsegno="A"/></direction>"#),
+        ].join("");
+        assert!(!build_playback_plan(&part(&wrong_label), PlaybackLimits::default()).complete);
     }
 
     #[test]
