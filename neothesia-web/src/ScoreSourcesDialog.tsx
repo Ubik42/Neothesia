@@ -58,10 +58,12 @@ const displayPath = (path: string) => path.replace(/^\\\\\?\\/, "");
 
 export function ScoreSourcesDialog({
   contentId,
+  focusVersionId,
   close,
   changed,
 }: {
   contentId?: string;
+  focusVersionId?: string;
   close: () => void;
   changed: () => Promise<void>;
 }) {
@@ -76,7 +78,16 @@ export function ScoreSourcesDialog({
   const [page, setPage] = useState(0);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState(false);
+  const focusPending = useRef(Boolean(focusVersionId));
   useEffect(() => setPage(0), [query, filter]);
+  useEffect(() => {
+    if (!focusPending.current || !focusVersionId) return;
+    const index = entries.findIndex((entry) => entry.versionId === focusVersionId);
+    if (index < 0) return;
+    setSelected(entries[index].id);
+    setPage(Math.floor(index / 50));
+    focusPending.current = false;
+  }, [entries, focusVersionId]);
   const working = useRef(false),
     alive = useRef(true),
     generation = useRef(0);

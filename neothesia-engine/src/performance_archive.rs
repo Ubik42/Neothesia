@@ -44,6 +44,13 @@ pub struct Capture {
     truncated: bool,
 }
 impl Capture {
+    pub(crate) fn note_velocity_evidence(&self, results: &[neothesia_core::practice::PracticeResult], expected_notes: usize) -> Option<crate::expression_goal::NoteVelocityEvidence> {
+        if self.truncated { return None; }
+        Some(note_velocity_evidence(&self.references,&self.inputs,expected_notes,results.iter().filter_map(|result|{
+            matches!(result.judgement,neothesia_core::practice::PracticeJudgement::Matched(_))
+                .then_some(result.reference.zip(result.input)).flatten()
+        })))
+    }
     pub fn advance(&mut self,at:f64,end:f64,from:f64,to:f64,speed:f64,grid:&[Duration],duration:f64){
         if grid.is_empty() || from>=duration-0.000001 || to<from || end<at{return;}
         let mut source=from;let mut clock=at;
@@ -287,7 +294,32 @@ fn pedal_at(events: &[(f64, bool)], at: f64) -> Option<bool> {
     let previous = events.partition_point(|event| event.0 <= at);
     previous.checked_sub(1).map(|index| events[index].1)
 }
+fn note_velocity_evidence(
+    references: &[Reference], inputs: &[Input], expected_notes: usize,
+    pairs: impl IntoIterator<Item=(usize,usize)>,
+) -> crate::expression_goal::NoteVelocityEvidence {
+    let mut matched = BTreeSet::new();
+    let mut largest = None::<u8>;
+    for (reference_index,input_index) in pairs {
+        let (Some(reference),Some(input))=(references.get(reference_index),inputs.get(input_index)) else {continue};
+        if reference.velocity == 0 || input.synthetic || input.bytes[0] != 144 || input.bytes[2] == 0
+            || input.bytes[1] != reference.pitch || !matched.insert(reference_index) {continue;}
+        let difference=reference.velocity.abs_diff(input.bytes[2]);
+        largest=Some(largest.map_or(difference,|old|old.max(difference)));
+    }
+    let reference_notes=expected_notes.max(references.len());
+    crate::expression_goal::NoteVelocityEvidence{reference_notes,matched_notes:matched.len(),
+        missing_notes:reference_notes.saturating_sub(matched.len()),max_abs_difference:largest}
+}
 impl Archive {
+    pub(crate) fn note_velocity_evidence(&self, expected_notes: usize) -> Option<crate::expression_goal::NoteVelocityEvidence> {
+        let judgments=self.judgments.as_ref()?;
+        if self.truncated { return None; }
+        Some(note_velocity_evidence(&self.references,&self.inputs,expected_notes,judgments.iter().filter_map(|decision|{
+            matches!(decision.kind.as_str(),"onTime"|"early"|"late")
+                .then_some(decision.reference.zip(decision.input)).flatten()
+        })))
+    }
     fn expression_review(&self) -> Vec<Value> {
         let actual_pedals = pedal_events(&self.inputs);
         let reference_pedals = pedal_events(&self.reference_pedals);
@@ -809,6 +841,15 @@ mod tests {
         assert!(matched.offset_ms.unwrap() > 500);
         assert_eq!(a.inputs[matched.input.unwrap()].bytes, [144, 60, 83]);
         assert_eq!(a.expression_review()[0]["velocityDelta"], 83_i16 - i16::from(a.references[0].velocity));
+        let note_velocity=a.note_velocity_evidence(2).unwrap();
+        assert_eq!(note_velocity.reference_notes,2);
+        assert_eq!(note_velocity.matched_notes,2);
+        assert_eq!(note_velocity.missing_notes,0);
+        assert!(note_velocity.max_abs_difference.unwrap()>=a.references[0].velocity.abs_diff(83));
+        let incomplete=note_velocity_evidence(&a.references,&a.inputs,2,[(0,matched.input.unwrap())]);
+        assert_eq!((incomplete.matched_notes,incomplete.missing_notes),(1,1));
+        let mut legacy=a.clone();legacy.version=1;legacy.judgments=None;legacy.measures=None;
+        assert!(legacy.note_velocity_evidence(2).is_none());
         let mut expression = a.clone();
         expression.reference_pedals.clear();
         assert!(expression.expression_review()[0]["pedalSame"].is_null());

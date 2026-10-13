@@ -2,23 +2,44 @@ use neothesia_core::practice::ExpressionSummary;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExpressionGoalResult { pub passed: bool, pub message: String }
+pub struct ExpressionGoalResult {
+    pub passed: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_velocity: Option<NoteVelocityEvidence>,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteVelocityEvidence {
+    pub reference_notes: usize,
+    pub matched_notes: usize,
+    pub missing_notes: usize,
+    pub max_abs_difference: Option<u8>,
+}
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ExpressionGoal {
     pub velocity_difference: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_velocity_difference: Option<u8>,
     pub contour_percent: Option<u8>,
     pub pedal_offset_ms: Option<u16>,
 }
 impl ExpressionGoal {
-    pub(crate) fn result(&self, e: ExpressionSummary) -> ExpressionGoalResult {
-        match self.assess(e) {
-            Ok(()) => ExpressionGoalResult { passed: true, message: "本轮力度/踏板要求达标".into() },
-            Err(message) => ExpressionGoalResult { passed: false, message },
+    pub(crate) fn result_with_note_velocity(&self, e: ExpressionSummary, note_velocity: Option<NoteVelocityEvidence>) -> ExpressionGoalResult {
+        let evidence = self.note_velocity_difference.and(note_velocity);
+        match self.assess_with_note_velocity(e, note_velocity) {
+            Ok(()) => ExpressionGoalResult { passed: true,
+                message: if self.note_velocity_difference.is_some() && self.velocity_difference.is_none()
+                    && self.contour_percent.is_none() && self.pedal_offset_ms.is_none() {
+                    "本轮逐音力度要求达标"
+                } else { "本轮力度/踏板要求达标" }.into(), note_velocity: evidence },
+            Err(message) => ExpressionGoalResult { passed: false, message, note_velocity: evidence },
         }
     }
     pub(crate) fn validate(&self, mode: &str) -> Result<(), String> {
         if self.velocity_difference.is_none()
+            && self.note_velocity_difference.is_none()
             && self.contour_percent.is_none()
             && self.pedal_offset_ms.is_none()
         {
@@ -27,6 +48,7 @@ impl ExpressionGoal {
         if self
             .velocity_difference
             .is_some_and(|v| !(1..=64).contains(&v))
+            || self.note_velocity_difference.is_some_and(|v| !(1..=64).contains(&v))
             || self
                 .contour_percent
                 .is_some_and(|v| !(50..=100).contains(&v))
@@ -34,14 +56,27 @@ impl ExpressionGoal {
                 .pedal_offset_ms
                 .is_some_and(|v| !(10..=500).contains(&v))
         {
-            return Err("力度平均差需 1–64，起伏一致率需 50–100%，踏板偏移需 10–500 ms".into());
+            return Err("力度平均差与逐音力度差需 1–64，起伏一致率需 50–100%，踏板偏移需 10–500 ms".into());
         }
         if mode == "wait" && self.pedal_offset_ms.is_some() {
             return Err("等音不评价踏板时机，请使用连续或完整演奏".into());
         }
         Ok(())
     }
-    pub(crate) fn assess(&self, e: ExpressionSummary) -> Result<(), String> {
+    pub(crate) fn assess_with_note_velocity(&self, e: ExpressionSummary, note_velocity: Option<NoteVelocityEvidence>) -> Result<(), String> {
+        if let Some(limit) = self.note_velocity_difference {
+            let evidence = note_velocity.ok_or("没有可核对的逐音演奏记录，逐音力度目标未达标")?;
+            if evidence.reference_notes < 4 || evidence.matched_notes < 4 {
+                return Err(format!("逐音力度需要至少 4 个确切配对音：当前 {} / 4 个", evidence.matched_notes));
+            }
+            if evidence.missing_notes > 0 || evidence.matched_notes != evidence.reference_notes {
+                return Err(format!("逐音力度有 {} 个参考音未确切配对，漏音不能达标", evidence.missing_notes));
+            }
+            let largest = evidence.max_abs_difference.ok_or("没有可核对的逐音力度差，逐音力度目标未达标")?;
+            if largest > limit {
+                return Err(format!("逐音力度差未达标：最大差 {largest}，要求每音 ≤ {limit}"));
+            }
+        }
         if let Some(limit) = self.velocity_difference {
             if !e.has_velocity_evidence() || e.velocity.mean_abs_difference.is_none() {
                 return Err(format!(
@@ -233,7 +268,7 @@ impl crate::Player {
                 }
             }
         }
-        if goal.velocity_difference.is_some() && count < 4 {
+        if (goal.velocity_difference.is_some() || goal.note_velocity_difference.is_some()) && count < 4 {
             return Err("所选练习范围的参考力度不足 4 个音符".into());
         }
         if goal.contour_percent.is_some() && steps < 6 {
@@ -254,38 +289,56 @@ impl crate::Player {
 mod tests {
     use super::*;
     #[test]
+    fn per_note_velocity_requires_four_exact_pairs_no_misses_and_every_note_within_limit() {
+        let goal=ExpressionGoal{note_velocity_difference:Some(10),..Default::default()};
+        assert!(goal.validate("wait").is_ok());
+        assert!(goal.assess_with_note_velocity(ExpressionSummary::default(),None).unwrap_err().contains("逐音演奏记录"));
+        let evidence=NoteVelocityEvidence{reference_notes:3,matched_notes:3,missing_notes:0,max_abs_difference:Some(1)};
+        assert!(goal.assess_with_note_velocity(ExpressionSummary::default(),Some(evidence)).unwrap_err().contains("至少 4"));
+        let evidence=NoteVelocityEvidence{reference_notes:5,matched_notes:4,missing_notes:1,max_abs_difference:Some(2)};
+        assert!(goal.assess_with_note_velocity(ExpressionSummary::default(),Some(evidence)).unwrap_err().contains("漏音"));
+        let evidence=NoteVelocityEvidence{reference_notes:4,matched_notes:4,missing_notes:0,max_abs_difference:Some(11)};
+        assert!(goal.assess_with_note_velocity(ExpressionSummary::default(),Some(evidence)).unwrap_err().contains("最大差 11"));
+        let evidence=NoteVelocityEvidence{max_abs_difference:Some(10),..evidence};
+        let result=goal.result_with_note_velocity(ExpressionSummary::default(),Some(evidence));
+        assert!(result.passed);
+        assert_eq!(result.note_velocity,Some(evidence));
+        assert!(serde_json::from_str::<ExpressionGoal>(r#"{"velocityDifference":12}"#).unwrap().note_velocity_difference.is_none());
+    }
+    #[test]
     fn thresholds_samples_and_pedal_correspondence() {
         let mut e = ExpressionSummary::default();
         let g = ExpressionGoal {
             velocity_difference: Some(12),
+            note_velocity_difference: None,
             contour_percent: Some(80),
             pedal_offset_ms: Some(80),
         };
         assert!(g.validate("wait").is_err());
         assert!(g.validate("flow").is_ok());
-        assert!(g.assess(e).unwrap_err().contains("样本不足"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("样本不足"));
         e.velocity.matched_samples = 8;
         e.velocity.mean_abs_difference = Some(20);
-        assert!(g.assess(e).unwrap_err().contains("平均差未达标"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("平均差未达标"));
         e.velocity.mean_abs_difference = Some(12);
         e.velocity.contour_steps = 6;
         e.velocity.contour_aligned = 4;
-        assert!(g.assess(e).unwrap_err().contains("起伏未达标"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("起伏未达标"));
         e.velocity.contour_aligned = 5;
-        assert!(g.assess(e).unwrap_err().contains("参考曲目"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("参考曲目"));
         e.pedal.target_present = true;
         e.pedal.target_transitions = 4;
         e.pedal.user_transitions = 3;
-        assert!(g.assess(e).unwrap_err().contains("完整对应"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("完整对应"));
         e.pedal.user_transitions = 4;
         e.pedal.timing_samples = 4;
         e.pedal.median_offset_ms = Some(-90);
         e.pedal.median_deviation_ms = Some(20);
-        assert!(g.assess(e).unwrap_err().contains("偏移未达标"));
+        assert!(g.assess_with_note_velocity(e,None).unwrap_err().contains("偏移未达标"));
         e.pedal.median_offset_ms = Some(-80);
-        assert!(g.assess(e).is_ok());
+        assert!(g.assess_with_note_velocity(e,None).is_ok());
         e.pedal.median_deviation_ms = Some(121);
-        assert!(g.assess(e).is_err());
+        assert!(g.assess_with_note_velocity(e,None).is_err());
     }
 }
 
@@ -516,7 +569,7 @@ mod source_tests {
         let mut p = Player::new(data.clone(), std::path::PathBuf::new(), true);
         p.command(Command::Generate { spec: Default::default() }).unwrap();
         let cid = p.file.as_ref().unwrap().content_id.clone();
-        let goal = ExpressionGoal { velocity_difference: Some(20), ..Default::default() };
+        let goal = ExpressionGoal { velocity_difference: Some(20), note_velocity_difference:Some(10), ..Default::default() };
         p.command(Command::SetSongExpressionGoal { goal: Some(goal.clone()) }).unwrap();
         assert_eq!(p.snapshot().song_expression_goal, Some(goal.clone()));
         assert_eq!(p.preferences.song_expression_goals.get(&cid), Some(&goal));
@@ -537,7 +590,9 @@ mod source_tests {
         assert_eq!(reopened.active_expression_goal, Some(goal.clone()));
         assert!(reopened.command(Command::SetSongExpressionGoal { goal: None }).is_err());
         let context = reopened.history_context();
-        assert_eq!(context.expression.unwrap().velocity_difference, Some(20));
+        let frozen=context.expression.unwrap();
+        assert_eq!(frozen.velocity_difference, Some(20));
+        assert_eq!(frozen.note_velocity_difference, Some(10));
         reopened.command(Command::Pause).unwrap();
         assert!(reopened.command(Command::SetSongExpressionGoal { goal: None }).is_err());
         reopened.command(Command::Restart).unwrap();

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api, type Feedback, type Snapshot } from "./api";
+import { noteVelocityEvidenceText } from "./ExpressionGoalControl";
 interface ExerciseSpec {
   tonic: number;
   tonality: string;
@@ -405,6 +406,7 @@ export function FeedbackDialog({
             {state.songExpressionGoalResult && !state.routine && !state.ladder?.active && (
               <p className={state.songExpressionGoalResult?.passed ? "song-expression-passed" : "song-expression-failed"}>
                 本轮目标：{state.songExpressionGoalResult.message}
+                {state.songExpressionGoalResult.noteVelocity && <> · {noteVelocityEvidenceText(state.songExpressionGoalResult.noteVelocity)}</>}
               </p>
             )}
             {["flow", "recital", "memory"].includes(

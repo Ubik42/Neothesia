@@ -72,7 +72,7 @@ import {
 } from "./PracticeDialogs";
 import { HistoryProblemPlan } from "./HistoryProblemPlan";
 import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
-import { ExpressionGoalControl, expressionGoalText, type ExpressionGoal } from "./ExpressionGoalControl";
+import { ExpressionGoalControl, expressionGoalText, noteVelocityEvidenceText, type ExpressionGoal } from "./ExpressionGoalControl";
 type Tab = "全部" | "收藏" | "最近" | "队列";
 const normalize = (path: string | null | undefined) =>
   (path || "").replaceAll("\\", "/").toLowerCase();
@@ -115,7 +115,7 @@ export default function App() {
   const [expressionDraft, setExpressionDraft] = useState<ExpressionGoal | null>(null);
   useEffect(() => {
     setExpressionDraft(state.songExpressionGoal ?? null);
-  }, [song?.contentId, state.songExpressionGoal?.velocityDifference, state.songExpressionGoal?.contourPercent, state.songExpressionGoal?.pedalOffsetMs]);
+  }, [song?.contentId, state.songExpressionGoal?.velocityDifference, state.songExpressionGoal?.noteVelocityDifference, state.songExpressionGoal?.contourPercent, state.songExpressionGoal?.pedalOffsetMs]);
   const expressionChanged = JSON.stringify(expressionDraft) !== JSON.stringify(state.songExpressionGoal ?? null);
   const [devices, setDevices] = useState({
     inputs: [] as string[],
@@ -2029,6 +2029,7 @@ export default function App() {
               {state.songExpressionGoalResult && state.status === "finished" && (
                 <p className={state.songExpressionGoalResult.passed ? "song-expression-passed" : "song-expression-failed"}>
                   本轮目标：{state.songExpressionGoalResult.message}
+                  {state.songExpressionGoalResult.noteVelocity && <> · {noteVelocityEvidenceText(state.songExpressionGoalResult.noteVelocity)}</>}
                 </p>
               )}
               {(routineActive || ladderActive) && <p className="parameter-help">当前按计划或阶梯项目的要求练习；单曲目标暂不参与本轮。</p>}

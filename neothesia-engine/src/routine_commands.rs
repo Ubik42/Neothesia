@@ -977,7 +977,8 @@ impl Player {
                 .goal
                 .on_time
                 .is_none_or(|t| on_time.is_some_and(|v| v + 0.00001 >= f32::from(t) / 100.));
-            let expression_result=active.item.goal.expression.as_ref().map_or(Ok(()),|g|g.assess(summary.expression));
+            let expression_result=active.item.goal.expression.as_ref().map_or(Ok(()),|g|g.assess_with_note_velocity(summary.expression,
+                g.note_velocity_difference.and_then(|_|self.performance_capture.note_velocity_evidence(self.matcher.results(),target))));
             let pass = complete && accuracy_pass && timing_pass && expression_result.is_ok();
             if pass {
                 p.passed += 1;

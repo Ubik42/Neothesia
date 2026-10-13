@@ -78,7 +78,7 @@ pub struct PracticeLadderCondition {
 }
 
 #[derive(Debug,Clone,Default,Deserialize,PartialEq,Serialize)]
-pub struct PracticeExpressionCondition {pub velocity_difference:Option<u8>,pub contour_percent:Option<u8>,pub pedal_offset_ms:Option<u16>}
+pub struct PracticeExpressionCondition {pub velocity_difference:Option<u8>,#[serde(default,skip_serializing_if="Option::is_none")] pub note_velocity_difference:Option<u8>,pub contour_percent:Option<u8>,pub pedal_offset_ms:Option<u16>}
 
 #[derive(Debug,Clone,Deserialize,PartialEq,Serialize)]
 pub struct PracticeRoutineCondition {
@@ -1145,6 +1145,15 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn older_expression_condition_keeps_its_serialized_identity_without_note_goal() {
+        let old=r#"{"velocity_difference":12,"contour_percent":null,"pedal_offset_ms":null}"#;
+        let condition:super::PracticeExpressionCondition=serde_json::from_str(old).unwrap();
+        assert_eq!(condition.note_velocity_difference,None);
+        assert_eq!(serde_json::to_string(&condition).unwrap(),old);
+        let with_note=super::PracticeExpressionCondition{note_velocity_difference:Some(8),..condition};
+        assert_eq!(serde_json::to_value(with_note).unwrap()["note_velocity_difference"],8);
+    }
     use super::*;
     use crate::practice::{MeasurePartSummary, MeasureSummary, PracticeSnapshot, TimingSummary};
 

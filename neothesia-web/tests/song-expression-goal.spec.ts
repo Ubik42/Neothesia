@@ -27,6 +27,8 @@ test("单曲力度目标从练习参数保存并在重开后恢复", async ({ pa
   await page.goto("/");
   const goal = page.locator(".song-expression-goal");
   if (!(await goal.isVisible())) await page.getByRole("button", { name: "练习参数" }).click();
+  await expect(goal.getByLabel("当前曲目要求力度起伏一致率")).toBeEnabled();
+  await goal.getByLabel("当前曲目要求逐音力度差").uncheck();
   await goal.getByLabel("当前曲目要求力度起伏一致率").check();
   await goal.getByLabel("当前曲目力度起伏一致率").fill("85");
   await goal.getByRole("button", { name: "保存目标" }).click();

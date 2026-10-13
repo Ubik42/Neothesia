@@ -1,13 +1,27 @@
 export interface ExpressionGoal {
   velocityDifference: number | null;
+  noteVelocityDifference?: number | null;
   contourPercent: number | null;
   pedalOffsetMs: number | null;
+}
+export type NoteVelocityEvidence = {
+  referenceNotes: number;
+  matchedNotes: number;
+  missingNotes: number;
+  maxAbsDifference: number | null;
+};
+export function noteVelocityEvidenceText(value?: NoteVelocityEvidence | null) {
+  if (!value) return "";
+  return `确切配对 ${value.matchedNotes} / ${value.referenceNotes} 音 · 最大力度差 ${value.maxAbsDifference ?? "无证据"}`;
 }
 export function expressionGoalText(goal?: ExpressionGoal | null) {
   if (!goal) return "";
   return [
     goal.velocityDifference != null
       ? `力度平均差 ≤ ${goal.velocityDifference}`
+      : "",
+    goal.noteVelocityDifference != null
+      ? `逐音力度差 ≤ ${goal.noteVelocityDifference}`
       : "",
     goal.contourPercent != null ? `起伏一致率 ≥ ${goal.contourPercent}%` : "",
     goal.pedalOffsetMs != null ? `踏板偏移 ≤ ${goal.pedalOffsetMs} ms` : "",
@@ -31,6 +45,7 @@ export function ExpressionGoalControl({
   const update = (key: keyof ExpressionGoal, v: number | null) => {
     const next = {
       velocityDifference: null,
+      noteVelocityDifference: null,
       contourPercent: null,
       pedalOffsetMs: null,
       ...value,
@@ -44,6 +59,15 @@ export function ExpressionGoalControl({
       label: "力度平均差",
       hint: "至少 4 个匹配音符",
       initial: 12,
+      min: 1,
+      max: 64,
+      unit: " / 127",
+    },
+    {
+      key: "noteVelocityDifference" as const,
+      label: "逐音力度差",
+      hint: "至少 4 个确切配对音；漏音或无逐音记录不能达标",
+      initial: 20,
       min: 1,
       max: 64,
       unit: " / 127",
@@ -107,7 +131,7 @@ export function ExpressionGoalControl({
       ))}
       <p className="parameter-help">
         对照参考
-        MIDI；键盘力度曲线会影响绝对差值，也可只选起伏方向。踏板时机不适用于等音。参考范围或本轮数据不足时不会达标；踏板波动还需不超过
+        MIDI；键盘力度曲线会影响绝对差值，也可只选起伏方向。逐音力度会逐一核对计分器确切配对音。踏板时机不适用于等音。参考范围或本轮数据不足时不会达标；踏板波动还需不超过
         120 ms。
       </p>
     </fieldset>

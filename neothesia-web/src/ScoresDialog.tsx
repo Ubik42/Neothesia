@@ -34,6 +34,7 @@ export function ScoresDialog({
     [paperBusy, setPaperBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceFocusVersionId, setSourceFocusVersionId] = useState<string>();
   const canGenerateMuseScorePdf = api.desktop && /Windows/i.test(navigator.userAgent);
   const canGenerateMuseScoreScore = canGenerateMuseScorePdf && /\.midi?$/i.test(song.sourcePath);
   const [versionPreview, setVersionPreview] = useState<{
@@ -65,6 +66,7 @@ export function ScoresDialog({
     setVersionPreview(null);
     setFilePreview(null);
     setEditMessage("");
+    setSourceFocusVersionId(undefined);
     void refresh().catch((e) => setError(String(e.message)));
   }, [song.contentId]);
   useEffect(() => {
@@ -201,6 +203,7 @@ export function ScoresDialog({
           ? "可编辑原谱已保存并在 MuseScore Studio 中打开。修改并保存后，请返回这里检查原谱更新。"
           : `可编辑原谱已保存：${saved.path}。${saved.warning ?? "请手动在 MuseScore Studio 中打开该文件。"} 修改并保存后，请返回这里检查原谱更新。`,
       );
+      setSourceFocusVersionId(saved.versionId);
       setSourcesOpen(saved.opened);
       await refresh();
       await changed();
@@ -292,7 +295,10 @@ export function ScoresDialog({
                 </button>
               )}
               <span>{versions.length} 份谱面</span>
-              <button disabled={busy} onClick={() => setSourcesOpen(true)}>
+              <button disabled={busy} onClick={() => {
+                setSourceFocusVersionId(undefined);
+                setSourcesOpen(true);
+              }}>
                 检查原谱更新
               </button>
               <button
@@ -587,6 +593,7 @@ export function ScoresDialog({
         {sourcesOpen && (
           <ScoreSourcesDialog
             contentId={song.contentId}
+            focusVersionId={sourceFocusVersionId}
             close={() => setSourcesOpen(false)}
             changed={async () => {
               await refresh();

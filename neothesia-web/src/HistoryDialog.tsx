@@ -21,7 +21,7 @@ export type HistoryPaperTarget = {
 };
 import { practiceDuration } from "./practiceTime";
 import { PracticeCalendar } from "./PracticeCalendar";
-import { expressionGoalText } from "./ExpressionGoalControl";
+import { expressionGoalText, noteVelocityEvidenceText, type NoteVelocityEvidence } from "./ExpressionGoalControl";
 import { useEffect, useState } from "react";
 import {
   HistoryAnnotationEditor,
@@ -48,16 +48,18 @@ interface Entry {
 interface Detail extends Entry {
   performanceAvailable?: boolean;
   summary: Feedback;
-  expressionGoalResult?: { passed: boolean; message: string };
+  expressionGoalResult?: { passed: boolean; message: string; noteVelocity?: NoteVelocityEvidence };
   context: {
     expression?: {
       velocity_difference: number | null;
+      note_velocity_difference?: number | null;
       contour_percent: number | null;
       pedal_offset_ms: number | null;
     } | null;
     routine?: {
       expression?: {
         velocity_difference: number | null;
+        note_velocity_difference?: number | null;
         contour_percent: number | null;
         pedal_offset_ms: number | null;
       } | null;
@@ -120,6 +122,7 @@ interface Detail extends Entry {
       } | null;
       expressionGoal?: {
         velocity_difference: number | null;
+        note_velocity_difference?: number | null;
         contour_percent: number | null;
         pedal_offset_ms: number | null;
       } | null;
@@ -202,7 +205,7 @@ function ComparisonConditions({ detail }: { detail: Detail }) {
         <div><dt>预备与节拍</dt><dd>预备 {c.countIn ?? "未记录"} 小节；节拍器 {c.metronome == null ? "未记录" : c.metronome ? "开" : "关"}</dd></div>
         <div><dt>设备校准</dt><dd>输入 {c.inputLatencyMs ?? "未记录"} ms；踏板 {c.pedalLatencyMs ?? "未记录"} ms{c.pedalLatencySource === "legacyInputLatency" ? "（旧记录沿用输入校准值）" : ""}</dd></div>
         <div><dt>重复与自适应</dt><dd>{c.rounds == null ? "轮数未记录" : c.rounds === 0 ? "不限轮数" : `${c.rounds} 轮`}；自适应 {c.adaptive == null ? "未记录" : c.adaptive ? "开" : "关"}</dd></div>
-        <div><dt>力度与踏板目标</dt><dd>{c.expressionGoal == null ? "无专项要求" : expressionGoalText({ velocityDifference: c.expressionGoal.velocity_difference, contourPercent: c.expressionGoal.contour_percent, pedalOffsetMs: c.expressionGoal.pedal_offset_ms })}</dd></div>
+        <div><dt>力度与踏板目标</dt><dd>{c.expressionGoal == null ? "无专项要求" : expressionGoalText({ velocityDifference: c.expressionGoal.velocity_difference, noteVelocityDifference: c.expressionGoal.note_velocity_difference, contourPercent: c.expressionGoal.contour_percent, pedalOffsetMs: c.expressionGoal.pedal_offset_ms })}</dd></div>
       </dl>
       {!c.complete && <p className="parameter-help">这条记录缺少可确认的完整条件或有效判断，因此软件不会把它当作同条件比较的依据。</p>}
     </details>
@@ -825,6 +828,8 @@ export function HistoryDialog({
                           velocityDifference:
                             detail.context.routine.expression
                               .velocity_difference,
+                          noteVelocityDifference:
+                            detail.context.routine.expression.note_velocity_difference,
                           contourPercent:
                             detail.context.routine.expression.contour_percent,
                           pedalOffsetMs:
@@ -836,6 +841,7 @@ export function HistoryDialog({
                       <>
                         <br />
                         本轮专项：{detail.expressionGoalResult.message}
+                        {detail.expressionGoalResult.noteVelocity && <> · {noteVelocityEvidenceText(detail.expressionGoalResult.noteVelocity)}</>}
                       </>
                     )}
                     {detail.context.routine.item_notes && (
@@ -850,10 +856,11 @@ export function HistoryDialog({
                   <p className="parameter-help">
                     本次单曲目标：{expressionGoalText({
                       velocityDifference: detail.context.expression.velocity_difference,
+                      noteVelocityDifference: detail.context.expression.note_velocity_difference,
                       contourPercent: detail.context.expression.contour_percent,
                       pedalOffsetMs: detail.context.expression.pedal_offset_ms,
                     })}
-                    {detail.expressionGoalResult && <><br />本轮目标：{detail.expressionGoalResult.message}</>}
+                    {detail.expressionGoalResult && <><br />本轮目标：{detail.expressionGoalResult.message}{detail.expressionGoalResult.noteVelocity && <> · {noteVelocityEvidenceText(detail.expressionGoalResult.noteVelocity)}</>}</>}
                   </p>
                 )}
                 {detail.context?.ladder && (
@@ -883,6 +890,7 @@ export function HistoryDialog({
                   key={`performance:${detail.contentId}:${detail.id}`}
                   contentId={detail.contentId}
                   id={detail.id}
+                  goalThreshold={detail.context?.routine?.expression?.note_velocity_difference ?? detail.context?.expression?.note_velocity_difference}
                   available={!!detail.performanceAvailable}
                   review={reviewScore}
                   practice={practicePerformance}

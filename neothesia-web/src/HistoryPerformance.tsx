@@ -81,6 +81,7 @@ const pitch = (n: number) =>
 export function HistoryPerformance({
   contentId,
   id,
+  goalThreshold,
   available,
   practice,
   review,
@@ -88,6 +89,7 @@ export function HistoryPerformance({
 }: {
   contentId: string;
   id: string;
+  goalThreshold?: number | null;
   available: boolean;
   practice: (
     reference: number,
@@ -108,7 +110,7 @@ export function HistoryPerformance({
     [after, setAfter] = useState(1),
     [gradeFilter, setGradeFilter] = useState("all"),
     [expressionFilter, setExpressionFilter] = useState("all"),
-    [velocityThreshold, setVelocityThreshold] = useState(20);
+    [velocityThreshold, setVelocityThreshold] = useState(goalThreshold == null ? 20 : goalThreshold + 1);
   const alive = useRef(true);
   const replay = useHistoryReplay(contentId, id, !blocked);
   const active = replay.phase !== "idle",
@@ -126,7 +128,8 @@ export function HistoryPerformance({
     setData(null);
     setError("");
     setMeasure(0);
-  }, [contentId, id]);
+    setVelocityThreshold(goalThreshold == null ? 20 : goalThreshold + 1);
+  }, [contentId, id, goalThreshold]);
   async function load() {
     setBusy(true);
     setError("");
@@ -329,7 +332,9 @@ export function HistoryPerformance({
               {exact && (
                 <p aria-label="逐音力度踏板反馈概况">
                   全轮逐音表达 · 确切配对 {pairedExpressionCount} 个音 · 力度差达到 {velocityThreshold} 级的 {velocityIssueCount} 个音 · 有踏板证据 {pedalEvidenceCount} 个音，其中状态不同 {pedalIssueCount} 个音。
-                  力度 {velocityThreshold} 级是本页默认筛查值，可在下方调整；它不等于练习计划的平均力度要求，也不改变原来的音符准确率。
+                  {goalThreshold == null
+                    ? `力度 ${velocityThreshold} 级是本页筛查值，可在下方调整；它不等于练习计划的平均力度要求，也不改变原来的音符准确率。`
+                    : `本轮保存的逐音目标是力度差最多 ${goalThreshold} 级。下方默认筛查超过目标的音符（差值至少 ${goalThreshold + 1} 级）；调整筛查值不会改动历史目标或成绩。`}
                 </p>
               )}
               {data.truncated && (
