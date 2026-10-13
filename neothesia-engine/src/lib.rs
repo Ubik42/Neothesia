@@ -12,6 +12,7 @@ mod metadata_templates;
 pub mod file_locations;
 mod import_storage;
 mod library_metadata;
+mod legacy_exercise_tracks;
 mod audio;
 mod track_sound;
 mod track_appearance;
@@ -192,6 +193,8 @@ impl Default for Snapshot {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Command {
+    PreviewLegacyExerciseTracks { content_id: String },
+    ApplyLegacyExerciseTracks { content_id: String, fingerprint: String, #[serde(default)] restore_conditions: bool },
     MetadataTemplates,
     UpdateMetadataTemplate {name:String,rules:Option<metadata_templates::Rules>,expected:u64},
     FileLocations,
@@ -1803,6 +1806,12 @@ impl Player {
         self.end_hold = 0.;
     }
     fn command(&mut self, command: Command) -> Result<serde_json::Value, String> {
+        if let Command::PreviewLegacyExerciseTracks { content_id } = command {
+            return legacy_exercise_tracks::preview(self, &content_id);
+        }
+        if let Command::ApplyLegacyExerciseTracks { content_id, fingerprint, restore_conditions } = command {
+            return legacy_exercise_tracks::apply(self, &content_id, &fingerprint, restore_conditions);
+        }
         if self.finger_demo.is_some() && !matches!(&command, Command::StartFingerDemo{..}|Command::FingerDemoControl{..}|Command::StartHeldFingerDemo{..}|Command::StartHistoryReplay{..}|Command::HistoryReplayControl{..}|Command::HistoryReplayLoop{..}|Command::HistoryProblemNotes{..}|Command::PreviewProblemCuts{..}|Command::PreviewMultiProblemPlan{..}|Command::SaveMultiProblemPlan{..}|Command::PreviewHistoryProblemPlan{..}|Command::SaveHistoryProblemPlan{..}|Command::HistoryReplayClips{..}|Command::SaveHistoryReplayClip{..}|Command::DeleteHistoryReplayClip{..}|Command::HistoryPerformance{..}|Command::StopFingerDemo{..}|Command::FingerDemoState|Command::CurrentSong|Command::Volume{..}) {
             self.panic();
         }
@@ -3069,6 +3078,7 @@ impl Player {
                     .map_err(|e| e.to_string())?;
                 let mut file = plan.to_midi_file()?;
                 file.content_id = plan.practice_id();
+                legacy_exercise_tracks::capture_before_install(self,&file,spec)?;
                 let title = format!(
                     "{}{} · {}",
                     [
@@ -3550,6 +3560,7 @@ impl Player {
                 self.restore_latency();
                 self.reset(self.state.position);
             }
+            Command::PreviewLegacyExerciseTracks { .. } | Command::ApplyLegacyExerciseTracks { .. } => unreachable!(),
         }
         if persist {
             self.persist()?;

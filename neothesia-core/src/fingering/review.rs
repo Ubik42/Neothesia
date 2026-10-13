@@ -20,6 +20,59 @@ pub struct FingeringReview {
     pub interval_ms: Option<u64>,
 }
 
+/// This reports key-range overlap between two assigned hands. It describes
+/// score positions, not a measured physical hand or arm collision.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CrossHandReviewKind { SameKey, CrossedRange }
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossHandReview {
+    pub index: usize,
+    pub opposite_index: usize,
+    pub kind: CrossHandReviewKind,
+    pub pitch: u8,
+    pub opposite_pitch: u8,
+    pub finger: u8,
+    pub opposite_finger: u8,
+    pub overlap_ms: u64,
+}
+
+pub fn review_cross_hand(
+    notes: &[FingeringNote], fingers: &[u8], hand: FingeringHand,
+    opposite: &[FingeringNote], opposite_fingers: &[u8],
+) -> Vec<CrossHandReview> {
+    if notes.len() != fingers.len() || opposite.len() != opposite_fingers.len()
+        || fingers.iter().chain(opposite_fingers).any(|f| !(1..=5).contains(f)) {
+        return vec![];
+    }
+    let mut reviews = Vec::new();
+    for (index, note) in notes.iter().enumerate() {
+        let mut best: Option<(u8, CrossHandReview)> = None;
+        for (opposite_index, other) in opposite.iter().enumerate() {
+            if other.onset >= note.end || other.end <= note.onset { continue; }
+            let kind = if note.pitch == other.pitch { CrossHandReviewKind::SameKey }
+                else if (hand == FingeringHand::Left && note.pitch > other.pitch)
+                    || (hand == FingeringHand::Right && other.pitch > note.pitch) {
+                    CrossHandReviewKind::CrossedRange
+                } else { continue; };
+            let overlap = note.end.min(other.end).saturating_sub(note.onset.max(other.onset));
+            let severity = if kind == CrossHandReviewKind::SameKey { 2 } else { 1 };
+            let candidate = CrossHandReview { index, opposite_index, kind,
+                pitch:note.pitch, opposite_pitch:other.pitch,
+                finger:fingers[index], opposite_finger:opposite_fingers[opposite_index],
+                overlap_ms:overlap.as_millis().min(u128::from(u64::MAX)) as u64 };
+            if best.as_ref().is_none_or(|(score, old)| severity > *score
+                || (severity == *score && candidate.overlap_ms > old.overlap_ms)) {
+                best = Some((severity, candidate));
+            }
+        }
+        if let Some((_, review)) = best { reviews.push(review); }
+    }
+    reviews
+}
+
 // These are transparent review thresholds, not measured limits of a pianist.
 // Keep them shared by path scoring and review so a cost has a visible cause.
 fn movement_kind(a: FingeringNote, af: u8, b: FingeringNote, bf: u8,
@@ -120,5 +173,22 @@ mod tests {
         assert_eq!(fast[0].interval_ms,Some(120));
         assert!(timed_movement_cost(turn[0],3,turn[1],1,FingeringHand::Right,HandSpanProfile::Standard,2.0)>0);
         assert_eq!(timed_movement_cost(turn[0],3,turn[1],1,FingeringHand::Right,HandSpanProfile::Standard,1.0),0);
+    }
+    #[test]
+    fn cross_hand_uses_actual_held_intervals_and_fingers() {
+        let left = [n(76, 0, 1000), n(60, 1000, 1200)];
+        let right = [n(72, 500, 900), n(76, 900, 1100)];
+        let reviews = review_cross_hand(&left, &[2, 5], FingeringHand::Left,
+            &right, &[3, 1]);
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].kind, CrossHandReviewKind::SameKey);
+        assert_eq!((reviews[0].finger, reviews[0].opposite_finger), (2, 1));
+        assert_eq!(reviews[0].overlap_ms, 100);
+        let crossing = review_cross_hand(&left[..1], &[2], FingeringHand::Left,
+            &right[..1], &[3]);
+        assert_eq!(crossing[0].kind, CrossHandReviewKind::CrossedRange);
+        assert_eq!(crossing[0].overlap_ms, 400);
+        assert!(review_cross_hand(&left[..1], &[2], FingeringHand::Left,
+            &[n(72, 1000, 1300)], &[3]).is_empty());
     }
 }

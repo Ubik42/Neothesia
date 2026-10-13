@@ -43,6 +43,12 @@ type Archive = {
   references: Ref[];
   referencePedals: Input[];
   truncated: boolean;
+  expressionReview?: ({
+    velocityDelta: number;
+    referencePedalDown: boolean | null;
+    actualPedalDown: boolean | null;
+    pedalSame: boolean | null;
+  } | null)[];
 };
 type Actual = {
   input: number;
@@ -82,7 +88,9 @@ export function HistoryPerformance({
     [measure, setMeasure] = useState(0),
     [before, setBefore] = useState(1),
     [after, setAfter] = useState(1),
-    [gradeFilter, setGradeFilter] = useState("all");
+    [gradeFilter, setGradeFilter] = useState("all"),
+    [expressionFilter, setExpressionFilter] = useState("all"),
+    [velocityThreshold, setVelocityThreshold] = useState(20);
   const alive = useRef(true);
   const replay = useHistoryReplay(contentId, id, !blocked);
   const active = replay.phase !== "idle",
@@ -236,7 +244,11 @@ export function HistoryPerformance({
         gradeFilter === "all" ||
         (gradeFilter === "problems"
           ? ["early", "late", "missed"].includes(p.grade)
-          : p.grade === gradeFilter)),
+          : p.grade === gradeFilter)) &&
+      (expressionFilter === "all" ||
+        (expressionFilter === "velocity"
+          ? Math.abs(data?.expressionReview?.[p.index]?.velocityDelta ?? 0) >= velocityThreshold
+          : data?.expressionReview?.[p.index]?.pedalSame === false)),
   );
   const wrong = (data?.judgments ?? []).filter(
     (d) => d.kind === "wrong" && (!measure || d.measure === measure),
@@ -364,6 +376,18 @@ export function HistoryPerformance({
                       </option>
                     ))}
                   </select>
+                )}
+                {exact && (
+                  <>
+                    <select aria-label="逐音表现筛选" value={expressionFilter} onChange={(e) => setExpressionFilter(e.target.value)}>
+                      <option value="all">全部力度与踏板</option>
+                      <option value="velocity">力度差达到阈值</option>
+                      <option value="pedal">踏板状态不同</option>
+                    </select>
+                    {expressionFilter === "velocity" && (
+                      <label>力度差至少 <input aria-label="力度差阈值" type="number" min={1} max={127} value={velocityThreshold} onChange={(e) => setVelocityThreshold(Math.max(1, Math.min(127, Number(e.target.value) || 1)))} /></label>
+                    )}
+                  </>
                 )}
                 <select
                   aria-label="演奏对照小节"
@@ -540,6 +564,7 @@ export function HistoryPerformance({
                       <th>判定</th>
                       <th>起音差值</th>
                       <th>力度对照</th>
+                      <th>踏板对照</th>
                       <th>持音对照</th>
                       <th>练习</th>
                     </tr>
@@ -561,9 +586,10 @@ export function HistoryPerformance({
                         </td>
                         <td>
                           {p.actual
-                            ? `${p.actual.velocity} / ${p.reference.velocity}`
+                            ? `${p.actual.velocity} / ${p.reference.velocity}${data.expressionReview?.[p.index] ? `（${data.expressionReview[p.index]!.velocityDelta > 0 ? "+" : ""}${data.expressionReview[p.index]!.velocityDelta}）` : ""}`
                             : "—"}
                         </td>
+                        <td>{data.expressionReview?.[p.index]?.pedalSame == null ? "—" : `实际${data.expressionReview[p.index]!.actualPedalDown ? "踩" : "松"} / 参考${data.expressionReview[p.index]!.referencePedalDown ? "踩" : "松"}`}</td>
                         <td>
                           {p.actual
                             ? `${(p.actual.end - p.actual.at).toFixed(2)} / ${(p.reference.end - p.reference.at).toFixed(2)} 秒`
@@ -609,6 +635,7 @@ export function HistoryPerformance({
                   </tbody>
                 </table>
                 {!rows.length && <p>该筛选范围没有对应参考音。</p>}
+                {exact && <p className="muted">力度差与起音时刻踏板状态只比较当轮计分器确切配对的按键。没有参考踏板动作时不显示踏板对照；这些对照不更改原成绩。</p>}
                 {rows.length > 200 && (
                   <p>本页只显示前 200 个参考音，选择具体小节查看其余位置。</p>
                 )}

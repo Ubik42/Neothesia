@@ -267,7 +267,11 @@ fn navigation(
     let mut text_fines = Vec::new();
     let mut text_da_capos = Vec::new();
     let mut text_dal_segnos = Vec::new();
+    let mut text_coda_da_capos = Vec::new();
+    let mut text_coda_dal_segnos = Vec::new();
+    let mut text_to_codas = Vec::new();
     let mut printed_segnos = Vec::new();
+    let mut printed_codas = Vec::new();
     for (index, m) in part.measures.iter().enumerate() {
         for e in &m.events {
             let ScoreEvent::Direction(d) = e else {
@@ -293,14 +297,30 @@ fn navigation(
             let recognized_dc = printed_command == "dcalfine" || printed_command == "dacapoalfine";
             let recognized_ds =
                 printed_command == "dsalfine" || printed_command == "dalsegnoalfine";
+            let recognized_dc_coda =
+                printed_command == "dcalcoda" || printed_command == "dacapoalcoda";
+            let recognized_ds_coda =
+                printed_command == "dsalcoda" || printed_command == "dalsegnoalcoda";
             if recognized_dc {
                 text_da_capos.push((index, offset));
             }
             if recognized_ds {
                 text_dal_segnos.push((index, offset));
             }
+            if recognized_dc_coda {
+                text_coda_da_capos.push((index, offset));
+            }
+            if recognized_ds_coda {
+                text_coda_dal_segnos.push((index, offset));
+            }
+            if printed_command == "tocoda" {
+                text_to_codas.push((index, offset));
+            }
             if d.segno || printed_command == "segno" {
                 printed_segnos.push((index, offset));
+            }
+            if d.coda || printed_command == "coda" {
+                printed_codas.push((index, offset));
             }
             let has_command = d.navigation.iter().any(|s| {
                 ["dacapo", "dalsegno", "tocoda", "fine"]
@@ -326,6 +346,8 @@ fn navigation(
             if !has_command
                 && !recognized_dc
                 && !recognized_ds
+                && !recognized_dc_coda
+                && !recognized_ds_coda
                 && d.words.iter().any(|w| {
                     let w = w.to_lowercase().replace(' ', "");
                     w.contains("d.c.")
@@ -423,6 +445,19 @@ fn navigation(
                 .then(a.attributes.cmp(&b.attributes))
         });
         marks[index].dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
+        for barline in &m.barlines {
+            if barline.coda {
+                let point = match barline.location {
+                    crate::musicxml::BarlineLocation::Left => (index, ScoreTime::default()),
+                    crate::musicxml::BarlineLocation::Right => (index + 1, ScoreTime::default()),
+                    _ => {
+                        diagnose(plan, Some(index), "Coda 小节线的位置不明确".into());
+                        continue;
+                    }
+                };
+                printed_codas.push(point);
+            }
+        }
     }
     // Printed navigation is executable only when the return, destination and
     // cut point each have one position. The written part remains untouched.
@@ -633,6 +668,172 @@ fn navigation(
                     attributes: BTreeMap::from([("fine".into(), "yes".into())]),
                     passes: None,
                 });
+            }
+        }
+        for local in &mut marks {
+            local.sort_by(|a, b| {
+                a.offset
+                    .cmp(&b.offset)
+                    .then(a.attributes.cmp(&b.attributes))
+            });
+            local.dedup_by(|a, b| a.offset == b.offset && a.attributes == b.attributes);
+        }
+    }
+    let printed_coda_navigation = !text_coda_da_capos.is_empty()
+        || !text_coda_dal_segnos.is_empty()
+        || !text_to_codas.is_empty();
+    if printed_coda_navigation {
+        let returns: BTreeSet<_> = text_coda_da_capos
+            .iter()
+            .chain(&text_coda_dal_segnos)
+            .copied()
+            .collect();
+        let cuts: BTreeSet<_> = text_to_codas.iter().copied().collect();
+        let codas: BTreeSet<_> = printed_codas.iter().copied().collect();
+        let segnos: BTreeSet<_> = printed_segnos.iter().copied().collect();
+        let explicit_returns: BTreeSet<_> = dc_positions
+            .iter()
+            .copied()
+            .chain(ds_positions.keys().copied())
+            .collect();
+        let explicit_cuts: BTreeMap<_, _> = marks
+            .iter()
+            .enumerate()
+            .flat_map(|(index, local)| {
+                local.iter().filter_map(move |mark| {
+                    mark.attributes
+                        .get("tocoda")
+                        .map(|label| ((index, mark.offset), label.clone()))
+                })
+            })
+            .collect();
+        if !text_fines.is_empty()
+            || !text_da_capos.is_empty()
+            || !text_dal_segnos.is_empty()
+            || !fine_positions.is_empty()
+            || returns.len() != 1
+            || cuts.len() != 1
+            || codas.len() != 1
+            || explicit_returns.len() > 1
+            || explicit_cuts.len() > 1
+            || !explicit_returns.is_empty() && explicit_returns != returns
+            || !explicit_cuts.is_empty()
+                && explicit_cuts.keys().copied().collect::<BTreeSet<_>>() != cuts
+        {
+            diagnose(
+                plan,
+                returns.iter().next().map(|p| p.0),
+                "al Coda 需要唯一的返回指令、To Coda 和 Coda 目标，且不能与其他跳转冲突".into(),
+            );
+        } else {
+            let command = *returns.iter().next().unwrap();
+            let cut = *cuts.iter().next().unwrap();
+            let coda = *codas.iter().next().unwrap();
+            if command.1 < ScoreTime::default()
+                || command.1 > part.measures[command.0].duration
+                || cut.1 < ScoreTime::default()
+                || cut.1 > part.measures[cut.0].duration
+                || coda.0 >= part.measures.len()
+                || coda.1 > part.measures[coda.0].duration
+                || cut >= command
+                || coda <= command
+            {
+                diagnose(
+                    plan,
+                    Some(command.0),
+                    "al Coda 的返回、To Coda 与 Coda 位置顺序无效".into(),
+                );
+            }
+            let is_ds = !text_coda_dal_segnos.is_empty();
+            let return_kind = if is_ds { "dalsegno" } else { "dacapo" };
+            let return_label = if is_ds {
+                let sound_targets: Vec<_> = targets
+                    .iter()
+                    .filter(|((kind, _), _)| kind == "segno")
+                    .map(|((_, label), point)| (label.clone(), *point))
+                    .collect();
+                if segnos.len() != 1 && sound_targets.is_empty() {
+                    diagnose(
+                        plan,
+                        Some(command.0),
+                        "D.S. al Coda 需要唯一的 Segno 目标".into(),
+                    );
+                }
+                let label = ds_positions
+                    .get(&command)
+                    .cloned()
+                    .or_else(|| (sound_targets.len() == 1).then(|| sound_targets[0].0.clone()))
+                    .unwrap_or_else(|| "__printed_segno__".into());
+                let sound_point = targets.get(&("segno".into(), label.clone())).copied();
+                if sound_targets.iter().any(|(name, point)| {
+                    name != &label || !segnos.is_empty() && !segnos.contains(point)
+                }) || sound_point.is_some_and(|p| !segnos.is_empty() && !segnos.contains(&p))
+                    || sound_point.is_none() && segnos.len() != 1
+                {
+                    diagnose(
+                        plan,
+                        Some(command.0),
+                        "印刷 Segno 与 sound segno 目标冲突".into(),
+                    );
+                } else if let Some(point) = sound_point.or_else(|| segnos.iter().next().copied()) {
+                    if point >= cut || point >= command {
+                        diagnose(
+                            plan,
+                            Some(command.0),
+                            "Segno 必须位于 To Coda 和返回指令之前".into(),
+                        );
+                    }
+                    targets.insert(("segno".into(), label.clone()), point);
+                }
+                label
+            } else {
+                "yes".into()
+            };
+            if !explicit_returns.contains(&command) {
+                marks[command.0].push(Navigation {
+                    offset: command.1,
+                    attributes: BTreeMap::from([(return_kind.into(), return_label)]),
+                    passes: None,
+                });
+            } else if is_ds != ds_positions.contains_key(&command) {
+                diagnose(
+                    plan,
+                    Some(command.0),
+                    "al Coda 文字与 sound 返回方式冲突".into(),
+                );
+            }
+            let coda_targets: Vec<_> = targets
+                .iter()
+                .filter(|((kind, _), _)| kind == "coda")
+                .map(|((_, label), point)| (label.clone(), *point))
+                .collect();
+            let coda_label = explicit_cuts
+                .get(&cut)
+                .cloned()
+                .or_else(|| (coda_targets.len() == 1).then(|| coda_targets[0].0.clone()))
+                .unwrap_or_else(|| "__printed_coda__".into());
+            if coda_targets
+                .iter()
+                .any(|(label, point)| label != &coda_label || *point != coda)
+                || targets
+                    .get(&("coda".into(), coda_label.clone()))
+                    .is_some_and(|&p| p != coda)
+                || coda_targets.len() > 1 && !explicit_cuts.contains_key(&cut)
+            {
+                diagnose(
+                    plan,
+                    Some(coda.0),
+                    "印刷 Coda 与 sound coda 目标冲突".into(),
+                );
+            } else {
+                targets.insert(("coda".into(), coda_label.clone()), coda);
+                if !explicit_cuts.contains_key(&cut) {
+                    marks[cut.0].push(Navigation {
+                        offset: cut.1,
+                        attributes: BTreeMap::from([("tocoda".into(), coda_label)]),
+                        passes: None,
+                    });
+                }
             }
         }
         for local in &mut marks {
@@ -1542,6 +1743,90 @@ mod tests {
         let plan = build_playback_plan(&part(&ds), PlaybackLimits::default());
         assert!(plan.complete, "{:?}", plan.diagnostics);
         assert_eq!(ordinals(&plan), [0, 1, 2, 3, 4, 1, 2, 5, 6]);
+    }
+
+    #[test]
+    fn printed_da_capo_and_dal_segno_coda_follow_the_second_pass() {
+        for (return_mark, segno, expected) in [
+            (
+                r#"<direction><direction-type><words>D.C. al Coda</words></direction-type></direction>"#,
+                "",
+                vec![0, 1, 2, 3, 0, 1, 2, 5, 6],
+            ),
+            (
+                r#"<direction><direction-type><words>D.S.</words><words>al Coda</words></direction-type></direction>"#,
+                r#"<direction><direction-type><segno/></direction-type></direction>"#,
+                vec![0, 1, 2, 3, 1, 2, 5, 6],
+            ),
+        ] {
+            let source = [
+                measure(1, "", ""),
+                measure(2, segno, ""),
+                measure(3, "", r#"<direction><direction-type><words>To Coda</words></direction-type></direction>"#),
+                measure(4, "", return_mark),
+                measure(5, "", ""),
+                measure(6, r#"<direction><direction-type><coda/></direction-type></direction>"#, ""),
+                measure(7, "", ""),
+            ].join("");
+            let part = part(&source);
+            let plan = build_playback_plan(&part, PlaybackLimits::default());
+            assert!(plan.complete, "{:?}", plan.diagnostics);
+            assert_eq!(ordinals(&plan), expected);
+            let notes: Vec<_> = expand_event_occurrences(&part, &plan)
+                .into_iter()
+                .filter(|event| event.duration.is_some())
+                .collect();
+            assert_eq!(notes.len(), expected.len());
+            assert_eq!(
+                notes.last().unwrap().onset,
+                ScoreTime::new((expected.len() - 1) as i64, 1)
+            );
+            assert_ne!(notes[1].id, notes[4].id);
+        }
+    }
+
+    #[test]
+    fn printed_coda_accepts_matching_sound_and_rejects_ambiguous_signs() {
+        let dc = r#"<direction><direction-type><words>D.C. al Coda</words></direction-type><sound dacapo="yes"/></direction>"#;
+        let cut = r#"<direction><direction-type><words>To Coda</words></direction-type><sound tocoda="C"/></direction>"#;
+        let target =
+            r#"<direction><direction-type><coda/></direction-type><sound coda="C"/></direction>"#;
+        let source = [
+            measure(1, "", ""),
+            measure(2, "", cut),
+            measure(3, "", dc),
+            measure(4, target, ""),
+        ]
+        .join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1, 3]);
+        for broken in [
+            source.replace(r#"<sound coda="C"/>"#, r#"<sound coda="X"/>"#),
+            source.replace(r#"<measure number="3">"#, r#"<measure number="3"><direction><direction-type><coda/></direction-type></direction>"#),
+            source.replace(r#"<sound dacapo="yes"/>"#, r#"<sound dalsegno="S"/>"#),
+            source.replace(cut, ""),
+            source.replace(r#"<measure number="1">"#, &format!(r#"<measure number="1">{cut}"#)),
+            source.replace(dc, &format!("{dc}<direction><direction-type><words>D.S. al Coda</words></direction-type></direction>")),
+            source.replace(target, &format!("{target}<direction><direction-type><words>Fine</words></direction-type></direction>")),
+        ] {
+            let plan = build_playback_plan(&part(&broken), PlaybackLimits::default());
+            assert!(!plan.complete, "{broken}");
+        }
+    }
+
+    #[test]
+    fn printed_coda_on_a_right_barline_targets_the_next_measure() {
+        let source = [
+            measure(1, "", ""),
+            measure(2, "", r#"<direction><direction-type><words>To Coda</words></direction-type></direction>"#),
+            measure(3, "", r#"<direction><direction-type><words>D.C. al Coda</words></direction-type></direction>"#),
+            measure(4, "", r#"<barline location="right"><coda/></barline>"#),
+            measure(5, "", ""),
+        ].join("");
+        let plan = build_playback_plan(&part(&source), PlaybackLimits::default());
+        assert!(plan.complete, "{:?}", plan.diagnostics);
+        assert_eq!(ordinals(&plan), [0, 1, 2, 0, 1, 4]);
     }
 
     #[test]

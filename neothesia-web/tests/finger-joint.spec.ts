@@ -37,7 +37,7 @@ test("同手跨音轨持音推荐、身份保护、联合预览与仅保存所�
   await expect(d.getByText(/联合参考同一只手的音轨/)).toContainText(song.tracks.find((t:any)=>t.id===bass.track).name);
   await expect(d.locator("tbody tr")).toHaveCount(2);
   await d.getByRole("group",{name:"手位预览内容"}).getByRole("button",{name:"保存后的实际指法",exact:true}).click();
-  await expect(d.locator("svg[aria-label='当前和弦及仍按住的音符指法'] text").first()).toHaveText("1");
+  await expect(d.locator("svg[aria-label='当前和弦及仍按住的音符指法'] text").first()).toHaveText("R1");
   await page.screenshot({path:"../outputs/Neothesia-同手音轨联合指法.png",fullPage:true});
   await page.setViewportSize({width:900,height:800});
   expect(await d.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();

@@ -17,6 +17,21 @@ type Proposal = {
   confidence: number;
   reason: string;
 };
+type CrossHandReview = {
+  contextIndex: number;
+  track: number;
+  index: number;
+  measure: number;
+  pitch: number;
+  finger: number;
+  oppositeTrack: number;
+  oppositeIndex: number;
+  oppositeMeasure: number;
+  oppositePitch: number;
+  oppositeFinger: number;
+  kind: "sameKey" | "crossedRange";
+  overlapMs: number;
+};
 type Plan = {
   cost: number;
   proposals: Proposal[];
@@ -40,6 +55,7 @@ type Plan = {
     comfortableSemitones: number;
     intervalMs: number | null;
   }[];
+  crossHandReview: CrossHandReview[];
 };
 type Result = {
   fingerprint: string;
@@ -52,6 +68,16 @@ type Result = {
     onset: number;
     end: number;
     measure: number;
+    target: boolean;
+  }[];
+  oppositeContext?: {
+    track: number;
+    index: number;
+    pitch: number;
+    measure: number;
+    onset: number;
+    end: number;
+    saved: number;
     target: boolean;
   }[];
   contentId: string;
@@ -94,6 +120,7 @@ type AcceptanceReview = {
     reason: string;
   }[];
   review: Plan["review"];
+  crossHandReview: CrossHandReview[];
   contextFingers: (number | null)[];
   tracks: {
     track: number;
@@ -668,7 +695,7 @@ export function FingeringDialog({
                   }}
                 >
                   <strong>方案 {i + 1}</strong>
-                  <span>需复核 {plan.review.length} 处</span>
+                  <span>需复核 {plan.review.length + (plan.crossHandReview?.length ?? 0)} 处</span>
                   <small>
                     穿 / 跨指 {plan.crossings} · 移手 {plan.shifts} · 宽手型{" "}
                     {plan.wide} · 改动已有 {plan.changed}
@@ -781,7 +808,7 @@ export function FingeringDialog({
             <section className="finger-review" aria-label="指法难点复核">
               <div className="finger-review-heading">
                 <strong>
-                  需要复核的位置 · {result.plans[planIndex].review.length} 处
+                  需要复核的位置 · {result.plans[planIndex].review.length + (result.plans[planIndex].crossHandReview?.length ?? 0)} 处
                 </strong>
                 <span>
                   {Math.round(result.plans[planIndex].practiceRate * 100)}% 原速
@@ -836,7 +863,7 @@ export function FingeringDialog({
                     </small>
                   </button>
                 ))}
-              {!result.plans[planIndex].review.length && (
+              {!result.plans[planIndex].review.length && !(result.plans[planIndex].crossHandReview?.length) && (
                 <span>当前规则没有发现上述难点；仍可逐位置审阅。</span>
               )}
               {result.plans[planIndex].review.length > 8 && (
@@ -864,6 +891,20 @@ export function FingeringDialog({
                   </button>
                 </div>
               )}
+              <CrossHandReviewList
+                items={result.plans[planIndex].crossHandReview ?? []}
+                title="双手音区交叠"
+                disabled={busy || Object.keys(values).length > 0}
+                trackName={trackName}
+                choose={(item) => {
+                  setPreview(item.contextIndex);
+                  setPreviewSaved(false);
+                  const row = result.proposals.findIndex(
+                    (p) => p.track === item.track && p.index === item.index,
+                  );
+                  if (row >= 0) setPage(Math.floor(row / 40));
+                }}
+              />
             </section>
             {Object.keys(values).length > 0 && (
               <div className="fingering-selection">
@@ -1080,8 +1121,8 @@ export function FingeringDialog({
                   {currentAcceptance.valid && (
                     <p>
                       勾选指法与已标记位置没有发现同时按键冲突。实际保存结果还有{" "}
-                      {currentAcceptance.review.length}{" "}
-                      处跨度或快速换指需要复核；原方案的难点不代替局部保存结果。
+                      {currentAcceptance.review.length + (currentAcceptance.crossHandReview?.length ?? 0)}{" "}
+                      处跨度、快速换指或双手交叠需要复核；原方案的难点不代替局部保存结果。
                     </p>
                   )}
                   {currentAcceptance.valid &&
@@ -1150,6 +1191,16 @@ export function FingeringDialog({
                         </button>
                       </div>
                     )}
+                  <CrossHandReviewList
+                    items={currentAcceptance.crossHandReview ?? []}
+                    title="保存后双手音区交叠"
+                    disabled={busy}
+                    trackName={trackName}
+                    choose={(item) => {
+                      setPreview(item.contextIndex);
+                      setPreviewSaved(true);
+                    }}
+                  />
                   {currentAcceptance.reviewTruncated && (
                     <p>保存难点较多，目前列出前 100 处；可缩小选段继续审阅。</p>
                   )}
@@ -1346,6 +1397,51 @@ export function FingeringDialog({
   );
 }
 
+function CrossHandReviewList({
+  items,
+  title,
+  disabled,
+  trackName,
+  choose,
+}: {
+  items: CrossHandReview[];
+  title: string;
+  disabled: boolean;
+  trackName: (track: number) => string;
+  choose: (item: CrossHandReview) => void;
+}) {
+  const [page, setPage] = useState(0);
+  if (!items.length) return null;
+  return (
+    <div className="finger-review">
+      <strong>{title} · {items.length} 处</strong>
+      <p>另一只手的指法取自已保存标记。两手在同一时段按同键，或左手音高超过右手时，请检查分手与手位。</p>
+      {items.length >= 100 && <p>这里最多列出 100 处。请缩小小节范围，查看其余位置。</p>}
+      {items.slice(page * 8, (page + 1) * 8).map((item) => (
+        <button
+          key={`${item.track}:${item.index}:${item.oppositeTrack}:${item.oppositeIndex}`}
+          disabled={disabled}
+          onClick={() => choose(item)}
+        >
+          <span>
+            {trackName(item.track)}第 {item.measure} 小节 {pitchName(item.pitch)}（{item.finger} 指）
+            与 {trackName(item.oppositeTrack)}第 {item.oppositeMeasure} 小节 {pitchName(item.oppositePitch)}（{item.oppositeFinger} 指）
+          </span>
+          <strong>{item.kind === "sameKey" ? "双手同时占用同一琴键" : "左右手音区交叉"} · 重叠 {item.overlapMs} 毫秒</strong>
+          <small>打开这个位置，检查谱面分手；必要时修改指法或重新分配声部。</small>
+        </button>
+      ))}
+      {items.length > 8 && (
+        <div className="fingering-pages">
+          <button aria-label={`上一页${title}`} disabled={page === 0} onClick={() => setPage(page - 1)}><ChevronLeft size={16} /></button>
+          <span>{page + 1} / {Math.ceil(items.length / 8)}</span>
+          <button aria-label={`下一页${title}`} disabled={(page + 1) * 8 >= items.length} onClick={() => setPage(page + 1)}><ChevronRight size={16} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FingerPosition({
   result,
   plan,
@@ -1369,10 +1465,11 @@ function FingerPosition({
   if (!plan || !context.length) return null;
   const selected = context[Math.min(preview, context.length - 1)];
   const onset = demoTime ?? selected.onset;
-  const active = context
+  const activeCurrent = context
     .map((n, i) => ({
       ...n,
       finger: previewFingers ? previewFingers[i] : plan.contextFingers[i],
+      part: hand,
     }))
     .filter(
       (n) =>
@@ -1382,15 +1479,19 @@ function FingerPosition({
           n.track !== result.request.track ||
           n.onset < (context.find((position) => position.target)?.onset ?? 0)),
     );
+  const activeOpposite = (result.oppositeContext ?? [])
+    .filter((n) => (n.onset <= onset && n.end > onset) || n.onset === onset)
+    .map((n) => ({ ...n, finger: n.saved, part: hand === "left" ? "right" : "left" }));
+  const active = [...activeCurrent, ...activeOpposite];
   const firstTarget = context.find((n) => n.target)?.onset ?? selected.onset;
   const keyboardNotes =
     demoTime !== null
-      ? context.filter(
+      ? [...context.filter(
           (n) =>
             n.target ||
             n.track !== result.request.track ||
             (n.onset < firstTarget && n.end > firstTarget),
-        )
+        ), ...activeOpposite]
       : active.length
         ? active
         : [selected];
@@ -1468,7 +1569,7 @@ function FingerPosition({
               const keyNotes = active.filter((n) => n.pitch === p);
               const n = keyNotes[0];
               const label = [
-                ...new Set(keyNotes.map((n) => n.finger ?? "·")),
+                ...new Set(keyNotes.map((n) => `${n.part === "left" ? "L" : "R"}${n.finger ?? "·"}`)),
               ].join("/");
               return (
                 <g key={p}>
@@ -1480,7 +1581,7 @@ function FingerPosition({
                     rx={2}
                     fill={
                       n
-                        ? hand === "left"
+                        ? n.part === "left"
                           ? "#639bec"
                           : "#69c5a3"
                         : b
@@ -1508,7 +1609,7 @@ function FingerPosition({
         )}
       </svg>
       <small>
-        键上数字为手指
+        键上 L/R 表示左/右手，数字为手指
         {previewFingers
           ? "，· 表示仍未标记；当前显示保存后的实际组合。切回完整推荐方案可示范声音。"
           : "；当前显示完整推荐方案。"}

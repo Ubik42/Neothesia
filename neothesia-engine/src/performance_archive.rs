@@ -275,7 +275,42 @@ pub(crate) fn read(data: &Path, cid: &str, id: &str) -> Result<Archive, String> 
     a.validate(cid, id)?;
     Ok(a)
 }
+fn pedal_events(inputs: &[Input]) -> Vec<(f64, bool)> {
+    let mut events: Vec<_> = inputs.iter()
+        .filter(|input| !input.synthetic && input.bytes[0] == 176 && input.bytes[1] == 64)
+        .map(|input| (input.at, input.bytes[2] >= 64))
+        .collect();
+    events.sort_by(|a, b| a.0.total_cmp(&b.0));
+    events
+}
+fn pedal_at(events: &[(f64, bool)], at: f64) -> bool {
+    let previous = events.partition_point(|event| event.0 <= at);
+    previous.checked_sub(1).map(|index| events[index].1).unwrap_or(false)
+}
 impl Archive {
+    fn expression_review(&self) -> Vec<Value> {
+        let actual_pedals = pedal_events(&self.inputs);
+        let reference_pedals = pedal_events(&self.reference_pedals);
+        let mut result = vec![Value::Null; self.references.len()];
+        let Some(decisions) = &self.judgments else { return result; };
+        for decision in decisions {
+            let (Some(reference_index), Some(input_index)) = (decision.reference, decision.input) else { continue; };
+            let (Some(reference), Some(input)) = (self.references.get(reference_index), self.inputs.get(input_index)) else { continue; };
+            let reference_pedal_down = if reference_pedals.is_empty() {
+                None
+            } else {
+                Some(pedal_at(&reference_pedals, reference.at))
+            };
+            let actual_pedal_down = reference_pedal_down.map(|_| pedal_at(&actual_pedals, input.at));
+            result[reference_index] = serde_json::json!({
+                "velocityDelta": i16::from(input.bytes[2]) - i16::from(reference.velocity),
+                "referencePedalDown": reference_pedal_down,
+                "actualPedalDown": actual_pedal_down,
+                "pedalSame": reference_pedal_down.zip(actual_pedal_down).map(|(r,a)|r==a),
+            });
+        }
+        result
+    }
     pub(crate) fn has_measures(&self)->bool{self.measures.is_some()}
     pub(crate) fn has_judgments(&self) -> bool {
         self.judgments.is_some()
@@ -617,7 +652,10 @@ impl Player {
     pub fn history_performance(&self, cid: &str, id: &str) -> Result<Value, String> {
         self.history_detail(cid, id)?;
         let a = read(&self.data, cid, id)?;
-        serde_json::to_value(a).map_err(|e| e.to_string())
+        let review = a.expression_review();
+        let mut value = serde_json::to_value(a).map_err(|e| e.to_string())?;
+        value["expressionReview"] = serde_json::json!(review);
+        Ok(value)
     }
     pub fn start_history_replay(
         &mut self,
@@ -766,6 +804,18 @@ mod tests {
         assert_eq!(matched.kind, "late");
         assert!(matched.offset_ms.unwrap() > 500);
         assert_eq!(a.inputs[matched.input.unwrap()].bytes, [144, 60, 83]);
+        assert_eq!(a.expression_review()[0]["velocityDelta"], 83_i16 - i16::from(a.references[0].velocity));
+        let mut expression = a.clone();
+        expression.reference_pedals.clear();
+        assert!(expression.expression_review()[0]["pedalSame"].is_null());
+        expression.reference_pedals.push(Input { at: 0., judged_at: 0., song_time: 0., bytes: [176, 64, 127], synthetic: false });
+        expression.inputs.push(Input { at: expression.inputs[matched.input.unwrap()].at, judged_at: 0., song_time: 0., bytes: [176, 64, 0], synthetic: false });
+        let review = expression.expression_review();
+        assert_eq!(review[0]["referencePedalDown"], true);
+        assert_eq!(review[0]["actualPedalDown"], false);
+        assert_eq!(review[0]["pedalSame"], false);
+        expression.judgments = None;
+        assert!(expression.expression_review().iter().all(Value::is_null));
         let wrong = rows.iter().find(|r| r.kind == "wrong").unwrap();
         assert_eq!(wrong.reference, None);
         assert_eq!(a.inputs[wrong.input.unwrap()].bytes, [144, 65, 99]);

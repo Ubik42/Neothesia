@@ -227,6 +227,7 @@ pub fn normalized(score: &Score) -> Result<Score, String> {
                         dynamics: vec![],
                         words: vec![],
                         segno: false,
+                        coda: false,
                         tempo_bpm: None,
                         navigation: missing,
                         pedals: vec![],
@@ -977,6 +978,48 @@ mod tests {
             6
         );
         assert!((file.duration.as_secs_f64() - 3.0).abs() < 0.00001);
+    }
+    #[test]
+    fn printed_dal_segno_coda_preserves_notes_source_occurrences_and_midi_end() {
+        let xml = r#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+        <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="2"><direction><direction-type><segno/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>To Coda</words></direction-type></direction></measure>
+        <measure number="4"><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>D.S. al Coda</words></direction-type></direction></measure>
+        <measure number="5"><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        <measure number="6"><direction><direction-type><coda/></direction-type></direction><note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+        </part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(
+            notes.iter().map(|note| note.pitch).collect::<Vec<_>>(),
+            [60, 62, 64, 65, 62, 64, 69]
+        );
+        assert_eq!(
+            notes.iter().map(|note| note.start).collect::<Vec<_>>(),
+            [0, 960, 1920, 2880, 3840, 4800, 5760]
+        );
+        assert_eq!(notes.last().unwrap().end, 6720);
+        let part = &score.parts[0];
+        let plan = crate::score_playback::build_playback_plan(part, Default::default());
+        let events = crate::score_playback::expand_event_occurrences(part, &plan);
+        let d_occurrences: Vec<_> = events
+            .iter()
+            .filter(|event| event.id.source_id.measure_ordinal == 1 && event.duration.is_some())
+            .collect();
+        assert_eq!(d_occurrences.len(), 2);
+        assert_eq!(d_occurrences[0].id.source_id, d_occurrences[1].id.source_id);
+        assert_ne!(d_occurrences[0].id, d_occurrences[1].id);
+        let file = midi_file::MidiFile::from_smf("printed-ds-coda", &performance.smf).unwrap();
+        assert_eq!(
+            file.tracks
+                .iter()
+                .flat_map(|track| track.notes.iter())
+                .count(),
+            7
+        );
+        assert!((file.duration.as_secs_f64() - 3.5).abs() < 0.00001);
     }
     #[test]
     fn numeric_fine_keeps_midi_notes_occurrences_and_end_of_track_in_sync() {

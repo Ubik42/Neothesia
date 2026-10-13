@@ -167,3 +167,32 @@ test("印刷 D.S. al Fine 按 Segno 返回并在 Fine 结束", async ({ page, re
   await page.getByRole("button", { name: "乐谱", exact: true }).click();
   await expect(page.locator('.score-paper g.note[role="button"]')).toHaveCount(4);
 });
+
+test("印刷 D.S. al Coda 返回后跳入尾声", async ({ page, request }) => {
+  test.skip(!process.env.NEOTHESIA_TEXT_FINE_TEST_DATA, "需要独立的文字跳转测试服务");
+  const xml = `<score-partwise version="4.0"><work><work-title>印刷尾声练习</work-title></work><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">
+    <measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+    <measure number="2"><direction><direction-type><segno/></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+    <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>To Coda</words></direction-type></direction></measure>
+    <measure number="4"><note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note><direction><direction-type><words>D.S. al Coda</words></direction-type></direction></measure>
+    <measure number="5"><note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+    <measure number="6"><direction><direction-type><coda/></direction-type></direction><note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+    </part></score-partwise>`;
+  const response = await request.post(`${api}/api/command`, {
+    headers: { "X-Neothesia-Client": "web" },
+    data: { type: "importScore", bytes: [...Buffer.from(xml)], name: "印刷尾声练习.musicxml", default_bpm: 120 },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const song = await response.json();
+  expect(song.notes.map((note: { pitch: number }) => note.pitch)).toEqual([60, 62, 64, 65, 62, 64, 69]);
+  const routeResponse = await request.post(`${api}/api/command`, {
+    headers: { "X-Neothesia-Client": "web" }, data: { type: "score" },
+  });
+  expect(routeResponse.ok(), await routeResponse.text()).toBeTruthy();
+  const route = await routeResponse.json();
+  expect(route.route.complete).toBe(true);
+  expect(route.route.visits.map((visit: { measure: number }) => visit.measure)).toEqual([0, 1, 2, 3, 1, 2, 5]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "乐谱", exact: true }).click();
+  await expect(page.locator('.score-paper g.note[role="button"]')).toHaveCount(5);
+});

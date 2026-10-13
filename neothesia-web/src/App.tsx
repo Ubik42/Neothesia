@@ -50,6 +50,7 @@ import {
 } from "./api";
 import { Notation } from "./Notation";
 import { FingeringDialog } from "./FingeringDialog";
+import { LegacyExerciseTracksDialog } from "./LegacyExerciseTracksDialog";
 import { PackageDialog } from "./PackageDialog";
 import { ImportDialog } from "./ImportDialog";
 import { LibraryDialog } from "./LibraryDialog";
@@ -130,6 +131,7 @@ export default function App() {
     [feedback, setFeedback] = useState(false),
     [metadata, setMetadata] = useState(false),
     [fingeringDialog, setFingeringDialog] = useState(false),
+    [legacyExerciseDialog, setLegacyExerciseDialog] = useState(false),
     [libraryDialog, setLibraryDialog] = useState(false),
     [passageDialog, setPassageDialog] = useState(false),
     [ladderDialog, setLadderDialog] = useState(false),
@@ -1025,6 +1027,11 @@ export default function App() {
           <Music2 size={15} />
           技术练习
         </button>
+        {song?.generated && song.notes.length > 0 && song.notes.every((note) => note.part === "left") && (
+          <button disabled={busy} onClick={() => setLegacyExerciseDialog(true)}>
+            核对旧版左手资料
+          </button>
+        )}
         <button
           disabled={busy || state.recording}
           onClick={() => {
@@ -2406,6 +2413,13 @@ export default function App() {
             setState(await api.state());
             await updateCollection();
           }}
+        />
+      )}
+      {legacyExerciseDialog && song?.generated && (
+        <LegacyExerciseTracksDialog
+          contentId={song.contentId}
+          close={() => setLegacyExerciseDialog(false)}
+          changed={refresh}
         />
       )}
       {metadata && song && (

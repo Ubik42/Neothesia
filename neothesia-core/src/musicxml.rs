@@ -50,6 +50,7 @@ pub struct Barline {
     pub location: BarlineLocation,
     pub repeat: Option<RepeatMark>,
     pub endings: Vec<EndingMark>,
+    pub coda: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +124,8 @@ pub struct Direction {
     pub words: Vec<String>,
     /// Printed segno sign inside a direction-type, independent of sound navigation.
     pub segno: bool,
+    /// Printed coda sign inside a direction-type.
+    pub coda: bool,
     pub tempo_bpm: Option<String>,
     pub navigation: Vec<SoundNavigation>,
     pub pedals: Vec<PedalMark>,
@@ -562,6 +565,7 @@ struct DirectionBuilder {
     dynamics: Vec<String>,
     words: Vec<String>,
     segno: bool,
+    coda: bool,
     tempo_bpm: Option<String>,
     navigation: Vec<SoundBuilder>,
     pedals: Vec<PedalMark>,
@@ -632,6 +636,7 @@ fn finish_direction(
         dynamics: built.dynamics,
         words: built.words,
         segno: built.segno,
+        coda: built.coda,
         tempo_bpm: primary_tempo,
         navigation,
         pedals: built.pedals,
@@ -654,6 +659,7 @@ fn finish_direction(
             dynamics: vec![],
             words: vec![],
             segno: false,
+            coda: false,
             tempo_bpm: Some(tempo),
             navigation: vec![],
             pedals: vec![],
@@ -682,6 +688,7 @@ struct BarlineBuilder {
     location: BarlineLocation,
     repeat: Option<RepeatMark>,
     endings: Vec<EndingMark>,
+    coda: bool,
 }
 
 /// Imports uncompressed, partwise MusicXML (`.musicxml` or `.xml`).
@@ -791,12 +798,19 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     b"segno" if direction.is_some() && parent_is(&path, 2, b"direction-type") => {
                         direction.as_mut().unwrap().segno = true;
                     }
+                    b"coda" if direction.is_some() && parent_is(&path, 2, b"direction-type") => {
+                        direction.as_mut().unwrap().coda = true;
+                    }
+                    b"coda" if barline.is_some() && parent_is(&path, 1, b"barline") => {
+                        barline.as_mut().unwrap().coda = true;
+                    }
                     b"attributes" => attributes = Some(AttributesBuilder::default()),
                     b"barline" => {
                         barline = Some(BarlineBuilder {
                             location: parse_barline_location(attribute(&start, b"location")?),
                             repeat: None,
                             endings: Vec::new(),
+                            coda: false,
                         });
                     }
                     b"clef" if attributes.is_some() => {
@@ -1200,6 +1214,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             location: built.location,
                             repeat: built.repeat,
                             endings: built.endings,
+                            coda: built.coda,
                         });
                     }
                     b"backup" => {
@@ -1252,6 +1267,12 @@ fn handle_empty(
     match start.name().as_ref() {
         b"segno" if direction.is_some() && parent_is(path, 1, b"direction-type") => {
             direction.as_mut().unwrap().segno = true;
+        }
+        b"coda" if direction.is_some() && parent_is(path, 1, b"direction-type") => {
+            direction.as_mut().unwrap().coda = true;
+        }
+        b"coda" if barline.is_some() && parent_is(path, 1, b"barline") => {
+            barline.as_mut().unwrap().coda = true;
         }
         b"rest" if note.is_some() => note.as_mut().unwrap().rest = true,
         b"chord" if note.is_some() => note.as_mut().unwrap().chord = true,
