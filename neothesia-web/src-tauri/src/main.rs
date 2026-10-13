@@ -12,7 +12,16 @@ struct State {
     data: PathBuf,
     font: PathBuf,
     score_imports: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::sync::atomic::AtomicBool>>>>,
+    generated_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,GeneratedScorePreview>>>,
     _data_lock: std::fs::File,
+}
+
+#[derive(Clone)]
+struct GeneratedScorePreview {
+    content_id: String,
+    source: PathBuf,
+    name: String,
+    hash: String,
 }
 
 fn file_dialog(data:&std::path::Path,kind:&str)->rfd::AsyncFileDialog{let dialog=rfd::AsyncFileDialog::new();if let Some(path)=neothesia_engine::file_locations::initial(data,kind){dialog.set_directory(path)}else{dialog}}
@@ -433,12 +442,16 @@ async fn open_score_in_musescore(state:tauri::State<'_,State>,content_id:String,
     let data=state.data.clone();
     // The frontend supplies identities only. The engine resolves and hashes the registered file.
     let path=tauri::async_runtime::spawn_blocking(move||neothesia_engine::score_sources::original_for_edit(&data,&content_id,&version_id)).await.map_err(|e|e.to_string())??;
+    launch_score_in_musescore(&state.data,&path).await
+}
+
+async fn launch_score_in_musescore(data:&std::path::Path,path:&std::path::Path)->Result<(),String>{
     #[cfg(target_os="windows")]
-    let executable=musescore_executable(&state.data).await?;
+    let executable=musescore_executable(data).await?;
     #[cfg(target_os="windows")]
     {std::process::Command::new(executable).arg(musescore_path_arg(&path)).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
     #[cfg(not(target_os="windows"))]
-    {let program=if cfg!(target_os="macos"){"open"}else{"musescore"};let mut command=std::process::Command::new(program);if cfg!(target_os="macos"){command.arg("-a").arg("MuseScore 4");}command.arg(path).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
+    {let _=data;let program=if cfg!(target_os="macos"){"open"}else{"musescore"};let mut command=std::process::Command::new(program);if cfg!(target_os="macos"){command.arg("-a").arg("MuseScore 4");}command.arg(path).spawn().map_err(|e|format!("MuseScore Studio 启动失败：{e}"))?;Ok(())}
 }
 
 #[cfg(target_os="windows")]
@@ -501,7 +514,7 @@ async fn generate_musescore_score(state:tauri::State<'_,State>,content_id:String
     let executable=musescore_executable(&state.data).await?;
     #[cfg(target_os="windows")]
     {
-        let data=state.data.clone();let engine=state.engine.clone();
+        let data=state.data.clone();let engine=state.engine.clone();let generated=state.generated_scores.clone();
         tauri::async_runtime::spawn_blocking(move||{
             let dir=data.join("musescore-midi-temp");std::fs::create_dir_all(&dir).map_err(|e|format!("临时目录无法创建：{e}"))?;
             let unique=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
@@ -514,7 +527,13 @@ async fn generate_musescore_score(state:tauri::State<'_,State>,content_id:String
                     return Err("MIDI 文件内容已改变，请重新生成谱面".into())
                 }
                 let stem=source.file_stem().and_then(|s|s.to_str()).unwrap_or("当前曲目").chars().take(80).collect::<String>();
-                Ok(serde_json::json!({"name":format!("{stem} · MuseScore 转谱初稿.musicxml"),"bytes":bytes}))
+                let name=format!("{stem} · MuseScore 转谱初稿.musicxml");
+                let hash=blake3::hash(&bytes).to_hex().to_string();
+                let token=blake3::hash(format!("{content_id}\n{hash}\n{unique}\n{}",std::process::id()).as_bytes()).to_hex().to_string();
+                let mut previews=generated.lock().map_err(|_|"转谱预览资料正忙")?;
+                previews.clear();
+                previews.insert(token.clone(),GeneratedScorePreview{content_id,source,name:name.clone(),hash});
+                Ok(serde_json::json!({"name":name,"bytes":bytes,"previewToken":token}))
             })();
             let _=std::fs::remove_file(output);
             result
@@ -522,6 +541,95 @@ async fn generate_musescore_score(state:tauri::State<'_,State>,content_id:String
     }
     #[cfg(not(target_os="windows"))]
     {let _=(source,executable);Err("当前平台尚未接入 MuseScore MIDI 转谱".into())}
+}
+
+fn write_new_generated_score(path:&std::path::Path,bytes:&[u8])->Result<(),String>{
+    if path.extension().and_then(|s|s.to_str()).is_none_or(|ext|!ext.eq_ignore_ascii_case("musicxml")) {
+        return Err("请将转谱初稿保存为 .musicxml 文件".into());
+    }
+    // create_new is the final no-overwrite guard even when the save dialog's
+    // target changes between selection and the write.
+    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+        .map_err(|e|if e.kind()==std::io::ErrorKind::AlreadyExists {
+            "该位置已有文件。请选择新的文件名；软件不会覆盖原谱".into()
+        } else {format!("无法新建转谱文件：{e}")})?;
+    use std::io::Write;
+    if let Err(error)=file.write_all(bytes).and_then(|_|file.sync_all()) {
+        drop(file);
+        let _=std::fs::remove_file(path);
+        return Err(format!("转谱文件写入失败：{error}"));
+    }
+    drop(file);
+    let saved=neothesia_engine::score_sources::read_original(path)
+        .map_err(|e|format!("转谱文件已写入，但无法复查：{e}；位置：{}",path.display()))?;
+    if saved!=bytes {
+        return Err(format!("转谱文件已写入，但内容核对失败；请检查文件：{}",path.display()));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_generated_score_for_edit(state:tauri::State<'_,State>,content_id:String,name:String,bytes:Vec<u8>,preview_token:String)->Result<Option<serde_json::Value>,String>{
+    let preview=state.generated_scores.lock().map_err(|_|"转谱预览资料正忙")?
+        .get(&preview_token).cloned().ok_or("转谱预览已失效。请重新从 MIDI 生成谱面")?;
+    if preview.content_id!=content_id || preview.name!=name || blake3::hash(&bytes).to_hex().as_str()!=preview.hash {
+        return Err("转谱预览内容已改变。请重新从 MIDI 生成谱面".into());
+    }
+    let current=state.engine.command(Command::CurrentSong)?;
+    if current["contentId"].as_str()!=Some(&content_id)
+        || current["sourcePath"].as_str()!=Some(preview.source.to_string_lossy().as_ref()) {
+        return Err("曲目已切换。请重新打开这首曲目的谱面管理".into());
+    }
+    if midi_file::MidiFile::new(&preview.source).map_err(|e|format!("MIDI 文件无法复查：{e}"))?.content_id!=content_id {
+        return Err("MIDI 文件内容已改变。请重新生成谱面".into());
+    }
+    let Some(file)=file_dialog(&state.data,"notation").set_title("保存转谱初稿以供 MuseScore 编辑")
+        .add_filter("MusicXML 乐谱", &["musicxml"]).set_file_name(&name).save_file().await else{return Ok(None)};
+    let path=file.path().to_path_buf();
+    let data=state.data.clone();let engine=state.engine.clone();let previews=state.generated_scores.clone();let cid_for_open=content_id.clone();
+    let mut result=tauri::async_runtime::spawn_blocking(move||->Result<serde_json::Value,String>{
+        let current=engine.command(Command::CurrentSong)?;
+        if current["contentId"].as_str()!=Some(&content_id)
+            || current["sourcePath"].as_str()!=Some(preview.source.to_string_lossy().as_ref()) {
+            return Err("曲目已切换。转谱文件没有写入".into());
+        }
+        if midi_file::MidiFile::new(&preview.source).map_err(|e|format!("MIDI 文件无法复查：{e}"))?.content_id!=content_id {
+            return Err("MIDI 文件内容已改变。转谱文件没有写入".into());
+        }
+        if previews.lock().map_err(|_|"转谱预览资料正忙")?.get(&preview_token)
+            .is_none_or(|row|row.hash!=preview.hash || row.content_id!=content_id) {
+            return Err("转谱预览已失效。转谱文件没有写入".into());
+        }
+        let parent=path.parent().ok_or("保存位置无效")?.canonicalize()
+            .map_err(|e|format!("保存文件夹无法读取：{e}"))?;
+        if std::fs::canonicalize(&data).is_ok_and(|root|parent.starts_with(root)) {
+            return Err("请选择个人乐谱文件夹。软件的内部资料目录不能用作 MuseScore 编辑位置".into());
+        }
+        write_new_generated_score(&path,&bytes)?;
+        let version=engine.command(Command::SaveScoreVersion{bytes:bytes.clone(),name:name.clone(),content_id:content_id.clone()})
+            .map_err(|e|format!("转谱文件已保存到 {}，但谱面版本未保存：{e}",path.display()))?;
+        let version_id=version["versionId"].as_str().ok_or_else(||format!("转谱文件已保存到 {}，但版本编号缺失",path.display()))?.to_string();
+        // The registrar re-reads both the immutable version and the selected
+        // external file. It rejects changed bytes before making a source link.
+        engine.command(Command::LinkScoreSource{midi_path:preview.source.clone(),content_id:content_id.clone(),version_id:version_id.clone(),path:path.clone(),default_bpm:0})
+            .map_err(|e|format!("转谱文件和版本已保存，但原谱关联未完成：{e}。文件：{}；版本：{version_id}",path.display()))?;
+        previews.lock().map_err(|_|"转谱预览资料正忙")?.remove(&preview_token);
+        Ok(serde_json::json!({"versionId":version_id,"path":path,"linked":true}))
+    }).await.map_err(|e|e.to_string())??;
+    remember_location(&state.data,"notation",file.path(),false);
+    let version_id=result["versionId"].as_str().ok_or("保存版本编号缺失")?.to_string();
+    let launch=match neothesia_engine::score_sources::original_for_edit(&state.data,&cid_for_open,&version_id) {
+        Ok(path)=>launch_score_in_musescore(&state.data,&path).await,
+        Err(error)=>Err(error),
+    };
+    match launch {
+        Ok(())=>result["opened"]=serde_json::json!(true),
+        Err(error)=>{
+            result["opened"]=serde_json::json!(false);
+            result["warning"]=serde_json::json!(format!("转谱文件和版本已保存，原谱已关联，但 MuseScore 未能打开：{error}"));
+        }
+    }
+    Ok(Some(result))
 }
 
 #[tauri::command]
@@ -718,7 +826,7 @@ fn main() {
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
             app.manage(practice_backup_bridge::Sessions::default());
-            app.manage(State { engine, songs,monitor,data, font, score_imports:Default::default(), _data_lock: data_lock });
+            app.manage(State { engine, songs,monitor,data, font, score_imports:Default::default(), generated_scores:Default::default(), _data_lock: data_lock });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
@@ -733,6 +841,7 @@ fn main() {
             open_score_in_musescore,
             add_musescore_pdf,
             generate_musescore_score,
+            save_generated_score_for_edit,
             library_list,
             engine_state,
             engine_song,
@@ -833,17 +942,34 @@ mod musescore_tests {
         assert!(xml.contains("<note"));
         let data=std::env::temp_dir().join(format!("neothesia-musescore-preview-{}",std::process::id()));
         let engine=Engine::start(data.clone(),PathBuf::new(),true);
-        let song=engine.command(Command::Load{path:input,title:"MuseScore fixture".into()}).unwrap();
+        let song=engine.command(Command::Load{path:input.clone(),title:"MuseScore fixture".into()}).unwrap();
         let preview=engine.command(Command::PreviewScoreBytesRoute{
             bytes,name:"MuseScore 转谱初稿.musicxml".into(),
             content_id:song["contentId"].as_str().unwrap().into(),
         }).unwrap();
         assert_eq!(preview["contentId"],song["contentId"]);
         assert!(preview["fingerprint"].as_str().is_some());
+        let external=std::env::temp_dir().join(format!("neothesia-musescore-linked-{}-{}.musicxml",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let bytes=std::fs::read(&output).unwrap();
+        write_new_generated_score(&external,&bytes).unwrap();
+        assert!(write_new_generated_score(&external,b"replacement").is_err());
+        assert_eq!(std::fs::read(&external).unwrap(),bytes);
+        let cid=song["contentId"].as_str().unwrap().to_string();
+        let saved=engine.command(Command::SaveScoreVersion{bytes:bytes.clone(),name:"MuseScore 转谱初稿.musicxml".into(),content_id:cid.clone()}).unwrap();
+        engine.command(Command::LinkScoreSource{midi_path:input.clone(),content_id:cid.clone(),version_id:saved["versionId"].as_str().unwrap().into(),path:external.clone(),default_bpm:0}).unwrap();
+        let sources=engine.command(Command::ScoreSources{content_id:Some(cid.clone())}).unwrap();
+        assert_eq!(sources["entries"][0]["status"],"ready");
+        let mut changed=bytes.clone();changed.extend_from_slice(b"\n<!-- edited in MuseScore -->\n");
+        std::fs::write(&external,changed).unwrap();
+        let sources=engine.command(Command::ScoreSources{content_id:Some(cid)}).unwrap();
+        assert_eq!(sources["entries"][0]["status"],"changed");
+        let source_preview=engine.command(Command::PreviewScoreSource{id:sources["entries"][0]["id"].as_str().unwrap().into(),fingerprint:sources["entries"][0]["fingerprint"].as_str().unwrap().into()}).unwrap();
+        assert_eq!(source_preview["performanceReady"],true);
         drop(engine);
         if data.parent()==Some(std::env::temp_dir().as_path()) && data.file_name().and_then(|name|name.to_str()).is_some_and(|name|name.starts_with("neothesia-musescore-preview-")) {
             let _=std::fs::remove_dir_all(data);
         }
         let _=std::fs::remove_file(output);
+        let _=std::fs::remove_file(external);
     }
 }

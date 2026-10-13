@@ -67,7 +67,7 @@ fn save(data: &Path, store: &Store) -> Result<(), String> {
     drop(file);
     std::fs::rename(tmp, path).map_err(|e| e.to_string())
 }
-pub(super) fn read_original(path: &Path) -> Result<Vec<u8>, String> {
+pub fn read_original(path: &Path) -> Result<Vec<u8>, String> {
     if !path.is_absolute() {
         return Err("请选择原谱文件的完整位置".into());
     }

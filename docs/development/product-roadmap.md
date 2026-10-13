@@ -10,9 +10,11 @@
 
 原仓库已有路线见 [roadmap.md](roadmap.md)、[backlog.md](backlog.md) 和 [指法算法文档](../pages/fingering-suggestions.md)。原生已实现、Web 已接入、仍需扩展分开记录。
 
-当前批次：Cycle 218（小节与声部反馈、精确重练、MuseScore MIDI 转谱初稿）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
+当前批次：Cycle 219（MuseScore 转谱初稿的外部编辑与更新回收）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
 
 ## A. 本地曲目与谱面管理
+
+- [x] Windows 桌面版生成 MusicXML 初稿后，可选择个人文件夹新建可编辑原谱，并交给本机 MuseScore Studio 打开。软件把该文件保存为未启用的谱面版本并登记为原谱；用户在 MuseScore 中保存修改后，可从“检查原谱更新”预览并决定是否采用。取消保存不改变版本，已有文件不会被覆盖；当前练习谱面不会因生成或外部编辑自动切换（Cycle 219）。
 
 - [x] Windows 桌面版可调用本机 [MuseScore Studio](https://github.com/musescore/MuseScore)，将当前 MIDI 生成 MusicXML 初稿。软件核对曲目与 MIDI 内容，生成后先显示演奏顺序预览；用户明确选择保存版本或启用。转谱所得谱号、分手、时值和小节仍需人工核对，原有谱面不会自动切换（Cycle 218）。
 

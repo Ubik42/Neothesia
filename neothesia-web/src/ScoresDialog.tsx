@@ -46,6 +46,7 @@ export function ScoresDialog({
     bytes: number[];
     evidence: ScoreRouteEvidence;
     generated?: boolean;
+    previewToken?: string;
   } | null>(null);
   const refresh = async () => {
     const data = await api.command<{ versions: Version[] }>({
@@ -166,6 +167,49 @@ export function ScoresDialog({
       setFilePreview(null);
       setVersionPreview(null);
     });
+  const saveGeneratedForEdit = async () => {
+    if (!filePreview?.generated || !filePreview.previewToken) return;
+    setBusy(true);
+    setError("");
+    setEditMessage("");
+    try {
+      const fresh = await api.command<ScoreRouteEvidence>({
+        type: "previewScoreBytesRoute",
+        bytes: filePreview.bytes,
+        name: filePreview.name,
+        content_id: song.contentId,
+      });
+      if (
+        !fresh.fingerprint ||
+        fresh.fingerprint !== filePreview.evidence.fingerprint ||
+        JSON.stringify(fresh.route) !== JSON.stringify(filePreview.evidence.route)
+      ) {
+        setFilePreview(null);
+        throw new Error("谱面初稿或演奏顺序已变化。请重新生成并核对预览。");
+      }
+      const saved = await api.saveGeneratedScoreForEdit(
+        song.contentId,
+        filePreview.name,
+        filePreview.bytes,
+        filePreview.previewToken,
+      );
+      if (!saved) return;
+      setFilePreview(null);
+      setVersionPreview(null);
+      setEditMessage(
+        saved.opened
+          ? "可编辑原谱已保存并在 MuseScore Studio 中打开。修改并保存后，请返回这里检查原谱更新。"
+          : `可编辑原谱已保存：${saved.path}。${saved.warning ?? "请手动在 MuseScore Studio 中打开该文件。"} 修改并保存后，请返回这里检查原谱更新。`,
+      );
+      setSourcesOpen(saved.opened);
+      await refresh();
+      await changed();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
   const perform = async (work: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -294,6 +338,7 @@ export function ScoresDialog({
                 />
                 <p className="parameter-help">
                   “添加并使用”会立即切换当前谱面。“仅保存谱面版本”会保留当前谱面和练习；以后可以在版本列表核对并启用。
+                  {filePreview.generated && "“保存可编辑原谱”会让你选一个新文件，随后在 MuseScore Studio 中打开。"}
                 </p>
                 <div className="dialog-actions">
                   <button
@@ -308,6 +353,11 @@ export function ScoresDialog({
                   <button disabled={busy} onClick={() => saveFile("save")}>
                     仅保存谱面版本
                   </button>
+                  {filePreview.generated && filePreview.previewToken && (
+                    <button disabled={busy} onClick={() => void saveGeneratedForEdit()}>
+                      保存可编辑原谱并打开 MuseScore
+                    </button>
+                  )}
                   <button disabled={busy} onClick={() => setFilePreview(null)}>
                     取消添加
                   </button>

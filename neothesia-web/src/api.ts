@@ -511,7 +511,14 @@ export const api = {
   addMuseScorePdf: (contentId: string, versionId: string) =>
     invoke<{ active: string }>("add_musescore_pdf", { contentId, versionId }),
   generateMuseScoreScore: (contentId: string) =>
-    invoke<{ name: string; bytes: number[] }>("generate_musescore_score", { contentId }),
+    invoke<{ name: string; bytes: number[]; previewToken: string }>("generate_musescore_score", { contentId }),
+  saveGeneratedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>
+    invoke<{ versionId: string; path: string; linked: boolean; opened: boolean; warning?: string } | null>("save_generated_score_for_edit", {
+      contentId,
+      name,
+      bytes,
+      previewToken,
+    }),
   exportPaperPage: (name: string, bytes: Uint8Array) =>
     invoke<string | null>("export_paper_page", {
       name,
