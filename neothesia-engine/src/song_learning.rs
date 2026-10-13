@@ -1,6 +1,6 @@
 use crate::library_workspace::{Workspace, key};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,13 +12,17 @@ pub struct Draft {
     pub weekly_minutes: Option<u16>,
     pub target_bpm: Option<u16>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Transition {
     pub stage: String,
     pub at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<Draft>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<crate::song_learning_evidence::Evidence>,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Learning {
     #[serde(flatten)]
@@ -70,6 +74,7 @@ impl Draft {
 }
 pub fn save(
     workspace: &mut Workspace,
+    data: &Path,
     path: PathBuf,
     cid: String,
     value: Option<Draft>,
@@ -116,9 +121,12 @@ pub fn save(
             .as_ref()
             .is_none_or(|old| old.plan.stage != plan.stage)
         {
+            let evidence=crate::song_learning_evidence::build(data,&cid,Some(&plan),now.saturating_mul(1000))?;
             transitions.push(Transition {
                 stage: plan.stage.clone(),
                 at: now,
+                plan: Some(plan.clone()),
+                evidence: Some(evidence),
             });
         }
         if transitions.len() > 64 {
@@ -166,6 +174,8 @@ impl Learning {
                     "paused",
                 ]
                 .contains(&entry.stage.as_str())
+                || entry.plan.as_ref().is_some_and(|plan|plan.validate().is_err() || plan.stage!=entry.stage)
+                || entry.evidence.as_ref().is_some_and(|e|e.whole_song.recent.len()>8 || e.routines.items.len()>32 || !e.historical_refs.is_empty())
             })
         {
             return Err("学习阶段记录无效".into());
@@ -213,11 +223,12 @@ mod tests {
             weekly_minutes: Some(60),
             target_bpm: Some(90),
         };
-        save(&mut w, midi.clone(), cid.clone(), Some(draft.clone()), None).unwrap();
+        save(&mut w, &root, midi.clone(), cid.clone(), Some(draft.clone()), None).unwrap();
         let old = w.learning[&cid].clone();
         assert!(
             save(
                 &mut w,
+                &root,
                 alias.clone(),
                 cid.clone(),
                 Some(draft.clone()),
@@ -230,13 +241,23 @@ mod tests {
         assert!(invalid.validate().is_err());
         let mut changed = draft.clone();
         changed.stage = "polishing".into();
-        save(&mut w, alias.clone(), cid.clone(), Some(changed), Some(old)).unwrap();
+        changed.weekly_minutes = Some(30);
+        changed.target_bpm = Some(120);
+        save(&mut w, &root, alias.clone(), cid.clone(), Some(changed), Some(old)).unwrap();
         assert_eq!(w.learning[&cid].transitions.len(), 2);
+        let transition = w.learning[&cid].transitions.last().unwrap();
+        assert_eq!(transition.plan.as_ref().unwrap().weekly_minutes, Some(30));
+        assert_eq!(transition.evidence.as_ref().unwrap().week.target_minutes, Some(30));
+        assert_eq!(transition.plan.as_ref().unwrap().target_bpm, Some(120));
+        assert_eq!(transition.evidence.as_ref().unwrap().content_id,cid);
+        let old_format: Transition = serde_json::from_value(serde_json::json!({"stage":"planned","at":123})).unwrap();
+        assert!(old_format.plan.is_none() && old_format.evidence.is_none());
         std::fs::write(&alias, include_bytes!("../assets/basic-chords.mid")).unwrap();
         let expected = w.learning[&cid].clone();
         assert!(
             save(
                 &mut w,
+                &root,
                 alias.clone(),
                 cid.clone(),
                 Some(draft.clone()),
@@ -251,6 +272,7 @@ mod tests {
         let expected = w.learning[&cid].clone();
         save(
             &mut w,
+            &root,
             midi,
             cid.clone(),
             Some(draft.clone()),

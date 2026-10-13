@@ -38,6 +38,7 @@ pub mod score_sources;
 mod finger_demo;
 mod held_demo;
 mod song_learning;
+mod song_learning_evidence;
 mod package_commands;
 mod piece_package;
 mod preferences;
@@ -436,6 +437,7 @@ pub enum Command {
     },
     LibraryWorkspace,
     SaveSongLearning {path:PathBuf,content_id:String,value:Option<song_learning::Draft>,#[serde(default)]expected:Option<song_learning::Learning>},
+    SongLearningEvidence {content_id:String},
     InspectSong {
         path: PathBuf,
         #[serde(default)]
@@ -702,6 +704,7 @@ impl Engine {
     }
     pub fn command(&self, command: Command) -> Result<serde_json::Value, String> {
         if let Command::SuggestHeldFingerPlans{request}=command {let prepared=self.command(Command::FingerPlanContext{request})?;return fingerings::held_plans(serde_json::from_value(prepared).map_err(|e|e.to_string())?);}
+        if let Command::SongLearningEvidence{content_id}=command {return serde_json::to_value(song_learning_evidence::read(&self.data,&content_id)?).map_err(|e|e.to_string());}
         if let Command::PreviewPaperTransfer{content_id,source,target}=command{return score_attachments::preview_transfer(&self.data,&content_id,&source,&target);}
         if let Command::ApplyPaperTransfer{content_id,request}=command{return score_attachments::apply_transfer(&self.data,&content_id,request);}
         if let Command::LinkPaperSource{content_id,book,asset,path,baseline}=command{return score_attachments::link_source(&self.data,&content_id,&book,&asset,path,baseline.as_deref());}
@@ -2515,6 +2518,7 @@ impl Player {
             | Command::SetLibraryMonitor { .. }
             | Command::LibraryWorkspace
             | Command::SaveSongLearning{..}
+            | Command::SongLearningEvidence{..}
             | Command::InspectSong { .. }
             | Command::InspectSongs { .. }
             | Command::LibraryGroup { .. }

@@ -23,30 +23,30 @@ fn entry(
         "score":session.summary.overall,"tempo":session.effective_tempo_bpm,
         "restorable":session.context.is_some(),"coverage":session.context.as_ref().map(|c|json!({"target":c.target_notes,"judged":c.judged_notes}))})
 }
-fn comparable(a: &PracticeSession, b: &PracticeSession) -> bool {
-    a.scope.is_some()
-        && a.mode.is_some()
-        && a.scope == b.scope
-        && a.mode == b.mode
-        && a.hands == b.hands
-        && a.kind == b.kind
-        && (a.speed - b.speed).abs() < 0.0001
-        && a.effective_tempo_bpm == b.effective_tempo_bpm
-        && match (&a.context, &b.context) {
-            (Some(a), Some(b)) => {
-                a.tracks == b.tracks
-                    && a.parts == b.parts
-                    && a.exercise_spec == b.exercise_spec
-                    && a.target_notes == b.target_notes
-                    && a.judged_notes == b.judged_notes
-                    && a.metronome == b.metronome
-                    && a.latency == b.latency
-                    && a.pedal_latency_ms.unwrap_or(0)==b.pedal_latency_ms.unwrap_or(0)
-                    && a.adaptive == b.adaptive
-            }
-            (None, None) => true,
-            _ => false,
-        }
+fn condition_summary(session: &PracticeSession) -> Value {
+    let range = match session.kind {
+        PracticeSessionKind::WholeSong => None,
+        PracticeSessionKind::Loop { start_measure, end_measure } => Some([start_measure, end_measure]),
+    };
+    let Some(context) = session.context.as_ref() else {
+        return json!({"complete":false,"range":range,"mode":session.mode,"hands":session.hands,
+            "speed":session.speed,"effectiveTempoBpm":session.effective_tempo_bpm,
+            "scope":session.scope});
+    };
+    json!({"complete":session.scope.as_deref().is_some_and(|s|!s.is_empty())
+            && session.mode.as_deref().is_some_and(|s|!s.is_empty())
+            && context.target_notes>0 && context.judged_notes>0
+            && !context.grid.is_empty() && !context.hands.is_empty(),
+        "range":range,"mode":session.mode,"hands":session.hands,"speed":session.speed,
+        "effectiveTempoBpm":session.effective_tempo_bpm,"scope":session.scope,"grid":context.grid,
+        "targetNotes":context.target_notes,"judgedNotes":context.judged_notes,
+        "tracks":context.tracks,"parts":context.parts,"assignedHands":context.hands,
+        "exerciseSpec":context.exercise_spec,"countIn":context.count_in,
+        "metronome":context.metronome,"inputLatencyMs":context.latency,
+        "pedalLatencyMs":context.pedal_latency_ms.unwrap_or(context.latency),
+        "pedalLatencySource":if context.pedal_latency_ms.is_some(){"saved"}else{"legacyInputLatency"},
+        "rounds":context.rounds,"adaptive":context.adaptive,
+        "expressionGoal":context.routine.as_ref().and_then(|r|r.expression.as_ref())})
 }
 impl Player {
     pub(super) fn set_library_collection(&mut self,path:&PathBuf,content_id:&str,favorite:Option<bool>,queued:Option<bool>) -> Result<Value,String> {
@@ -218,7 +218,7 @@ impl Player {
         let session = &history.sessions[index];
         let peers = history.sessions[..index]
             .iter()
-            .filter(|s| comparable(session, s))
+            .filter(|s| practice_conditions::same_attempt_conditions(session, s))
             .collect::<Vec<_>>();
         let best = peers
             .iter()
@@ -234,7 +234,17 @@ impl Player {
         row["summary"] = json!(session.summary);
         if let Some(e)=session.context.as_ref().and_then(|c|c.routine.as_ref()).and_then(|r|r.expression.as_ref()){let g=crate::expression_goal::ExpressionGoal{velocity_difference:e.velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms};let result=g.assess(session.summary.expression);row["expressionGoalResult"]=json!({"passed":result.is_ok(),"message":result.err().unwrap_or_else(||"本轮力度/踏板要求达标".into())});}
         row["context"] = json!(session.context);
+        let conditions=condition_summary(session);
+        let (reason_code,reason)=if !peers.is_empty(){(None,None)}
+            else if !conditions["complete"].as_bool().unwrap_or(false){
+                (Some("incomplete-conditions"),Some("这条记录缺少完整的演奏条件或有效音符判断，无法证明与旧记录同条件。"))
+            }else if index==0{
+                (Some("first-attempt"),Some("这是该曲保留的第一条记录，暂无更早的练习可比较。"))
+            }else{
+                (Some("different-conditions"),Some("更早的记录在范围、模式、速度、音符覆盖、分手、设备校准或其他练习条件上不同。"))
+            };
         row["comparison"] = json!({"count":peers.len(),"bestAccuracy":best,
+            "conditions":conditions,"reasonCode":reason_code,"reason":reason,
             "previous":peers.last().map(|s|entry(content_id,&history.display_name,None,s)),
             "recent":peers.iter().rev().take(29).rev().map(|s|entry(content_id,&history.display_name,None,s)).collect::<Vec<_>>()});
         Ok(row)
@@ -325,5 +335,43 @@ impl Player {
         let mut result = self.command(Command::CurrentSong)?;
         result["restoreWarning"] = json!(warning);
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neothesia_core::practice_history::PracticeSessionContext;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn comparison_conditions_expose_the_exact_saved_task_and_legacy_pedal_basis() {
+        let mut parts = BTreeMap::new();
+        parts.insert(2, PracticePart::RightHand);
+        let session = PracticeSession {
+            replay_clips: vec![], playing_ms: None, annotation: None, id: None,
+            context: Some(PracticeSessionContext {
+                routine: None, ladder: None, target_notes: 18, judged_notes: 17,
+                tracks: vec![], parts, hands: "right".into(), count_in: 2,
+                metronome: true, latency: 24, pedal_latency_ms: None,
+                rounds: 3, adaptive: true, grid: "grid-1".into(),
+                source_path: None, exercise_spec: None,
+            }),
+            recorded_at_unix_ms: 1,
+            kind: PracticeSessionKind::Loop { start_measure: 5, end_measure: 7 },
+            hands: PracticeHands::Right, speed: 0.75,
+            mode: Some("flow".into()), scope: Some("scope-1".into()),
+            effective_tempo_bpm: Some(90), summary: AttemptSummary::default(),
+        };
+        let summary=condition_summary(&session);
+        assert_eq!(summary["range"],json!([5,7]));
+        assert_eq!(summary["targetNotes"],18);
+        assert_eq!(summary["judgedNotes"],17);
+        assert_eq!(summary["pedalLatencyMs"],24);
+        assert_eq!(summary["pedalLatencySource"],"legacyInputLatency");
+        assert_eq!(summary["parts"]["2"],"RightHand");
+        assert_eq!(summary["adaptive"],true);
+        assert_eq!(summary["effectiveTempoBpm"],90);
+        assert_eq!(summary["complete"],true);
     }
 }

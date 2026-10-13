@@ -16,6 +16,7 @@ blake3.workspace = true
 zip.workspace = true
 quick-xml.workspace = true
 tiny_http = "0.12"
+chrono = "0.4"
 
 [[bin]]
 name = "neothesia-service"

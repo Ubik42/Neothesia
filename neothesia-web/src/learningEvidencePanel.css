@@ -1,0 +1,115 @@
+.learning-evidence {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid #4b5762;
+  border-left: 3px solid #8bd3ae;
+  background: #1c252b;
+}
+.learning-evidence header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.learning-evidence h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.learning-evidence header p {
+  margin: 5px 0 0;
+  color: #c1cbd1;
+}
+.learning-evidence-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin: 14px 0;
+}
+.learning-evidence-overview article {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  background: #263139;
+}
+.learning-evidence-overview article span,
+.learning-evidence-overview article small {
+  color: #bfccd2;
+}
+.learning-evidence-overview article strong {
+  font-size: 17px;
+  color: #eaf5ed;
+}
+.learning-evidence-overview article small {
+  line-height: 1.45;
+}
+.learning-evidence-notice {
+  margin: 9px 0;
+  color: #f3d18c;
+  line-height: 1.5;
+}
+.learning-evidence-reasons {
+  padding: 4px 10px;
+  border-left: 2px solid #c19d65;
+  background: #302c26;
+}
+.learning-evidence-reasons p {
+  margin: 6px 0;
+}
+.learning-evidence details {
+  margin-top: 12px;
+  border-top: 1px solid #44515a;
+  padding-top: 10px;
+}
+.learning-evidence summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.learning-evidence-list {
+  padding: 0;
+  margin: 10px 0 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+.learning-evidence-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid #39464e;
+}
+.learning-evidence-list li div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.learning-evidence-list li span {
+  color: #becbd1;
+  line-height: 1.45;
+}
+.learning-evidence-list button {
+  flex-shrink: 0;
+}
+.learning-evidence-detail {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #28353e;
+  line-height: 1.5;
+}
+.learning-evidence-detail p {
+  margin: 8px 0 0;
+}
+.song-learning-transition-evidence {
+  display: block;
+  margin-top: 4px;
+  color: #bdcbd0;
+  line-height: 1.5;
+}
+@media (max-width: 650px) {
+  .learning-evidence-overview { grid-template-columns: 1fr; }
+  .learning-evidence header { flex-wrap: wrap; }
+}

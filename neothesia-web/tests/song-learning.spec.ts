@@ -59,6 +59,7 @@ test("曲目学习：目标、阶段历史、筛选排序、草稿冲突与批�
   await rows.filter({ hasText: "阶段学习课堂甲" }).click();
   await page.getByRole("button", { name: "学习目标", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "曲目学习", exact: true });
+  await expect(dialog.getByRole("region", { name: "曲目练习证据" })).toContainText("本周实际练习");
   await dialog.getByLabel("曲目学习阶段").selectOption("learning");
   await dialog.getByLabel("曲目目标日期").fill("2020-01-01");
   await dialog.getByLabel("曲目每周计划分钟").fill("75");
@@ -126,11 +127,16 @@ test("曲目学习：目标、阶段历史、筛选排序、草稿冲突与批�
   expect(all[pieces[0].contentId].weeklyMinutes).toBe(75);
   expect(all[pieces[0].contentId].goal).toContain("第二乐句");
   expect(all[pieces[0].contentId].transitions.length).toBe(3);
+  expect(all[pieces[0].contentId].transitions[0].plan.targetBpm).toBe(100);
+  expect(all[pieces[0].contentId].transitions[0].evidence.week.targetMinutes).toBe(75);
+  expect(all[pieces[0].contentId].transitions[0].evidence.wholeSong.targetBpmMet).toBe(false);
   await rows.filter({ hasText: "阶段学习课堂甲" }).click();
   await page.getByRole("button", { name: "学习目标", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "曲目学习", exact: true });
-  await dialog.locator("summary").click();
+  await dialog.locator(".song-learning-history summary").click();
   await expect(dialog).toContainText("精练中");
+  await expect(dialog).toContainText("当时实际练习");
+  await expect(dialog).toContainText("无达到目标速度的整曲记录");
   await page.screenshot({ path: "../outputs/Neothesia-曲目学习目标.png" });
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByLabel("曲库学习阶段筛选").selectOption("overdue");

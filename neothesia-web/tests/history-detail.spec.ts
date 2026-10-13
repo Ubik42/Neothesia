@@ -70,8 +70,10 @@ test("历史筛选、同条件详情、恢复设置和单小节重练", async ({
   await expect(page.locator(".history-record")).toHaveCount(3);
   await page.locator(".history-record").first().click();
   await expect(
-    page.getByText("此前没有可比较记录。", { exact: false }),
+    page.getByText(/这条记录缺少完整的演奏条件|这是该曲保留的第一条记录|更早的记录在范围/),
   ).toBeVisible();
+  await page.getByText("查看本次比较条件").click();
+  await expect(page.locator(".history-comparison-conditions")).toContainText("速度");
   await page
     .getByRole("button", { name: "重练第 1 小节", exact: true })
     .click();

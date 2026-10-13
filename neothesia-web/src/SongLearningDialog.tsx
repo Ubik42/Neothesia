@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { PracticeTimePanel } from "./PracticeTimePanel";
+import { LearningEvidencePanel } from "./LearningEvidencePanel";
 import { X } from "lucide-react";
 import { api } from "./api";
 import {
@@ -202,6 +203,15 @@ export function SongLearningDialog({
             contentId={contentId}
             targetMinutes={draft.weeklyMinutes}
           />
+          <LearningEvidencePanel
+            contentId={contentId}
+            targetBpm={draft.targetBpm}
+            targetMinutes={draft.weeklyMinutes}
+            draftChanged={
+              draft.targetBpm !== initial.current.targetBpm ||
+              draft.weeklyMinutes !== initial.current.weeklyMinutes
+            }
+          />
           <label className="song-learning-goal">
             目标与达标要求
             <textarea
@@ -265,6 +275,20 @@ export function SongLearningDialog({
                     <strong>
                       {learningStages[transition.stage] ?? transition.stage}
                     </strong>
+                    {transition.evidence ? (
+                      <span className="song-learning-transition-evidence">
+                        当时实际练习 {Math.round(transition.evidence.week.runningMs / 60000)} 分钟
+                        {transition.evidence.week.targetMinutes == null
+                          ? " · 未设置每周时长"
+                          : ` / 每周 ${transition.evidence.week.targetMinutes} 分钟${transition.evidence.week.met ? "，已达到" : "，未达到"}`}
+                        {transition.plan?.targetBpm == null
+                          ? " · 未设置目标速度"
+                          : ` · ${transition.plan.targetBpm} BPM：${transition.evidence.wholeSong.targetBpmMet ? "有达到目标速度的整曲记录" : "无达到目标速度的整曲记录"}`}
+                        {` · 日期计划 ${transition.evidence.routines.completedCount} 项完成`}
+                      </span>
+                    ) : (
+                      <span className="song-learning-transition-evidence">旧记录没有保存当时的练习证据</span>
+                    )}
                   </li>
                 ))}
             </ol>

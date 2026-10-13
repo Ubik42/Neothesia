@@ -78,6 +78,32 @@ interface Detail extends Entry {
     bestAccuracy: number | null;
     previous: Entry | null;
     recent: Entry[];
+    reasonCode?: string | null;
+    reason?: string | null;
+    conditions?: {
+      complete: boolean;
+      range: [number, number] | null;
+      mode: string | null;
+      hands: string;
+      speed: number;
+      effectiveTempoBpm: number | null;
+      scope: string | null;
+      targetNotes?: number;
+      judgedNotes?: number;
+      countIn?: number;
+      metronome?: boolean;
+      inputLatencyMs?: number;
+      pedalLatencyMs?: number;
+      pedalLatencySource?: string;
+      rounds?: number;
+      adaptive?: boolean;
+      grid?: string;
+      tracks?: unknown[];
+      parts?: unknown[];
+      assignedHands?: unknown[];
+      exerciseSpec?: unknown;
+      expressionGoal?: unknown;
+    };
   };
 }
 const modeName = (m: string | null) =>
@@ -817,6 +843,34 @@ export function HistoryDialog({
                   }}
                 />
                 <h4>同条件比较</h4>
+                {detail.comparison.conditions && (
+                  <details className="history-comparison-conditions">
+                    <summary>查看本次比较条件</summary>
+                    <p>
+                      {detail.comparison.conditions.range
+                        ? `第 ${detail.comparison.conditions.range[0]}–${detail.comparison.conditions.range[1]} 小节`
+                        : "全曲"}
+                      {` · ${modeName(detail.comparison.conditions.mode)} · ${handName(detail.comparison.conditions.hands)}`}
+                      {` · 速度 ${detail.comparison.conditions.speed}%`}
+                      {detail.comparison.conditions.effectiveTempoBpm == null
+                        ? " · 有效 BPM 未记录"
+                        : ` · ${detail.comparison.conditions.effectiveTempoBpm} BPM`}
+                      {detail.comparison.conditions.targetNotes == null
+                        ? " · 音符覆盖未记录"
+                        : ` · 判断 ${detail.comparison.conditions.judgedNotes}/${detail.comparison.conditions.targetNotes} 个目标音符`}
+                    </p>
+                    <p>
+                      {detail.comparison.conditions.metronome ? "节拍器开启" : "节拍器关闭"}
+                      {detail.comparison.conditions.countIn == null ? "" : ` · 预备拍 ${detail.comparison.conditions.countIn}`}
+                      {detail.comparison.conditions.inputLatencyMs == null ? "" : ` · 输入校准 ${detail.comparison.conditions.inputLatencyMs} ms`}
+                      {detail.comparison.conditions.pedalLatencyMs == null ? "" : ` · 踏板校准 ${detail.comparison.conditions.pedalLatencyMs} ms`}
+                      {detail.comparison.conditions.pedalLatencySource === "legacyInputLatency" ? "（旧记录沿用输入校准）" : ""}
+                      {detail.comparison.conditions.rounds == null ? "" : ` · 轮数 ${detail.comparison.conditions.rounds}`}
+                      {detail.comparison.conditions.adaptive ? " · 自适应开启" : ""}
+                    </p>
+                    <p className="parameter-help">相同范围、模式、手别、速度、谱面、练习声部、校准和目标音符数的旧记录才会进入比较。</p>
+                  </details>
+                )}
                 {detail.comparison.count ? (
                   <>
                     <p className="history-comparison">
@@ -834,9 +888,7 @@ export function HistoryDialog({
                     <Trend detail={detail} />
                   </>
                 ) : (
-                  <p className="parameter-help">
-                    此前没有可比较记录。不同选段、手别、模式、速度、评分范围或完成量分别比较。
-                  </p>
+                  <p className="parameter-help">{detail.comparison.reason ?? "此前没有可比较记录。"}</p>
                 )}
                 {timed ? (
                   <p className="history-timing">

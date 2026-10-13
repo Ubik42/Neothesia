@@ -499,7 +499,7 @@ pub fn execute(command: crate::Command, data: &Path) -> Result<serde_json::Value
     }
     let mut result = match command {
         Command::SaveSongLearning{path,content_id,value,expected}=>{
-            crate::song_learning::save(&mut workspace,path,content_id,value,expected)?;
+            crate::song_learning::save(&mut workspace,data,path,content_id,value,expected)?;
             serde_json::json!({"ok":true})
         },
         Command::InspectSong { path, force } => {

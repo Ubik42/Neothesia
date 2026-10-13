@@ -60,7 +60,7 @@ impl Player {
             let Some(last) = history.sessions.iter().rev().find(|s| {
                 s.context
                     .as_ref()
-                    .is_some_and(|c| c.target_notes > 0 && !c.grid.is_empty())
+                    .is_some_and(|c| c.target_notes > 0 && c.judged_notes > 0 && !c.grid.is_empty() && !c.hands.is_empty())
                     && s.scope.as_ref().is_some_and(|v| !v.is_empty())
                     && s.mode
                         .as_deref()
@@ -69,14 +69,15 @@ impl Player {
                 continue;
             };
             let latest_grid = last.context.as_ref().unwrap().grid.clone();
-            let mut groups = std::collections::BTreeSet::new();
-            let mut sources = vec![];
+            let mut sources: Vec<&PracticeSession> = vec![];
             for s in history.sessions.iter().rev() {
                 let Some(c) = s.context.as_ref() else {
                     continue;
                 };
                 if c.grid != latest_grid
                     || c.target_notes == 0
+                    || c.judged_notes == 0
+                    || c.hands.is_empty()
                     || s.scope.as_ref().is_none_or(|v| v.is_empty())
                     || !matches!(
                         s.mode.as_deref(),
@@ -85,23 +86,9 @@ impl Player {
                 {
                     continue;
                 }
-                let key = serde_json::to_string(&json!([
-                    s.kind,
-                    s.scope,
-                    s.mode,
-                    s.hands,
-                    s.speed,
-                    s.effective_tempo_bpm,
-                    c.exercise_spec,
-                    c.tracks,
-                    c.parts,
-                    c.latency,
-                    c.pedal_latency_ms.unwrap_or(0),
-                    c.metronome,
-                    c.adaptive
-                ]))
-                .unwrap();
-                if groups.insert(key) {
+                if !sources.iter().any(|previous| {
+                    practice_conditions::same_attempt_conditions(previous, s)
+                }) {
                     sources.push(s);
                     if sources.len() == 16 {
                         break;
@@ -116,23 +103,7 @@ impl Player {
                     .sessions
                     .iter()
                     .rev()
-                    .filter(|s| {
-                        s.kind == last.kind
-                            && s.scope == last.scope
-                            && s.mode == last.mode
-                            && s.hands == last.hands
-                            && s.effective_tempo_bpm == last.effective_tempo_bpm
-                            && (s.speed - last.speed).abs() < 0.0001
-                            && s.context.as_ref().is_some_and(|x| {
-                                x.grid == c.grid
-                                    && x.exercise_spec == c.exercise_spec
-                                    && x.tracks == c.tracks
-                                    && x.parts == c.parts
-                                    && x.latency == c.latency
-                                    && x.metronome == c.metronome
-                                    && x.adaptive == c.adaptive
-                            })
-                    })
+                    .filter(|s| practice_conditions::same_attempt_conditions(last, s))
                     .take(8)
                     .collect();
                 rows.extend(self.expression_practice_rows(&cid, &history, last, &matching));
@@ -513,6 +484,8 @@ mod tests {
         .with_context(p.history_context())
         .with_scope(p.practice_scope())
         .with_mode("flow");
+        // The fixture supplies a completed measure without running the live matcher.
+        sample.context.as_mut().unwrap().judged_notes = 8;
         p.history
             .record_session(&cid, &title, sample.clone())
             .unwrap();
@@ -604,6 +577,8 @@ mod tests {
         .with_context(p.history_context())
         .with_scope(p.practice_scope())
         .with_mode("wait");
+        // The fixture supplies a completed measure without running the live matcher.
+        sample.context.as_mut().unwrap().judged_notes = 8;
         p.history
             .record_session(&cid, &title, sample.clone())
             .unwrap();

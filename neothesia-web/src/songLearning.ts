@@ -16,7 +16,16 @@ export type LearningDraft = {
 export type SongLearning = LearningDraft & {
   updatedAt: number;
   title: string;
-  transitions: { stage: string; at: number }[];
+  transitions: {
+    stage: string;
+    at: number;
+    plan?: LearningDraft;
+    evidence?: {
+      week: { runningMs: number; targetMinutes: number | null; met: boolean };
+      wholeSong: { recent: { sessionId: string; meetsTargetBpm: boolean }[]; targetBpmMet: boolean };
+      routines: { completedCount: number };
+    };
+  }[];
 };
 export const localDay = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

@@ -182,6 +182,7 @@ fn finite_numbers(v: &Value) -> Result<(), String> {
                 let max = if matches!(
                     key,
                     "createdAt"
+                        | "generatedAt" | "recordedAt" | "from" | "to" | "runningMs"
                         | "recorded_at_unix_ms"
                         | "last_used_unix_ms"
                         | "updated_at_unix_ms"
