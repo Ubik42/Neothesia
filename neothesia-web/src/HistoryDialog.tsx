@@ -7,6 +7,12 @@ import type {
   HistoryScoreReview,
 } from "./historyScoreFocus";
 import { HistoryPerformance } from "./HistoryPerformance";
+export type HistoryPaperTarget = {
+  contentId: string;
+  measure: number;
+  historyId: string;
+  reference: number;
+};
 import { practiceDuration } from "./practiceTime";
 import { PracticeCalendar } from "./PracticeCalendar";
 import { expressionGoalText } from "./ExpressionGoalControl";
@@ -166,6 +172,7 @@ export function HistoryDialog({
   changed,
   backup,
   score,
+  paper,
   review,
   openPlan,
 }: {
@@ -174,6 +181,7 @@ export function HistoryDialog({
   changed: () => Promise<void>;
   backup: () => void;
   score: (focus: HistoryScoreTarget) => void;
+  paper: (focus: HistoryPaperTarget) => void;
   review: (data: HistoryScoreReview) => void;
 }) {
   const [sources, setSources] = useState<ReviewSource[]>(() => {
@@ -327,7 +335,7 @@ export function HistoryDialog({
     reference: number,
     before: number,
     after: number,
-    showScore = false,
+    destination?: "score" | "paper",
   ) => {
     if (!detail || busy || notesDirty) return;
     setBusy(true);
@@ -336,6 +344,7 @@ export function HistoryDialog({
       const result = await api.command<{
         restoreWarning?: string | null;
         scoreFocus?: HistoryScoreTarget | null;
+        paperFocus?: HistoryPaperTarget | null;
       }>({
         type: "historyPracticeRange",
         content_id: detail.contentId,
@@ -349,7 +358,19 @@ export function HistoryDialog({
         setError(result.restoreWarning);
         return;
       }
-      if (showScore) {
+      if (destination === "paper") {
+        if (!result.paperFocus ||
+            result.paperFocus.contentId !== detail.contentId ||
+            result.paperFocus.historyId !== detail.id ||
+            result.paperFocus.reference !== reference ||
+            !Number.isSafeInteger(result.paperFocus.measure) ||
+            result.paperFocus.measure < 1) {
+          setError("选段已准备好，但当前历史参考音无法对应到练习小节。请核对曲目后再从纸谱定位。");
+          return;
+        }
+        paper(result.paperFocus);
+      }
+      if (destination === "score") {
         if (!result.scoreFocus) {
           setError(
             "选段已准备好，但当前曲目没有关联乐谱或参考音身份不唯一，无法在谱面上标记。可以直接重练，或先关联和校对乐谱。",

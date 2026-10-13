@@ -5,6 +5,7 @@ import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
 import { PaperSources } from "./PaperSources";
 import { PaperTransferReview } from "./PaperTransferReview";
 import "./paper-navigation.css";
+import "./history-paper.css";
 import type {
   PDFDocumentProxy,
   PDFDocumentLoadingTask,
@@ -62,6 +63,31 @@ interface Papers {
   active: string | null;
   attachments: PaperAttachment[];
 }
+type HistoryPaperFocus = {
+  contentId: string;
+  measure: number;
+  historyId: string;
+  reference: number;
+  request: string;
+};
+function historyMappingIssue(
+  attachment: PaperAttachment,
+  practice: PracticeContext,
+  measure: number,
+): string | null {
+  if (!attachment.mapping?.anchors.length) return "尚未设置小节与谱页对应";
+  if (attachment.mapping.grid !== practice.grid)
+    return "小节位置已改变，映射需要重新核对";
+  const anchor = attachment.mapping.anchors
+    .filter((item) => item.measure <= measure)
+    .sort((left, right) => right.measure - left.measure)[0];
+  if (!anchor) return `第 ${measure} 小节之前没有纸谱对应点`;
+  if (attachment.format === "images" && !attachment.pages[anchor.page - 1]?.available)
+    return `第 ${anchor.page} 页图片不可用`;
+  if (attachment.format === "pdf" && !attachment.pages[0]?.available)
+    return "PDF 文件不可用";
+  return null;
+}
 export function PaperScore({
   contentId,
   manage = false,
@@ -72,6 +98,7 @@ export function PaperScore({
   onViewSaved,
   playback,
   contextKey,
+  historyFocus,
 }: {
   contentId: string;
   libraryPath?: string;
@@ -82,10 +109,13 @@ export function PaperScore({
   onBusy?: (busy: boolean) => void;
   playback?: { measure: number };
   contextKey?: string;
+  historyFocus?: HistoryPaperFocus | null;
 }) {
   const [sourceBusy,setSourceBusy]=useState(false);
   const [transferBusy,setTransferBusy]=useState(false);
   const [practice, setPractice] = useState<PracticeContext | null>(null);
+  const [practiceLoaded, setPracticeLoaded] = useState(false);
+  const [focusBook, setFocusBook] = useState<string | null>(null);
   const [data, setData] = useState<Papers | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -101,8 +131,20 @@ export function PaperScore({
     onBusy?.(busy || sourceBusy || transferBusy);
     return () => onBusy?.(false);
   }, [busy, sourceBusy, transferBusy, onBusy]);
-  const current =
-    data?.attachments.find((a) => a.id === data.active) ?? data?.attachments[0];
+  const focus = historyFocus?.contentId === contentId ? historyFocus : null;
+  const eligible = focus && practice
+    ? data?.attachments.filter((item) => !historyMappingIssue(item, practice, focus.measure)) ?? []
+    : [];
+  const preferred = focus && eligible.length
+    ? eligible.find((item) => item.id === focusBook) ??
+      eligible.find((item) => item.id === data?.active) ??
+      (eligible.length === 1 ? eligible[0] : null)
+    : null;
+  const current = focus
+    ? preferred ?? data?.attachments.find((item) => item.id === data.active) ?? data?.attachments[0]
+    : data?.attachments.find((item) => item.id === data.active) ?? data?.attachments[0];
+  const locating = !!focus && !!current && preferred?.id === current.id;
+  useEffect(() => setFocusBook(null), [focus?.request]);
   const refresh = async () => {
     const v = libraryPath
       ? (
@@ -125,6 +167,7 @@ export function PaperScore({
     setData(null);
     setError("");
     setPractice(null);
+    setPracticeLoaded(false);
     void api
       .command<PracticeContext>({ type: "paperPracticeContext" })
       .then((v) => {
@@ -136,7 +179,10 @@ export function PaperScore({
         )
           setPractice(v);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (contextAlive && alive.current) setPracticeLoaded(true);
+      });
     void refresh().catch((e) => alive.current && setError(String(e.message)));
     return () => {
       contextAlive = false;
@@ -227,7 +273,10 @@ export function PaperScore({
             aria-label="PDF 与图片谱面版本"
             disabled={busy || sourceBusy || transferBusy || !!previewBook || !data?.attachments.length}
             value={current?.id ?? ""}
-            onChange={(e) => void work(() => update(e.target.value, "select"))}
+            onChange={(e) => {
+              if (focus) setFocusBook(e.target.value);
+              else void work(() => update(e.target.value, "select"));
+            }}
           >
             <option value="" disabled>
               选择谱面
@@ -254,6 +303,44 @@ export function PaperScore({
           </>
         )}
       </div>
+      {focus && (
+        <div className="paper-history-location" role="status">
+          {!data ? "正在读取这首曲目的纸谱…" : !data.attachments.length
+            ? "练习段已准备好。这首曲目还没有纸谱，请先在谱面管理中添加 PDF 或图片。"
+            : !practiceLoaded ? "正在核对练习小节与纸谱位置…"
+            : !practice || practice.contentId !== contentId
+              ? "练习段已准备好，但当前曲目小节资料无法读取，纸谱没有自动定位。"
+              : !Number.isSafeInteger(focus.measure) || focus.measure < 1 || focus.measure > practice.measures
+                ? "练习段已准备好，但目标小节超出当前曲目范围，纸谱没有自动定位。"
+                : eligible.length > 1 && !preferred
+                  ? "多份纸谱都能定位这一小节，请选择要使用的纸谱。"
+                  : preferred
+                    ? `本次重练从第 ${focus.measure} 小节开始。${preferred.name} 将定位到对应的谱页。`
+                    : "练习段已准备好，但还没有可定位这一小节的纸谱。请在谱面管理中核对对应点。"}
+          {practice && !preferred && !!data?.attachments.length && (
+            <ul>
+              {data.attachments.map((item) => (
+                <li key={item.id}>
+                  {item.name}：{historyMappingIssue(item, practice, focus.measure) ?? "可定位，请选择"}
+                </li>
+              ))}
+            </ul>
+          )}
+          {practice && eligible.length > 1 && (
+            <label>
+              选择纸谱{" "}
+              <select
+                aria-label="选择重练纸谱"
+                value={preferred?.id ?? ""}
+                onChange={(event) => setFocusBook(event.target.value)}
+              >
+                <option value="">选择一份纸谱</option>
+                {eligible.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
       {error && (
         <p role="alert" className="dialog-error">
           {error}
@@ -317,6 +404,7 @@ export function PaperScore({
           attachment={current}
           practice={practice}
           playback={playback}
+          historyFocus={locating ? focus : null}
           saveMapping={(mapping) =>
             work(async () => {
               await api.command({
@@ -374,6 +462,7 @@ export function PaperReader({
   onViewSaved,
   practice,
   playback,
+  historyFocus,
   saveMapping,
   saveAnnotation,
   saveInk,
@@ -392,6 +481,7 @@ export function PaperReader({
   onViewSaved?: () => void;
   practice: PracticeContext | null;
   playback?: { measure: number };
+  historyFocus?: HistoryPaperFocus | null;
   saveMapping: (mapping: PaperMapping | null) => Promise<void>;
   saveInk?:(assetId:string,page:number,expected:PaperAnnotation[],strokes:PaperAnnotation[])=>Promise<boolean>;
   saveAnnotation: (
@@ -414,13 +504,16 @@ export function PaperReader({
     [annotationNotice, setAnnotationNotice] = useState(""),
     [annotationQuery, setAnnotationQuery] = useState(""),
     [sheetSize, setSheetSize] = useState({ width: 1, height: 1 });
-  const [suspended, setSuspended] = useState(false),
+  const [renderedPage, setRenderedPage] = useState(0);
+  const [suspended, setSuspended] = useState(!!historyFocus),
     [followPending, setFollowPending] = useState<boolean | null>(null),
     [anchorMeasure, setAnchorMeasure] = useState(practice?.measure || 1);
   const [anchorRegion,setAnchorRegion]=useState<PaperRegion|null>(null),[anchorRegionPage,setAnchorRegionPage]=useState(attachment.view.page),[selectingRegion,setSelectingRegion]=useState(false);
   const [practiceAnchor,setPracticeAnchor]=useState<number|null>(null);
   const followedRegion=useRef("");
   const pendingAnnotation=useRef<{page:number;region:PaperRegion}|null>(null);
+  const handledHistoryFocus = useRef("");
+  const [historyNotice, setHistoryNotice] = useState("");
   const scrollRegion=(region:PaperRegion)=>{
     const viewport=frame.current, sheet=viewport?.querySelector<HTMLElement>(".paper-annotation-sheet");
     if(!viewport||!sheet)return;
@@ -460,12 +553,53 @@ export function PaperReader({
   );
   useEffect(()=>{
     const pending=pendingAnnotation.current;
-    if(!pending || loading || view.page!==pending.page)return;
+    if(!pending || loading || renderedPage !== pending.page || view.page!==pending.page)return;
     pendingAnnotation.current=null;
     scrollRegion(pending.region);
-  },[loading,view.page,view.rotation,sheetSize]);
+  },[loading,renderedPage,view.page,view.rotation,sheetSize]);
   const invalidPages =
     count > 0 && !!mapping?.anchors.some((a) => a.page > count);
+  useEffect(() => {
+    if (!historyFocus || handledHistoryFocus.current === historyFocus.request || !practice)
+      return;
+    const fail = (message: string) => {
+      handledHistoryFocus.current = historyFocus.request;
+      setHistoryNotice(message);
+    };
+    if (historyFocus.contentId !== contentId || practice.contentId !== contentId) {
+      fail("当前曲目与历史记录不一致，纸谱没有自动定位。");
+      return;
+    }
+    if (!Number.isSafeInteger(historyFocus.measure) || historyFocus.measure < 1 || historyFocus.measure > practice.measures) {
+      fail("目标小节超出当前曲目范围，纸谱没有自动定位。");
+      return;
+    }
+    const issue = historyMappingIssue(attachment, practice, historyFocus.measure);
+    if (issue) {
+      fail(`${attachment.name}：${issue}，纸谱没有自动定位。`);
+      return;
+    }
+    if (!count && loading) return;
+    const anchor = mapping!.anchors
+      .filter((item) => item.measure <= historyFocus.measure)
+      .sort((left, right) => right.measure - left.measure)[0];
+    if (!count || anchor.page > count) {
+      fail(`第 ${anchor.page} 页不可用，纸谱没有自动定位。`);
+      return;
+    }
+    handledHistoryFocus.current = historyFocus.request;
+    setSuspended(true);
+    setView((previous) => previous.page === anchor.page ? previous : { ...previous, page: anchor.page });
+    frame.current?.scrollTo({ top: 0, left: 0 });
+    if (anchor.region) {
+      pendingAnnotation.current = { page: anchor.page, region: anchor.region };
+      if (!loading && renderedPage === anchor.page && latest.current.page === anchor.page) {
+        scrollRegion(anchor.region);
+        pendingAnnotation.current = null;
+      }
+    }
+    setHistoryNotice(`已定位第 ${historyFocus.measure} 小节：第 ${anchor.page} 页${anchor.region ? "的对应谱行" : ""}。自动翻页已暂停，练习段已准备好。`);
+  }, [historyFocus?.request, practice, attachment, mapping, count, loading, renderedPage, contentId]);
   useEffect(() => {
     if (!annotationEditing) setAnnotationNotice("");
   }, [annotationEditing]);
@@ -513,7 +647,7 @@ export function PaperReader({
       frame.current?.scrollTo({top:0,left:0});
       return;
     }
-    if(loading)return;
+    if(loading || renderedPage !== view.page)return;
     const key=JSON.stringify([anchor,view.rotation,sheetSize]);
     if(followedRegion.current===key)return;
     followedRegion.current=key;
@@ -529,7 +663,7 @@ export function PaperReader({
     count,
     !!playback,
     practice?.grid,
-    loading,view.page,view.rotation,sheetSize,
+    loading,renderedPage,view.page,view.rotation,sheetSize,
   ]);
   useEffect(
     () => () => {
@@ -640,6 +774,7 @@ export function PaperReader({
     let cancelled = false;
     let renderTask: RenderTask | null = null;
     let objectUrl: string | null = null;
+    setRenderedPage(0);
     setLoading(true);
     if (!needsPassword) setError("");
     const draw = async () => {
@@ -715,12 +850,16 @@ export function PaperReader({
         ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
       }
     };
-    void draw()
+    let rendered = false;
+    void draw().then(() => { rendered = true; })
       .catch((e) => {
         if (!cancelled) setError(`谱页显示失败：${e.message ?? e}`);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setRenderedPage(rendered ? view.page : 0);
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -753,7 +892,7 @@ export function PaperReader({
     if(annotationEditing || selectingRegion || exportLock.current || disabled || !count)return;
     pendingAnnotation.current={page:pageNumber,region:{x:note.x,y:note.y,width:Math.max(note.width??0,0.035),height:Math.max(note.height??0,0.035)}};
     page(pageNumber);
-    if(pageNumber===view.page && !loading){
+    if(pageNumber===view.page && !loading && renderedPage===pageNumber){
       const pending=pendingAnnotation.current;
       pendingAnnotation.current=null;
       if(pending)scrollRegion(pending.region);
@@ -1016,6 +1155,7 @@ export function PaperReader({
           </>
         )}
       </fieldset>
+      {historyNotice && <p role="status" className="paper-history-result">{historyNotice}</p>}
       {!!annotationLocations.length && !previewKind && (
         <details className="paper-annotation-navigation">
           <summary>批注位置 · {annotationLocations.length} 处</summary>

@@ -69,7 +69,7 @@ export function HistoryPerformance({
     reference: number,
     before: number,
     after: number,
-    showScore?: boolean,
+    destination?: "score" | "paper",
   ) => Promise<void>;
   blocked: boolean;
   review: () => Promise<void>;
@@ -516,6 +516,18 @@ export function HistoryPerformance({
                 >
                   重练所选小节
                 </button>
+                <button
+                  disabled={busy || blocked || !measure}
+                  onClick={() => {
+                    const i = pairs.find(
+                      (p) => p.reference.measure === measure,
+                    )?.index;
+                    if (i !== undefined)
+                      void stop().then(() => practice(i, before, after, "paper"));
+                  }}
+                >
+                  在纸谱中重练
+                </button>
               </div>
               <p>
                 按当轮声部、速度和输入校准重练，可带前后小节连起来练。完整演奏/背谱改为连续练习，自适应速度关闭；准备好选段后按“开始练习”。
@@ -574,11 +586,22 @@ export function HistoryPerformance({
                             aria-label={`谱面定位演奏第 ${p.reference.measure} 小节参考音 ${p.index + 1}`}
                             onClick={() =>
                               void stop().then(() =>
-                                practice(p.index, before, after, true),
+                                practice(p.index, before, after, "score"),
                               )
                             }
                           >
                             在乐谱中重练
+                          </button>
+                          <button
+                            disabled={busy || blocked}
+                            aria-label={`在纸谱中重练演奏第 ${p.reference.measure} 小节参考音 ${p.index + 1}`}
+                            onClick={() =>
+                              void stop().then(() =>
+                                practice(p.index, before, after, "paper"),
+                              )
+                            }
+                          >
+                            在纸谱中重练
                           </button>
                         </td>
                       </tr>

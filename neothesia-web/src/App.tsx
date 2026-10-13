@@ -67,7 +67,7 @@ import {
   FeedbackDialog,
   MetadataDialog,
 } from "./PracticeDialogs";
-import { HistoryDialog } from "./HistoryDialog";
+import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
 type Tab = "全部" | "收藏" | "最近" | "队列";
 const normalize = (path: string | null | undefined) =>
   (path || "").replaceAll("\\", "/").toLowerCase();
@@ -156,6 +156,8 @@ export default function App() {
     useState<HistoryScoreReview | null>(null);
   const [historyScoreFocus, setHistoryScoreFocus] =
     useState<HistoryScoreFocus | null>(null);
+  const [historyPaperFocus, setHistoryPaperFocus] =
+    useState<(HistoryPaperTarget & { request: string }) | null>(null);
   useEffect(() => {
     if (historyScoreFocus && song?.contentId !== historyScoreFocus.contentId)
       setHistoryScoreFocus(null);
@@ -164,6 +166,13 @@ export default function App() {
     if (historyScoreReview && song?.contentId !== historyScoreReview.contentId)
       setHistoryScoreReview(null);
   }, [song?.contentId, historyScoreReview]);
+  useEffect(() => {
+    if (historyPaperFocus && song?.contentId !== historyPaperFocus.contentId)
+      setHistoryPaperFocus(null);
+  }, [song?.contentId, historyPaperFocus]);
+  useEffect(() => {
+    if (view !== "paper" && historyPaperFocus) setHistoryPaperFocus(null);
+  }, [view, historyPaperFocus]);
   const recital = ["recital", "memory"].includes(state.mode);
   const recitalLive = recital && state.status !== "finished";
   const ladderActive = Boolean(state.ladder?.active);
@@ -1497,6 +1506,7 @@ export default function App() {
             {view === "paper" && song && state.mode !== "memory" && (
               <PaperScore
                 contentId={song.contentId}
+                historyFocus={historyPaperFocus}
                 revision={paperRevision}
                 playback={{ measure: state.measure }}
                 contextKey={JSON.stringify(song.meterMap ?? song.meterCorrection)}
@@ -2455,6 +2465,14 @@ export default function App() {
             setHistoryScoreReview(null);
             setHistoryScoreFocus({ ...focus, request: crypto.randomUUID() });
             setView("score");
+            setEditFingers(false);
+            setSelectedNote(null);
+          }}
+          paper={(focus) => {
+            setHistoryScoreReview(null);
+            setHistoryScoreFocus(null);
+            setHistoryPaperFocus({ ...focus, request: crypto.randomUUID() });
+            setView("paper");
             setEditFingers(false);
             setSelectedNote(null);
           }}

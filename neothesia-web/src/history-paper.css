@@ -1,0 +1,32 @@
+.paper-history-location {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #566044;
+  background: #293024;
+  color: #e5edd6;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.paper-history-location ul {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 20px;
+  color: #e5c9a9;
+}
+.paper-history-location label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.paper-history-result {
+  margin: 0;
+  padding: 7px 14px;
+  color: #e5edd6;
+  background: #303929;
+  border-bottom: 1px solid #566044;
+  font-size: 13px;
+  line-height: 1.5;
+}
