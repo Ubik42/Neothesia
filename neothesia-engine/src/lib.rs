@@ -2673,6 +2673,17 @@ impl Player {
                 }
                 if let Some(range)=&preset.score_range { self.validate_score_range(range)?; }
                 if let Some(range)=&preset.precise_range { self.validate_tick_range(range)?; }
+                if preset.score_range.is_none() && preset.precise_range.is_none() {
+                    let measures=&f.musical_time.measures;
+                    if preset.start==0 || preset.start>preset.end || preset.end>measures.len() {
+                        return Err("练习段的小节范围已失效，请重新确认后保存".into());
+                    }
+                    let start=f.tempo_track.pulses_to_duration(measures[preset.start-1].start_tick).as_secs_f64();
+                    let end=f.tempo_track.pulses_to_duration(measures[preset.end-1].end_tick).as_secs_f64().min(self.state.duration);
+                    if !start.is_finite() || !end.is_finite() || end-start<0.1 {
+                        return Err("练习段时长已失效，请重新确认后保存".into());
+                    }
+                }
                 self.panic();
                 self.state.status = "paused".into();
                 self.config.apply_practice_setup(&SongPracticeSetup {
@@ -2689,6 +2700,7 @@ impl Player {
                 self.state.hands = preset.settings.hands;
                 self.state.count_in = preset.settings.count_in;
                 self.state.metronome = preset.settings.metronome;
+                self.state.latency = preset.settings.latency;
                 self.state.rounds = preset.settings.rounds;
                 self.state.adaptive = preset.settings.adaptive;
                 self.state.speed = preset.speed;
@@ -4343,6 +4355,25 @@ mod tests {
             .unwrap();
         player.state.count_in = 0;
         player
+    }
+    #[test]
+    fn opening_passage_restores_latency_and_rejects_invalid_range_before_changing_settings() {
+        let mut p=player();
+        p.command(Command::SavePassage{id:None,name:"第一小节".into(),start:1,end:1,notes:String::new()}).unwrap();
+        let content_id=p.file.as_ref().unwrap().content_id.clone();
+        let id=p.preferences.passages[&content_id][0].id.clone();
+        p.preferences.passages.get_mut(&content_id).unwrap()[0].settings.latency=42;
+        p.state.latency=0;
+        p.command(Command::OpenPassage{id:id.clone()}).unwrap();
+        assert_eq!(p.state.latency,42);
+        p.preferences.passages.get_mut(&content_id).unwrap()[0].end=usize::MAX;
+        p.state.latency=7;
+        p.state.mode="flow".into();
+        let before=p.state.status.clone();
+        assert!(p.command(Command::OpenPassage{id}).is_err());
+        assert_eq!(p.state.latency,7);
+        assert_eq!(p.state.mode,"flow");
+        assert_eq!(p.state.status,before);
     }
     #[test]
     fn wait_freezes_transport_and_pause_keeps_required_target() {
