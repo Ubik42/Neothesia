@@ -186,9 +186,17 @@ fn program_status(data: &Path) -> Value {
         Err(message) => json!({
             "available": false,
             "path": null,
-            "source": null,
+            "source": if data.join(PROGRAM_CONFIG).exists() { Some("selected") } else { None },
             "message": message,
         }),
+    }
+}
+
+fn clear_selected_program(data: &Path) -> Result<Value, String> {
+    match fs::remove_file(data.join(PROGRAM_CONFIG)) {
+        Ok(()) => Ok(program_status(data)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(program_status(data)),
+        Err(error) => Err(format!("已选择的 Audiveris 程序位置无法清除：{error}")),
     }
 }
 
@@ -207,6 +215,11 @@ fn save_program(data: &Path, candidate: &Path) -> Result<Value, String> {
 #[tauri::command]
 pub fn audiveris_program_status(state: tauri::State<'_, super::State>) -> Value {
     program_status(&state.data)
+}
+
+#[tauri::command]
+pub fn reset_audiveris_program(state: tauri::State<'_, super::State>) -> Result<Value, String> {
+    clear_selected_program(&state.data)
 }
 
 #[tauri::command]
@@ -736,6 +749,10 @@ mod tests {
         assert_eq!(saved_program(&temp.dir).unwrap(), Some(fs::canonicalize(program).unwrap()));
         fs::write(temp.dir.join(PROGRAM_CONFIG), b"not json").unwrap();
         assert_eq!(program_status(&temp.dir)["available"], false);
+        assert_eq!(program_status(&temp.dir)["source"], "selected");
+        clear_selected_program(&temp.dir).unwrap();
+        assert!(saved_program(&temp.dir).unwrap().is_none());
+        clear_selected_program(&temp.dir).unwrap();
     }
 
     #[test]

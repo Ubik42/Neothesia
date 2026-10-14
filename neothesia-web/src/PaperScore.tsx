@@ -477,7 +477,7 @@ export function PaperScore({
           )}
           {onRecognize && current && (
             <div className="paper-version-actions">
-              <span role="status">
+              <span role="status" className="paper-program-status">
                 {audiverisStatus
                   ? `${audiverisStatus.message}${audiverisStatus.path ? `：${audiverisStatus.path}` : ""}`
                   : "正在检查 Audiveris 程序…"}
@@ -491,6 +491,17 @@ export function PaperScore({
               >
                 选择 Audiveris 程序
               </button>
+              {audiverisStatus?.source === "selected" && (
+                <button
+                  disabled={busy || sourceBusy || transferBusy}
+                  onClick={() => void work(async () => {
+                    const status = await api.resetAudiverisProgram();
+                    if (alive.current) setAudiverisStatus(status);
+                  })}
+                >
+                  恢复自动查找
+                </button>
+              )}
             </div>
           )}
           {onRecognize && current?.format === "images" && current.pages.length > 1 && (

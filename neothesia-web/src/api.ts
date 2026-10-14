@@ -579,6 +579,8 @@ export const api = {
     invoke<AudiverisProgramStatus>("audiveris_program_status"),
   selectAudiverisProgram: () =>
     invoke<AudiverisProgramStatus>("select_audiveris_program"),
+  resetAudiverisProgram: () =>
+    invoke<AudiverisProgramStatus>("reset_audiveris_program"),
   recognizePaperWithAudiveris: (contentId: string, bookId: string, expectedPages: { id: string; kind: string }[]) =>
     invoke<{ name: string; bytes: number[]; previewToken: string }>("recognize_paper_with_audiveris", { contentId, bookId, expectedPages }),
   saveRecognizedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>
