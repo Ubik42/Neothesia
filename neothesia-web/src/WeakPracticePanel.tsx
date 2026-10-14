@@ -61,12 +61,14 @@ export function WeakPracticePanel({
   disabled,
   work,
   added,
+  openLibrary,
 }: {
   routineId: string | null;
   day: string | null;
   disabled: boolean;
   work: (job: () => Promise<void>) => Promise<void>;
   added: (id: string) => Promise<void>;
+  openLibrary: () => void;
 }) {
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
@@ -148,11 +150,21 @@ export function WeakPracticePanel({
         ，不自动演奏。
       </p>
       {duePage && duePage.dueTotal > 0 && (
-        <p className="parameter-help">
-          曲库中 {duePage.dueTotal} 首曲目待复习；{duePage.eligibleTotal} 首可按原条件加入计划，当前已读取 {shownDue} 首。
-          {duePage.dueTotal > duePage.eligibleTotal &&
-            ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库核对条件；文件缺失时先重新关联。`}
-        </p>
+        <div className="parameter-help">
+          <p>
+            曲库中 {duePage.dueTotal} 首曲目待复习；{duePage.eligibleTotal} 首可按原条件加入计划，当前已读取 {shownDue} 首。
+            {duePage.dueTotal > duePage.eligibleTotal &&
+              ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库核对条件；文件缺失时先重新关联。`}
+          </p>
+          {duePage.dueTotal > duePage.eligibleTotal && (
+            <>
+              <button type="button" disabled={disabled} onClick={openLibrary}>
+                打开曲库核对
+              </button>
+              <small>曲库会替换当前计划编辑窗口；请先保存正在修改的内容。</small>
+            </>
+          )}
+        </div>
       )}
       {note && (
         <details className="weak-practice-method">

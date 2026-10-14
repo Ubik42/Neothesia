@@ -164,6 +164,7 @@ export function RoutineDialog({
   close,
   changed,
   backup,
+  openLibrary,
 }: {
   initialPlan?: { id: string; day: string | null } | null;
   song: LoadedSong | null;
@@ -172,6 +173,7 @@ export function RoutineDialog({
   close: () => void;
   changed: () => Promise<void>;
   backup: () => void;
+  openLibrary: () => void;
 }) {
   const [day, setDay] = useState(
       () => initialPlan?.day ?? state.routine?.day ?? localDay(),
@@ -516,6 +518,7 @@ export function RoutineDialog({
               day={editDay}
               disabled={locked}
               work={work}
+              openLibrary={openLibrary}
               added={async (id) => {
                 setSelected(id);
                 await reload();

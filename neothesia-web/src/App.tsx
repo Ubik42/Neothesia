@@ -2446,6 +2446,12 @@ export default function App() {
             setRoutineDialog(false);
             setPracticeBackup(true);
           }}
+          openLibrary={() => {
+            setRoutineDialog(false);
+            setRoutineLaunch(null);
+            action({ type: "pause" });
+            setLibraryDialog(true);
+          }}
           changed={refresh}
         />
       )}
