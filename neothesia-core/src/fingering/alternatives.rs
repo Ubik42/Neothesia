@@ -89,11 +89,16 @@ pub fn suggest_fingering_plans_with_substitutions(
 )->Result<Vec<FingeringPlan>,FingeringSearchFailure>{
     suggest_fingering_plans_with_expression(notes, hand, profile, focus, limit, rate, allow, &[])
 }
-fn finger_at(mut node: Option<usize>, arena: &[Node], index: usize) -> Option<u8> {
+fn effective_finger_at(mut node: Option<usize>, arena: &[Node], index: usize) -> Option<u8> {
+    let mut substituted = None;
     while let Some(position) = node {
         let current = &arena[position];
+        if substituted.is_none() {
+            substituted = current.substitutions.iter().rev()
+                .find(|change| change.note == index).map(|change| change.to);
+        }
         if index >= current.start && index < current.start + current.fingers.len() {
-            return current.fingers.get(index - current.start).copied();
+            return substituted.or_else(|| current.fingers.get(index - current.start).copied());
         }
         node = current.parent;
     }
@@ -178,7 +183,7 @@ pub fn suggest_fingering_plans_with_expression(
                 .filter(|(i, _)| notes[*i].end > current[0].onset)
                 .collect();
             for candidate in &candidates {
-                let variants=held_variants(notes,&original_held,&prior.held,&prior.last_change,current,&candidate.fingers,hand,focus,rate,allow,start);
+                let variants=held_variants(notes,&original_held,&prior.held,&prior.last_change,current,&candidate.fingers,hand,focus,rate,allow,start,expression);
                 for (held,substitutions) in variants {
                 let held_notes:Vec<_>=held.iter().map(|(i,_)|notes[*i]).collect();
                 let held_fingers:Vec<_>=held.iter().map(|(_,f)|*f).collect();
@@ -254,7 +259,8 @@ pub fn suggest_fingering_plans_with_expression(
                     for (offset, &finger) in candidate.fingers.iter().enumerate() {
                         let index = start + offset;
                         if let Some(from) = expression[index].slur_from {
-                            if let Some(old_finger) = finger_at(prior.node, &arena, from) {
+                            if let Some(old_finger) = held.iter().find(|(index, _)| *index == from)
+                                .map(|(_, finger)| *finger).or_else(|| effective_finger_at(prior.node, &arena, from)) {
                                 let old = notes[from];
                                 let now = notes[index];
                                 if old.pitch != now.pitch && old_finger == finger {
@@ -267,7 +273,8 @@ pub fn suggest_fingering_plans_with_expression(
                             }
                         } else if let Some(from) = expression[index].staccato_from {
                             if notes[from].onset < notes[index].onset && expression[from].staccato {
-                                if let Some(old_finger) = finger_at(prior.node, &arena, from) {
+                                if let Some(old_finger) = held.iter().find(|(index, _)| *index == from)
+                                    .map(|(_, finger)| *finger).or_else(|| effective_finger_at(prior.node, &arena, from)) {
                                     if transition_reason(notes[from].pitch, old_finger,
                                         notes[index].pitch, finger, hand)
                                         == FingeringReason::PositionShift {
@@ -424,13 +431,19 @@ pub fn suggest_fingering_plans_with_expression(
     Ok(plans)
 }
 
-fn held_variants(notes:&[FingeringNote],held:&[(usize,u8)],occupied:&[(usize,u8)],last_change:&BTreeMap<usize,Duration>,current:&[FingeringNote],fingers:&[u8],hand:FingeringHand,focus:&[usize],rate:f64,allow:bool,before:usize)->Vec<(Vec<(usize,u8)>,Vec<FingerSubstitution>)>{
+fn held_variants(notes:&[FingeringNote],held:&[(usize,u8)],occupied:&[(usize,u8)],last_change:&BTreeMap<usize,Duration>,current:&[FingeringNote],fingers:&[u8],hand:FingeringHand,focus:&[usize],rate:f64,allow:bool,before:usize,expression:&[FingeringExpression])->Vec<(Vec<(usize,u8)>,Vec<FingerSubstitution>)>{
     let old:Vec<_>=held.iter().map(|(i,_)|notes[*i]).collect();let old_fingers:Vec<_>=held.iter().map(|(_,f)|*f).collect();
-    if held.is_empty()||held_transition_valid(&old,&old_fingers,current,fingers,hand){return vec![(held.to_vec(),vec![])];}
+    let valid=held_transition_valid(&old,&old_fingers,current,fingers,hand);
+    let connected=expression.get(before..before+current.len()).is_some_and(|marks|
+        marks.iter().any(|mark|mark.slur_from.is_some_and(|source|held.iter().any(|(i,_)|*i==source))));
+    if held.is_empty()||(valid&&(!allow||!connected)){return vec![(held.to_vec(),vec![])];}
     if !allow{return vec![];}
-    let Some(at)=current[0].onset.checked_sub(Duration::from_secs_f64(0.12*rate)) else{return vec![];};
-    let mut result=vec![];
+    let Some(at)=current[0].onset.checked_sub(Duration::from_secs_f64(0.12*rate)) else{
+        return if valid {vec![(held.to_vec(),vec![])]} else {vec![]};
+    };
+    let mut result=if valid {vec![(held.to_vec(),vec![])]} else {vec![]};
     for (slot,&(index,from)) in held.iter().enumerate(){
+        if valid && !expression[before..before+current.len()].iter().any(|mark|mark.slur_from==Some(index)){continue;}
         // A conservative minimum action interval; duplicated physical keys need a joint action and remain unsupported.
         if focus.binary_search(&index).is_err()||last_change.get(&index).copied().unwrap_or(notes[index].onset)+Duration::from_secs_f64(0.18*rate)>at
             ||held.iter().filter(|(i,_)|notes[*i].pitch==notes[index].pitch).count()!=1 {continue;}
@@ -701,8 +714,35 @@ mod substitution_tests {
   let expression=[FingeringExpression::default(),FingeringExpression{slur_from:Some(0),..Default::default()}];
   let marked=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
       HandSpanProfile::Standard,&[0,1],3,1.,true,&expression).unwrap();
-  assert!(marked[0].cost>plain[0].cost);
+  assert_eq!(marked[0].cost,plain[0].cost);
   assert!(!marked[0].substitutions.is_empty());
+ }
+ #[test]
+ fn trusted_slur_can_offer_a_safe_optional_held_substitution(){
+  let notes=[note(60,0.,3.,3),note(64,1.,1.5,4)];
+  let plain=suggest_fingering_plans_with_substitutions(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],5,1.,true).unwrap();
+  assert!(plain.iter().all(|plan|plan.substitutions.is_empty()));
+  let expression=[FingeringExpression::default(),FingeringExpression{slur_from:Some(0),..Default::default()}];
+  let connected=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],5,1.,true,&expression).unwrap();
+  assert!(connected.iter().any(|plan|!plan.substitutions.is_empty()));
+  for plan in connected {
+   validate_substitution_plan(&notes,&plan.suggestions.iter().map(|s|s.finger).collect::<Vec<_>>(),
+       &plan.substitutions,FingeringHand::Right,&[0,1],1.).unwrap();
+  }
+ }
+ #[test]
+ fn slur_scoring_remembers_a_substitution_after_the_held_note_ends(){
+  let notes=[note(60,0.,1.2,3),note(64,1.,1.05,3),note(67,1.3,1.6,3)];
+  let plain=suggest_fingering_plans_with_substitutions(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1,2],3,1.,true).unwrap();
+  let expression=[FingeringExpression::default(),FingeringExpression::default(),
+      FingeringExpression{slur_from:Some(0),..Default::default()}];
+  let connected=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1,2],3,1.,true,&expression).unwrap();
+  assert!(!plain[0].substitutions.is_empty());
+  assert_eq!(connected[0].cost,plain[0].cost);
  }
  #[test]
  fn opt_in_preserves_attack_and_frees_held_finger_for_both_hands(){
