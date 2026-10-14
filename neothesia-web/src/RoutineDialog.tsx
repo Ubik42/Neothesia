@@ -220,6 +220,15 @@ export function RoutineDialog({
     [openedItem, setOpenedItem] = useState<string | null>(null),
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
+  const listReadGeneration = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      listReadGeneration.current++;
+    };
+  }, []);
   const run = runs.find((r) => r.routine.id === selected),
     plan = template
       ? plans.find((p) => p.id === selected)
@@ -244,19 +253,23 @@ export function RoutineDialog({
       source.startsWith("ladder:") ||
       (source === "" && currentItem?.target.kind === "ladder");
   const reload = async () => {
+    const request = ++listReadGeneration.current;
     const data = await api.command<{ plans: Plan[]; runs: Run[] }>({
       type: "routines",
       day,
     });
+    if (!mounted.current || request !== listReadGeneration.current)
+      throw new Error("计划列表已有更新的读取请求，请重试查看最新结果");
     setPlans(data.plans);
     setRuns(data.runs);
   };
   useEffect(() => {
     let cancelled = false;
+    const request = ++listReadGeneration.current;
     void api
       .command<{ plans: Plan[]; runs: Run[] }>({ type: "routines", day })
       .then((data) => {
-        if (!cancelled) {
+        if (!cancelled && request === listReadGeneration.current) {
           setPlans(data.plans);
           setRuns(data.runs);
           const p =
@@ -269,10 +282,13 @@ export function RoutineDialog({
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e.message));
+        if (!cancelled && request === listReadGeneration.current)
+          setError(String(e.message));
       });
     return () => {
       cancelled = true;
+      if (request === listReadGeneration.current)
+        listReadGeneration.current++;
     };
   }, [day]);
   useEffect(() => {
