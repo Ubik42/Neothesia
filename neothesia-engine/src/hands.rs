@@ -49,6 +49,98 @@ struct Beam {
     held: Vec<(u8, Duration, PracticePart)>,
     chain: Option<Arc<Chain>>,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LayoutKind {
+    Ordinary,
+    Crossed,
+    Interleaved,
+}
+
+struct HandLayout {
+    hands: Vec<PracticePart>,
+    kind: LayoutKind,
+}
+
+fn hand_layouts(anchors: &[Option<PracticePart>]) -> Vec<HandLayout> {
+    let mut layouts = Vec::new();
+    let mut add = |hands: Vec<PracticePart>, kind| {
+        let left = hands
+            .iter()
+            .filter(|hand| **hand == PracticePart::LeftHand)
+            .count();
+        if left > 5 || hands.len() - left > 5 {
+            return;
+        }
+        if anchors
+            .iter()
+            .zip(&hands)
+            .any(|(anchor, hand)| anchor.is_some_and(|anchor| anchor != *hand))
+        {
+            return;
+        }
+        layouts.push(HandLayout { hands, kind });
+    };
+    for split in 0..=anchors.len() {
+        add(
+            (0..anchors.len())
+                .map(|position| {
+                    if position < split {
+                        PracticePart::LeftHand
+                    } else {
+                        PracticePart::RightHand
+                    }
+                })
+                .collect(),
+            LayoutKind::Ordinary,
+        );
+        if split > 0 && split < anchors.len() {
+            add(
+                (0..anchors.len())
+                    .map(|position| {
+                        if position < split {
+                            PracticePart::RightHand
+                        } else {
+                            PracticePart::LeftHand
+                        }
+                    })
+                    .collect(),
+                LayoutKind::Crossed,
+            );
+        }
+    }
+    let confirmed: Vec<_> = anchors.iter().flatten().copied().collect();
+    let needs_interleaving = confirmed
+        .windows(3)
+        .any(|hands| hands[0] == hands[2] && hands[0] != hands[1]);
+    if needs_interleaving {
+        for first in 1..anchors.len().saturating_sub(1) {
+            for second in first + 1..anchors.len() {
+                for outside in [PracticePart::LeftHand, PracticePart::RightHand] {
+                    let inside = if outside == PracticePart::LeftHand {
+                        PracticePart::RightHand
+                    } else {
+                        PracticePart::LeftHand
+                    };
+                    add(
+                        (0..anchors.len())
+                            .map(|position| {
+                                if position < first || position >= second {
+                                    outside
+                                } else {
+                                    inside
+                                }
+                            })
+                            .collect(),
+                        LayoutKind::Interleaved,
+                    );
+                }
+            }
+        }
+    }
+    layouts
+}
+
 pub fn propose(
     file: &MidiFile,
     config: &SongConfig,
@@ -126,119 +218,116 @@ pub fn propose(
     }];
     for group in groups {
         let onset = t.notes[group[0]].start;
+        let anchors: Vec<_> = group
+            .iter()
+            .map(|&index| {
+                assigned
+                    .get(&(track, index))
+                    .copied()
+                    .filter(|hand| *hand != PracticePart::Other)
+            })
+            .collect();
+        let layouts = hand_layouts(&anchors);
         let mut next = vec![];
         for previous in &beams {
-            for crossed in [false, true] {
-                for split in 0..=group.len() {
-                    if split > 5 || group.len() - split > 5 {
-                        continue;
-                    }
-                    if crossed && (split == 0 || split == group.len()) {
-                        continue;
-                    }
-                    let mut assignments = vec![];
-                    let mut valid = true;
-                    let mut cost = previous.cost + if crossed { 8. } else { 0. };
-                    let mut held: Vec<_> = previous
-                        .held
+            for layout in &layouts {
+                let mut assignments = vec![];
+                let mut valid = true;
+                let mut cost = previous.cost
+                    + match layout.kind {
+                        LayoutKind::Ordinary => 0.,
+                        LayoutKind::Crossed => 8.,
+                        LayoutKind::Interleaved => 14.,
+                    };
+                let mut held: Vec<_> = previous
+                    .held
+                    .iter()
+                    .copied()
+                    .filter(|(_, end, _)| *end > onset)
+                    .collect();
+                let mut centers = [previous.left, previous.right];
+                for (side, hand) in [PracticePart::LeftHand, PracticePart::RightHand]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let indices: Vec<_> = group
                         .iter()
-                        .copied()
-                        .filter(|(_, end, _)| *end > onset)
+                        .zip(&layout.hands)
+                        .filter_map(|(&index, &suggested)| (suggested == hand).then_some(index))
                         .collect();
-                    let mut centers = [previous.left, previous.right];
-                    for (indices, hand, side) in [
-                        (
-                            &group[..split],
-                            if crossed {
-                                PracticePart::RightHand
-                            } else {
-                                PracticePart::LeftHand
-                            },
-                            usize::from(crossed),
-                        ),
-                        (
-                            &group[split..],
-                            if crossed {
-                                PracticePart::LeftHand
-                            } else {
-                                PracticePart::RightHand
-                            },
-                            usize::from(!crossed),
-                        ),
-                    ] {
-                        if indices.is_empty() {
-                            continue;
-                        }
-                        let pitches: Vec<_> = indices
+                    if indices.is_empty() {
+                        continue;
+                    }
+                    let pitches: Vec<_> = indices
+                        .iter()
+                        .map(|&i| f64::from(t.notes[i].note))
+                        .collect();
+                    let center = pitches.iter().sum::<f64>() / pitches.len() as f64;
+                    cost += (center - centers[side]).abs() * 0.12;
+                    centers[side] = center;
+                    let mut all = pitches.clone();
+                    all.extend(
+                        held.iter()
+                            .filter(|(_, _, h)| *h == hand)
+                            .map(|(p, _, _)| f64::from(*p)),
+                    );
+                    let reach = all.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+                        - all.iter().copied().fold(f64::INFINITY, f64::min);
+                    cost += (reach - 12.).max(0.).powi(2) * 0.8;
+                    cost += if hand == PracticePart::LeftHand {
+                        (center - f64::from(reference)).max(0.) * 0.04
+                    } else {
+                        (f64::from(reference) - center).max(0.) * 0.04
+                    };
+                    for &i in &indices {
+                        let n = &t.notes[i];
+                        if held
                             .iter()
-                            .map(|&i| f64::from(t.notes[i].note))
-                            .collect();
-                        let center = pitches.iter().sum::<f64>() / pitches.len() as f64;
-                        cost += (center - centers[side]).abs() * 0.12;
-                        centers[side] = center;
-                        let mut all = pitches.clone();
-                        all.extend(
-                            held.iter()
-                                .filter(|(_, _, h)| *h == hand)
-                                .map(|(p, _, _)| f64::from(*p)),
-                        );
-                        let reach = all.iter().copied().fold(f64::NEG_INFINITY, f64::max)
-                            - all.iter().copied().fold(f64::INFINITY, f64::min);
-                        cost += (reach - 12.).max(0.).powi(2) * 0.8;
-                        cost += if hand == PracticePart::LeftHand {
-                            (center - f64::from(reference)).max(0.) * 0.04
-                        } else {
-                            (f64::from(reference) - center).max(0.) * 0.04
-                        };
-                        for &i in indices {
-                            let n = &t.notes[i];
-                            if assigned
-                                .get(&(track, i))
-                                .is_some_and(|h| *h != PracticePart::Other && *h != hand)
-                                || held
-                                    .iter()
-                                    .any(|(pitch, end, _)| *pitch == n.note && *end > onset)
-                            {
-                                valid = false;
-                                break;
-                            }
-                            let anchor = assigned
-                                .get(&(track, i))
-                                .is_some_and(|p| *p != PracticePart::Other);
-                            let confidence = if anchor {
-                                100
-                            } else if crossed {
-                                60
-                            } else if group.len() >= 2 && reach <= 12. {
-                                80
-                            } else {
-                                55
-                            };
-                            let reason = if anchor {
-                                "保留已确认的逐音分手"
-                            } else if crossed {
-                                "根据已确认分手和持音尝试双手交叉；请检查手臂动作"
-                            } else if group.len() >= 2 {
-                                "结合同时发声的手型跨度与前后声部走向"
-                            } else {
-                                "结合前后旋律连续性与参考手位；单声部需要确认"
-                            };
-                            assignments.push((i, hand, confidence, reason));
-                            held.push((n.note, n.end, hand));
+                            .any(|(pitch, end, _)| *pitch == n.note && *end > onset)
+                        {
+                            valid = false;
+                            break;
                         }
+                        let anchor = assigned
+                            .get(&(track, i))
+                            .is_some_and(|p| *p != PracticePart::Other);
+                        let confidence = if anchor {
+                            100
+                        } else if layout.kind == LayoutKind::Interleaved {
+                            45
+                        } else if layout.kind == LayoutKind::Crossed {
+                            60
+                        } else if group.len() >= 2 && reach <= 12. {
+                            80
+                        } else {
+                            55
+                        };
+                        let reason = if anchor {
+                            "保留已确认的逐音分手"
+                        } else if layout.kind == LayoutKind::Interleaved {
+                            "根据已确认手别补足交错声部；请逐音检查手型与动作"
+                        } else if layout.kind == LayoutKind::Crossed {
+                            "根据音域与持音尝试双手交叉；请检查手臂动作"
+                        } else if group.len() >= 2 {
+                            "结合同时发声的手型跨度与前后声部走向"
+                        } else {
+                            "结合前后旋律连续性与参考手位；单声部需要确认"
+                        };
+                        assignments.push((i, hand, confidence, reason));
+                        held.push((n.note, n.end, hand));
                     }
-                    if valid {
-                        next.push(Beam {
-                            cost,
-                            left: centers[0],
-                            right: centers[1],
-                            held,
-                            chain: Some(Arc::new(Chain {
-                                previous: previous.chain.clone(),
-                                assignments,
-                            })),
-                        });
-                    }
+                }
+                if valid {
+                    next.push(Beam {
+                        cost,
+                        left: centers[0],
+                        right: centers[1],
+                        held,
+                        chain: Some(Arc::new(Chain {
+                            previous: previous.chain.clone(),
+                            assignments,
+                        })),
+                    });
                 }
             }
         }
@@ -313,6 +402,21 @@ pub fn hints(assigned: &HashMap<(usize, usize), PracticePart>) -> Vec<NoteHandHi
 mod tests {
     use super::*;
     use crate::{Command, Player};
+
+    #[test]
+    fn interleaved_layout_requires_confirmed_alternating_hands() {
+        let left = PracticePart::LeftHand;
+        let right = PracticePart::RightHand;
+        let layouts = hand_layouts(&[Some(left), Some(right), None, Some(left)]);
+        assert!(layouts.iter().any(|layout| {
+            layout.kind == LayoutKind::Interleaved
+                && layout.hands.as_slice() == &[left, right, right, left]
+        }));
+        assert!(hand_layouts(&[None, None, None, None])
+            .iter()
+            .all(|layout| layout.kind != LayoutKind::Interleaved));
+        assert!(hand_layouts(&[Some(left), Some(right), Some(left), Some(right)]).is_empty());
+    }
 
     #[test]
     fn confirmed_crossed_chord_still_recommends_the_unmarked_note() {
