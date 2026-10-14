@@ -22,8 +22,12 @@ type Proposal = {
   measure: number;
   pitch: number;
   finger: number;
+  saved: number | null;
+  confidence: number;
   reason: string;
 };
+const recommended = (proposal: Proposal) =>
+  proposal.confidence >= 60 && proposal.saved !== proposal.finger;
 type Result = {
   request: Record<string, unknown>;
   fingerprint: string;
@@ -224,7 +228,7 @@ export function FingerPairDialog({
       setResults(rows);
       setRanks([0, 0]);
       setEdits([{}, {}]);
-      setSelected(rows.map((r) => new Set(r.plans[0].proposals.map(key))));
+      setSelected(rows.map((r) => new Set(r.plans[0].proposals.filter(recommended).map(key))));
       setPages([0, 0]);
       invalidate();
     });
@@ -382,6 +386,9 @@ export function FingerPairDialog({
         <div className="finger-pair-hands">
           {results.map((r, i) => {
             const proposals = r.plans[ranks[i]].proposals;
+            const recommendedKeys = proposals.filter(recommended).map(key);
+            const lowCount = proposals.filter((proposal) =>
+              proposal.confidence < 60 && proposal.saved !== proposal.finger).length;
             return (
               <section key={i}>
                 <div className="finger-pair-hand-heading">
@@ -400,7 +407,7 @@ export function FingerPairDialog({
                       setSelected(
                         selected.map((v, j) =>
                           i === j
-                            ? new Set(r.plans[rank].proposals.map(key))
+                            ? new Set(r.plans[rank].proposals.filter(recommended).map(key))
                             : v,
                         ),
                       );
@@ -470,17 +477,17 @@ export function FingerPairDialog({
                 />
                 <div className="finger-pair-selection">
                   <button
-                    disabled={busy}
+                    disabled={busy || recommendedKeys.length === 0}
                     onClick={() => {
                       setSelected(
                         selected.map((v, j) =>
-                          i === j ? new Set(proposals.map(key)) : v,
+                          i === j ? new Set([...v, ...recommendedKeys]) : v,
                         ),
                       );
                       invalidate();
                     }}
                   >
-                    全选
+                    选择高评分改动（{recommendedKeys.length}）
                   </button>
                   <button
                     disabled={busy}
@@ -494,6 +501,7 @@ export function FingerPairDialog({
                     清空选择
                   </button>
                 </div>
+                {lowCount > 0 && <p className="parameter-help">这只手有 {lowCount} 个低评分改动。请逐音查看手型和推荐原因，再手动勾选。</p>}
                 <table>
                   <thead>
                     <tr>
@@ -531,6 +539,7 @@ export function FingerPairDialog({
                               · 音符 {p.index + 1}
                             </small>
                             <small>{p.reason}</small>
+                            <small>规则评分 {p.confidence}% · 已存指法 {p.saved ?? "未标记"}</small>
                           </td>
                           <td>
                             <input

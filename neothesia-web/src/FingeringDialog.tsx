@@ -236,6 +236,21 @@ export function FingeringDialog({
         })) ?? [],
     [result, accepted],
   );
+  const recommendedIndices = useMemo(
+    () => result?.proposals.flatMap((proposal, index) =>
+      suggestedForAcceptance(proposal) ? [index] : []) ?? [],
+    [result],
+  );
+  const recommendedByTrack = useMemo(() => {
+    const tracks = new Map<number, number[]>();
+    result?.proposals.forEach((proposal, index) => {
+      if (!suggestedForAcceptance(proposal)) return;
+      const indices = tracks.get(proposal.track) ?? [];
+      indices.push(index);
+      tracks.set(proposal.track, indices);
+    });
+    return tracks;
+  }, [result]);
   const acceptanceKey = JSON.stringify([result?.fingerprint, acceptanceEdits]);
   const hasChanges = Object.keys(values).length > 0;
   const currentAcceptance =
@@ -987,23 +1002,17 @@ export function FingeringDialog({
               <label>
                 <input
                   type="checkbox"
-                  aria-label="选择全部指法建议"
-                  disabled={busy}
-                  checked={
-                    accepted.size === result.proposals.length &&
-                    accepted.size > 0
-                  }
-                  onChange={(e) =>
-                    setAccepted(
-                      new Set(
-                        e.target.checked
-                          ? result.proposals.map((_, i) => i)
-                          : [],
-                      ),
-                    )
-                  }
+                  aria-label="选择全部高评分指法改动"
+                  disabled={busy || recommendedIndices.length === 0}
+                  checked={recommendedIndices.length > 0 && recommendedIndices.every((index) => accepted.has(index))}
+                  onChange={(e) => setAccepted((current) => {
+                    const next = new Set(current);
+                    recommendedIndices.forEach((index) =>
+                      e.target.checked ? next.add(index) : next.delete(index));
+                    return next;
+                  })}
                 />
-                全选 {result.proposals.length} 个音符
+                选择全部高评分改动（{recommendedIndices.length}）
               </label>
               <span>
                 已选择 {accepted.size} 个 ·
@@ -1011,7 +1020,7 @@ export function FingeringDialog({
               </span>
               {result.proposals.some((proposal) => proposal.confidence < 60 && proposal.saved !== proposal.finger) && (
                 <span role="status">
-                  {result.proposals.filter((proposal) => proposal.confidence < 60 && proposal.saved !== proposal.finger).length} 个宽和弦或移手等低评分位置需要逐音复核。
+                  {result.proposals.filter((proposal) => proposal.confidence < 60 && proposal.saved !== proposal.finger).length} 个宽和弦或移手等低评分位置需要逐音复核，再手动勾选。
                 </span>
               )}
             </div>
@@ -1081,8 +1090,10 @@ export function FingeringDialog({
                   )}
                   {currentAcceptance.tracks.length > 1 && (
                     <div className="finger-batch-summary">
-                      {currentAcceptance.tracks.map((summary) => (
-                        <div key={summary.track}>
+                      {currentAcceptance.tracks.map((summary) => {
+                        const high = recommendedByTrack.get(summary.track) ?? [];
+                        const allHighSelected = high.length > 0 && high.every((index) => accepted.has(index));
+                        return <div key={summary.track}>
                           <strong>{trackName(summary.track)}</strong>
                           <span>
                             范围内 {summary.total} 个 · 接受 {summary.selected}{" "}
@@ -1091,26 +1102,22 @@ export function FingeringDialog({
                             改已有 {summary.changed} 个
                           </span>
                           <button
-                            disabled={busy || !summary.total}
+                            disabled={busy || high.length === 0}
                             onClick={() =>
                               setAccepted((current) => {
                                 const next = new Set(current);
-                                result.proposals.forEach((p, i) => {
-                                  if (p.track === summary.track)
-                                    summary.selected === summary.total
-                                      ? next.delete(i)
-                                      : next.add(i);
-                                });
+                                high.forEach((index) =>
+                                  allHighSelected ? next.delete(index) : next.add(index));
                                 return next;
                               })
                             }
                           >
-                            {summary.selected === summary.total
-                              ? "取消该轨选择"
-                              : "接受该轨全部"}
+                            {allHighSelected
+                              ? "取消该轨高评分选择"
+                              : `选择该轨高评分改动（${high.length}）`}
                           </button>
-                        </div>
-                      ))}
+                        </div>;
+                      })}
                     </div>
                   )}
                   <p>
