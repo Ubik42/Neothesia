@@ -192,7 +192,9 @@ export function FingeringDialog({
     [accepted, setAccepted] = useState<Set<number>>(new Set()),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
+    [pendingRefresh, setPendingRefresh] = useState<"saved" | "undone" | null>(null),
     [page, setPage] = useState(0);
+  const working = useRef(false);
   const [values, setValues] = useState<Record<string, number>>({});
   const [additionalTracks, setAdditionalTracks] = useState<number[]>([]);
   const targetSignature = additionalTracks.join(",");
@@ -318,6 +320,8 @@ export function FingeringDialog({
     targetSignature,
   ]);
   const perform = async (work: () => Promise<void>) => {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
@@ -325,6 +329,7 @@ export function FingeringDialog({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   };
@@ -392,6 +397,7 @@ export function FingeringDialog({
   const apply = () =>
     perform(async () => {
       if (
+        pendingRefresh ||
         !result ||
         !currentAcceptance?.valid ||
         ((currentAcceptance.selected < currentAcceptance.total ||
@@ -405,9 +411,25 @@ export function FingeringDialog({
         fingerprint: result.fingerprint,
         edits: acceptanceEdits,
       });
-      await changed();
-      close();
+      setPendingRefresh("saved");
+      setResult(null);
+      try {
+        await changed();
+        close();
+      } catch (cause) {
+        setError(`指法已保存，但界面刷新失败：${String(cause)}。请只重试读取，不要再次提交。`);
+      }
     });
+  const retryRefresh = () => perform(async () => {
+    if (!pendingRefresh) return;
+    try {
+      await changed();
+      if (pendingRefresh === "saved") close();
+      else setPendingRefresh(null);
+    } catch (cause) {
+      throw new Error(`${pendingRefresh === "saved" ? "指法已保存" : "上次指法修改已撤销"}，但界面刷新失败：${String(cause)}。请只重试读取。`);
+    }
+  });
   const visible = result?.proposals.slice(page * 40, (page + 1) * 40) ?? [];
   return (
     <div
@@ -454,7 +476,7 @@ export function FingeringDialog({
         {note && <p className="parameter-help" aria-label="当前指法音符">
           当前音符：第 {song.measures.find((m) => note.start >= m.start - 0.001 && note.start < m.end - 0.001)?.displayNumber ?? song.measures.find((m) => note.start >= m.start - 0.001 && note.start < m.end - 0.001)?.number ?? "?"} 小节 · {trackName(note.track)} · {pitchName(note.pitch)} · 音符 {note.index + 1} · 已存指法 {note.finger ?? "未标记"}。建议仅用于检查教学指法，历史 MIDI 不记录实际使用的手指。
         </p>}
-        <button disabled={busy} onClick={() => setPair(true)}>
+        <button disabled={busy || !!pendingRefresh} onClick={() => setPair(true)}>
           双手一起审阅
         </button>
         <div className="fingering-options">
@@ -514,7 +536,7 @@ export function FingeringDialog({
             </select>
           </label>
           <button
-            disabled={busy}
+            disabled={busy || !!pendingRefresh}
             onClick={() =>
               void perform(async () => {
                 await api.command({
@@ -584,7 +606,7 @@ export function FingeringDialog({
           )}
           <button
             className="primary-button"
-            disabled={busy}
+            disabled={busy || !!pendingRefresh}
             onClick={() => void generate()}
           >
             {busy ? "处理中…" : "生成建议"}
@@ -593,7 +615,7 @@ export function FingeringDialog({
         <HeldFingerPlans
           onBusy={setBusy}
           song={song}
-          disabled={busy}
+          disabled={busy || !!pendingRefresh}
           changed={changed}
           request={{
             content_id: song.contentId,
@@ -663,7 +685,7 @@ export function FingeringDialog({
             ].map(([part, label]) => (
               <button
                 key={part}
-                disabled={busy}
+                disabled={busy || !!pendingRefresh}
                 onClick={() =>
                   void perform(async () => {
                     const t = playable.find((t) => t.id === track)!;
@@ -690,6 +712,12 @@ export function FingeringDialog({
         {error && (
           <p role="alert" className="dialog-error">
             {error}
+          </p>
+        )}
+        {pendingRefresh && (
+          <p role="status">
+            {pendingRefresh === "saved" ? "指法已保存。" : "上次指法修改已撤销。"}
+            <button disabled={busy} onClick={() => void retryRefresh()}>重试读取实际指法</button>
           </p>
         )}
         {result ? (
@@ -1419,15 +1447,21 @@ export function FingeringDialog({
         )}
         <div className="dialog-actions">
           <button
-            disabled={busy}
+            disabled={busy || !!pendingRefresh}
             onClick={() =>
               void perform(async () => {
                 await api.command({
                   type: "undoFingersFor",
                   content_id: song.contentId,
                 });
-                await changed();
+                setPendingRefresh("undone");
                 setResult(null);
+                try {
+                  await changed();
+                  setPendingRefresh(null);
+                } catch (cause) {
+                  setError(`上次指法修改已撤销，但界面刷新失败：${String(cause)}。请只重试读取，不要再次撤销。`);
+                }
               })
             }
           >
@@ -1445,6 +1479,7 @@ export function FingeringDialog({
             className="primary-button"
             disabled={
               busy ||
+              !!pendingRefresh ||
               !result ||
               !accepted.size ||
               !currentAcceptance?.valid ||
