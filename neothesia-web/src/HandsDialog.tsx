@@ -1,7 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { api, pitchName, type LoadedSong } from "./api";
 type Part = "LeftHand" | "RightHand" | "Other";
+type Side = "left" | "right";
+type SpanProfile = "Compact" | "Standard" | "Large";
+const spanName: Record<SpanProfile, string> = {
+  Compact: "较小 · 七度内",
+  Standard: "一般 · 八度内",
+  Large: "较大 · 九度内",
+};
 type Proposal = {
   track: number;
   index: number;
@@ -37,6 +44,54 @@ export function HandsDialog({
     [page, setPage] = useState(0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [spans, setSpans] = useState<Record<Side, SpanProfile | null>>({
+    left: null,
+    right: null,
+  });
+  const [inherited, setInherited] = useState<Record<Side, SpanProfile>>({
+    left: "Standard",
+    right: "Standard",
+  });
+  const [spanStatus, setSpanStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [spanReload, setSpanReload] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setSpanStatus("loading");
+    void api
+      .command<{
+        profiles: Record<string, SpanProfile> | null;
+        profilesByHand: Record<string, SpanProfile> | null;
+        defaults: Record<string, SpanProfile>;
+      }>({ type: "fingerProfiles" })
+      .then((data) => {
+        if (cancelled) return;
+        setSpans({
+          left: data.profilesByHand?.[`${track}:left`] ?? null,
+          right: data.profilesByHand?.[`${track}:right`] ?? null,
+        });
+        setInherited({
+          left:
+            data.defaults.LeftHand ??
+            data.profiles?.[String(track)] ??
+            "Standard",
+          right:
+            data.defaults.RightHand ??
+            data.profiles?.[String(track)] ??
+            "Standard",
+        });
+        setSpanStatus("ready");
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setSpanStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [track, song.contentId, spanReload]);
   const rows = useMemo(
     () =>
       proposals ??
@@ -107,6 +162,7 @@ export function HandsDialog({
               disabled={busy}
               onChange={(e) => {
                 setTrack(Number(e.target.value));
+                setSpanStatus("loading");
                 reset();
               }}
             >
@@ -147,6 +203,45 @@ export function HandsDialog({
               }}
             />
           </label>
+          {(["left", "right"] as Side[]).map((side) => (
+            <label key={side}>
+              {side === "left" ? "左手跨度" : "右手跨度"}
+              <select
+                aria-label={`${side === "left" ? "左手" : "右手"}分手跨度`}
+                value={spans[side] ?? ""}
+                disabled={busy || spanStatus !== "ready"}
+                onChange={(e) => {
+                  const profile = (e.target.value || null) as SpanProfile | null;
+                  void perform(async () => {
+                    await api.command({
+                      type: "handSpanFor",
+                      content_id: song.contentId,
+                      track,
+                      hand: side === "left" ? "LeftHand" : "RightHand",
+                      profile,
+                    });
+                    setSpans((current) => ({ ...current, [side]: profile }));
+                    reset();
+                  });
+                }}
+              >
+                <option value="">沿用默认（{spanName[inherited[side]]}）</option>
+                {(Object.keys(spanName) as SpanProfile[]).map((profile) => (
+                  <option key={profile} value={profile}>
+                    {spanName[profile]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {spanStatus === "error" && (
+            <button
+              disabled={busy}
+              onClick={() => setSpanReload((value) => value + 1)}
+            >
+              重新读取跨度
+            </button>
+          )}
           <label>
             参考手位
             <select
@@ -167,7 +262,7 @@ export function HandsDialog({
           </label>
           <button
             className="primary-button"
-            disabled={busy}
+            disabled={busy || spanStatus !== "ready"}
             onClick={() =>
               void perform(async () => {
                 const data = await api.command<{
@@ -203,7 +298,7 @@ export function HandsDialog({
           </button>
         </div>
         <p className="parameter-help">
-          建议结合和弦跨度、持续音和前后声部走向。生成后只预选需要改动且信心较高的建议；伸展、复杂和弦及未判断的音需逐音选择。保存后用于分手练习、伴奏和指法推荐。
+          当前音轨的左右手跨度会影响建议；修改后请重新生成。建议还会结合持续音和前后声部走向。生成后只预选需要改动且信心较高的建议；伸展、交叉和未判断的音请核对后勾选。保存后用于分手练习、伴奏和指法推荐。
         </p>
         <div className="fingering-options">
           <button

@@ -431,6 +431,12 @@ pub enum Command {
         hand: PracticePart,
         profile: neothesia_core::fingering::HandSpanProfile,
     },
+    HandSpanFor {
+        content_id: String,
+        track: usize,
+        hand: PracticePart,
+        profile: Option<neothesia_core::fingering::HandSpanProfile>,
+    },
     Passages,
     PreviewScoreRangeTrim {content_id:String,score_revision:u64,first:u32,last:u32,start_trim:u64,end_trim:u64},
     PreviewScoreRange { content_id: String, score_revision: u64, first: u32, last: u32 },
@@ -2470,6 +2476,25 @@ impl Player {
                     return Err("请指定左手或右手".into());
                 }
                 self.preferences.hand_span_defaults.insert(hand, profile);
+            }
+            Command::HandSpanFor { content_id, track, hand, profile } => {
+                let file = self.file.as_ref().ok_or("请先选择曲目")?;
+                if file.content_id != content_id {
+                    return Err("曲目已切换，请重新设置手的跨度".into());
+                }
+                if !file.tracks.iter().any(|item| item.track_id == track) {
+                    return Err("音轨不存在".into());
+                }
+                if hand == PracticePart::Other {
+                    return Err("请指定左手或右手".into());
+                }
+                let key = format!("{track}:{}", hands::label(hand));
+                let profiles = self.preferences.hand_span_profiles.entry(content_id).or_default();
+                if let Some(profile) = profile {
+                    profiles.insert(key, profile);
+                } else {
+                    profiles.remove(&key);
+                }
             }
             Command::FingerProfiles => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
@@ -4882,6 +4907,34 @@ mod tests {
             .is_err()
         );
         assert_eq!(hands::hints(&p.note_hands), before);
+    }
+    #[test]
+    fn hand_span_override_rejects_stale_song_and_survives_restore() {
+        use neothesia_core::fingering::HandSpanProfile;
+
+        let mut p = player();
+        let content_id = p.file.as_ref().unwrap().content_id.clone();
+        let track = p.notes[0].track_id;
+        let command = |content_id: String, profile| Command::HandSpanFor {
+            content_id,
+            track,
+            hand: PracticePart::LeftHand,
+            profile,
+        };
+        assert!(p.command(command("stale".into(), Some(HandSpanProfile::Compact))).is_err());
+        p.command(command(content_id.clone(), Some(HandSpanProfile::Large)))
+            .unwrap();
+        let data = p.data.clone();
+        drop(p);
+        let mut restored = Player::new(data, PathBuf::new(), true);
+        restored.restore();
+        let key = format!("{track}:left");
+        assert_eq!(
+            restored.preferences.hand_span_profiles[&content_id][&key],
+            HandSpanProfile::Large
+        );
+        restored.command(command(content_id.clone(), None)).unwrap();
+        assert!(!restored.preferences.hand_span_profiles[&content_id].contains_key(&key));
     }
     #[test]
     fn measure_part_preparation_targets_only_the_requested_track_and_hand() {
