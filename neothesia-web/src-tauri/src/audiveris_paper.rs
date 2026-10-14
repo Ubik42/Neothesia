@@ -856,6 +856,13 @@ mod tests {
         assert_eq!(read_snapshot_pages(&temp.dir, cid, &book, &pages).unwrap(), vec![png, jpeg]);
         let reversed = pages.iter().rev().cloned().collect::<Vec<_>>();
         assert!(snapshot(&temp.dir, cid, &book, &reversed).is_err());
+        let second_asset = temp.dir
+            .join("score-attachments")
+            .join(blake3::hash(cid.as_bytes()).to_hex().as_str())
+            .join(format!("{}.jpeg", pages[1].id));
+        fs::write(second_asset, b"\xff\xd8\xffchanged").unwrap();
+        assert!(snapshot(&temp.dir, cid, &book, &pages).is_err());
+        assert!(read_snapshot_pages(&temp.dir, cid, &book, &pages).is_err());
     }
 
     #[cfg(target_os = "windows")]

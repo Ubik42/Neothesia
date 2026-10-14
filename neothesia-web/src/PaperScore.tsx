@@ -142,7 +142,7 @@ export function PaperScore({
   manage?: boolean;
   revision?: number;
   onBusy?: (busy: boolean) => void;
-  onRecognize?: (attachment: PaperAttachment) => Promise<void>;
+  onRecognize?: (attachment: PaperAttachment, report: (message: string) => void) => Promise<void>;
   playback?: { measure: number };
   contextKey?: string;
   historyFocus?: HistoryPaperFocus | null;
@@ -150,6 +150,7 @@ export function PaperScore({
   const [sourceBusy,setSourceBusy]=useState(false);
   const [transferBusy,setTransferBusy]=useState(false);
   const [recognizing, setRecognizing] = useState(false);
+  const [recognitionMessage, setRecognitionMessage] = useState("");
   const [audiverisStatus, setAudiverisStatus] = useState<AudiverisProgramStatus | null>(null);
   const [practice, setPractice] = useState<PracticeContext | null>(null);
   const [song, setSong] = useState<LoadedSong | null>(null);
@@ -462,8 +463,9 @@ export function PaperScore({
                     : "按当前页序识别；结果将先进入演奏乐谱预览"}
                   onClick={() => void work(async () => {
                     setRecognizing(true);
-                    try { await onRecognize(current); }
-                    finally { setRecognizing(false); }
+                    setRecognitionMessage("正在准备纸谱…");
+                    try { await onRecognize(current, (message) => { if (alive.current) setRecognitionMessage(message); }); }
+                    finally { setRecognizing(false); setRecognitionMessage(""); }
                   })}
                 >
                   {recognizing ? "正在识别纸谱…" : "识别为演奏乐谱"}
@@ -508,7 +510,7 @@ export function PaperScore({
           )}
           {recognizing && (
             <p role="status" className="parameter-help">
-              Audiveris 正在读取纸谱。识别完成后，请逐小节核对结果。
+              {recognitionMessage} 识别完成后，请逐小节核对结果。
             </p>
           )}
           {current && <PaperSources key={`source:${contentId}:${current.id}`} contentId={contentId} attachment={current} disabled={busy || sourceBusy || transferBusy} changed={refresh} onBusy={setSourceBusy}/>}

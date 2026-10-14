@@ -16,7 +16,7 @@ type Version = {
 };
 type OriginalSource = { versionId: string; status: string; path: string };
 
-async function recognitionPdf(contentId: string, attachment: PaperAttachment): Promise<number[] | undefined> {
+async function recognitionPdf(contentId: string, attachment: PaperAttachment, report: (message: string) => void): Promise<number[] | undefined> {
   if (attachment.format !== "images" || attachment.pages.length === 1) return undefined;
   const total = attachment.pages.reduce((size, page) => size + page.size, 0);
   if (total > 32_000_000)
@@ -25,6 +25,7 @@ async function recognitionPdf(contentId: string, attachment: PaperAttachment): P
   const document = await PDFDocument.create();
   document.setTitle(attachment.name);
   for (const [index, page] of attachment.pages.entries()) {
+    report(`正在整理第 ${index + 1} / ${attachment.pages.length} 页图片…`);
     const bytes = await api.readScoreAttachment(contentId, attachment.id, index, page.kind);
     const image = page.kind === "png"
       ? await document.embedPng(bytes)
@@ -34,6 +35,8 @@ async function recognitionPdf(contentId: string, attachment: PaperAttachment): P
     if (!image) throw new Error(`第 ${index + 1} 页不是 PNG 或 JPEG 图片。`);
     const width = image.width * 72 / 300;
     const height = image.height * 72 / 300;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width > 14_400 || height > 14_400)
+      throw new Error(`第 ${index + 1} 页的图片尺寸无法用于识谱 PDF。`);
     const sheet = document.addPage([width, height]);
     sheet.drawImage(image, { x: 0, y: 0, width, height });
   }
@@ -169,15 +172,16 @@ export function ScoresDialog({
       setBusy(false);
     }
   };
-  const recognizePaper = async (attachment: PaperAttachment) => {
+  const recognizePaper = async (attachment: PaperAttachment, report: (message: string) => void) => {
     const contentId = song.contentId;
     setBusy(true);
     setError("");
     setFilePreview(null);
     try {
-      const preparedPdf = await recognitionPdf(contentId, attachment);
+      const preparedPdf = await recognitionPdf(contentId, attachment, report);
       if (currentContentId.current !== contentId)
         throw new Error("当前曲目已经切换。请重新选择纸谱。");
+      report("Audiveris 正在识别纸谱…");
       const draft = await api.recognizePaperWithAudiveris(
         contentId,
         attachment.id,
