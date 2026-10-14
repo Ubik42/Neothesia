@@ -16,11 +16,38 @@ type Version = {
 };
 type OriginalSource = { versionId: string; status: string; path: string };
 
+async function webpForRecognition(bytes: Uint8Array, pageNumber: number): Promise<Uint8Array> {
+  const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: "image/webp" }));
+  try {
+    const source = new Image();
+    source.src = url;
+    await source.decode();
+    if (!source.naturalWidth || !source.naturalHeight ||
+      source.naturalWidth > 16_384 || source.naturalHeight > 16_384 ||
+      source.naturalWidth * source.naturalHeight > 40_000_000)
+      throw new Error(`第 ${pageNumber} 页图片尺寸过大。请缩小图片后重新导入。`);
+    const canvas = document.createElement("canvas");
+    canvas.width = source.naturalWidth;
+    canvas.height = source.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(`第 ${pageNumber} 页无法转换 WebP 图片。`);
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error(`第 ${pageNumber} 页无法转换 WebP 图片。`)), "image/jpeg", 0.98));
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function recognitionPdf(contentId: string, attachment: PaperAttachment, report: (message: string) => void): Promise<number[] | undefined> {
-  if (attachment.format !== "images" || attachment.pages.length === 1) return undefined;
+  if (attachment.format !== "images" || (attachment.pages.length === 1 && attachment.pages[0].kind !== "webp")) return undefined;
   const total = attachment.pages.reduce((size, page) => size + page.size, 0);
-  if (total > 32_000_000)
-    throw new Error("这份图片谱超过 32 MB。请分成较小的谱本再识别。");
+  const inputLimit = attachment.pages.length === 1 ? 48_000_000 : 32_000_000;
+  if (total > inputLimit)
+    throw new Error(`这份图片谱超过 ${inputLimit / 1_000_000} MB。请分成较小的谱本再识别。`);
   const { PDFDocument } = await import("pdf-lib");
   const document = await PDFDocument.create();
   document.setTitle(attachment.name);
@@ -31,8 +58,10 @@ async function recognitionPdf(contentId: string, attachment: PaperAttachment, re
       ? await document.embedPng(bytes)
       : page.kind === "jpeg"
         ? await document.embedJpg(bytes)
+        : page.kind === "webp"
+          ? await document.embedJpg(await webpForRecognition(bytes, index + 1))
         : null;
-    if (!image) throw new Error(`第 ${index + 1} 页不是 PNG 或 JPEG 图片。`);
+    if (!image) throw new Error(`第 ${index + 1} 页不是 PNG、JPEG 或 WebP 图片。`);
     const width = image.width * 72 / 300;
     const height = image.height * 72 / 300;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width > 14_400 || height > 14_400)

@@ -89,7 +89,7 @@ fn snapshot(
     }
     let valid = match book["format"].as_str() {
         Some("pdf") => actual.len() == 1 && actual[0].kind == "pdf",
-        Some("images") => actual.iter().all(|page| matches!(page.kind.as_str(), "png" | "jpeg")),
+        Some("images") => actual.iter().all(|page| matches!(page.kind.as_str(), "png" | "jpeg" | "webp")),
         _ => false,
     };
     if !valid {
@@ -457,17 +457,18 @@ pub async fn recognize_paper_with_audiveris(
         let midi_source = current_source(&engine, &content_id)?;
         let before = snapshot(&data, &content_id, &book_id, &expected_pages)?;
         let single_source = verify_snapshot_pages(&data, &content_id, &book_id, &before.pages)?;
-        let (source, kind) = if before.pages.len() == 1 {
-            if prepared_pdf.is_some() {
-                return Err("单页纸谱不需要合成 PDF，请重新识别".into());
-            }
-            (single_source.ok_or("纸谱内容无法读取，请重新打开谱面管理")?, before.pages[0].kind.as_str())
-        } else {
-            let pdf = prepared_pdf.ok_or("多页图片尚未组成 PDF，请重新识别")?;
+        let single_webp = before.pages.len() == 1 && before.pages[0].kind == "webp";
+        let (source, kind) = if before.pages.len() > 1 || single_webp {
+            let pdf = prepared_pdf.ok_or("图片尚未组成 PDF，请重新识别")?;
             if !(100..=MAX_RECOGNITION_INPUT_BYTES).contains(&pdf.len()) || !pdf.starts_with(b"%PDF-") {
-                return Err("多页图片生成的 PDF 无效或超过 32 MB，请分成较小的谱本".into());
+                return Err("图片生成的 PDF 无效或超过 32 MB，请分成较小的谱本".into());
             }
             (pdf, "pdf")
+        } else {
+            if prepared_pdf.is_some() {
+                return Err("这份单页纸谱不需要合成 PDF，请重新识别".into());
+            }
+            (single_source.ok_or("纸谱内容无法读取，请重新打开谱面管理")?, before.pages[0].kind.as_str())
         };
         let (program, _) = resolve_program(&data)?;
         let scratch = Scratch::create(&data)?;
@@ -845,13 +846,16 @@ mod tests {
         let cid = "image-song";
         let png = b"\x89PNG\r\n\x1a\nfirst".to_vec();
         let jpeg = b"\xff\xd8\xffsecond".to_vec();
+        let webp = b"RIFF\x10\x00\x00\x00WEBPthird".to_vec();
         let first = score_attachments::add(&temp.dir, cid, "图片谱", png.clone(), None).unwrap();
         let book = first["active"].as_str().unwrap().to_string();
-        let listed = score_attachments::add(&temp.dir, cid, "第二页", jpeg.clone(), Some(&book)).unwrap();
+        score_attachments::add(&temp.dir, cid, "第二页", jpeg.clone(), Some(&book)).unwrap();
+        let listed = score_attachments::add(&temp.dir, cid, "第三页", webp.clone(), Some(&book)).unwrap();
         let pages = listed["attachments"][0]["pages"].as_array().unwrap().iter().map(|page| PageIdentity {
             id: page["id"].as_str().unwrap().into(),
             kind: page["kind"].as_str().unwrap().into(),
         }).collect::<Vec<_>>();
+        assert_eq!(pages[2].kind, "webp");
         let paper = snapshot(&temp.dir, cid, &book, &pages).unwrap();
         assert_eq!(paper.pages, pages);
         assert!(verify_snapshot_pages(&temp.dir, cid, &book, &pages).unwrap().is_none());

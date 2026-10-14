@@ -456,11 +456,9 @@ export function PaperScore({
                   disabled={
                     busy || sourceBusy || transferBusy ||
                     !audiverisStatus?.available ||
-                    current.pages.some((page) => !page.available || !["pdf", "png", "jpeg"].includes(page.kind))
+                    current.pages.some((page) => !page.available || !["pdf", "png", "jpeg", "webp"].includes(page.kind))
                   }
-                  title={current.pages.some((page) => page.kind === "webp")
-                    ? "Audiveris 识别需要 PDF、PNG 或 JPEG；请先转换 WebP 图片"
-                    : "按当前页序识别；结果将先进入演奏乐谱预览"}
+                  title="按当前页序识别；WebP 图片会临时转换，结果将先进入演奏乐谱预览"
                   onClick={() => void work(async () => {
                     setRecognizing(true);
                     setRecognitionMessage("正在准备纸谱…");
