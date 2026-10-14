@@ -31,6 +31,7 @@ interface Asset {
   trillCount?: number;
   mordentCount?: number;
   turnCount?: number;
+  invertedTurnCount?: number;
   route?: WrittenRoute | null;
 }
 type Mapping = ScoreMapping;
@@ -666,7 +667,7 @@ export function Notation({
         </button>
         <span>
           {asset
-            ? `配对 ${asset.coverage}% · ${asset.readiness === "Ready" ? "可跟随" : asset.readiness === "Blocked" ? "导航未通过" : "需校对"}${asset.trillCount ? ` · 颤音 ${asset.trillCount} 处` : ""}${asset.mordentCount ? ` · 波音 ${asset.mordentCount} 处` : ""}${asset.turnCount ? ` · 回音 ${asset.turnCount} 处` : ""}`
+            ? `配对 ${asset.coverage}% · ${asset.readiness === "Ready" ? "可跟随" : asset.readiness === "Blocked" ? "导航未通过" : "需校对"}${asset.trillCount ? ` · 颤音 ${asset.trillCount} 处` : ""}${asset.mordentCount ? ` · 波音 ${asset.mordentCount} 处` : ""}${asset.turnCount ? ` · 回音 ${asset.turnCount} 处` : ""}${asset.invertedTurnCount ? ` · 倒回音 ${asset.invertedTurnCount} 处` : ""}`
             : ""}
         </span>
       </div>

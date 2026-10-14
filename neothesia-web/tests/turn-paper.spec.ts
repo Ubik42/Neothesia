@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-for (const { name, ornament, pitches } of [
-  { name: "普通回音", ornament: "turn", pitches: [62, 60, 58, 60, 62, 60, 58, 60] },
-  { name: "明确下邻音起始的倒回音", ornament: 'inverted-turn start-note="below"', pitches: [58, 60, 62, 60, 58, 60, 62, 60] },
+for (const { name, ornament, pitches, notationLabel } of [
+  { name: "普通回音", ornament: "turn", pitches: [62, 60, 58, 60, 62, 60, 58, 60], notationLabel: "回音 1 处" },
+  { name: "明确下邻音起始的倒回音", ornament: 'inverted-turn start-note="below"', pitches: [58, 60, 62, 60, 58, 60, 62, 60], notationLabel: "倒回音 1 处" },
 ]) test(`${name}的反复击键保存为同一谱音并可在重开后定位`, async ({ page, request }) => {
   test.setTimeout(90_000);
   const command = async (data: unknown) => {
@@ -19,7 +19,7 @@ for (const { name, ornament, pitches } of [
   await command({ type: "pairScore", content_id: song.contentId, name: `${name}定位.musicxml`, bytes: [...Buffer.from(xml)] });
   await page.goto("/");
   await page.getByRole("button", { name: "乐谱", exact: true }).click();
-  await expect(page.getByText(/回音 1 处/)).toBeVisible();
+  await expect(page.getByText(notationLabel, { exact: false })).toBeVisible();
   const generate = page.getByRole("button", { name: "生成可定位纸谱", exact: true });
   await expect(generate).toBeEnabled({ timeout: 30_000 });
   await generate.click();
