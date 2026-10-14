@@ -569,6 +569,12 @@ mod tests {
         ).with_context(p.history_context()).with_scope(p.practice_scope()).with_mode("wait");
         passage.recorded_at_unix_ms = 2;
         p.history.record_session(&cid, &p.title.clone(), passage).unwrap();
+        let collection = p.command(Command::Collection).unwrap();
+        let song = collection["songs"].as_array().unwrap().iter()
+            .find(|song| song["contentId"].as_str() == Some(cid.as_str())).unwrap();
+        assert_eq!(song["lastPracticed"].as_u64(), Some(2));
+        assert_eq!(song["review"]["sourceAt"].as_u64(), Some(1));
+        assert_eq!(song["review"]["sourceIsWholeSong"].as_bool(), Some(true));
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);
         assert_eq!(due["eligibleTotal"], 1);

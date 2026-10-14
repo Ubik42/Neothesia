@@ -55,7 +55,7 @@ export interface CollectionSong {
   generated: boolean;
   available: boolean;
   recommended: [number, number] | null;
-  review: { due: boolean; dueAt?: number; days: number; streak: number; intervalDays?: number; reason?: "NeedsEvidence" | "IncompleteConditions" | "NeedsReinforcement" | "FirstMastery" | "Consolidating" | "Stable" } | null;
+  review: { due: boolean; dueAt?: number; sourceAt?: number; sourceIsWholeSong?: boolean; days: number; streak: number; intervalDays?: number; reason?: "NeedsEvidence" | "IncompleteConditions" | "NeedsReinforcement" | "FirstMastery" | "Consolidating" | "Stable" } | null;
 }
 export interface TrackSound {
   volume: number;

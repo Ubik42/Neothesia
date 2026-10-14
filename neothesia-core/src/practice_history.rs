@@ -324,6 +324,8 @@ pub enum ReviewReason {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ReviewStatus {
     pub due_at_unix_ms: u64,
+    pub source_at_unix_ms: u64,
+    pub source_is_whole_song: bool,
     pub is_due: bool,
     pub interval_days: u16,
     pub days_until_due: u16,
@@ -375,6 +377,8 @@ impl SongPracticeHistory {
             .min(u64::from(u16::MAX)) as u16;
         Some(ReviewStatus {
             due_at_unix_ms,
+            source_at_unix_ms: latest.recorded_at_unix_ms,
+            source_is_whole_song: regular_latest.is_some(),
             is_due: now_unix_ms >= due_at_unix_ms,
             interval_days,
             days_until_due,
@@ -660,7 +664,6 @@ fn same_review_conditions(a: &PracticeSession, b: &PracticeSession) -> bool {
         && a.hands == b.hands
         && a.exercise_spec == b.exercise_spec
         && a.target_notes == b.target_notes
-        && a.judged_notes == b.judged_notes
         && a.count_in == b.count_in
         && a.metronome == b.metronome
         && a.latency == b.latency
@@ -1873,6 +1876,8 @@ mod tests {
         assert_eq!(history.latest_regular_whole_song().unwrap().recorded_at_unix_ms, day);
         let review = history.review_status(day * 3).unwrap();
         assert!(review.is_due);
+        assert_eq!(review.source_at_unix_ms, day);
+        assert!(review.source_is_whole_song);
         assert_eq!(review.reason, ReviewReason::FirstMastery);
         assert_eq!(review.mastery_streak, 1);
     }
@@ -1903,6 +1908,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(history.review_status(day * 3).unwrap().mastery_streak, 2);
+    }
+
+    #[test]
+    fn judged_note_count_is_an_outcome_not_a_review_condition() {
+        let complete = review_session(1);
+        let mut incomplete = complete.clone();
+        incomplete.context.as_mut().unwrap().judged_notes = 9;
+        incomplete.summary.overall.matched_notes = 9;
+        assert!(same_review_conditions(&complete, &incomplete));
+        assert!(session_is_mastered(&complete));
+        assert!(!session_is_mastered(&incomplete));
     }
 
     #[test]

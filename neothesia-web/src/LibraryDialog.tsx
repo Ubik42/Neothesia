@@ -69,13 +69,19 @@ function reviewReason(review: NonNullable<CollectionSong["review"]>): string {
 function reviewLabel(review: CollectionSong["review"]): string {
   if (!review) return "";
   const reason = reviewReason(review);
-  return review.due ? `待复习：${reason}` : `${reason}，${review.days} 天后复习`;
+  const source = review.sourceAt
+    ? `；依据 ${new Date(review.sourceAt).toLocaleDateString("zh-CN")} 的${review.sourceIsWholeSong ? "整曲" : "练习"}成绩`
+    : "";
+  return (review.due ? `待复习：${reason}` : `${reason}，${review.days} 天后复习`) + source;
 }
-function reviewShort(review: CollectionSong["review"]): string {
+function reviewShort(review: CollectionSong["review"], lastPracticed?: number | null): string {
   if (!review) return "";
-  if (review.reason === "IncompleteConditions") return "条件不足 · 待复习";
-  if (review.reason === "NeedsEvidence") return "成绩不足 · 待复习";
-  return review.due ? "待复习" : `${review.days} 天后复习`;
+  const source = review.sourceIsWholeSong && review.sourceAt && review.sourceAt !== lastPracticed
+    ? ` · 整曲 ${new Date(review.sourceAt).toLocaleDateString("zh-CN")}`
+    : "";
+  if (review.reason === "IncompleteConditions") return `条件不足 · 待复习${source}`;
+  if (review.reason === "NeedsEvidence") return `成绩不足 · 待复习${source}`;
+  return (review.due ? "待复习" : `${review.days} 天后复习`) + source;
 }
 export function LibraryDialog({
   rows,
@@ -1349,13 +1355,13 @@ export function LibraryDialog({
                           {historyFor(r)?.sessions
                             ? `${historyFor(r)!.sessions} 次`
                             : "—"}
-                          <small>
+                          <small title={reviewLabel(historyFor(r)?.review ?? null)}>
                             {historyFor(r)?.lastPracticed
                               ? new Date(
                                   historyFor(r)!.lastPracticed!,
                                 ).toLocaleDateString("zh-CN")
                               : ""}
-                            {historyFor(r)?.review ? ` · ${reviewShort(historyFor(r)?.review ?? null)}` : ""}
+                            {historyFor(r)?.review ? ` · ${reviewShort(historyFor(r)?.review ?? null, historyFor(r)?.lastPracticed)}` : ""}
                           </small>
                         </td>
                       </tr>
