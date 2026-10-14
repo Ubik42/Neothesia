@@ -562,7 +562,7 @@ pub enum Command {
     RemoveRoutine{id:String},
     PassageCatalog{content_id:Option<String>,query:String,offset:usize},
     ComposePassages{routine_id:String,day:Option<String>,content_id:String,entries:Vec<routine_commands::PassageSequenceEntry>,goal:routine_commands::RoutineGoal,proof:Option<String>},
-    SaveRoutineItem{routine_id:String,day:Option<String>,id:Option<String>,source:Option<String>,source_id:Option<String>,title:String,notes:String,goal:routine_commands::RoutineGoal},
+    SaveRoutineItem{#[serde(default)] content_id:Option<String>,routine_id:String,day:Option<String>,id:Option<String>,source:Option<String>,source_id:Option<String>,title:String,notes:String,goal:routine_commands::RoutineGoal},
     MoveRoutineItem{routine_id:String,day:Option<String>,item_id:String,direction:i8},
     RemoveRoutineItem{routine_id:String,day:Option<String>,item_id:String},
     OpenRoutineItem{routine_id:String,day:String,item_id:String,resume:bool},
@@ -1992,7 +1992,10 @@ impl Player {
             Command::RemoveRoutine{id}=>return self.remove_routine(id),
             Command::PassageCatalog{content_id,query,offset}=>return self.passage_catalog(content_id.as_deref(),query,*offset),
             Command::ComposePassages{routine_id,day,content_id,entries,goal,proof}=>return self.compose_passages(routine_id,day.as_deref(),content_id,entries,goal,proof.as_deref()),
-            Command::SaveRoutineItem{routine_id,day,id,source,source_id,title,notes,goal}=>return self.save_routine_item(routine_id,day.as_deref(),id.clone(),source.as_deref(),source_id.as_deref(),title.clone(),notes.clone(),goal.clone()),
+            Command::SaveRoutineItem{content_id,routine_id,day,id,source,source_id,title,notes,goal}=>{
+                if content_id.as_ref().is_some_and(|expected|self.file.as_ref().is_none_or(|file|&file.content_id!=expected)){return Err("曲目已切换，请重新选择计划项目来源".into());}
+                return self.save_routine_item(routine_id,day.as_deref(),id.clone(),source.as_deref(),source_id.as_deref(),title.clone(),notes.clone(),goal.clone());
+            },
             Command::MoveRoutineItem{routine_id,day,item_id,direction}=>return self.move_routine_item(routine_id,day.as_deref(),item_id,*direction),
             Command::RemoveRoutineItem{routine_id,day,item_id}=>return self.remove_routine_item(routine_id,day.as_deref(),item_id),
             Command::OpenRoutineItem{routine_id,day,item_id,resume}=>return self.open_routine_item(routine_id,day,item_id,*resume),
@@ -5511,7 +5514,7 @@ mod tests {
         let goal=expression_goal::ExpressionGoal{velocity_difference:Some(50),..Default::default()};
         let id=p.command(Command::SaveLadder{id:None,name:"独立力度阶梯".into(),start:1,end:1,plan:plan.clone(),expression:Some(goal.clone())}).unwrap()["id"].as_str().unwrap().to_string();
         let routine=p.command(Command::SaveRoutine{id:None,day:None,name:"继承阶梯".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
-        let item=p.command(Command::SaveRoutineItem{routine_id:routine.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(id.clone()),title:"同条件日课".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let item=p.command(Command::SaveRoutineItem{content_id:None,routine_id:routine.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(id.clone()),title:"同条件日课".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
         assert_eq!(p.preferences.routines.iter().find(|r|r.id==routine).unwrap().items.iter().find(|i|i.id==item).unwrap().goal.expression,Some(goal.clone()));
         p.command(Command::StartLadder{id:id.clone(),resume:false}).unwrap();
         p.command(Command::Play).unwrap();
@@ -5581,7 +5584,7 @@ mod tests {
         p.command(Command::MeasureLoop{start:1,end:1,enabled:true}).unwrap();
         let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"每日练习".into(),notes:"连奏".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
         let goal=routine_commands::RoutineGoal{expression:None,passes:2,accuracy:90,on_time:None,consecutive:true,attempt_limit:5};
-        let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("current".into()),source_id:None,title:"选段练习".into(),notes:"放松手腕".into(),goal:goal.clone()}).unwrap()["id"].as_str().unwrap().to_string();
+        let item=p.command(Command::SaveRoutineItem{content_id:None,routine_id:rid.clone(),day:None,id:None,source:Some("current".into()),source_id:None,title:"选段练习".into(),notes:"放松手腕".into(),goal:goal.clone()}).unwrap()["id"].as_str().unwrap().to_string();
         p.command(Command::OpenRoutineItem{routine_id:rid.clone(),day:"2026-10-02".into(),item_id:item.clone(),resume:true}).unwrap();
         assert!(p.command(Command::Speed{value:0.6}).is_err());assert!(p.command(Command::Save).is_err());
         finish_routine_rounds(&mut p,1);
@@ -5592,7 +5595,7 @@ mod tests {
         finish_routine_rounds(&mut p,2);assert_eq!(p.routine_status().unwrap()["progress"]["completed"],true);assert_eq!(p.state.status,"finished");
         let h=p.history.song(&content).unwrap();assert_eq!(h.sessions.len(),2);assert_eq!(h.sessions[0].context.as_ref().unwrap().routine.as_ref().unwrap().day,"2026-10-02");
         p.command(Command::StopRoutine).unwrap();
-        p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:Some(item.clone()),source:None,source_id:None,title:"模板新目标".into(),notes:"新要求".into(),goal:routine_commands::RoutineGoal{expression:None,passes:3,..goal.clone()}}).unwrap();
+        p.command(Command::SaveRoutineItem{content_id:None,routine_id:rid.clone(),day:None,id:Some(item.clone()),source:None,source_id:None,title:"模板新目标".into(),notes:"新要求".into(),goal:routine_commands::RoutineGoal{expression:None,passes:3,..goal.clone()}}).unwrap();
         assert_eq!(p.routines("2026-10-02").unwrap()["runs"][0]["routine"]["items"][0]["goal"]["passes"],2);
         let copied=p.command(Command::SaveRoutine{id:None,day:Some("2026-10-04".into()),name:"预览复制".into(),notes:"".into(),copy_of:Some(rid.clone())}).unwrap()["id"].as_str().unwrap().to_string();
         assert_eq!(p.preferences.routines.iter().find(|r|r.id==copied).unwrap().items.len(),1);
@@ -5608,7 +5611,7 @@ mod tests {
         let mut p=player();
         let ladder=p.command(Command::SaveLadder{id:None,name:"单级阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5},expression:None}).unwrap()["id"].as_str().unwrap().to_string();
         let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"阶梯日课".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
-        let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder.clone()),title:"阶梯项目".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let item=p.command(Command::SaveRoutineItem{content_id:None,routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder.clone()),title:"阶梯项目".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
         p.command(Command::RemoveLadder{id:ladder}).unwrap();
         p.command(Command::OpenRoutineItem{routine_id:rid,day:"2026-10-02".into(),item_id:item,resume:true}).unwrap();
         finish_routine_rounds(&mut p,1);assert_eq!(p.routine_status().unwrap()["progress"]["completed"],true);
@@ -5621,7 +5624,7 @@ mod tests {
         let ladder=p.command(Command::SaveLadder{id:None,name:"力度阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5},expression:None}).unwrap()["id"].as_str().unwrap().to_string();
         let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"力度阶梯日课".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
         let expression=expression_goal::ExpressionGoal{velocity_difference:Some(50),..Default::default()};
-        let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder),title:"力度进阶".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:Some(expression.clone()),passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let item=p.command(Command::SaveRoutineItem{content_id:None,routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder),title:"力度进阶".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:Some(expression.clone()),passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
         assert_eq!(p.preferences.routines[0].items[0].goal.expression,Some(expression.clone()));
         p.command(Command::OpenRoutineItem{routine_id:rid.clone(),day:"2026-10-02".into(),item_id:item.clone(),resume:true}).unwrap();
         p.command(Command::Play).unwrap();

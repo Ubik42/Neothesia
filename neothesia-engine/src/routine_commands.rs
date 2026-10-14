@@ -1083,8 +1083,10 @@ mod routine_write_tests {
         p.preferences_path=path.clone();
         let id=p.save_routine(None,None,"手位日课".into(),String::new(),None).unwrap()["id"].as_str().unwrap().to_owned();
         let before=serde_json::to_value(&p.preferences).unwrap();
-        p.preferences_path=data.clone();
         let goal=RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:20};
+        assert!(p.command(Command::SaveRoutineItem{content_id:Some("另一首曲目".into()),routine_id:id.clone(),day:None,id:None,source:Some("current".into()),source_id:None,title:"错误来源".into(),notes:String::new(),goal:goal.clone()}).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        p.preferences_path=data.clone();
         assert!(p.save_routine_item(&id,None,None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).is_err());
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
         assert!(p.save_routine_item(&id,Some("2026-10-02"),None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).is_err());

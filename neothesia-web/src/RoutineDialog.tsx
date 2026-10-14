@@ -1118,6 +1118,7 @@ export function RoutineDialog({
                             const [kind, ...parts] = source.split(":");
                             const data = await api.command<{ id: string }>({
                               type: "saveRoutineItem",
+                              content_id: source ? song?.contentId ?? null : null,
                               routine_id: selected,
                               day: editDay,
                               id: itemId,
