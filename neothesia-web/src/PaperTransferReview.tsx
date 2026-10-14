@@ -57,23 +57,31 @@ export function PaperTransferReview({
   const [sourceLoading, setSourceLoading] = useState(false);
   const [anchorFocus, setAnchorFocus] = useState<number | null>(null);
   const working = useRef(false);
+  const sourceLoadEpoch = useRef(0);
   const cross = sourceContentId !== contentId;
   const origin = sources.find((s) => s.contentId === sourceContentId);
   const sourceBooks = cross
     ? (origin?.attachments ?? [])
     : books.filter((b) => b.id !== target.id);
   async function loadSources() {
+    const request = ++sourceLoadEpoch.current;
     setSourceLoading(true);
     try {
       const v = await api.command<{ sources: TransferSource[] }>({
         type: "paperTransferSources",
         content_id: contentId,
       });
-      setSources(v.sources);
+      if (request === sourceLoadEpoch.current) {
+        setSources(v.sources);
+        setError("");
+      }
     } catch (e) {
-      setError(String(e));
+      if (request === sourceLoadEpoch.current) {
+        setSources([]);
+        setError(`迁移来源列表读取失败：${String(e)}。请重新读取来源演奏。`);
+      }
     } finally {
-      setSourceLoading(false);
+      if (request === sourceLoadEpoch.current) setSourceLoading(false);
     }
   }
   const [source, setSource] = useState(
@@ -82,6 +90,7 @@ export function PaperTransferReview({
     [preview, setPreview] = useState<Preview | null>(null),
     [notes, setNotes] = useState<NoteDraft[]>([]),
     [anchors, setAnchors] = useState<AnchorDraft[]>([]);
+  const sourceAvailable = sourceBooks.some((book) => book.id === source);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -154,6 +163,8 @@ export function PaperTransferReview({
     }
   }
   async function prepare() {
+    if (!sourceAvailable)
+      throw new Error("所选来源谱面已不在当前来源列表，请重新选择后审阅");
     setPreview(null);
     const v = await api.command<Preview>({
       type: cross ? "previewCrossPaperTransfer" : "previewPaperTransfer",
@@ -320,10 +331,13 @@ export function PaperTransferReview({
             </option>
           ))}
         </select>
-        <button disabled={locked || !source} onClick={() => void work(prepare)}>
+        <button disabled={locked || sourceLoading || !sourceAvailable} onClick={() => void work(prepare)}>
           审阅迁移资料
         </button>
       </div>
+      {source && !sourceAvailable && (
+        <p role="status">所选来源谱面已不在当前列表。请重新读取来源演奏并选择谱面。</p>
+      )}
       {cross && (
         <p className="parameter-help">
           来源演奏：{origin?.title} · {sourceContentId}。来源文件：
