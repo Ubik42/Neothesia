@@ -352,7 +352,11 @@ pub fn propose(
                     .map(|&index| {
                         (
                             index,
-                            part(config, assigned, track, index),
+                            assigned
+                                .get(&(track, index))
+                                .copied()
+                                .filter(|hand| *hand != PracticePart::Other)
+                                .unwrap_or(PracticePart::Other),
                             35,
                             "同键重叠、手型跨度或复杂和弦，请逐音指定手",
                         )
@@ -443,9 +447,11 @@ mod tests {
             layout.kind == LayoutKind::Interleaved
                 && layout.hands.as_slice() == &[left, right, right, left]
         }));
-        assert!(hand_layouts(&[None, None, None, None])
-            .iter()
-            .all(|layout| layout.kind != LayoutKind::Interleaved));
+        assert!(
+            hand_layouts(&[None, None, None, None])
+                .iter()
+                .all(|layout| layout.kind != LayoutKind::Interleaved)
+        );
         assert!(hand_layouts(&[Some(left), Some(right), Some(left), Some(right)]).is_empty());
     }
 
@@ -551,10 +557,17 @@ mod tests {
             .filter(|(_, note)| note.note == 60 || note.note == 74)
             .map(|(index, _)| ((track.track_id, index), PracticePart::LeftHand))
             .collect();
+        let mut config = SongConfig::new(&file.tracks);
+        config
+            .tracks
+            .iter_mut()
+            .find(|item| item.track_id == track.track_id)
+            .unwrap()
+            .practice_part = PracticePart::LeftHand;
         let suggest = |profile| {
             propose(
                 file,
-                &SongConfig::new(&file.tracks),
+                &config,
                 &anchors,
                 track.track_id,
                 (1, 1),
@@ -569,6 +582,7 @@ mod tests {
         assert_eq!(middle(&standard).part, PracticePart::LeftHand);
         assert_eq!(middle(&standard).confidence, 40);
         assert_eq!(middle(&compact).part, PracticePart::Other);
+        assert_eq!(middle(&compact).saved, PracticePart::LeftHand);
         assert_eq!(compact.iter().filter(|item| item.pitch != 64).count(), 2);
     }
 }

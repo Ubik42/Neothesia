@@ -125,6 +125,7 @@ export function HandsDialog({
               min={1}
               max={song.measures.length}
               value={first}
+              disabled={busy}
               onChange={(e) => {
                 setFirst(Number(e.target.value));
                 reset();
@@ -139,6 +140,7 @@ export function HandsDialog({
               min={first}
               max={song.measures.length}
               value={last}
+              disabled={busy}
               onChange={(e) => {
                 setLast(Number(e.target.value));
                 reset();
@@ -150,6 +152,7 @@ export function HandsDialog({
             <select
               aria-label="分手参考手位"
               value={reference}
+              disabled={busy}
               onChange={(e) => {
                 setReference(Number(e.target.value));
                 reset();
@@ -180,7 +183,18 @@ export function HandsDialog({
                   throw new Error("曲目已切换");
                 setProposals(data.proposals);
                 setValues({});
-                setAccepted(new Set(data.proposals.map((p) => p.index)));
+                setAccepted(
+                  new Set(
+                    data.proposals
+                      .filter(
+                        (p) =>
+                          p.part !== "Other" &&
+                          p.part !== p.saved &&
+                          p.confidence >= 80,
+                      )
+                      .map((p) => p.index),
+                  ),
+                );
                 setPage(0);
               })
             }
@@ -189,7 +203,7 @@ export function HandsDialog({
           </button>
         </div>
         <p className="parameter-help">
-          建议结合和弦跨度、持续音和前后声部走向。参考手位可以调整；交叉声部请逐音确认。保存后用于分手练习、伴奏和指法推荐。
+          建议结合和弦跨度、持续音和前后声部走向。生成后只预选需要改动且信心较高的建议；伸展、复杂和弦及未判断的音需逐音选择。保存后用于分手练习、伴奏和指法推荐。
         </p>
         <div className="fingering-options">
           <button
