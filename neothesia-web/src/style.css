@@ -514,6 +514,7 @@ button.icon-button {
   align-items: center;
   gap: 9px;
   min-width: 240px;
+  max-width: calc(100% - 32px);
   color: #91a0b3;
 }
 .stage-empty > svg {
@@ -524,7 +525,11 @@ button.icon-button {
   margin: 7px 0;
 }
 .stage-empty button {
-  font-size: 12px;
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .timeline {
   display: flex;

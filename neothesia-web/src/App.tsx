@@ -913,6 +913,20 @@ export default function App() {
       );
     return rows;
   }, [allLibraryRows, byPath, query, source, tab]);
+  const recentPractice = useMemo(() => {
+    const recent = collection
+      .filter((record) => record.available && (record.lastPracticed || record.lastUsed))
+      .sort((a, b) =>
+        Math.max(b.lastPracticed ?? 0, b.lastUsed) -
+        Math.max(a.lastPracticed ?? 0, a.lastUsed));
+    for (const record of recent) {
+      const row = allLibraryRows.find((candidate) =>
+        byPath.get(normalize(candidate.path))?.contentId === record.contentId);
+      if (row) return row;
+    }
+    return null;
+  }, [allLibraryRows, byPath, collection]);
+  const starterSong = songs.find((row) => row.id === "builtin/five-finger") ?? songs[0];
   const sources = useMemo(
     () => [
       "全部来源",
@@ -1683,13 +1697,21 @@ export default function App() {
             {!song && (
               <div className="stage-empty">
                 <Music2 size={34} />
-                <p>从曲库选择一首曲目</p>
+                <p>选择一首曲目开始练习</p>
                 <button
-                  disabled={!songs.length || busy}
-                  onClick={() => songs[0] && void load(songs[0])}
+                  disabled={busy || !recentPractice && !starterSong}
+                  onClick={() => {
+                    const target = recentPractice ?? starterSong;
+                    if (target) void load(target);
+                  }}
                 >
-                  五指热身 · 开始练习
+                  {recentPractice
+                    ? `继续练习 · ${recentPractice.title}`
+                    : starterSong
+                      ? `${starterSong.title} · 开始练习`
+                      : "曲库暂无可用曲目"}
                 </button>
+                <button onClick={() => setLibraryOpen(true)}>从曲库选曲</button>
                 <button onClick={() => void importMidi()}>
                   打开 MIDI 文件
                 </button>
