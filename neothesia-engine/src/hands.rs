@@ -96,11 +96,32 @@ pub fn propose(
         }
         groups.last_mut().unwrap().push(i);
     }
+    let initial_held: Vec<_> = t
+        .notes
+        .iter()
+        .enumerate()
+        .filter(|(_, note)| note.start < start && note.end > start)
+        .map(|(index, note)| (note.note, note.end, part(config, assigned, track, index)))
+        .collect();
+    let mut initial_centers = [f64::from(reference) - 12., f64::from(reference) + 7.];
+    for (side, hand) in [PracticePart::LeftHand, PracticePart::RightHand]
+        .into_iter()
+        .enumerate()
+    {
+        let pitches: Vec<_> = initial_held
+            .iter()
+            .filter(|(_, _, held_hand)| *held_hand == hand)
+            .map(|(pitch, _, _)| f64::from(*pitch))
+            .collect();
+        if !pitches.is_empty() {
+            initial_centers[side] = pitches.iter().sum::<f64>() / pitches.len() as f64;
+        }
+    }
     let mut beams = vec![Beam {
         cost: 0.,
-        left: f64::from(reference) - 12.,
-        right: f64::from(reference) + 7.,
-        held: vec![],
+        left: initial_centers[0],
+        right: initial_centers[1],
+        held: initial_held,
         chain: None,
     }];
     for group in groups {
