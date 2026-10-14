@@ -174,6 +174,75 @@ impl Player {
         }
         Ok(())
     }
+    fn persist_score_registry_and_associations(
+        &mut self,
+        cid: &str,
+        previous: &Option<Vec<ScoreVersion>>,
+        updates: &[(PathBuf, Option<PathBuf>)],
+    ) -> Result<(), String> {
+        let snapshots: Result<Vec<_>, String> = updates
+            .iter()
+            .map(|(path, _)| {
+                Ok((
+                    path.clone(),
+                    metadata::metadata_sidecar_path(path).is_file(),
+                    sidecar(path, cid)?,
+                ))
+            })
+            .collect();
+        let snapshots = match snapshots {
+            Ok(snapshots) => snapshots,
+            Err(error) => {
+                if let Some(rows) = previous {
+                    self.preferences.score_versions.insert(cid.into(), rows.clone());
+                } else {
+                    self.preferences.score_versions.remove(cid);
+                }
+                return Err(error);
+            }
+        };
+        self.persist_score_registry_with_restore(cid, previous)?;
+        for (index, (path, score)) in updates.iter().enumerate() {
+            let result = if let Some(score) = score {
+                metadata::save_score_association(path, cid, score)
+            } else {
+                metadata::clear_score_association(path, cid)
+            };
+            if let Err(error) = result {
+                let mut recovery_errors = Vec::new();
+                for (old_path, existed, old_sidecar) in snapshots[..=index].iter().rev() {
+                    let restored = if *existed {
+                        metadata::save_song_sidecar(old_path, cid, old_sidecar.clone())
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    } else {
+                        std::fs::remove_file(metadata::metadata_sidecar_path(old_path))
+                            .map_err(|e| e.to_string())
+                    };
+                    if let Err(restore_error) = restored {
+                        recovery_errors.push(restore_error);
+                    }
+                }
+                if let Some(rows) = previous {
+                    self.preferences.score_versions.insert(cid.into(), rows.clone());
+                } else {
+                    self.preferences.score_versions.remove(cid);
+                }
+                if let Err(restore_error) = self.preferences.save(&self.preferences_path) {
+                    recovery_errors.push(restore_error);
+                }
+                return if recovery_errors.is_empty() {
+                    Err(error.to_string())
+                } else {
+                    Err(format!(
+                        "谱面关联失败：{error}；恢复旧资料也失败，请重新读取曲目并检查谱面：{}",
+                        recovery_errors.join("；")
+                    ))
+                };
+            }
+        }
+        Ok(())
+    }
     pub(super) fn store_score_version_file(
         &mut self,
         score: &notation::ScoreAsset,
@@ -350,19 +419,24 @@ impl Player {
                 if remaining.len() > 100 {
                     return Err("合并后仍超过 100 份，请先移除其他登记".into());
                 }
+                let mut associations = Vec::new();
                 if is_active_copy {
-                    metadata::save_score_association(&path, &cid, &v.path)
-                        .map_err(|e| e.to_string())?;
+                    associations.push((path.clone(), Some(v.path.clone())));
                     if current {
                         let current_path = self.annotation_path(self.file.as_ref().unwrap())?;
-                        metadata::save_score_association(&current_path, &cid, &v.path)
-                            .map_err(|e| e.to_string())?;
+                        if current_path != path {
+                            associations.push((current_path, Some(v.path.clone())));
+                        }
                     }
                 }
                 self.preferences
                     .score_versions
                     .insert(cid.clone(), remaining);
-                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
+                self.persist_score_registry_and_associations(
+                    &cid,
+                    &previous_registration,
+                    &associations,
+                )?;
             }
             "remove" => {
                 if active.as_ref() == Some(&v.path) {
@@ -385,10 +459,12 @@ impl Player {
                     return Err("谱面内容已改变，请重新导入确认".into());
                 }
                 notation::ScoreAsset::new(bytes, v.name.clone(), &file)?;
-                metadata::save_score_association(&path, &cid, &v.path)
-                    .map_err(|e| e.to_string())?;
                 self.preferences.score_versions.insert(cid.clone(), rows);
-                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
+                self.persist_score_registry_and_associations(
+                    &cid,
+                    &previous_registration,
+                    &[(path.clone(), Some(v.path.clone()))],
+                )?;
                 if current {
                     self.command(Command::ActivateScore {
                         id,
@@ -400,7 +476,6 @@ impl Player {
                 if active.as_ref() != Some(&v.path) {
                     return Err("此谱面不是当前关联".into());
                 }
-                metadata::clear_score_association(&path, &cid).map_err(|e| e.to_string())?;
                 self.preferences.score_versions.insert(
                     cid.clone(),
                     if rows.len() > 100 {
@@ -409,7 +484,11 @@ impl Player {
                         rows
                     },
                 );
-                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
+                self.persist_score_registry_and_associations(
+                    &cid,
+                    &previous_registration,
+                    &[(path.clone(), None)],
+                )?;
                 if current {
                     self.command(Command::DetachScore {
                         content_id: cid.clone(),
@@ -682,13 +761,22 @@ mod tests {
         })
         .unwrap();
         let before_versions = serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap();
+        let before_association = sidecar(&path, &cid).unwrap().score;
         let original_preferences_path = p.preferences_path.clone();
         p.preferences_path = data.clone();
         let inactive = p.preferences.score_versions[&cid].iter()
             .find(|version| version.name == "原谱.musicxml").unwrap().id.clone();
+        let active = p.preferences.score_versions[&cid].iter()
+            .find(|version| version.name == "教师版.musicxml").unwrap().id.clone();
         assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),inactive.clone(),"rename".into(),Some("未写入名称".into())).is_err());
         assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
         assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),inactive.clone(),"remove".into(),None).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
+        assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),inactive.clone(),"select".into(),None).is_err());
+        assert_eq!(sidecar(&path, &cid).unwrap().score, before_association);
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
+        assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),active,"detach".into(),None).is_err());
+        assert_eq!(sidecar(&path, &cid).unwrap().score, before_association);
         assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
         assert!(p.open_library_score(path.clone(),cid.clone(),"notation".into(),inactive).is_err());
         assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
