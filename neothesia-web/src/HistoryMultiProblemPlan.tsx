@@ -122,7 +122,10 @@ export function HistoryMultiProblemPlan({
       });
       if (version !== epoch.current) return;
       if (!reset && old.revision && data.revision !== old.revision) {
-        setLoaded((current) => ({ ...current, [key]: { ...old, error: changedSource } }));
+        setLoaded((current) => ({
+          ...current,
+          [key]: { notes: [], total: 0, revision: old.revision, error: changedSource },
+        }));
         return;
       }
       setLoaded((v) => ({
@@ -169,7 +172,10 @@ export function HistoryMultiProblemPlan({
           });
           if (version !== epoch.current) return;
           if (data.revision !== row.revision) {
-            setLoaded((current) => ({ ...current, [key]: { ...row, error: changedSource } }));
+            setLoaded((current) => ({
+              ...current,
+              [key]: { notes: [], total: 0, revision: row.revision, error: changedSource },
+            }));
             setRestoreMessage(changedSource);
             return;
           }
@@ -208,7 +214,7 @@ export function HistoryMultiProblemPlan({
         <div key={s.slot}>
           <span>
             {s.title} · {new Date(s.recordedAt).toLocaleString("zh-CN")} · 问题{" "}
-            {loaded[sourceKey(s)]?.total ?? "读取中"}
+            {loaded[sourceKey(s)]?.error ? "待核对" : loaded[sourceKey(s)]?.total ?? "读取中"}
           </span>
           <button disabled={busy} onClick={() => remove(s.id, s.contentId)}>
             移出复习编排
