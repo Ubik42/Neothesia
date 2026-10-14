@@ -1100,6 +1100,28 @@ mod routine_write_tests {
     use super::*;
 
     #[test]
+    fn repeated_plan_creation_returns_the_saved_plan_without_writing_again() {
+        let data = std::env::temp_dir().join(new_id("neothesia-routine-request"));
+        let mut p = Player::new(data.clone(), PathBuf::new(), true);
+        let created = p.save_routine_with_request(
+            None, None, "手位练习".into(), "慢速".into(), None, Some("draft-1".into()),
+        ).unwrap();
+        let id = created["id"].as_str().unwrap().to_owned();
+        let before = serde_json::to_value(&p.preferences).unwrap();
+        p.preferences_path = data;
+        let repeated = p.save_routine_with_request(
+            None, None, "手位练习".into(), "慢速".into(), None, Some("draft-1".into()),
+        ).unwrap();
+        assert_eq!(repeated["id"], id);
+        assert_eq!(repeated["existing"], true);
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(), before);
+        assert!(p.save_routine_with_request(
+            None, None, "另一份计划".into(), "慢速".into(), None, Some("draft-1".into()),
+        ).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(), before);
+    }
+
+    #[test]
     fn failed_plan_and_item_writes_keep_preferences_unchanged() {
         let data=std::env::temp_dir().join(new_id("neothesia-routine-write"));
         let mut p=Player::new(data.clone(),PathBuf::new(),true);

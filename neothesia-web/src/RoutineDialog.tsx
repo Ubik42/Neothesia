@@ -437,6 +437,32 @@ export function RoutineDialog({
       throw new Error(`${label}已写入，计划列表读取失败：${e instanceof Error ? e.message : String(e)}`);
     }
   };
+  const createPlan = async (requestId: string, planName: string, planNotes: string, copyOf: string | null) => {
+    try {
+      return await api.command<{ id: string }>({
+        type: "saveRoutine",
+        id: null,
+        day: copyOf ? editDay : null,
+        name: planName,
+        notes: planNotes,
+        copy_of: copyOf,
+        request_id: requestId,
+      });
+    } catch (saveError) {
+      // A lost reply does not prove that the plan was not saved.
+      try {
+        const data = await api.command<{ plans: Plan[] }>({ type: "routines", day });
+        const saved = data.plans.find((item) =>
+          item.id === `routine-request-${requestId}` &&
+          item.name === planName.trim() && item.notes === planNotes,
+        );
+        if (saved) return { id: saved.id };
+      } catch {
+        // Keep the original save error and the request ID for another retry.
+      }
+      throw saveError;
+    }
+  };
   const retrySavedList = () =>
     void work(async () => {
       await changed();
@@ -767,15 +793,12 @@ export function RoutineDialog({
                   disabled={locked || !name.trim()}
                   onClick={() =>
                     void work(async () => {
-                      const data = await api.command<{ id: string }>({
-                        type: "saveRoutine",
-                        id: selected,
-                        day: selected ? editDay : null,
-                        name,
-                        notes,
-                        copy_of: null,
-                        request_id: selected ? null : (draftPlanRequest.current ??= crypto.randomUUID()),
-                      });
+                      const data = selected
+                        ? await api.command<{ id: string }>({
+                            type: "saveRoutine", id: selected, day: editDay,
+                            name, notes, copy_of: null,
+                          })
+                        : await createPlan(draftPlanRequest.current ??= crypto.randomUUID(), name, notes, null);
                       setSelected(data.id);
                       draftPlanRequest.current = null;
                       await refreshSavedList(selected ? "计划信息" : "新计划");
@@ -790,15 +813,10 @@ export function RoutineDialog({
                       disabled={busy || contextPending || !name.trim()}
                       onClick={() =>
                         void work(async () => {
-                          const data = await api.command<{ id: string }>({
-                            type: "saveRoutine",
-                            id: null,
-                            day: editDay,
-                            name: name + "（副本）",
-                            notes,
-                            copy_of: selected,
-                            request_id: (copyPlanRequest.current ??= crypto.randomUUID()),
-                          });
+                          const data = await createPlan(
+                            copyPlanRequest.current ??= crypto.randomUUID(),
+                            name + "（副本）", notes, selected,
+                          );
                           setSelected(data.id);
                           copyPlanRequest.current = null;
                           setTemplate(true);
