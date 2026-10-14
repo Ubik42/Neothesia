@@ -211,7 +211,9 @@ export function RoutineDialog({
   );
   const [passages, setPassages] = useState<{ id: string; name: string }[]>([]),
     [ladders, setLadders] = useState<LadderPreset[]>([]),
-    [generated, setGenerated] = useState<CollectionSong[]>([]);
+    [generated, setGenerated] = useState<CollectionSong[]>([]),
+    [sourceLoading, setSourceLoading] = useState(!!song),
+    [sourceSongId, setSourceSongId] = useState<string | null>(null);
   const [compose, setCompose] = useState(false);
   const [skipReason, setSkipReason] = useState("");
   const [search, setSearch] = useState(""),
@@ -221,6 +223,7 @@ export function RoutineDialog({
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
   const listReadGeneration = useRef(0);
+  const previousSongId = useRef(song?.contentId);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -241,7 +244,8 @@ export function RoutineDialog({
       !template,
     ),
     locked = busy || active || !!openedItem || !!pendingListRefresh,
-    contextPending = !!openedItem || !!pendingListRefresh;
+    contextPending = !!openedItem || !!pendingListRefresh,
+    sourceBusy = !!song && (sourceLoading || sourceSongId !== song.contentId);
   const progress = (id: string) =>
     state.routine?.routineId === selected &&
     state.routine.day === day &&
@@ -292,13 +296,22 @@ export function RoutineDialog({
     };
   }, [day]);
   useEffect(() => {
+    if (previousSongId.current !== song?.contentId) {
+      setItemId(null);
+      setSource("current");
+      previousSongId.current = song?.contentId;
+    }
+    setPassages([]);
+    setLadders([]);
+    setGenerated([]);
+    setSourceSongId(null);
+    setSourceLoading(!!song);
     if (!song) {
-      setPassages([]);
-      setLadders([]);
       return;
     }
+    const songId = song.contentId;
     let cancelled = false;
-    void Promise.all([
+    void Promise.allSettled([
       api.command<{ passages: { id: string; name: string }[] }>({
         type: "passages",
       }),
@@ -307,13 +320,24 @@ export function RoutineDialog({
     ])
       .then(([p, l, c]) => {
         if (!cancelled) {
-          setPassages(p.passages);
-          setLadders(l.presets);
-          setGenerated(c.songs.filter((s) => s.generated));
+          const errors: string[] = [];
+          if (p.status === "fulfilled") setPassages(p.value.passages);
+          else errors.push(`命名选段：${String(p.reason)}`);
+          if (l.status === "fulfilled") setLadders(l.value.presets);
+          else errors.push(`速度阶梯：${String(l.reason)}`);
+          if (c.status === "fulfilled")
+            setGenerated(c.value.songs.filter((s) => s.generated));
+          else errors.push(`最近生成练习：${String(c.reason)}`);
+          setSourceSongId(songId);
+          setSourceLoading(false);
+          if (errors.length) setError(`当前曲目的练习来源读取不完整：${errors.join("；")}`);
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e.message));
+        if (!cancelled) {
+          setSourceLoading(false);
+          setError(String(e.message));
+        }
       });
     return () => {
       cancelled = true;
@@ -880,7 +904,7 @@ export function RoutineDialog({
                       练习条件来源
                       <select
                         aria-label="计划项目条件来源"
-                        disabled={locked}
+                        disabled={locked || sourceBusy}
                         value={source}
                         onChange={(e) => {
                           setSource(e.target.value);
@@ -893,18 +917,19 @@ export function RoutineDialog({
                           <option value="">保留已保存的曲目与条件</option>
                         )}
                         <option value="current">当前曲目及当前练习条件</option>
-                        {passages.map((p) => (
+                        {(sourceSongId === song?.contentId ? passages : []).map((p) => (
                           <option key={p.id} value={`passage:${p.id}`}>
                             命名选段：{p.name}
                           </option>
                         ))}
-                        {ladders.map((p) => (
+                        {(sourceSongId === song?.contentId ? ladders : []).map((p) => (
                           <option key={p.id} value={`ladder:${p.id}`}>
                             速度阶梯：{p.name}
                           </option>
                         ))}
                       </select>
                     </label>
+                    {sourceBusy && <p role="status">正在读取当前曲目的命名选段和速度阶梯…</p>}
                     <div className="routine-goal-grid">
                       <label>
                         达标次数
@@ -1022,7 +1047,7 @@ export function RoutineDialog({
                     <div className="routine-item-actions">
                       <button
                         disabled={
-                          locked || !title.trim() || (!song && source !== "")
+                          locked || sourceBusy || !title.trim() || (!song && source !== "")
                         }
                         onClick={() =>
                           void work(async () => {
