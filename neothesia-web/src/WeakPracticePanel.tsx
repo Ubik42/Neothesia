@@ -58,6 +58,36 @@ type SuggestionResult = {
 };
 type AddedResult = { id: string; added: number; skipped: number; existing?: boolean };
 type ReviewEdit = { speedPercent: number; passes: number; accuracy: number; onTime: number | null };
+type Submission = {
+  ids: string[];
+  edits: { id: string; speed: number; passes: number; accuracy: number; onTime: number | null }[];
+  routineId: string | null;
+  day: string | null;
+  name: string;
+  requestId: string | null;
+};
+const pendingKey = (routineId: string | null, day: string | null) =>
+  `neothesia-pending-review:${JSON.stringify([routineId, day])}`;
+const readPending = (routineId: string | null, day: string | null): Submission | null => {
+  try {
+    const value = sessionStorage.getItem(pendingKey(routineId, day));
+    if (!value) return null;
+    const result: Submission = JSON.parse(value);
+    if (result.routineId !== routineId || result.day !== day ||
+        !Array.isArray(result.ids) || !result.ids.length ||
+        !result.ids.every((id) => typeof id === "string") ||
+        !Array.isArray(result.edits) || result.edits.length !== result.ids.length ||
+        !result.edits.every((edit, index) => edit && edit.id === result.ids[index] &&
+          typeof edit.speed === "number" && typeof edit.passes === "number" &&
+          typeof edit.accuracy === "number" &&
+          (edit.onTime === null || typeof edit.onTime === "number")) ||
+        typeof result.name !== "string" ||
+        (result.requestId !== null && typeof result.requestId !== "string")) return null;
+    return result;
+  } catch {
+    return null;
+  }
+};
 const suggestedEdit = (row: Suggestion): ReviewEdit => ({
   speedPercent: Math.round(row.item.speed * 100),
   passes: row.item.goal.passes,
@@ -103,6 +133,53 @@ export function WeakPracticePanel({
     [name, setName] = useState("专项复习"),
     [message, setMessage] = useState("");
   const [pendingAdded, setPendingAdded] = useState<AddedResult | null>(null);
+  const [pendingSubmission, setPendingSubmission] = useState<Submission | null>(
+    () => readPending(routineId, day),
+  );
+  const rememberSubmission = (submission: Submission) => {
+    setPendingSubmission(submission);
+    try {
+      sessionStorage.setItem(pendingKey(submission.routineId, submission.day), JSON.stringify(submission));
+    } catch { /* The current dialog still keeps this retry. */ }
+  };
+  const clearSubmission = (submission: Submission) => {
+    setPendingSubmission(null);
+    try {
+      sessionStorage.removeItem(pendingKey(submission.routineId, submission.day));
+    } catch { /* Storage may be unavailable. */ }
+  };
+  useEffect(() => {
+    setPendingSubmission(readPending(routineId, day));
+  }, [routineId, day]);
+  const locked = disabled || !!pendingSubmission || !!pendingAdded;
+  const submit = async (submission: Submission) => {
+    let result: AddedResult;
+    try {
+      result = await api.command<AddedResult>({
+        type: "acceptWeakPractice",
+        ids: submission.ids,
+        edits: submission.edits,
+        routine_id: submission.routineId,
+        day: submission.day,
+        name: submission.name,
+        request_id: submission.requestId,
+      });
+    } catch (cause) {
+      setMessage("上次加入结果尚未确认。请用原条件重试核对，避免新建重复计划。");
+      throw cause;
+    }
+    clearSubmission(submission);
+    draftRequestId.current = null;
+    setPendingAdded(result);
+    try {
+      await added(result.id);
+      setPendingAdded(null);
+      setMessage(addedMessage(result));
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      setMessage(`${addedMessage(result)} 计划已保存，但界面读取失败：${detail}。请重试显示计划。`);
+    }
+  };
   useEffect(() => {
     if (lastResume.current === resumeRevision) return;
     lastResume.current = resumeRevision;
@@ -113,12 +190,15 @@ export function WeakPracticePanel({
     setEdits({});
     setNote("");
     setDuePage(null);
-    setMessage(pendingAdded
+    setMessage(pendingSubmission
+      ? "上次加入结果尚未确认，请按原条件核对。"
+      : pendingAdded
       ? "计划已经保存。曲库核对完成后，请重试显示已保存计划。"
       : "曲库资料可能已变化，请重新生成复习建议。");
-  }, [resumeRevision, pendingAdded]);
+  }, [resumeRevision, pendingAdded, pendingSubmission]);
   const generate = () =>
     void work(async () => {
+      if (pendingSubmission) return;
       const request = ++requestRevision.current;
       draftRequestId.current = null;
       setRows([]);
@@ -174,7 +254,7 @@ export function WeakPracticePanel({
     });
   const loadMoreDue = () =>
     void work(async () => {
-      if (!duePage?.hasMore) return;
+      if (pendingSubmission || !duePage?.hasMore) return;
       const request = ++requestRevision.current;
       try {
         const data = await api.command<SuggestionResult>({
@@ -212,11 +292,28 @@ export function WeakPracticePanel({
       [row.id]: { ...(current[row.id] ?? suggestedEdit(row)), ...change },
     }));
   return (
-    <details className="weak-practice-panel">
+    <details className="weak-practice-panel" open={pendingSubmission ? true : undefined}>
       <summary>从历史练习安排复习</summary>
-      <button disabled={disabled || !!pendingAdded} onClick={generate}>
+      <button disabled={locked} onClick={generate}>
         生成复习建议
       </button>
+      {pendingSubmission && (
+        <div className="parameter-help" role="status">
+          <p>“{pendingSubmission.name}”的 {pendingSubmission.ids.length} 个复习项目尚未确认。软件保留了当时的条件。改选前请先在计划列表核对已有项目。</p>
+          <button type="button" disabled={disabled}
+            onClick={() => void work(() => submit(pendingSubmission))}>
+            按原条件核对上次加入
+          </button>
+          <button type="button" disabled={disabled}
+            onClick={() => {
+              clearSubmission(pendingSubmission);
+              draftRequestId.current = null;
+              setMessage("请核对计划列表后重新生成建议。");
+            }}>
+            已核对计划，重新选择
+          </button>
+        </div>
+      )}
       <p className="parameter-help">
         预览后勾选加入
         {routineId
@@ -237,12 +334,12 @@ export function WeakPracticePanel({
               ` ${duePage.dueTotal - duePage.eligibleTotal - duePage.missingTotal} 首需核对练习条件。`}
           </p>
           {duePage.missingTotal > 0 && (
-            <button type="button" disabled={disabled} onClick={() => openLibrary("missing")}>
+            <button type="button" disabled={locked} onClick={() => openLibrary("missing")}>
               查看缺失文件
             </button>
           )}
           {duePage.dueTotal - duePage.eligibleTotal - duePage.missingTotal > 0 && (
-            <button type="button" disabled={disabled} onClick={() => openLibrary("review")}>
+            <button type="button" disabled={locked} onClick={() => openLibrary("review")}>
               查看待复习曲目
             </button>
           )}
@@ -263,7 +360,7 @@ export function WeakPracticePanel({
             aria-label="复习计划名称"
             maxLength={80}
             value={name}
-            disabled={disabled}
+            disabled={locked}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
@@ -283,7 +380,7 @@ export function WeakPracticePanel({
                         ? `选择 ${r.title} 全曲到期复习`
                       : `选择 ${r.title} 第 ${r.measure} 小节`
                   }
-                  disabled={disabled || (!chosen.includes(r.id) && chosen.length >= 60)}
+                  disabled={locked || (!chosen.includes(r.id) && chosen.length >= 60)}
                   checked={chosen.includes(r.id)}
                   onChange={(e) =>
                     setChosen((v) =>
@@ -391,33 +488,33 @@ export function WeakPracticePanel({
                 <summary>调整加入计划的条件</summary>
                 <div>
                   <label>练习速度
-                    <input type="number" min={25} max={200} step={5} disabled={disabled}
+                    <input type="number" min={25} max={200} step={5} disabled={locked}
                       value={editFor(r).speedPercent}
                       onChange={(e) => patchEdit(r, { speedPercent: Number(e.target.value) })} />%
                   </label>
                   <label>达标轮数
-                    <input type="number" min={1} max={100} disabled={disabled}
+                    <input type="number" min={1} max={100} disabled={locked}
                       value={editFor(r).passes}
                       onChange={(e) => patchEdit(r, { passes: Number(e.target.value) })} />
                   </label>
                   <label>正确率门槛
-                    <input type="number" min={50} max={100} disabled={disabled}
+                    <input type="number" min={50} max={100} disabled={locked}
                       value={editFor(r).accuracy}
                       onChange={(e) => patchEdit(r, { accuracy: Number(e.target.value) })} />%
                   </label>
                   {r.item.settings.mode !== "wait" && (
-                    <label><input type="checkbox" disabled={disabled}
+                    <label><input type="checkbox" disabled={locked}
                       checked={editFor(r).onTime !== null}
                       onChange={(e) => patchEdit(r, { onTime: e.target.checked ? 80 : null })} />
                       准时率门槛
                       {editFor(r).onTime !== null && (
-                        <><input type="number" min={50} max={100} disabled={disabled}
+                        <><input type="number" min={50} max={100} disabled={locked}
                           value={editFor(r).onTime ?? 80}
                           onChange={(e) => patchEdit(r, { onTime: Number(e.target.value) })} />%</>
                       )}
                     </label>
                   )}
-                  <button type="button" disabled={disabled || !edits[r.id]}
+                  <button type="button" disabled={locked || !edits[r.id]}
                     onClick={() => setEdits((current) => {
                       const next = { ...current };
                       delete next[r.id];
@@ -429,13 +526,13 @@ export function WeakPracticePanel({
             ))}
           </div>
           {duePage?.hasMore && (
-            <button disabled={disabled || !!pendingAdded} onClick={loadMoreDue}>
+            <button disabled={locked} onClick={loadMoreDue}>
               再读取 30 首到期曲目
             </button>
           )}
           <button
             disabled={
-              disabled || !!pendingAdded || !chosen.length || (!routineId && !name.trim())
+              locked || !chosen.length || (!routineId && !name.trim())
             }
             onClick={() =>
               void work(async () => {
@@ -452,31 +549,13 @@ export function WeakPracticePanel({
                   return { id, speed: edit.speedPercent / 100, passes: edit.passes,
                     accuracy: edit.accuracy, onTime: edit.onTime };
                 });
-                let result: AddedResult;
-                try {
-                  result = await api.command<AddedResult>({
-                    type: "acceptWeakPractice",
-                    ids: chosen,
-                    edits: selectedEdits,
-                    routine_id: routineId,
-                    day,
-                    name,
-                    request_id: routineId ? null : (draftRequestId.current ??= crypto.randomUUID()),
-                  });
-                } catch (cause) {
-                  setMessage("保存结果尚未确认。保留当前选择再次加入时，同一份新计划不会重复创建。");
-                  throw cause;
-                }
-                draftRequestId.current = null;
-                setPendingAdded(result);
-                try {
-                  await added(result.id);
-                  setPendingAdded(null);
-                  setMessage(addedMessage(result));
-                } catch (cause) {
-                  const detail = cause instanceof Error ? cause.message : String(cause);
-                  setMessage(`${addedMessage(result)} 计划已保存，但界面读取失败：${detail}。请重试显示计划。`);
-                }
+                const submission: Submission = {
+                  ids: [...chosen], edits: selectedEdits,
+                  routineId, day, name,
+                  requestId: routineId ? null : (draftRequestId.current ??= crypto.randomUUID()),
+                };
+                rememberSubmission(submission);
+                await submit(submission);
               })
             }
           >
