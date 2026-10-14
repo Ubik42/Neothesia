@@ -23,7 +23,7 @@ import {
 } from "./songLearning";
 import { ScoreSourcesDialog } from "./ScoreSourcesDialog";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LibraryScoresPane } from "./LibraryScoresPane";
+import { LibraryScoresPane, type LibraryScoreVisitSelection } from "./LibraryScoresPane";
 import { LibraryRepairsDialog } from "./LibraryRepairsDialog";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, clock, type SongRow } from "./api";
@@ -90,6 +90,7 @@ export function LibraryDialog({
     contentId: string,
     kind: "notation" | "paper",
     id: string,
+    selection?: LibraryScoreVisitSelection,
   ) => Promise<void>;
 }) {
   const [data, setData] = useState<Workspace>({

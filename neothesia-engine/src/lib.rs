@@ -291,6 +291,7 @@ pub enum Command {
     PreviewScoreBytesRoute {bytes:Vec<u8>,name:String,content_id:String},
     SaveScoreVersion {bytes:Vec<u8>,name:String,content_id:String},
     LibraryScores {path:PathBuf,content_id:String},
+    PreviewLibraryScoreRoute {path:PathBuf,content_id:String,id:String},
     CheckLibraryScoreImport {path:PathBuf,content_id:String,bytes:Vec<u8>,kind:String,#[serde(default)]target:Option<String>},
     UpdateLibraryPaper{path:PathBuf,content_id:String,id:String,action:String,page:usize,direction:i32},
     AddLibraryScore{path:PathBuf,content_id:String,name:String,bytes:Vec<u8>,kind:String,#[serde(default)]target:Option<String>,#[serde(default)]page:usize},
@@ -752,6 +753,7 @@ impl Engine {
         }
         if let Command::CheckLibraryScoreImport{path,content_id,bytes,kind,target}=&command {return library_scores::check_import(&self.data,path,content_id,bytes,kind,target.as_deref());}
         if let Command::LibraryScores{path,content_id}=&command {return library_scores::inspect(&self.data,path,content_id);}
+        if let Command::PreviewLibraryScoreRoute{path,content_id,id}=&command {return library_scores::preview_route(&self.data,path,content_id,id);}
         let attachment_id=match &command{Command::UpdateScoreAttachment{action,..} if action=="view"=>None,Command::ScoreAttachments{content_id}|Command::AddScoreAttachment{content_id,..}|Command::UpdateScoreAttachment{content_id,..}=>Some(content_id),_=>None};
         if let Some(id)=attachment_id{let current=self.command(Command::CurrentSong)?;if current["contentId"].as_str()!=Some(id){return Err("曲目已切换，请重新打开谱面管理".into());}}
         match command{
@@ -2649,6 +2651,7 @@ impl Player {
                     .map_err(|e| e.to_string())?;
             }
             Command::LibraryScores{..}=>return Err("请从曲库查看谱面资料".into()),
+            Command::PreviewLibraryScoreRoute{path,content_id,id}=>return library_scores::preview_route(&self.data,&path,&content_id,&id),
             Command::CheckLibraryScoreImport{..}=>return Err("请从独立谱面核对调用".into()),
             Command::ManageLibraryScore{path,content_id,kind,id,action,name}=>return self.manage_library_score(path,content_id,kind,id,action,name),
             Command::OpenLibraryScore{path,content_id,kind,id}=>return self.open_library_score(path,content_id,kind,id),

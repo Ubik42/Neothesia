@@ -83,7 +83,7 @@ export function ScoreRoutePreview({
       </p>
       {!complete && (
         <p className="score-route-warning" role="status">
-          当前预览不能证明整首曲目的演奏顺序。请查看下方问题，再决定是否保存谱面。
+          当前预览不能证明整首曲目的演奏顺序。请查看下方问题并校对谱面与演奏对应，再使用这条路线。
         </p>
       )}
       {visits.length ? (

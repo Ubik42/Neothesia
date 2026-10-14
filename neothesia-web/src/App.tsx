@@ -2421,7 +2421,20 @@ export default function App() {
           rows={allLibraryRows}
           close={() => setLibraryDialog(false)}
           changed={refresh}
-          openVersion={async (row, contentId, kind, id) => {
+          openVersion={async (row, contentId, kind, id, selection) => {
+            if (selection) {
+              if (kind !== "notation") throw new Error("只有可演奏乐谱可以按原谱小节定位");
+              const fresh = await api.command<import("./ScoreRoutePreview").ScoreRouteEvidence>({
+                type: "previewLibraryScoreRoute", path: row.path, content_id: contentId, id,
+              });
+              const visit = fresh.route?.visits.find((entry) => entry.ordinal === selection.visit.ordinal);
+              if (fresh.contentId !== contentId || fresh.versionId !== id ||
+                  fresh.fingerprint !== selection.fingerprint || !fresh.route?.complete ||
+                  !visit || visit.measure !== selection.visit.measure ||
+                  Math.abs(visit.start - selection.visit.start) > 0.001 ||
+                  Math.abs(visit.end - selection.visit.end) > 0.001)
+                throw new Error("曲目网格或谱面演奏顺序已经变化，请重新查看小节位置");
+            }
             await api.command({
               type: "openLibraryScore",
               path: row.path,
@@ -2429,6 +2442,16 @@ export default function App() {
               kind,
               id,
             });
+            if (selection) {
+              const active = await api.command<{contentId: string; route: import("./ScoreRoute").WrittenRoute | null}>({type: "score"});
+              const visit = active.route?.visits.find((entry) => entry.ordinal === selection.visit.ordinal);
+              if (active.contentId !== contentId || !active.route?.complete || !visit ||
+                  visit.measure !== selection.visit.measure ||
+                  Math.abs(visit.start - selection.visit.start) > 0.001 ||
+                  Math.abs(visit.end - selection.visit.end) > 0.001)
+                throw new Error("打开后的谱面演奏位置与预览不一致，请重新选择原谱小节");
+              await api.command({ type: "loop", start: visit.start, end: visit.end, enabled: true });
+            }
             setSong(await api.song());
             setState(await api.state());
             setView(kind === "paper" ? "paper" : "score");

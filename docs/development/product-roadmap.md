@@ -10,7 +10,7 @@
 
 原仓库已有路线见 [roadmap.md](roadmap.md)、[backlog.md](backlog.md) 和 [指法算法文档](../pages/fingering-suggestions.md)。原生已实现、Web 已接入、仍需扩展分开记录。
 
-当前批次：Cycle 223（历史问题音直达指法、逐音踏板目标）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
+当前批次：Cycle 224（曲库谱面版本直达反复演奏位置）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
 
 ## A. 本地曲目与谱面管理
 
@@ -73,6 +73,7 @@
 - [x] 直接打开 MusicXML/MXL，生成可练习演奏并保留原谱；支持常规反复/一二房、拍号、弱起、连音、踏板、力度与指法，钢琴双谱表分别建立声部（Cycle 113）。
 - [x] 基于明确 MusicXML sound 的 D.C./D.S./Fine=yes/Coda 演奏顺序、同名目标、次数规则与声部同步；书面小节内起止、多次演奏定位与单段循环（Cycle 153）。
 - [x] 嵌套反复、内层一二房与小节内正向反复按实际拍位展开；导入、切换和原谱更新前核对演奏路线，批量更新逐项核对，不完整路线只保存谱面版本（Cycle 208）。
+- [x] 曲库里的独立谱面版本可以只读预览真实演奏路线，再选书面小节的具体经过；打开前后核对曲目、版本、谱面内容和位置后直接设置单次小节循环，重开曲目保留范围（Cycle 224）。
 - [x] 唯一的文字 D.C. al Fine 与文字 Fine 按实际演奏顺序展开；同一记号与 sound 跳转合用仍按 Fine 结束。缺失、重复或位置冲突的 Fine 保留诊断并阻止直接使用（Cycle 210）。
 - [x] 数值 Fine 调整 D.C./D.S. 返回后最后音符或休止符的实际时值，MIDI、原谱出现次数、曲长和结束事件一致；多分谱/重叠声部/末音延音线等歧义诊断（Cycle 211）。数值按四分音符拍数解释，依据[公开 MusicXML 样本](https://github.com/musescore/nwc2musicxml/blob/14737b1c8263e27f82ea9ceec9bf62f9ccea5bce/TestFiles/TestDCalFine.xml)；[W3C 说明](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/sound/)只明确其表示实际时值。
 - [x] 唯一印刷 Segno、文字 D.S. al Fine 与 Fine 可展开实际演奏；显式 sound 目标保持优先，目标重复或冲突时保留诊断并拒绝含糊路线（Cycle 212）。

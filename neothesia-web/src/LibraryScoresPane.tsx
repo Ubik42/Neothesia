@@ -6,6 +6,9 @@ import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 import { api, type SongRow } from "./api";
 import { PaperScore, type PaperAttachment } from "./PaperScore";
+import { ScoreRoutePreview, type ScoreRouteEvidence, type ScoreRouteVisit } from "./ScoreRoutePreview";
+import "./libraryScoreRoute.css";
+export type LibraryScoreVisitSelection = { visit: ScoreRouteVisit; fingerprint: string };
 type Version = {
   id: string;
   name: string;
@@ -51,6 +54,7 @@ export function LibraryScoresPane({
     contentId: string,
     kind: "notation" | "paper",
     id: string,
+    selection?: LibraryScoreVisitSelection,
   ) => Promise<void>;
 }) {
   const [data, setData] = useState<Data | null>(null),
@@ -59,6 +63,8 @@ export function LibraryScoresPane({
     [error, setError] = useState(""),
     [names, setNames] = useState<Record<string, string>>({}),
     [preview, setPreview] = useState<string | null>(null),
+    [routePreview, setRoutePreview] = useState<{ id: string; evidence: ScoreRouteEvidence } | null>(null),
+    [routeOrdinal, setRouteOrdinal] = useState<number | null>(null),
     [remove, setRemove] = useState<{
       id: string;
       kind: string;
@@ -238,6 +244,8 @@ export function LibraryScoresPane({
     setData(null);
     setNames({});
     setPreview(null);
+    setRoutePreview(null);
+    setRouteOrdinal(null);
     setRemove(null);
     setImports([]);
     setProgress("");
@@ -270,8 +278,31 @@ export function LibraryScoresPane({
     setError("");
     try {
       await job();
+      setRoutePreview(null);
       await refresh();
       await changed();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
+  };
+  const inspectRoute = async (id: string) => {
+    if (working.current) return;
+    working.current = true;
+    setBusy(true);
+    setError("");
+    setRoutePreview(null);
+    setRouteOrdinal(null);
+    try {
+      const evidence = await api.command<ScoreRouteEvidence>({
+        type: "previewLibraryScoreRoute", path: row.path, content_id: contentId, id,
+      });
+      if (evidence.contentId !== contentId || evidence.versionId !== id)
+        throw new Error("谱面预览与当前曲目不一致，请重新查看版本");
+      setRoutePreview({ id, evidence });
+      setRouteOrdinal(evidence.route?.visits[0]?.ordinal ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -321,6 +352,11 @@ export function LibraryScoresPane({
       </div>
     );
   };
+  const routeVisits = routePreview?.evidence.route?.visits ?? [];
+  const routeSelected = routeVisits.find((visit) => visit.ordinal === routeOrdinal);
+  const routeMeasures = Array.from(new Map(routeVisits.map((visit) => [visit.measure, visit])).values())
+    .sort((a, b) => a.measure - b.measure);
+  const routeOccurrences = routeVisits.filter((visit) => visit.measure === routeSelected?.measure);
   return (
     <section className="library-score-versions" aria-label="曲目谱面版本">
       <input
@@ -464,6 +500,12 @@ export function LibraryScoresPane({
                 >
                   打开乐谱练习
                 </button>
+                <button
+                  disabled={busy || v.status !== "ready" || !data.songAvailable}
+                  onClick={() => void inspectRoute(v.id)}
+                >
+                  按原谱小节练习
+                </button>
                 {v.active ? (
                   <button
                     disabled={busy}
@@ -510,6 +552,36 @@ export function LibraryScoresPane({
                   移除登记
                 </button>
               </div>
+              {routePreview?.id === v.id && (
+                <div className="library-score-route" aria-label={`${v.name}的小节演奏顺序`}>
+                  <ScoreRoutePreview evidence={routePreview.evidence} title="原谱小节的演奏顺序" initialVisible={16} />
+                  {routePreview.evidence.route?.complete && routeSelected && (
+                    <div className="library-score-route-pick">
+                      <label>书面小节
+                        <select aria-label="曲库原谱小节" value={routeSelected.measure}
+                          onChange={(event) => {
+                            const first = routeVisits.find((visit) => visit.measure === Number(event.target.value));
+                            setRouteOrdinal(first?.ordinal ?? null);
+                          }}>
+                          {routeMeasures.map((visit) => <option key={visit.measure} value={visit.measure}>第 {visit.number || visit.measure + 1} 小节</option>)}
+                        </select>
+                      </label>
+                      <label>演奏位置
+                        <select aria-label="曲库原谱小节演奏位置" value={routeSelected.ordinal}
+                          onChange={(event) => setRouteOrdinal(Number(event.target.value))}>
+                          {routeOccurrences.map((visit, index) => <option key={visit.ordinal} value={visit.ordinal}>第 {index + 1} 次 · 全曲第 {visit.ordinal + 1} 段{visit.partialStart || visit.partialEnd ? " · 局部" : ""}</option>)}
+                        </select>
+                      </label>
+                      <button disabled={busy || !routePreview.evidence.fingerprint}
+                        onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
+                          visit: routeSelected, fingerprint: routePreview.evidence.fingerprint!,
+                        }))}>
+                        打开并循环这次小节
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </article>
           ))}
           <h5>

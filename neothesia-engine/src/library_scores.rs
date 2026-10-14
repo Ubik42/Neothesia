@@ -94,6 +94,40 @@ pub fn inspect(data: &Path, path: &Path, cid: &str) -> Result<Value, String> {
         json!({"contentId":cid,"path":path,"songAvailable":file.is_some(),"versions":rows,"papers":papers}),
     )
 }
+/// Inspect a saved notation route without selecting the song or changing its score association.
+pub fn preview_route(data: &Path, path: &Path, cid: &str, id: &str) -> Result<Value, String> {
+    if cid.is_empty() || cid.len() > 160 {
+        return Err("曲目身份无效".into());
+    }
+    let index = library_workspace::Workspace::load(data)?;
+    if index.entries.get(&library_workspace::key(path))
+        .and_then(|entry| entry.content_id.as_deref()) != Some(cid)
+    {
+        return Err("曲目不在当前曲库索引中，请重新检查文件".into());
+    }
+    let mut file = MidiFile::new(path)?;
+    if file.content_id != cid {
+        return Err("此位置已换成另一首曲目，请重新检查文件后预览谱面".into());
+    }
+    file.musical_time = Player::sidecar_grid(&file, &sidecar(path, cid)?)?;
+    let prefs = Preferences::load(&data.join("web-preferences.json"))?;
+    let (rows, _) = versions(&prefs, path, cid)?;
+    if rows.len() > 100 {
+        return Err("谱面超过 100 份，请先移除或合并重复登记".into());
+    }
+    let version = rows.iter().find(|row| row.id == id).ok_or("谱面版本不存在")?;
+    let bytes = read_score(&version.path)?;
+    if blake3::hash(&bytes).to_hex().as_str() != version.content_id {
+        return Err("谱面内容已改变，请重新导入确认".into());
+    }
+    let asset = notation::ScoreAsset::new(bytes, version.name.clone(), &file)?;
+    let mut result = asset.payload(Some(&file));
+    result.as_object_mut().unwrap().remove("bytes");
+    result["contentId"] = json!(cid);
+    result["versionId"] = json!(id);
+    result["fingerprint"] = json!(version.content_id);
+    Ok(result)
+}
 pub fn check_import(data:&Path,path:&Path,cid:&str,bytes:&[u8],kind:&str,target:Option<&str>)->Result<Value,String>{
     if bytes.is_empty() || bytes.len()>if kind=="notation"{4_000_000}else{48_000_000} {return Err("待核对文件为空或超过谱面容量上限".into());}
     if !["notation","pdf","image"].contains(&kind){return Err("谱面核对类型无效".into());}
@@ -443,6 +477,71 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn indexed_version_route_keeps_repeat_visits_and_current_song_unchanged() {
+        let data = std::env::temp_dir().join(format!(
+            "neothesia-library-route-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mut p = Player::new(data.clone(), PathBuf::new(), true);
+        p.command(Command::ImportScore {
+            bytes: include_bytes!("../../neothesia-core/src/score_performance_test.musicxml").to_vec(),
+            name: "反复练习.musicxml".into(),
+            default_bpm: 120,
+        }).unwrap();
+        let file = p.file.as_ref().unwrap();
+        let cid = file.content_id.clone();
+        let path = file.source_path.clone().unwrap();
+        let version = p.preferences.score_versions[&cid][0].clone();
+        let mut index = library_workspace::Workspace::load(&data).unwrap();
+        index.inspect(path.clone(), true).unwrap();
+        index.save(&data).unwrap();
+        let other = data.join("other.mid");
+        std::fs::write(&other, include_bytes!("../assets/five-finger.mid")).unwrap();
+        p.command(Command::Load {path: other, title:"其他曲目".into()}).unwrap();
+        let active = p.file.as_ref().unwrap().content_id.clone();
+        let score_revision = p.score_revision;
+        let active_score = p.notation.as_ref().map(|score| score.source_fingerprint.clone());
+        let prefs_before = std::fs::read(&p.preferences_path).unwrap();
+        let score_before = sidecar(&path, &cid).unwrap().score;
+        let preview = p.command(Command::PreviewLibraryScoreRoute {
+            path: path.clone(), content_id: cid.clone(), id: version.id.clone()
+        }).unwrap();
+        let visits = preview["route"]["visits"].as_array().unwrap();
+        assert!(visits.len() >= 3);
+        assert!(visits.iter().any(|v| v["pass"] == 2));
+        assert_eq!(preview["contentId"], cid);
+        assert_eq!(preview["versionId"], version.id);
+        assert_eq!(preview["fingerprint"], version.content_id);
+        assert!(preview.get("bytes").is_none());
+        assert_eq!(p.file.as_ref().unwrap().content_id, active);
+        assert_eq!(p.score_revision, score_revision);
+        assert_eq!(p.notation.as_ref().map(|score| score.source_fingerprint.clone()), active_score);
+        assert_eq!(std::fs::read(&p.preferences_path).unwrap(), prefs_before);
+        assert_eq!(sidecar(&path, &cid).unwrap().score, score_before);
+        assert!(p.command(Command::PreviewLibraryScoreRoute {
+            path:path.clone(), content_id:"wrong".into(), id:version.id.clone()
+        }).is_err());
+        assert!(p.command(Command::PreviewLibraryScoreRoute {
+            path:path.clone(), content_id:cid.clone(), id:"missing-version".into()
+        }).is_err());
+        let unknown = data.join("unknown.mid");
+        std::fs::copy(&path, &unknown).unwrap();
+        assert!(p.command(Command::PreviewLibraryScoreRoute {
+            path:unknown, content_id:cid.clone(), id:version.id.clone()
+        }).is_err());
+        let original_midi = std::fs::read(&path).unwrap();
+        std::fs::write(&path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        assert!(p.command(Command::PreviewLibraryScoreRoute {
+            path:path.clone(), content_id:cid.clone(), id:version.id.clone()
+        }).is_err());
+        std::fs::write(&path, original_midi).unwrap();
+        std::fs::write(&version.path, b"modified").unwrap();
+        assert!(p.command(Command::PreviewLibraryScoreRoute {
+            path, content_id:cid, id:version.id
+        }).is_err());
+    }
     #[test]
     fn duplicate_score_import_repairs_owned_copy_and_merges_old_records() {
         let data = std::env::temp_dir().join(format!(
