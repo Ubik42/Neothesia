@@ -582,6 +582,14 @@ impl Backup {
                     return Err("备份练习用时超出有效范围".into());
                 }
                 if let Some(c) = &s.context {
+                    if let Some(bounds) = c.passage_bounds {
+                        if !matches!(s.kind, PracticeSessionKind::Loop { .. })
+                            || bounds.start_tick >= bounds.end_tick
+                            || bounds.end_tick > 1_000_000_000_000
+                        {
+                            return Err("备份成绩的选段起止位置无效".into());
+                        }
+                    }
                     if let Some(e) = c.expression.as_ref().or_else(||c.routine.as_ref().and_then(|r| r.expression.as_ref())) {
                         crate::expression_goal::ExpressionGoal {
                             velocity_difference: e.velocity_difference,
@@ -1792,6 +1800,28 @@ mod tests {
             }],
             untracked_ms: 500,
         }
+    }
+    #[test]
+    fn exact_passage_bounds_survive_backup_and_invalid_bounds_are_rejected() {
+        let mut source = player();
+        let mut backup = fixture(&mut source);
+        let cid = backup.history.keys().next().unwrap().clone();
+        let session = &mut backup.history.get_mut(&cid).unwrap().sessions[0];
+        session.kind = PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 };
+        let mut context = source.history_context();
+        context.passage_bounds = Some(
+            neothesia_core::practice_history::PracticePassageBounds {
+                start_tick: 120, end_tick: 360,
+            },
+        );
+        let expected = context.passage_bounds;
+        session.context = Some(context);
+        let decoded = Backup::decode(&backup.encode().unwrap()).unwrap();
+        assert_eq!(decoded.history[&cid].sessions[0].context.as_ref().unwrap().passage_bounds,
+            expected);
+        backup.history.get_mut(&cid).unwrap().sessions[0]
+            .context.as_mut().unwrap().passage_bounds.as_mut().unwrap().end_tick = 120;
+        assert!(backup.encode().is_err());
     }
     #[test]
     fn time_ledger_v12_roundtrip_filter_idempotence_and_old_backup() {

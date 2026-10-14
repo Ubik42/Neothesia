@@ -50,11 +50,20 @@ impl Player {
             PracticeSessionKind::Loop {
                 start_measure: a,
                 end_measure: b,
-            } if a > 0 && b >= a && b <= 1000000 => (
-                RoutineTarget::Passage { start: a, end: b },
-                format!("第 {a}–{b} 小节"),
-                a,
-            ),
+            } if a > 0 && b >= a && b <= 1000000 => {
+                if let Some(bounds) = c.passage_bounds {
+                    let range = format!("第 {a}–{b} 小节（原起止位置）");
+                    let precise = crate::tick_ranges::TickRange {
+                        description: range.clone(), content_id: cid.into(), grid: c.grid.clone(),
+                        start_tick: bounds.start_tick, end_tick: bounds.end_tick,
+                    };
+                    if precise.validate().is_err() { return vec![]; }
+                    (RoutineTarget::PrecisePassage { range: precise }, range, a)
+                } else {
+                    (RoutineTarget::Passage { start: a, end: b },
+                        format!("第 {a}–{b} 小节（旧记录按整小节）"), a)
+                }
+            },
             _ => return vec![],
         };
         let mut contour = vec![];
@@ -359,10 +368,31 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["range"] == "第 2–3 小节"
+                .any(|r| r["range"] == "第 2–3 小节（旧记录按整小节）"
                     && r["item"]["target"]["start"] == 2
                     && r["item"]["target"]["end"] == 3)
         );
+    }
+    #[test]
+    fn expression_review_keeps_the_saved_beat_range() {
+        let mut p = player();
+        let mut session = sample(&p);
+        session.kind = PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 };
+        let measure = &p.file.as_ref().unwrap().musical_time.measures[0];
+        let quarter = (measure.end_tick - measure.start_tick) / 4;
+        let bounds = neothesia_core::practice_history::PracticePassageBounds {
+            start_tick: measure.start_tick + quarter,
+            end_tick: measure.end_tick - quarter,
+        };
+        session.context.as_mut().unwrap().passage_bounds = Some(bounds);
+        record(&mut p, &session, 1);
+        record(&mut p, &session, 2);
+        let result = p.weak_practice().unwrap();
+        let row = result["suggestions"].as_array().unwrap().iter()
+            .find(|row| row["kind"] == "dynamics").unwrap();
+        assert_eq!(row["item"]["target"]["kind"], "precisePassage");
+        assert_eq!(row["item"]["target"]["range"]["startTick"], bounds.start_tick);
+        assert_eq!(row["item"]["target"]["range"]["endTick"], bounds.end_tick);
     }
     #[test]
     fn incomplete_inaccurate_and_wait_pedal_are_excluded() {
