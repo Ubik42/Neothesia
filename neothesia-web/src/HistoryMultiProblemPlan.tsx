@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { HistoryProblemPlan } from "./HistoryProblemPlan";
+import { HistoryProblemPlan, type MissingProblemStatus } from "./HistoryProblemPlan";
 import type { HistoryScoreReview } from "./historyScoreFocus";
 import { draftScopeFor } from "./multiProblemDraft";
 export type ReviewSource = {
@@ -97,6 +97,14 @@ export function HistoryMultiProblemPlan({
     ),
   };
   const draftScope = draftScopeFor(sources);
+  const missingStatus = (reference: number): MissingProblemStatus => {
+    const source = sources.find((item) => item.slot === Math.floor(reference / 1_000_000));
+    if (!source) return "gone";
+    const row = loaded[sourceKey(source)];
+    if (!row) return "loading";
+    if (row.error) return "error";
+    return row.notes.length < row.total ? "more" : "gone";
+  };
   const more = async (s: ReviewSource) => {
     const version = epoch.current;
     const key = sourceKey(s);
@@ -115,7 +123,8 @@ export function HistoryMultiProblemPlan({
         [key]: {
           notes: [...old.notes, ...data.notes],
           total: data.total,
-          error: "",
+          error: !data.notes.length && old.notes.length < data.total
+            ? "来源记录没有返回后续问题音，请重试读取。" : "",
         },
       }));
     } catch (e) {
@@ -151,7 +160,13 @@ export function HistoryMultiProblemPlan({
             offset: row.notes.length,
           });
           if (version !== epoch.current) return;
-          if (!data.notes.length) break;
+          if (!data.notes.length) {
+            row = { ...row, total: data.total, error: row.notes.length < data.total
+              ? "来源记录没有返回后续问题音，请重试读取。" : "" };
+            const updated = row;
+            setLoaded((current) => ({ ...current, [key]: updated }));
+            break;
+          }
           batches++;
           row = { notes: [...row.notes, ...data.notes], total: data.total, error: "" };
           const updated = row;
@@ -161,7 +176,7 @@ export function HistoryMultiProblemPlan({
         }
       }
       if (version === epoch.current) setRestoreMessage(remaining.size
-        ? `${remaining.size} 个已选问题音仍未找到。若这条记录还有后续问题，请再次点击“继续读取已选问题音”；记录已变化时请移除旧选择。`
+        ? `${remaining.size} 个已选问题音仍未找到。请查看下方状态；还有后续页时继续读取，原记录已变化时移除旧选择。`
         : "草稿中已选的问题音已全部读取。");
     } catch (cause) {
       if (version === epoch.current) setRestoreMessage(cause instanceof Error ? cause.message : String(cause));
@@ -186,7 +201,12 @@ export function HistoryMultiProblemPlan({
             移出复习编排
           </button>
           {loaded[sourceKey(s)]?.error && <p role="alert">{loaded[sourceKey(s)].error}</p>}
-          {loaded[sourceKey(s)] &&
+          {loaded[sourceKey(s)]?.error && (
+            <button disabled={busy} onClick={() => void more(s)}>
+              重试读取这条记录的问题音
+            </button>
+          )}
+          {loaded[sourceKey(s)] && !loaded[sourceKey(s)].error &&
             loaded[sourceKey(s)].total > loaded[sourceKey(s)].notes.length && (
               <button disabled={busy} onClick={() => void more(s)}>
                 再读取这条记录的 200 个问题
@@ -200,9 +220,10 @@ export function HistoryMultiProblemPlan({
         draftScope={draftScope}
         draftSources={sources}
         onRestoreMissing={restoreMissing}
+        missingStatus={missingStatus}
         restoreMessage={restoreMessage}
         review={review}
-        disabled={busy || !sources.length}
+        disabled={busy || !sources.length || sources.some((source) => !loaded[sourceKey(source)])}
         openPlan={openPlan}
         dirtyChanged={dirtyChanged}
       />

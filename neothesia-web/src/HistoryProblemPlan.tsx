@@ -9,6 +9,7 @@ import { api, pitchName } from "./api";
 import { historyGradeName, historyProblemName, type HistoryReviewNote, type HistoryScoreReview } from "./historyScoreFocus";
 import type { RoutineGoal } from "./RoutineDialog";
 import { choicesForStorage, draftKeyFor, readMultiProblemDraft, type DraftSource } from "./multiProblemDraft";
+export type MissingProblemStatus = "loading" | "more" | "error" | "gone";
 type ProblemPlanReview = Pick<HistoryScoreReview, "contentId" | "historyId" | "scoreRevision" | "recordedAt" | "title" | "exact"> & {
   notes: (Pick<HistoryReviewNote, "reference" | "measure" | "pitch" | "kind"> & Pick<HistoryReviewNote, "sourceTitle" | "sourceContentId" | "sourceHistoryId" | "sourceReference" | "velocityDifference" | "velocityLimit" | "timingKind">)[];
 };
@@ -51,6 +52,7 @@ export function HistoryProblemPlan({
   draftScope,
   draftSources = [],
   onRestoreMissing,
+  missingStatus,
   restoreMessage,
   launchImmediately = false,
   onClose,
@@ -59,6 +61,7 @@ export function HistoryProblemPlan({
   draftScope?: string;
   draftSources?: DraftSource[];
   onRestoreMissing?: (references: number[]) => Promise<void>;
+  missingStatus?: (reference: number) => MissingProblemStatus;
   restoreMessage?: string;
   review: ProblemPlanReview;
   disabled: boolean;
@@ -513,6 +516,10 @@ export function HistoryProblemPlan({
   const missingChosen = multi
     ? chosen.filter((reference) => !review.notes.some((note) => note.reference === reference))
     : [];
+  const restorableChosen = missingChosen.filter((reference) => missingStatus?.(reference) === "more");
+  const failedChosen = missingChosen.filter((reference) => missingStatus?.(reference) === "error");
+  const loadingChosen = missingChosen.filter((reference) => missingStatus?.(reference) === "loading");
+  const goneChosen = missingChosen.filter((reference) => missingStatus?.(reference) === "gone");
   const changeGoal = (patch: Partial<RoutineGoal>) => {
     setGoal({ ...goal, ...patch });
     setDirty(true);
@@ -641,11 +648,16 @@ export function HistoryProblemPlan({
                 <h3>练习顺序 · 已选 {chosen.length}/60</h3>
                 {missingChosen.length > 0 && (
                   <p role="status">
-                    {missingChosen.length} 个已选问题音尚未读取。
-                    <button disabled={busy || disabled || !onRestoreMissing}
-                      onClick={() => void onRestoreMissing?.(missingChosen)}>
-                      继续读取已选问题音
-                    </button>
+                    {missingChosen.length} 个已选问题音尚未找到。
+                    {loadingChosen.length > 0 && ` ${loadingChosen.length} 个正在读取来源。`}
+                    {failedChosen.length > 0 && ` ${failedChosen.length} 个来源读取失败，请先在上方重试。`}
+                    {goneChosen.length > 0 && ` ${goneChosen.length} 个来源已读完或已移出，请逐个核对并移除旧选择。`}
+                    {restorableChosen.length > 0 && (
+                      <button disabled={busy || disabled || !onRestoreMissing}
+                        onClick={() => void onRestoreMissing?.(restorableChosen)}>
+                        继续读取已选问题音
+                      </button>
+                    )}
                   </p>
                 )}
                 {restoreMessage && <p role="status">{restoreMessage}</p>}
@@ -655,7 +667,12 @@ export function HistoryProblemPlan({
                     if (!n)
                       return (
                         <li key={ref}>
-                          这个问题音尚未读取或记录已移出。
+                          {{
+                            loading: "正在读取来源记录。",
+                            more: "来源记录还有后续问题音。",
+                            error: "来源记录读取失败，请在上方重试。",
+                            gone: "来源已读完或记录已移出，这个问题音无法恢复。",
+                          }[missingStatus?.(ref) ?? "gone"]}
                           <button disabled={busy} onClick={() => toggle(ref)}>
                             移除未读取问题音
                           </button>
