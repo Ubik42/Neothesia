@@ -224,6 +224,11 @@ export function RoutineDialog({
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
   const listReadGeneration = useRef(0);
+  const draftRevision = useRef(0);
+  const selectedRef = useRef(selected);
+  const templateRef = useRef(template);
+  selectedRef.current = selected;
+  templateRef.current = template;
   const previousSongId = useRef(song?.contentId);
   const mounted = useRef(true);
   useEffect(() => {
@@ -279,6 +284,9 @@ export function RoutineDialog({
   useEffect(() => {
     let cancelled = false;
     const request = ++listReadGeneration.current;
+    const draftAtRequest = draftRevision.current;
+    const selectedAtRequest = selected;
+    const templateAtRequest = template;
     void api
       .command<{ plans: Plan[]; runs: Run[] }>({ type: "routines", day })
       .then((data) => {
@@ -288,7 +296,13 @@ export function RoutineDialog({
           const p =
             data.runs.find((r) => r.routine.id === selected)?.routine ??
             data.plans.find((p) => p.id === selected);
-          if (p && !template) {
+          if (
+            p &&
+            !templateAtRequest &&
+            selectedRef.current === selectedAtRequest &&
+            templateRef.current === templateAtRequest &&
+            draftRevision.current === draftAtRequest
+          ) {
             setName(p.name);
             setNotes(p.notes);
           }
@@ -419,6 +433,7 @@ export function RoutineDialog({
       setPendingListRefresh(null);
     }, false, true);
   const choosePlan = (p: Plan) => {
+    draftRevision.current++;
     setSelected(p.id);
     setName(p.name);
     setNotes(p.notes);
@@ -555,6 +570,7 @@ export function RoutineDialog({
             aria-pressed={!template}
             disabled={busy || contextPending}
             onClick={() => {
+              draftRevision.current++;
               setTemplate(false);
               setItemId(null);
               setTitle("");
@@ -573,6 +589,7 @@ export function RoutineDialog({
             aria-pressed={template}
             disabled={busy || contextPending}
             onClick={() => {
+              draftRevision.current++;
               setTemplate(true);
               setItemId(null);
               setTitle("");
@@ -593,6 +610,7 @@ export function RoutineDialog({
             value={day}
             disabled={busy || contextPending || template}
             onChange={(e) => {
+              draftRevision.current++;
               setDay(e.target.value);
               setItemId(null);
               setTitle("");
@@ -628,6 +646,7 @@ export function RoutineDialog({
             <button
               disabled={busy || contextPending}
               onClick={() => {
+                draftRevision.current++;
                 setSelected(null);
                 setName("");
                 setNotes("");
@@ -692,7 +711,10 @@ export function RoutineDialog({
                   maxLength={80}
                   disabled={locked}
                   placeholder="例如：每日基本功与曲目练习"
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    draftRevision.current++;
+                    setName(e.target.value);
+                  }}
                 />
               </label>
               <label>
@@ -702,7 +724,10 @@ export function RoutineDialog({
                   value={notes}
                   disabled={locked}
                   rows={2}
-                  onChange={(e) => setNotes(e.target.value)}
+                  onChange={(e) => {
+                    draftRevision.current++;
+                    setNotes(e.target.value);
+                  }}
                 />
               </label>
               <div className="routine-meta-actions">
