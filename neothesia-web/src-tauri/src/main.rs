@@ -304,7 +304,7 @@ async fn import_library_scores(
                 "batchId": batch_id, "current": i+1, "total": total,
                 "name": name, "results": results
             }));
-            let result = (|| -> Result<serde_json::Value, String> {
+            let result = (|| -> Result<Option<String>, String> {
                 let limit = if kind == "notation" { 4_000_000 } else { 48_000_000 };
                 if std::fs::metadata(&file).map_err(|e|e.to_string())?.len() > limit {
                     return Err("文件超过当前谱面格式容量上限".into());
@@ -317,17 +317,25 @@ async fn import_library_scores(
                     path: path.clone().into(), content_id: content_id.clone(), name: name.clone(), bytes,
                     kind: actual.into(), target: if image { append_to.clone() } else { target.clone() }, page
                 })?;
-                if kind=="notation" {
-                    engine.command(Command::LinkScoreSource {midi_path:path.clone().into(),content_id:content_id.clone(),version_id:value["id"].as_str().ok_or("谱面版本编号缺失")?.into(),path:file.clone(),default_bpm:0})
-                        .map_err(|e|format!("谱面已保存，原文件关联失败：{e}"))?;
+                if image && append_to.is_none() {
+                    append_to = value["active"].as_str().map(String::from);
                 }
-                if ["paper","append"].contains(&kind.as_str()){link_imported_paper_source(&engine,&content_id,&value,file.clone(),&hash)?;}
-                if kind=="repairPaper"{engine.command(Command::LinkPaperSource{content_id:content_id.clone(),book:target.clone().ok_or("待修复谱面未指定")?,asset:hash.clone(),path:Some(file.clone()),baseline:None})?;}
-                if image && append_to.is_none() { append_to = value["active"].as_str().map(String::from); }
-                Ok(value)
+                let linked = if kind=="notation" {
+                    value["id"].as_str().ok_or("谱面版本编号缺失".to_string())
+                        .and_then(|id| engine.command(Command::LinkScoreSource {midi_path:path.clone().into(),content_id:content_id.clone(),version_id:id.into(),path:file.clone(),default_bpm:0}).map(|_|()))
+                        .map_err(|e|format!("谱面已保存，原文件关联失败：{e}"))
+                } else if ["paper","append"].contains(&kind.as_str()) {
+                    link_imported_paper_source(&engine,&content_id,&value,file.clone(),&hash)
+                } else if kind=="repairPaper" {
+                    target.clone().ok_or("待修复谱面未指定".to_string())
+                        .and_then(|book| engine.command(Command::LinkPaperSource{content_id:content_id.clone(),book,asset:hash.clone(),path:Some(file.clone()),baseline:None}).map(|_|()))
+                        .map_err(|e|format!("谱页已修复，原件关联失败：{e}"))
+                } else { Ok(()) };
+                Ok(linked.err())
             })();
             results.push(match result {
-                Ok(_) => serde_json::json!({"name":name,"ok":true}),
+                Ok(Some(warning)) => serde_json::json!({"name":name,"ok":true,"warning":warning}),
+                Ok(None) => serde_json::json!({"name":name,"ok":true}),
                 Err(error) => serde_json::json!({"name":name,"ok":false,"error":error})
             });
         }

@@ -436,7 +436,7 @@ export const api = {
     page = 0,
   ) =>
     invoke<{
-      results: { name: string; ok: boolean; error?: string }[];
+      results: { name: string; ok: boolean; error?: string; warning?: string }[];
       stopped?: boolean;
     } | null>("import_library_scores", {
       batchId,

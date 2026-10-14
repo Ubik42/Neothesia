@@ -31,6 +31,7 @@ type Data = {
   versions: Version[];
   papers: { active: string | null; attachments: PaperAttachment[] };
 };
+type ImportResult = { name: string; ok: boolean; error?: string; warning?: string };
 const statuses: Record<string, string> = {
   ready: "文件可用",
   changed: "内容已改变",
@@ -80,9 +81,7 @@ export function LibraryScoresPane({
       kind: string;
       name: string;
     } | null>(null);
-  const [imports, setImports] = useState<
-    { name: string; ok: boolean; error?: string }[]
-  >([]);
+  const [imports, setImports] = useState<ImportResult[]>([]);
   const [progress, setProgress] = useState("");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const routeRef = useRef<HTMLDivElement>(null);
@@ -116,7 +115,7 @@ export function LibraryScoresPane({
       stopImport.current = false;
       setImports([]);
       let append = ctx.target;
-      const results: { name: string; ok: boolean; error?: string }[] = [];
+      const results: ImportResult[] = [];
       for (let i = 0; i < files.length; i++) {
         if (stopImport.current) {
           setProgress(`已停止；处理 ${i} / ${files.length} 份`);
@@ -167,7 +166,7 @@ export function LibraryScoresPane({
           current: number;
           total: number;
           name: string;
-          results: { name: string; ok: boolean; error?: string }[];
+          results: ImportResult[];
         }>("library-score-import-progress", (e) => {
           if (e.payload.batchId !== nativeBatch.current) return;
           setNativeRunning(true);
@@ -193,8 +192,9 @@ export function LibraryScoresPane({
         }
         if (value) {
           setImports(value.results);
+          const warnings = value.results.filter((r) => r.warning).length;
           setProgress(
-            `${value.stopped ? "已停止" : "处理完成"}：成功 ${value.results.filter((r) => r.ok).length}，失败 ${value.results.filter((r) => !r.ok).length}`,
+            `${value.stopped ? "已停止" : "处理完成"}：成功 ${value.results.filter((r) => r.ok).length}，失败 ${value.results.filter((r) => !r.ok).length}${warnings ? `，其中 ${warnings} 份原件关联待修复` : ""}`,
           );
         } else setProgress("");
       });
@@ -487,15 +487,16 @@ export function LibraryScoresPane({
           {!!imports.length && (
             <details
               className="library-import-results"
-              open={imports.some((r) => !r.ok)}
+              open={imports.some((r) => !r.ok || !!r.warning)}
             >
               <summary>
                 导入结果 · 成功 {imports.filter((r) => r.ok).length} /{" "}
                 {imports.length}
+                {imports.some((r) => r.warning) && ` · ${imports.filter((r) => r.warning).length} 份原件关联待修复`}
               </summary>
               {imports.map((r, i) => (
-                <p key={i} className={r.ok ? "parameter-help" : "dialog-error"}>
-                  {r.name}：{r.ok ? "已保存" : r.error}
+                <p key={i} className={r.ok && !r.warning ? "parameter-help" : "dialog-error"}>
+                  {r.name}：{r.ok ? r.warning ?? "已保存" : r.error}
                 </p>
               ))}
             </details>
