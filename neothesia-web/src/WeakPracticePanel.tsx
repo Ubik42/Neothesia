@@ -51,6 +51,7 @@ type SuggestionResult = {
   note: string;
   dueTotal?: number;
   eligibleTotal?: number;
+  missingTotal?: number;
   revision?: string;
   nextOffset?: number;
   hasMore?: boolean;
@@ -68,7 +69,7 @@ export function WeakPracticePanel({
   disabled: boolean;
   work: (job: () => Promise<void>) => Promise<void>;
   added: (id: string) => Promise<void>;
-  openLibrary: () => void;
+  openLibrary: (focus: "missing" | "review") => void;
 }) {
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
@@ -76,6 +77,7 @@ export function WeakPracticePanel({
     [duePage, setDuePage] = useState<{
       dueTotal: number;
       eligibleTotal: number;
+      missingTotal: number;
       revision: string;
       nextOffset: number;
       hasMore: boolean;
@@ -99,6 +101,7 @@ export function WeakPracticePanel({
       setDuePage({
         dueTotal: due.dueTotal ?? 0,
         eligibleTotal: due.eligibleTotal ?? 0,
+        missingTotal: due.missingTotal ?? 0,
         revision: due.revision ?? "",
         nextOffset: due.nextOffset ?? due.suggestions.length,
         hasMore: due.hasMore === true,
@@ -126,6 +129,7 @@ export function WeakPracticePanel({
       setDuePage({
         dueTotal: data.dueTotal ?? duePage.dueTotal,
         eligibleTotal: data.eligibleTotal ?? duePage.eligibleTotal,
+        missingTotal: data.missingTotal ?? duePage.missingTotal,
         revision: data.revision ?? duePage.revision,
         nextOffset: data.nextOffset ?? duePage.nextOffset + data.suggestions.length,
         hasMore: data.hasMore === true,
@@ -153,17 +157,22 @@ export function WeakPracticePanel({
         <div className="parameter-help">
           <p>
             曲库中 {duePage.dueTotal} 首曲目待复习；{duePage.eligibleTotal} 首可按原条件加入计划，当前已读取 {shownDue} 首。
-            {duePage.dueTotal > duePage.eligibleTotal &&
-              ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库核对条件；文件缺失时先重新关联。`}
+            {duePage.missingTotal > 0 && ` ${duePage.missingTotal} 首文件缺失，请先重新关联。`}
+            {duePage.dueTotal - duePage.eligibleTotal - duePage.missingTotal > 0 &&
+              ` ${duePage.dueTotal - duePage.eligibleTotal - duePage.missingTotal} 首需核对练习条件。`}
           </p>
-          {duePage.dueTotal > duePage.eligibleTotal && (
-            <>
-              <button type="button" disabled={disabled} onClick={openLibrary}>
-                打开曲库核对
-              </button>
-              <small>曲库会替换当前计划编辑窗口；请先保存正在修改的内容。</small>
-            </>
+          {duePage.missingTotal > 0 && (
+            <button type="button" disabled={disabled} onClick={() => openLibrary("missing")}>
+              查看缺失文件
+            </button>
           )}
+          {duePage.dueTotal - duePage.eligibleTotal - duePage.missingTotal > 0 && (
+            <button type="button" disabled={disabled} onClick={() => openLibrary("review")}>
+              查看待复习曲目
+            </button>
+          )}
+          {duePage.dueTotal > duePage.eligibleTotal &&
+            <small>曲库会替换当前计划编辑窗口；请先保存正在修改的内容。</small>}
         </div>
       )}
       {note && (

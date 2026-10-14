@@ -89,11 +89,13 @@ export function LibraryDialog({
   changed,
   open,
   openVersion,
+  initialFocus,
 }: {
   rows: SongRow[];
   close: () => void;
   changed: () => Promise<void>;
   open: (row: SongRow) => Promise<void>;
+  initialFocus?: "missing" | "review" | null;
   openVersion: (
     row: SongRow,
     contentId: string,
@@ -134,7 +136,10 @@ export function LibraryDialog({
     previous: SongLearning | null;
   } | null>(null);
   const today = localDay();
-  const [view, setView] = useState(readView),
+  const [view, setView] = useState<View>(() => initialFocus
+      ? { ...defaults, filter: initialFocus === "missing" ? "missing" : "all", practice: "review" }
+      : readView()),
+    [transientView, setTransientView] = useState(Boolean(initialFocus)),
     [page, setPage] = useState(0),
     [group, setGroup] = useState("");
   const {
@@ -149,13 +154,17 @@ export function LibraryDialog({
     practice,
     learning,
   } = view;
-  const updateView = (v: Partial<View>) => setView((old) => ({ ...old, ...v }));
+  const updateView = (v: Partial<View>) => {
+    setTransientView(false);
+    setView((old) => ({ ...old, ...v }));
+  };
   const [collection, setCollection] = useState<CollectionSong[]>([]);
   useEffect(() => {
+    if (transientView) return;
     try {
       localStorage.setItem(storage, JSON.stringify(view));
     } catch {}
-  }, [view]);
+  }, [view, transientView]);
   const [selected, setSelected] = useState<Set<string>>(new Set()),
     [active, setActive] = useState<string | null>(null),
     [name, setName] = useState(""),
@@ -932,6 +941,7 @@ export function LibraryDialog({
           </label>
           <button
             onClick={() => {
+              setTransientView(false);
               setView({ ...defaults });
               setGroup("");
             }}

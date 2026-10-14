@@ -124,12 +124,13 @@ fn due_review_suggestion(
     })
 }
 impl Player {
-    fn due_review_candidates(&self) -> Result<(Vec<Suggestion>, usize, usize), String> {
+    fn due_review_candidates(&self) -> Result<(Vec<Suggestion>, usize, usize, usize), String> {
         let index = crate::library_workspace::Workspace::load(&self.data)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
         let mut rows = Vec::new();
         let mut due_total = 0;
+        let mut missing_total = 0;
         for (cid, history) in self.history.snapshot() {
             if !history.review_status(now).is_some_and(|status| status.is_due) { continue; }
             due_total += 1;
@@ -138,12 +139,14 @@ impl Player {
                     || crate::library::available_path(&index, &cid, row.item.path.as_deref()).is_some()
                 {
                     rows.push(row);
+                } else {
+                    missing_total += 1;
                 }
             }
         }
         rows.sort_by(|a, b| a.source_at.cmp(&b.source_at).then_with(|| a.id.cmp(&b.id)));
         let eligible_total = rows.len();
-        Ok((rows, due_total, eligible_total))
+        Ok((rows, due_total, eligible_total, missing_total))
     }
     fn due_review_rows(&self) -> Result<Vec<Suggestion>, String> {
         Ok(self.due_review_candidates()?.0)
@@ -423,7 +426,7 @@ impl Player {
         rows
     }
     pub(super) fn due_review(&self, offset: usize, expected: Option<&str>) -> Result<Value, String> {
-        let (rows, due_total, eligible_total) = self.due_review_candidates()?;
+        let (rows, due_total, eligible_total, missing_total) = self.due_review_candidates()?;
         let revision = blake3::hash(&serde_json::to_vec(&rows.iter().map(|row| &row.id).collect::<Vec<_>>())
             .map_err(|e| e.to_string())?).to_hex().to_string();
         if expected.is_some_and(|value| value != revision.as_str()) {
@@ -432,7 +435,7 @@ impl Player {
         if offset > rows.len() { return Err("到期复习读取位置无效，请重新生成建议".into()); }
         let suggestions: Vec<_> = rows.into_iter().skip(offset).take(30).collect();
         let next_offset = offset + suggestions.len();
-        Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习使用条件完整的最近普通整曲成绩，并检查曲库当前有可用文件路径；加入计划后打开时还会核对实际文件内容、声部、模式、速度及小节网格。文件缺失时请先在曲库重新关联。"}))
+        Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"missingTotal":missing_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习使用条件完整的最近普通整曲成绩，并检查曲库当前有可用文件路径；加入计划后打开时还会核对实际文件内容、声部、模式、速度及小节网格。文件缺失时请先在曲库重新关联。"}))
     }
     pub(super) fn weak_practice(&self) -> Result<Value, String> {
         Ok(
@@ -585,6 +588,7 @@ mod tests {
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);
         assert_eq!(due["eligibleTotal"], 1);
+        assert_eq!(due["missingTotal"], 0);
         let revision = due["revision"].as_str().unwrap();
         assert_eq!(p.due_review(1, Some(revision)).unwrap()["suggestions"].as_array().unwrap().len(), 0);
         assert!(p.due_review(0, Some("outdated")).is_err());
@@ -628,6 +632,7 @@ mod tests {
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);
         assert_eq!(due["eligibleTotal"], 0);
+        assert_eq!(due["missingTotal"], 1);
         assert!(due["suggestions"].as_array().unwrap().is_empty());
     }
     #[test]

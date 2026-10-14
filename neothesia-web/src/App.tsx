@@ -145,6 +145,7 @@ export default function App() {
     [fingeringDialog, setFingeringDialog] = useState(false),
     [legacyExerciseDialog, setLegacyExerciseDialog] = useState(false),
     [libraryDialog, setLibraryDialog] = useState(false),
+    [libraryLaunch, setLibraryLaunch] = useState<"normal" | "missing" | "review">("normal"),
     [libraryScoreRange, setLibraryScoreRange] = useState<{ song: LoadedSong; first: number; last: number } | null>(null),
     [passageDialog, setPassageDialog] = useState(false),
     [ladderDialog, setLadderDialog] = useState(false),
@@ -635,7 +636,10 @@ export default function App() {
             void run({ type: "pause" }).then(() => setPassageDialog(true));
             break;
           case "libraryManager":
-            void run({ type: "pause" }).then(() => setLibraryDialog(true));
+            void run({ type: "pause" }).then(() => {
+              setLibraryLaunch("normal");
+              setLibraryDialog(true);
+            });
             break;
         }
         return;
@@ -1044,6 +1048,7 @@ export default function App() {
         <button
           onClick={() => {
             action({ type: "pause" });
+            setLibraryLaunch("normal");
             setLibraryDialog(true);
           }}
         >
@@ -2446,10 +2451,11 @@ export default function App() {
             setRoutineDialog(false);
             setPracticeBackup(true);
           }}
-          openLibrary={() => {
+          openLibrary={(focus) => {
             setRoutineDialog(false);
             setRoutineLaunch(null);
             action({ type: "pause" });
+            setLibraryLaunch(focus);
             setLibraryDialog(true);
           }}
           changed={refresh}
@@ -2481,6 +2487,7 @@ export default function App() {
       )}
       {libraryDialog && (
         <LibraryDialog
+          initialFocus={libraryLaunch === "normal" ? null : libraryLaunch}
           rows={allLibraryRows}
           close={() => setLibraryDialog(false)}
           changed={refresh}

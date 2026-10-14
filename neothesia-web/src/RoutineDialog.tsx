@@ -173,7 +173,7 @@ export function RoutineDialog({
   close: () => void;
   changed: () => Promise<void>;
   backup: () => void;
-  openLibrary: () => void;
+  openLibrary: (focus: "missing" | "review") => void;
 }) {
   const [day, setDay] = useState(
       () => initialPlan?.day ?? state.routine?.day ?? localDay(),
