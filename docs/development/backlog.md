@@ -120,7 +120,7 @@ performance/MIDI reliability items above have physical-device evidence.
 - [x] `MUS-001A` Add a notation-neutral score model and a tested uncompressed
   partwise MusicXML importer.
 - [x] `MUS-001B1` Add bounded compressed MXL input with container validation.
-- [ ] `MUS-001B2` Add score-timewise conversion.
+- [ ] `MUS-001B2` Add score-timewise conversion. Core import and personal-mark export source is present; compile, tests and desktop round trip remain open (Cycle 340).
 - [ ] `MUS-001B3` Add a representative cross-exporter and cross-version piano
   fixture corpus.
 - [x] `MUS-001B3A` Add a pinned, hash-verified MuseScore 1.2–3.6 / OSMD

@@ -2,7 +2,7 @@
 use crate::notation::ScoreAsset;
 use midi_file::MidiFile;
 use neothesia_core::{
-    musicxml::{ScoreEventId, ScoreEventKind, musicxml_source},
+    musicxml::{ScoreEventId, ScoreEventKind, partwise_musicxml_source},
     practice::PracticePart,
 };
 use quick_xml::{
@@ -214,7 +214,7 @@ pub(crate) fn export(
             edits.insert(id, chosen);
         }
     }
-    let source = musicxml_source(&asset.bytes).map_err(|e| e.to_string())?;
+    let source = partwise_musicxml_source(&asset.bytes).map_err(|e| e.to_string())?;
     if source.len() > 16_000_000 {
         return Err("展开后的原谱超过 16 MB，暂不支持改写导出".into());
     }
@@ -271,8 +271,9 @@ pub(crate) fn export(
     Ok(value)
 }
 
-// Preserve every original XML event outside edited note nodes, including layout,
-// lyrics, articulations, comments, entity references and processing instructions.
+// Preserve XML events outside edited note nodes, including layout, lyrics,
+// articulations, comments, entity references and processing instructions.
+// A timewise source is first reordered into a partwise copy for stable note IDs.
 enum Node {
     Element(BytesStart<'static>, Vec<Node>, BytesEnd<'static>),
     Raw(Event<'static>),
@@ -583,6 +584,32 @@ fn rewrite(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exports_timewise_note_marks_from_the_correct_part_and_measure() {
+        let xml = br#"<score-timewise version="4.0"><part-list>
+          <score-part id="P1"><part-name>Right</part-name></score-part>
+          <score-part id="P2"><part-name>Left</part-name></score-part>
+          </part-list>
+          <measure number="1"><part id="P1"><attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration></note></part>
+          <part id="P2"><attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration></note></part></measure>
+          <measure number="2"><part id="P1"><note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration></note></part>
+          <part id="P2"><note><pitch><step>D</step><octave>3</octave></pitch><duration>1</duration></note></part></measure>
+          </score-timewise>"#;
+        let source = partwise_musicxml_source(xml).unwrap();
+        let id = ScoreEventId {
+            part_id: "P2".into(), measure_ordinal: 1,
+            kind: ScoreEventKind::Note, ordinal: 0,
+        };
+        let edits = BTreeMap::from([(id, Mark { finger: Some(4), hand: Some(PracticePart::LeftHand), changes: None })]);
+        let output = rewrite(&source, &edits, 480).unwrap();
+        let score = neothesia_core::musicxml::import_musicxml(&output).unwrap();
+        assert_eq!(score.parts.len(), 2);
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("<score-partwise"));
+        assert_eq!(text.matches("<fingering placement=\"below\">4</fingering>").count(), 1);
+    }
     #[test]
     fn trill_auxiliary_finger_does_not_conflict_with_written_note_export() {
         let xml = br#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><trill-mark beats="3"/></ornaments></notations></note></measure></part></score-partwise>"#;

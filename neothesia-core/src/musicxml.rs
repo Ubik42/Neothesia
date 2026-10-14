@@ -13,8 +13,8 @@ use std::{
 };
 
 use quick_xml::{
-    Reader,
-    events::{BytesStart, Event},
+    Reader, Writer,
+    events::{BytesEnd, BytesStart, Event},
 };
 use thiserror::Error;
 
@@ -378,8 +378,10 @@ pub enum ImportError {
     Xml(#[from] quick_xml::Error),
     #[error("MusicXML text is not valid UTF-8")]
     Utf8(#[from] str::Utf8Error),
-    #[error("expected a score-partwise MusicXML document, found {0}")]
+    #[error("expected a score-partwise or score-timewise MusicXML document, found {0}")]
     UnsupportedRoot(String),
+    #[error("invalid score-timewise MusicXML: {0}")]
+    InvalidTimewise(String),
     #[error("MusicXML contains no score root")]
     MissingRoot,
     #[error("could not read MusicXML file: {0}")]
@@ -498,6 +500,31 @@ pub fn musicxml_source(source: &[u8]) -> Result<Vec<u8>, ImportError> {
             });
         }
         Ok(source.to_vec())
+    }
+}
+
+/// Returns a partwise XML copy for tools that address notes by part and measure.
+/// The saved source stays unchanged; timewise documents are reordered only in this copy.
+pub fn partwise_musicxml_source(source: &[u8]) -> Result<Vec<u8>, ImportError> {
+    let xml = musicxml_source(source)?;
+    let mut reader = Reader::from_reader(xml.as_slice());
+    let timewise = loop {
+        match reader.read_event()? {
+            Event::Start(start) | Event::Empty(start)
+                if start.name().as_ref() == b"score-timewise" =>
+            {
+                break true;
+            }
+            Event::Start(_) | Event::Empty(_) => break false,
+            Event::Eof => return Err(ImportError::MissingRoot),
+            _ => {}
+        }
+    };
+    drop(reader);
+    if timewise {
+        timewise_to_partwise(&xml)
+    } else {
+        Ok(xml)
     }
 }
 
@@ -760,10 +787,167 @@ struct BarlineBuilder {
     coda: bool,
 }
 
-/// Imports uncompressed, partwise MusicXML (`.musicxml` or `.xml`).
-///
-/// Compressed `.mxl` containers and timewise scores are intentionally deferred
-/// so callers can distinguish unsupported input from a damaged score.
+struct TimewiseMeasure {
+    start: BytesStart<'static>,
+    parts: HashMap<String, Vec<u8>>,
+}
+
+fn timewise_part_contents(reader: &mut Reader<&[u8]>) -> Result<Vec<u8>, ImportError> {
+    let mut writer = Writer::new(Vec::new());
+    let mut depth = 1_usize;
+    loop {
+        let event = reader.read_event()?;
+        match &event {
+            Event::Start(_) => depth += 1,
+            Event::End(end) => {
+                depth -= 1;
+                if depth == 0 {
+                    if end.name().as_ref() != b"part" {
+                        return Err(ImportError::InvalidTimewise("声部结束标签不匹配".into()));
+                    }
+                    return Ok(writer.into_inner());
+                }
+            }
+            Event::Eof => return Err(ImportError::InvalidTimewise("声部没有结束标签".into())),
+            _ => {}
+        }
+        writer.write_event(event.into_owned())?;
+    }
+}
+
+fn timewise_measure(
+    reader: &mut Reader<&[u8]>,
+    start: BytesStart<'static>,
+) -> Result<TimewiseMeasure, ImportError> {
+    let mut parts = HashMap::new();
+    loop {
+        match reader.read_event()? {
+            Event::Start(part) if part.name().as_ref() == b"part" => {
+                let id = attribute(&part, b"id")?.ok_or_else(||
+                    ImportError::InvalidTimewise("小节声部缺少 id".into()))?;
+                if parts.insert(id.clone(), timewise_part_contents(reader)?).is_some() {
+                    return Err(ImportError::InvalidTimewise(format!("小节重复出现声部 {id}")));
+                }
+            }
+            Event::Empty(part) if part.name().as_ref() == b"part" => {
+                let id = attribute(&part, b"id")?.ok_or_else(||
+                    ImportError::InvalidTimewise("小节声部缺少 id".into()))?;
+                if parts.insert(id.clone(), Vec::new()).is_some() {
+                    return Err(ImportError::InvalidTimewise(format!("小节重复出现声部 {id}")));
+                }
+            }
+            Event::End(end) if end.name().as_ref() == b"measure" => {
+                return Ok(TimewiseMeasure { start, parts });
+            }
+            Event::Text(text) if text.as_ref().iter().all(u8::is_ascii_whitespace) => {}
+            Event::Comment(_) => {}
+            Event::Eof => return Err(ImportError::InvalidTimewise("小节没有结束标签".into())),
+            _ => return Err(ImportError::InvalidTimewise("小节中存在声部以外的内容".into())),
+        }
+    }
+}
+
+fn timewise_to_partwise(source: &[u8]) -> Result<Vec<u8>, ImportError> {
+    let mut reader = Reader::from_reader(source);
+    reader.config_mut().trim_text(false);
+    let mut prefix = Writer::new(Vec::new());
+    let root = loop {
+        match reader.read_event()? {
+            Event::Start(root) if root.name().as_ref() == b"score-timewise" => break root.into_owned(),
+            Event::Start(root) | Event::Empty(root) => {
+                let name = root.name();
+                return Err(ImportError::UnsupportedRoot(str::from_utf8(name.as_ref())?.into()));
+            }
+            Event::Eof => return Err(ImportError::MissingRoot),
+            event => prefix.write_event(event.into_owned())?,
+        }
+    };
+    let mut header = Writer::new(Vec::new());
+    let mut part_ids = Vec::new();
+    let mut measures = Vec::new();
+    let mut depth = 1_usize;
+    loop {
+        let event = reader.read_event()?;
+        match event {
+            Event::Start(start) if depth == 1 && start.name().as_ref() == b"measure" => {
+                if measures.len() >= 10_000 {
+                    return Err(ImportError::InvalidTimewise("小节数量超过 10000".into()));
+                }
+                measures.push(timewise_measure(&mut reader, start.into_owned())?);
+            }
+            Event::Empty(start) if depth == 1 && start.name().as_ref() == b"measure" => {
+                if measures.len() >= 10_000 {
+                    return Err(ImportError::InvalidTimewise("小节数量超过 10000".into()));
+                }
+                measures.push(TimewiseMeasure { start: start.into_owned(), parts: HashMap::new() });
+            }
+            Event::End(end) if depth == 1 && end.name().as_ref() == b"score-timewise" => break,
+            Event::Start(start) => {
+                if !measures.is_empty() {
+                    return Err(ImportError::InvalidTimewise("小节后出现额外的谱面头信息".into()));
+                }
+                if depth == 2 && start.name().as_ref() == b"score-part" {
+                    let id = attribute(&start, b"id")?.ok_or_else(||
+                        ImportError::InvalidTimewise("声部目录缺少 id".into()))?;
+                    if part_ids.contains(&id) || part_ids.len() >= 128 {
+                        return Err(ImportError::InvalidTimewise("声部目录重复或超过 128 个声部".into()));
+                    }
+                    part_ids.push(id);
+                }
+                depth += 1;
+                header.write_event(Event::Start(start.into_owned()))?;
+            }
+            Event::End(end) => {
+                if depth <= 1 {
+                    return Err(ImportError::InvalidTimewise("谱面头结束标签不匹配".into()));
+                }
+                depth -= 1;
+                header.write_event(Event::End(end.into_owned()))?;
+            }
+            Event::Eof => return Err(ImportError::InvalidTimewise("谱面没有结束标签".into())),
+            Event::Text(text) if !measures.is_empty() && text.as_ref().iter().all(u8::is_ascii_whitespace) => {}
+            Event::Comment(_) if !measures.is_empty() => {}
+            event if measures.is_empty() => header.write_event(event.into_owned())?,
+            _ => return Err(ImportError::InvalidTimewise("小节后出现额外内容".into())),
+        }
+    }
+    if part_ids.is_empty() || measures.is_empty() {
+        return Err(ImportError::InvalidTimewise("缺少声部目录或小节".into()));
+    }
+    for measure in &measures {
+        if measure.parts.keys().any(|id| !part_ids.contains(id)) {
+            return Err(ImportError::InvalidTimewise("小节引用了未登记的声部".into()));
+        }
+        if measure.parts.len() != part_ids.len() {
+            return Err(ImportError::InvalidTimewise("小节缺少已登记的声部，无法保持各声部时间一致".into()));
+        }
+    }
+    let mut writer = Writer::new(prefix.into_inner());
+    let mut root = root;
+    root.set_name(b"score-partwise");
+    writer.write_event(Event::Start(root))?;
+    writer.get_mut().extend_from_slice(&header.into_inner());
+    for id in part_ids {
+        let mut part = BytesStart::new("part");
+        part.push_attribute(("id", id.as_str()));
+        writer.write_event(Event::Start(part))?;
+        for measure in &measures {
+            writer.write_event(Event::Start(measure.start.clone()))?;
+            if let Some(contents) = measure.parts.get(&id) {
+                writer.get_mut().extend_from_slice(contents);
+            }
+            writer.write_event(Event::End(BytesEnd::new("measure")))?;
+        }
+        writer.write_event(Event::End(BytesEnd::new("part")))?;
+        if writer.get_mut().len() > MAX_SCORE_BYTES {
+            return Err(ImportError::SizeLimit { kind: "converted MusicXML document", limit: MAX_SCORE_BYTES });
+        }
+    }
+    writer.write_event(Event::End(BytesEnd::new("score-partwise")))?;
+    Ok(writer.into_inner())
+}
+
+/// Imports uncompressed partwise or timewise MusicXML (`.musicxml` or `.xml`).
 pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut reader = Reader::from_reader(source);
     reader.config_mut().trim_text(false);
@@ -807,6 +991,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                 if !root_seen {
                     root_seen = true;
                     let root = str::from_utf8(&name)?.to_owned();
+                    if root == "score-timewise" {
+                        return import_musicxml(&timewise_to_partwise(source)?);
+                    }
                     if root != "score-partwise" {
                         return Err(ImportError::UnsupportedRoot(root));
                     }
@@ -1019,6 +1206,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     root_seen = true;
                     let name = start.name();
                     let root = str::from_utf8(name.as_ref())?.to_owned();
+                    if root == "score-timewise" {
+                        return Err(ImportError::InvalidTimewise("谱面没有声部和小节".into()));
+                    }
                     if root != "score-partwise" {
                         return Err(ImportError::UnsupportedRoot(root));
                     }
@@ -1964,9 +2154,59 @@ mod tests {
     }
 
     #[test]
-    fn rejects_timewise_scores_explicitly() {
+    fn rejects_timewise_scores_without_parts() {
         let error = import_musicxml(b"<score-timewise version=\"4.0\"/>").unwrap_err();
-        assert!(matches!(error, ImportError::UnsupportedRoot(root) if root == "score-timewise"));
+        assert!(matches!(error, ImportError::InvalidTimewise(_)));
+    }
+
+    #[test]
+    fn imports_timewise_piano_parts_with_their_own_measure_timeline() {
+        let source = br#"<score-timewise version="4.0">
+  <movement-title>Timewise practice</movement-title>
+  <part-list>
+    <score-part id="P1"><part-name>Right hand</part-name></score-part>
+    <score-part id="P2"><part-name>Left hand</part-name></score-part>
+  </part-list>
+  <measure number="1">
+    <part id="P1"><attributes><divisions>4</divisions></attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration></note></part>
+    <part id="P2"><attributes><divisions>4</divisions></attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration></note></part>
+  </measure>
+  <measure number="2">
+    <part id="P1"><note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration></note></part>
+    <part id="P2"><note><pitch><step>G</step><octave>3</octave></pitch><duration>4</duration></note></part>
+  </measure>
+</score-timewise>"#;
+        let score = import_musicxml_document(source).unwrap();
+        assert_eq!(score.version.as_deref(), Some("4.0"));
+        assert_eq!(score.title.as_deref(), Some("Timewise practice"));
+        assert_eq!(score.parts.len(), 2);
+        assert_eq!(score.parts[0].name, "Right hand");
+        assert_eq!(score.parts[1].name, "Left hand");
+        for part in &score.parts {
+            assert_eq!(part.measures.len(), 2);
+            assert_eq!(part.measures[0].start, ScoreTime::default());
+            assert_eq!(part.measures[1].start, ScoreTime::new(1, 1));
+            assert_eq!(part.measures[1].events.len(), 1);
+        }
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        archive.start_file("META-INF/container.xml", options).unwrap();
+        archive.write_all(valid_container("scores/timewise.musicxml").as_bytes()).unwrap();
+        archive.start_file("scores/timewise.musicxml", options).unwrap();
+        archive.write_all(source).unwrap();
+        let compressed = archive.finish().unwrap().into_inner();
+        assert_eq!(import_musicxml_document(&compressed).unwrap().parts.len(), 2);
+    }
+
+    #[test]
+    fn rejects_timewise_measure_with_a_missing_part() {
+        let source = br#"<score-timewise><part-list>
+          <score-part id="P1"><part-name>One</part-name></score-part>
+          <score-part id="P2"><part-name>Two</part-name></score-part>
+          </part-list><measure number="1"><part id="P1"/></measure></score-timewise>"#;
+        assert!(matches!(import_musicxml_document(source), Err(ImportError::InvalidTimewise(_))));
     }
 
     #[test]
