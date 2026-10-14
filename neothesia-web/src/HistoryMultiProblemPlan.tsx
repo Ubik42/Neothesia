@@ -10,6 +10,8 @@ export type ReviewSource = {
   recordedAt: number;
   slot: number;
 };
+const sourceKey = (source: ReviewSource) =>
+  JSON.stringify([source.contentId, source.id, source.slot]);
 type Notes = {
   reference: number;
   measure: number;
@@ -50,9 +52,9 @@ export function HistoryMultiProblemPlan({
             id: s.id,
             offset: 0,
           });
-          return [s.slot, { ...data, error: "" }] as const;
+          return [sourceKey(s), { ...data, error: "" }] as const;
         } catch (e) {
-          return [s.slot, { notes: [], total: 0, error: String(e) }] as const;
+          return [sourceKey(s), { notes: [], total: 0, error: String(e) }] as const;
         }
       }),
     ).then((rows) => {
@@ -76,7 +78,7 @@ export function HistoryMultiProblemPlan({
     truncated: false,
     wrongNotes: null,
     notes: sources.flatMap((s) =>
-      (loaded[s.slot]?.notes ?? []).map((n) => ({
+      (loaded[sourceKey(s)]?.notes ?? []).map((n) => ({
         ...n,
         reference: s.slot * 1000000 + n.reference,
         sourceReference: n.reference,
@@ -97,9 +99,10 @@ export function HistoryMultiProblemPlan({
   const draftScope = draftScopeFor(sources);
   const more = async (s: ReviewSource) => {
     const version = epoch.current;
+    const key = sourceKey(s);
     setBusy(true);
     try {
-      const old = loaded[s.slot];
+      const old = loaded[key];
       const data = await api.command<{ notes: Notes[]; total: number }>({
         type: "historyProblemNotes",
         content_id: s.contentId,
@@ -109,7 +112,7 @@ export function HistoryMultiProblemPlan({
       if (version !== epoch.current) return;
       setLoaded((v) => ({
         ...v,
-        [s.slot]: {
+        [key]: {
           notes: [...old.notes, ...data.notes],
           total: data.total,
           error: "",
@@ -119,7 +122,7 @@ export function HistoryMultiProblemPlan({
       if (version !== epoch.current) return;
       setLoaded((v) => ({
         ...v,
-        [s.slot]: { ...v[s.slot], error: String(e) },
+        [key]: { ...v[key], error: String(e) },
       }));
     } finally {
       if (version === epoch.current) setBusy(false);
@@ -134,7 +137,8 @@ export function HistoryMultiProblemPlan({
     try {
       for (const source of sources) {
         if (version !== epoch.current || batches >= 20) break;
-        let row = loaded[source.slot];
+        const key = sourceKey(source);
+        let row = loaded[key];
         if (!row) continue;
         for (const note of row.notes) remaining.delete(source.slot * 1_000_000 + note.reference);
         const hasMissing = () => [...remaining].some((reference) =>
@@ -151,7 +155,7 @@ export function HistoryMultiProblemPlan({
           batches++;
           row = { notes: [...row.notes, ...data.notes], total: data.total, error: "" };
           const updated = row;
-          setLoaded((current) => ({ ...current, [source.slot]: updated }));
+          setLoaded((current) => ({ ...current, [key]: updated }));
           for (const note of data.notes) remaining.delete(source.slot * 1_000_000 + note.reference);
           setRestoreMessage(`已继续读取 ${batches} 页问题音…`);
         }
@@ -176,14 +180,14 @@ export function HistoryMultiProblemPlan({
         <div key={s.slot}>
           <span>
             {s.title} · {new Date(s.recordedAt).toLocaleString("zh-CN")} · 问题{" "}
-            {loaded[s.slot]?.total ?? "读取中"}
+            {loaded[sourceKey(s)]?.total ?? "读取中"}
           </span>
           <button disabled={busy} onClick={() => remove(s.id, s.contentId)}>
             移出复习编排
           </button>
-          {loaded[s.slot]?.error && <p role="alert">{loaded[s.slot].error}</p>}
-          {loaded[s.slot] &&
-            loaded[s.slot].total > loaded[s.slot].notes.length && (
+          {loaded[sourceKey(s)]?.error && <p role="alert">{loaded[sourceKey(s)].error}</p>}
+          {loaded[sourceKey(s)] &&
+            loaded[sourceKey(s)].total > loaded[sourceKey(s)].notes.length && (
               <button disabled={busy} onClick={() => void more(s)}>
                 再读取这条记录的 200 个问题
               </button>
@@ -191,7 +195,7 @@ export function HistoryMultiProblemPlan({
         </div>
       ))}
       <HistoryProblemPlan
-        key={draftScope}
+        key={JSON.stringify(sources.map(sourceKey))}
         multi
         draftScope={draftScope}
         draftSources={sources}
