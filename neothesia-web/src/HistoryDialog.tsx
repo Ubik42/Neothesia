@@ -278,21 +278,33 @@ export function HistoryDialog({
 }) {
   const [sources, setSources] = useState<ReviewSource[]>(() => {
     try {
-      return (
-        JSON.parse(
-          localStorage.getItem("neothesia-review-sources") || "[]",
-        ) as ReviewSource[]
-      )
-        .filter(
-          (s) =>
-            typeof s.contentId === "string" &&
-            /^[a-f0-9]{64}$/.test(s.contentId) &&
-            typeof s.id === "string" &&
-            typeof s.title === "string" &&
-            Number.isSafeInteger(s.slot) &&
-            s.slot >= 0,
-        )
-        .slice(0, 20);
+      const saved: unknown = JSON.parse(
+        localStorage.getItem("neothesia-review-sources") || "[]",
+      );
+      if (!Array.isArray(saved)) return [];
+      const restored: ReviewSource[] = [];
+      const seen = new Set<string>();
+      for (const value of saved) {
+        if (!value || typeof value !== "object") continue;
+        const source = value as Partial<ReviewSource>;
+        if (typeof source.contentId !== "string" ||
+          !/^[a-f0-9]{64}$/.test(source.contentId) ||
+          typeof source.id !== "string" || !source.id ||
+          typeof source.title !== "string" ||
+          typeof source.recordedAt !== "number" || !Number.isFinite(source.recordedAt)) continue;
+        const key = JSON.stringify([source.contentId, source.id]);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        restored.push({
+          contentId: source.contentId,
+          id: source.id,
+          title: source.title,
+          recordedAt: source.recordedAt,
+          slot: restored.length,
+        });
+        if (restored.length === 20) break;
+      }
+      return restored;
     } catch {
       return [];
     }
@@ -765,16 +777,20 @@ export function HistoryDialog({
                     )
                   }
                   onClick={() =>
-                    setSources((old) => [
-                      ...old,
-                      {
+                    setSources((old) => {
+                      if (old.length >= 20 || old.some((source) =>
+                        source.id === detail.id && source.contentId === detail.contentId)) return old;
+                      const occupied = new Set(old.map((source) => source.slot));
+                      let slot = 0;
+                      while (occupied.has(slot)) slot++;
+                      return [...old, {
                         contentId: detail.contentId,
                         id: detail.id,
                         title: detail.title,
                         recordedAt: detail.recordedAt,
-                        slot: Math.max(-1, ...old.map((s) => s.slot)) + 1,
-                      },
-                    ])
+                        slot,
+                      }];
+                    })
                   }
                 >
                   加入复习编排
