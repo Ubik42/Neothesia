@@ -461,14 +461,20 @@ impl Player {
         let mut rows = self.weak_practice_rows();
         rows.extend(self.due_review_rows()?);
         let mut selected = vec![];
+        let mut verified_content = std::collections::HashSet::new();
         for id in ids {
-            selected.push(
-                rows.iter()
+            let row = rows.iter()
                     .find(|r| &r.id == id)
-                    .ok_or("成绩或设备校准已改变，请重新生成建议")?
-                    .item
-                    .clone(),
-            );
+                    .ok_or("成绩或设备校准已改变，请重新生成建议")?;
+            if row.item.exercise.is_none()
+                && verified_content.insert(row.item.content_id.clone()) {
+                crate::library::verified_file(
+                    &self.data,
+                    &row.item.content_id,
+                    row.item.path.clone().into_iter(),
+                )?;
+            }
+            selected.push(row.item.clone());
         }
         let old = self.preferences.clone();
         let id = if let Some(id) = routine_id {
@@ -628,7 +634,13 @@ mod tests {
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
-        std::fs::remove_file(imported["sourcePath"].as_str().unwrap()).unwrap();
+        let source_path = imported["sourcePath"].as_str().unwrap();
+        let initial = p.due_review(0, None).unwrap();
+        let suggestion = initial["suggestions"][0]["id"].as_str().unwrap().to_owned();
+        std::fs::write(source_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        assert!(p.accept_weak_practice(&[suggestion], None, None, "到期复习").is_err());
+        assert!(p.preferences.routines.is_empty());
+        std::fs::remove_file(source_path).unwrap();
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);
         assert_eq!(due["eligibleTotal"], 0);
