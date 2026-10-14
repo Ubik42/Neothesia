@@ -260,6 +260,7 @@ export default function App() {
   stateRef.current = state;
   const noteQueue = useRef(Promise.resolve()),
     requestBusy = useRef(false);
+  const refreshGeneration = useRef(0);
   const updateCollection = useCallback(async () => {
     const data = await api.command<{ songs: CollectionSong[] }>({
       type: "collection",
@@ -267,22 +268,34 @@ export default function App() {
     setCollection(data.songs);
   }, []);
   const refreshOrThrow = useCallback(async () => {
-    const [library, current, inventory] = await Promise.all([
-      api.library(),
-      api.song(),
-      api.devices(),
-    ]);
-    const currentState = await api.state();
-    const collection = await api.command<{ songs: CollectionSong[] }>({
-      type: "collection",
-    });
-    setSongs(library.songs);
+    const request = ++refreshGeneration.current;
+    let current: LoadedSong | null;
+    let currentState: Snapshot;
+    try {
+      [current, currentState] = await Promise.all([api.song(), api.state()]);
+    } catch (e) {
+      if (request !== refreshGeneration.current) return;
+      setConnected(false);
+      throw e;
+    }
+    if (request !== refreshGeneration.current) return;
     setSong(current);
-    setDevices(inventory);
     setState(currentState);
-    setCollection(collection.songs);
     setConnected(true);
-    setError("");
+    const [library, inventory, collection] = await Promise.allSettled([
+      api.library(),
+      api.devices(),
+      api.command<{ songs: CollectionSong[] }>({ type: "collection" }),
+    ]);
+    if (request !== refreshGeneration.current) return;
+    const issues: string[] = [];
+    if (library.status === "fulfilled") setSongs(library.value.songs);
+    else issues.push(`曲库读取失败：${String(library.reason)}`);
+    if (inventory.status === "fulfilled") setDevices(inventory.value);
+    else issues.push(`设备读取失败：${String(inventory.reason)}`);
+    if (collection.status === "fulfilled") setCollection(collection.value.songs);
+    else issues.push(`收藏信息读取失败：${String(collection.reason)}`);
+    setError(issues.join("；"));
   }, []);
   const refresh = useCallback(async () => {
     try {
@@ -1151,7 +1164,7 @@ export default function App() {
       {(error || state.error) && (
         <div className="error-strip" role="alert">
           <span>{error || state.error}</span>
-          <button onClick={() => void refresh()}>重新连接</button>
+          <button onClick={() => void refresh()}>{connected ? "重试读取" : "重新连接"}</button>
           <button aria-label="关闭错误提示" onClick={() => setError("")}>
             <X size={14} />
           </button>
