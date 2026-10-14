@@ -98,33 +98,54 @@ export function WeakPracticePanel({
   }, [resumeRevision]);
   const generate = () =>
     void work(async () => {
-      const [due, weak] = await Promise.all([
+      setRows([]);
+      setChosen([]);
+      setDuePage(null);
+      setNote("");
+      setMessage("");
+      const [dueResult, weakResult] = await Promise.allSettled([
         api.command<SuggestionResult>({ type: "dueReview" }),
         api.command<SuggestionResult>({ type: "weakPractice" }),
       ]);
+      const due = dueResult.status === "fulfilled" ? dueResult.value : null;
+      const weak = weakResult.status === "fulfilled" ? weakResult.value : null;
+      const failure = [
+        dueResult.status === "rejected" &&
+          `到期复习读取失败：${String(dueResult.reason)}`,
+        weakResult.status === "rejected" &&
+          `薄弱项读取失败：${String(weakResult.reason)}`,
+      ].filter((message): message is string => Boolean(message));
+      if (!due && !weak) throw new Error(failure.join("；"));
       const suggestions = [
-        ...weak.suggestions,
-        ...due.suggestions,
+        ...(weak?.suggestions ?? []),
+        ...(due?.suggestions ?? []),
       ];
+      const balanced = [
+        ...(weak?.suggestions.slice(0, 3) ?? []),
+        ...(due?.suggestions.slice(0, 3) ?? []),
+      ];
+      const initial = [
+        ...balanced,
+        ...suggestions.filter((row) => !balanced.some((picked) => picked.id === row.id)),
+      ].slice(0, 6);
       setRows(suggestions);
-      setChosen((weak.suggestions.length ? weak.suggestions : due.suggestions)
-        .slice(0, 6).map((r) => r.id));
-      setNote(`${due.note} ${weak.note}`);
-      setDuePage({
+      setChosen(initial.map((row) => row.id));
+      setNote([due?.note, weak?.note].filter(Boolean).join(" "));
+      setDuePage(due ? {
         dueTotal: due.dueTotal ?? 0,
         eligibleTotal: due.eligibleTotal ?? 0,
         missingTotal: due.missingTotal ?? 0,
         revision: due.revision ?? "",
         nextOffset: due.nextOffset ?? due.suggestions.length,
         hasMore: due.hasMore === true,
-      });
-      setMessage(
+      } : null);
+      const resultMessage =
         suggestions.length
           ? ""
-          : due.dueTotal
+          : due?.dueTotal
             ? "待复习曲目的原条件或文件位置暂不能自动编排。请在曲库核对曲目，缺失文件先重新关联。"
-            : "暂无足够的重复薄弱证据；完成几轮后再生成。",
-      );
+            : "暂无足够的重复薄弱证据；完成几轮后再生成。";
+      setMessage([resultMessage, ...failure].filter(Boolean).join(" "));
     });
   const loadMoreDue = () =>
     void work(async () => {
@@ -163,7 +184,7 @@ export function WeakPracticePanel({
           : day
             ? "新计划与当前日期安排"
             : "新的常用计划"}
-        ，不自动演奏。
+        ，不自动演奏。有两类建议时，系统默认各选最多三项；你可以逐项修改。
       </p>
       {duePage && duePage.dueTotal > 0 && (
         <div className="parameter-help">

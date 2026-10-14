@@ -317,8 +317,16 @@ export function RoutineDialog({
     try {
       await job();
     } catch (e) {
-      await changed();
-      setError(String(e instanceof Error ? e.message : e));
+      const original = e instanceof Error ? e.message : String(e);
+      try {
+        await changed();
+        setError(original);
+      } catch (refreshError) {
+        const detail = refreshError instanceof Error
+          ? refreshError.message
+          : String(refreshError);
+        setError(`${original}；界面刷新也失败：${detail}`);
+      }
     } finally {
       setBusy(false);
     }
