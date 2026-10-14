@@ -518,14 +518,13 @@ export function RoutineDialog({
     item_id: itemId,
     ...extra,
   });
-  const openItem = (item: Item) =>
-    void work(async () => {
+  const openSavedItem = async (savedId: string, savedTitle: string) => {
       try {
         await api.command({
           type: "openRoutineItem",
           routine_id: selected,
           day,
-          item_id: item.id,
+          item_id: savedId,
           resume: true,
         });
       } catch (e) {
@@ -536,14 +535,48 @@ export function RoutineDialog({
         }
         throw e;
       }
-      setOpenedItem(item.title || "当前项目");
+      setOpenedItem(savedTitle || "当前项目");
       try {
         await changed();
         close();
       } catch (e) {
         throw new Error(`练习项目已打开，当前状态读取失败：${e instanceof Error ? e.message : String(e)}`);
       }
-    }, false);
+  };
+  const openItem = (item: Item) =>
+    void work(() => openSavedItem(item.id, item.title), false);
+  const saveItem = (startPractice: boolean) =>
+    void work(async () => {
+      const [kind, ...parts] = source.split(":");
+      const saveId = itemId ?? (draftItemId.current ??= crypto.randomUUID());
+      const data = await api.command<{ id: string }>({
+        type: "saveRoutineItem",
+        content_id: source ? song?.contentId ?? null : null,
+        routine_id: selected,
+        day: editDay,
+        id: saveId,
+        source: source ? kind : null,
+        source_id: parts.join(":") || null,
+        title,
+        notes: requirement,
+        goal,
+      });
+      setItemId(data.id);
+      draftItemId.current = null;
+      setSource("");
+      setLaunchPending(false);
+      await refreshSavedList("练习项目");
+      if (startPractice) {
+        try {
+          await openSavedItem(data.id, title.trim());
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          throw new Error(message.includes("练习项目已打开")
+            ? message
+            : `练习项目已保存，但打开失败：${message}`);
+        }
+      }
+    }, !startPractice);
   const retryOpenedItem = () =>
     void work(async () => {
       await changed();
@@ -1151,32 +1184,20 @@ export function RoutineDialog({
                         disabled={
                           locked || sourceBusy || !sourceAvailable || !title.trim() || (!song && source !== "")
                         }
-                        onClick={() =>
-                          void work(async () => {
-                            const [kind, ...parts] = source.split(":");
-                            const saveId = itemId ?? (draftItemId.current ??= crypto.randomUUID());
-                            const data = await api.command<{ id: string }>({
-                              type: "saveRoutineItem",
-                              content_id: source ? song?.contentId ?? null : null,
-                              routine_id: selected,
-                              day: editDay,
-                              id: saveId,
-                              source: source ? kind : null,
-                              source_id: parts.join(":") || null,
-                              title,
-                              notes: requirement,
-                              goal,
-                            });
-                            setItemId(data.id);
-                            draftItemId.current = null;
-                            setSource("");
-                            setLaunchPending(false);
-                            await refreshSavedList("练习项目");
-                          })
-                        }
+                        onClick={() => saveItem(false)}
                       >
                         保存项目
                       </button>
+                      {!template && (
+                        <button
+                          disabled={
+                            locked || sourceBusy || !sourceAvailable || !title.trim() || (!song && source !== "")
+                          }
+                          onClick={() => saveItem(true)}
+                        >
+                          保存并开始练习
+                        </button>
+                      )}
                       {currentItem && (
                         <>
                           <button
