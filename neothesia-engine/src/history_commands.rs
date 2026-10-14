@@ -80,10 +80,10 @@ impl Player {
 
     pub(super) fn history_context(&self) -> PracticeSessionContext {
         PracticeSessionContext {
-            expression:self.active_expression_goal.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
+            expression:self.active_expression_goal.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,note_pedal_mismatch_count:e.note_pedal_mismatch_count,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
             routine: self.routine.as_ref().map(|a| {
                 neothesia_core::practice_history::PracticeRoutineCondition {
-                    expression:a.item.goal.expression.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
+                    expression:a.item.goal.expression.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,note_pedal_mismatch_count:e.note_pedal_mismatch_count,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
                     item_notes: a.item.notes.clone(),
                     consecutive: a.item.goal.consecutive,
                     routine_id: a.routine_id.clone(),
@@ -245,10 +245,12 @@ impl Player {
         row["performanceAvailable"]=json!(crate::performance_archive::available(&self.data,content_id,id));
         row["summary"] = json!(session.summary);
         if let Some(e)=session.context.as_ref().and_then(|c|c.expression.as_ref().or_else(||c.routine.as_ref().and_then(|r|r.expression.as_ref()))){
-            let g=crate::expression_goal::ExpressionGoal{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms};
-            let note_velocity=if g.note_velocity_difference.is_some(){crate::performance_archive::read(&self.data,content_id,id).ok()
-                .and_then(|archive|archive.note_velocity_evidence(session.context.as_ref().map_or(0,|context|context.target_notes)))}else{None};
-            row["expressionGoalResult"]=json!(g.result_with_note_velocity(session.summary.expression,note_velocity));
+            let g=crate::expression_goal::ExpressionGoal{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,note_pedal_mismatch_count:e.note_pedal_mismatch_count,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms};
+            let archive=if g.note_velocity_difference.is_some()||g.note_pedal_mismatch_count.is_some(){crate::performance_archive::read(&self.data,content_id,id).ok()}else{None};
+            let target=session.context.as_ref().map_or(0,|context|context.target_notes);
+            let note_velocity=g.note_velocity_difference.and_then(|_|archive.as_ref().and_then(|a|a.note_velocity_evidence(target)));
+            let note_pedal=g.note_pedal_mismatch_count.and_then(|_|archive.as_ref().and_then(|a|a.note_pedal_evidence(target)));
+            row["expressionGoalResult"]=json!(g.result_with_note_evidence(session.summary.expression,note_velocity,note_pedal));
         }
         row["context"] = json!(session.context);
         let conditions=condition_summary(session);

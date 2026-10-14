@@ -7,6 +7,8 @@ pub struct ExpressionGoalResult {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note_velocity: Option<NoteVelocityEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_pedal: Option<NotePedalEvidence>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,30 +18,51 @@ pub struct NoteVelocityEvidence {
     pub missing_notes: usize,
     pub max_abs_difference: Option<u8>,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotePedalEvidence {
+    pub reference_notes: usize,
+    pub matched_notes: usize,
+    pub paired_state_notes: usize,
+    pub missing_notes: usize,
+    pub unknown_state_notes: usize,
+    pub mismatch_count: usize,
+}
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ExpressionGoal {
     pub velocity_difference: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note_velocity_difference: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_pedal_mismatch_count: Option<u8>,
     pub contour_percent: Option<u8>,
     pub pedal_offset_ms: Option<u16>,
 }
 impl ExpressionGoal {
+    #[cfg(test)]
     pub(crate) fn result_with_note_velocity(&self, e: ExpressionSummary, note_velocity: Option<NoteVelocityEvidence>) -> ExpressionGoalResult {
+        self.result_with_note_evidence(e,note_velocity,None)
+    }
+    pub(crate) fn result_with_note_evidence(&self,e:ExpressionSummary,note_velocity:Option<NoteVelocityEvidence>,note_pedal:Option<NotePedalEvidence>)->ExpressionGoalResult{
         let evidence = self.note_velocity_difference.and(note_velocity);
-        match self.assess_with_note_velocity(e, note_velocity) {
+        let pedal_evidence=self.note_pedal_mismatch_count.and(note_pedal);
+        match self.assess_with_note_evidence(e,note_velocity,note_pedal) {
             Ok(()) => ExpressionGoalResult { passed: true,
                 message: if self.note_velocity_difference.is_some() && self.velocity_difference.is_none()
-                    && self.contour_percent.is_none() && self.pedal_offset_ms.is_none() {
+                    && self.contour_percent.is_none() && self.pedal_offset_ms.is_none() && self.note_pedal_mismatch_count.is_none() {
                     "本轮逐音力度要求达标"
-                } else { "本轮力度/踏板要求达标" }.into(), note_velocity: evidence },
-            Err(message) => ExpressionGoalResult { passed: false, message, note_velocity: evidence },
+                } else if self.note_pedal_mismatch_count.is_some() && self.velocity_difference.is_none()
+                    && self.note_velocity_difference.is_none() && self.contour_percent.is_none() && self.pedal_offset_ms.is_none() {
+                    "本轮逐音踏板状态要求达标"
+                } else { "本轮力度/踏板要求达标" }.into(), note_velocity: evidence, note_pedal:pedal_evidence },
+            Err(message) => ExpressionGoalResult { passed: false, message, note_velocity: evidence, note_pedal:pedal_evidence },
         }
     }
     pub(crate) fn validate(&self, mode: &str) -> Result<(), String> {
         if self.velocity_difference.is_none()
             && self.note_velocity_difference.is_none()
+            && self.note_pedal_mismatch_count.is_none()
             && self.contour_percent.is_none()
             && self.pedal_offset_ms.is_none()
         {
@@ -49,6 +72,7 @@ impl ExpressionGoal {
             .velocity_difference
             .is_some_and(|v| !(1..=64).contains(&v))
             || self.note_velocity_difference.is_some_and(|v| !(1..=64).contains(&v))
+            || self.note_pedal_mismatch_count.is_some_and(|v|v>8)
             || self
                 .contour_percent
                 .is_some_and(|v| !(50..=100).contains(&v))
@@ -56,14 +80,25 @@ impl ExpressionGoal {
                 .pedal_offset_ms
                 .is_some_and(|v| !(10..=500).contains(&v))
         {
-            return Err("力度平均差与逐音力度差需 1–64，起伏一致率需 50–100%，踏板偏移需 10–500 ms".into());
+            return Err("力度平均差与逐音力度差需 1–64，逐音踏板错配数需 0–8，起伏一致率需 50–100%，踏板偏移需 10–500 ms".into());
         }
         if mode == "wait" && self.pedal_offset_ms.is_some() {
             return Err("等音不评价踏板时机，请使用连续或完整演奏".into());
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn assess_with_note_velocity(&self, e: ExpressionSummary, note_velocity: Option<NoteVelocityEvidence>) -> Result<(), String> {
+        self.assess_with_note_evidence(e,note_velocity,None)
+    }
+    pub(crate) fn assess_with_note_evidence(&self,e:ExpressionSummary,note_velocity:Option<NoteVelocityEvidence>,note_pedal:Option<NotePedalEvidence>)->Result<(),String>{
+        if let Some(limit)=self.note_pedal_mismatch_count {
+            let evidence=note_pedal.ok_or("没有可核对的逐音踏板记录，逐音踏板目标未达标")?;
+            if evidence.reference_notes<4||evidence.matched_notes<4{return Err(format!("逐音踏板需要至少 4 个确切配对音：当前 {} / 4 个",evidence.matched_notes))}
+            if evidence.missing_notes>0||evidence.matched_notes!=evidence.reference_notes{return Err(format!("逐音踏板有 {} 个参考音未确切配对，漏音不能达标",evidence.missing_notes))}
+            if evidence.unknown_state_notes>0||evidence.paired_state_notes!=evidence.reference_notes{return Err(format!("逐音踏板有 {} 个音缺少起音前的参考或实弹 CC64 状态，不能推断为松开",evidence.unknown_state_notes))}
+            if evidence.mismatch_count>usize::from(limit){return Err(format!("逐音踏板状态错配 {} 个，要求 ≤ {limit} 个",evidence.mismatch_count))}
+        }
         if let Some(limit) = self.note_velocity_difference {
             let evidence = note_velocity.ok_or("没有可核对的逐音演奏记录，逐音力度目标未达标")?;
             if evidence.reference_notes < 4 || evidence.matched_notes < 4 {
@@ -271,6 +306,16 @@ impl crate::Player {
         if (goal.velocity_difference.is_some() || goal.note_velocity_difference.is_some()) && count < 4 {
             return Err("所选练习范围的参考力度不足 4 个音符".into());
         }
+        if goal.note_pedal_mismatch_count.is_some(){
+            if count<4{return Err("逐音踏板目标至少需要 4 个参考音".into())}
+            let pedal_events=self.events.iter().filter(|event|self.selected(event.track_id))
+                .filter(|event|matches!(event.message,midi_file::midly::MidiMessage::Controller{controller,..} if controller.as_int()==64))
+                .map(|event|event.timestamp).collect::<Vec<_>>();
+            let unknown=self.notes.iter().filter(|n|n.start>=start&&n.start<end&&n.velocity>0
+                &&self.note_player(n.track_id,n.index)==neothesia_core::song_config::PlayerConfig::Human)
+                .filter(|n|!pedal_events.iter().any(|event|*event<n.start)).count();
+            if unknown>0{return Err(format!("{unknown} 个参考音起音前没有明确 CC64 状态，请选择包含踏板记录的曲目或范围"))}
+        }
         if goal.contour_percent.is_some() && steps < 6 {
             return Err(format!(
                 "所选范围仅有 {steps} 段明显力度变化，起伏目标至少需要 6 段"
@@ -288,6 +333,23 @@ impl crate::Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn per_note_pedal_requires_complete_explicit_states_and_mismatch_limit(){
+        let goal=ExpressionGoal{note_pedal_mismatch_count:Some(0),..Default::default()};
+        assert!(goal.validate("wait").is_ok());
+        assert!(ExpressionGoal{note_pedal_mismatch_count:Some(9),..Default::default()}.validate("flow").is_err());
+        assert!(goal.assess_with_note_evidence(ExpressionSummary::default(),None,None).unwrap_err().contains("逐音踏板记录"));
+        let complete=NotePedalEvidence{reference_notes:4,matched_notes:4,paired_state_notes:4,missing_notes:0,unknown_state_notes:0,mismatch_count:0};
+        assert!(goal.assess_with_note_evidence(ExpressionSummary::default(),None,Some(complete)).is_ok());
+        let missing=NotePedalEvidence{reference_notes:5,missing_notes:1,..complete};
+        assert!(goal.assess_with_note_evidence(ExpressionSummary::default(),None,Some(missing)).unwrap_err().contains("漏音"));
+        let unknown=NotePedalEvidence{paired_state_notes:3,unknown_state_notes:1,..complete};
+        assert!(goal.assess_with_note_evidence(ExpressionSummary::default(),None,Some(unknown)).unwrap_err().contains("缺少起音前"));
+        let wrong=NotePedalEvidence{mismatch_count:1,..complete};
+        assert!(goal.assess_with_note_evidence(ExpressionSummary::default(),None,Some(wrong)).unwrap_err().contains("错配"));
+        let result=goal.result_with_note_evidence(ExpressionSummary::default(),None,Some(complete));
+        assert!(result.passed);assert_eq!(result.note_pedal,Some(complete));
+    }
     #[test]
     fn per_note_velocity_requires_four_exact_pairs_no_misses_and_every_note_within_limit() {
         let goal=ExpressionGoal{note_velocity_difference:Some(10),..Default::default()};
@@ -311,6 +373,7 @@ mod tests {
         let g = ExpressionGoal {
             velocity_difference: Some(12),
             note_velocity_difference: None,
+            note_pedal_mismatch_count: None,
             contour_percent: Some(80),
             pedal_offset_ms: Some(80),
         };
@@ -561,6 +624,33 @@ mod flow_tests {
 mod source_tests {
     use super::*;
     use crate::{Command, Player, routine_commands::RoutineGoal};
+    #[test]
+    fn note_pedal_source_requires_prior_reference_cc64_for_every_target(){
+        use midi_file::midly::{Format,Header,MidiMessage,Smf,Timing,TrackEvent,TrackEventKind,MetaMessage};
+        let data=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../work")
+            .join(format!("note-pedal-source-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut p=Player::new(data,std::path::PathBuf::new(),true);
+        p.command(Command::Generate{spec:Default::default()}).unwrap();
+        let goal=ExpressionGoal{note_pedal_mismatch_count:Some(0),..Default::default()};
+        assert!(p.command(Command::SetSongExpressionGoal{goal:Some(goal.clone())}).unwrap_err().contains("CC64"));
+        let mut events=vec![(0u32,TrackEventKind::Midi{channel:0.into(),message:MidiMessage::Controller{controller:64.into(),value:127.into()}})];
+        for i in 1..=5u32{
+            events.push((i*240,TrackEventKind::Midi{channel:0.into(),message:MidiMessage::NoteOn{key:60.into(),vel:80.into()}}));
+            events.push((i*240+120,TrackEventKind::Midi{channel:0.into(),message:MidiMessage::NoteOff{key:60.into(),vel:0.into()}}));
+        }
+        events.push((1500,TrackEventKind::Meta(MetaMessage::EndOfTrack)));
+        events.sort_by_key(|event|event.0);
+        let mut previous=0;
+        let track=events.into_iter().map(|(at,kind)|{let delta=at-previous;previous=at;TrackEvent{delta:delta.into(),kind}}).collect();
+        let smf=Smf{header:Header{format:Format::SingleTrack,timing:Timing::Metrical(480.into())},tracks:vec![track]};
+        let mut bytes=vec![];smf.write_std(&mut bytes).unwrap();
+        p.command(Command::ImportMidi{bytes,name:"逐音踏板.mid".into()}).unwrap();
+        let track=p.notes[0].track_id;
+        p.command(Command::Track{id:track,mode:"human".into(),part:"right".into(),visible:true}).unwrap();
+        p.command(Command::Mode{value:"flow".into()}).unwrap();
+        p.command(Command::SetSongExpressionGoal{goal:Some(goal.clone())}).unwrap();
+        assert_eq!(p.current_song_expression_goal(),Some(goal));
+    }
     #[test]
     fn song_goal_persists_isolated_and_frozen_for_saved_attempt() {
         let data = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

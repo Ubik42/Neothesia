@@ -433,6 +433,9 @@ export function FingeringDialog({
             }}
           />
         )}
+        {note && <p className="parameter-help" aria-label="当前指法音符">
+          当前音符：第 {song.measures.find((m) => note.start >= m.start - 0.001 && note.start < m.end - 0.001)?.displayNumber ?? song.measures.find((m) => note.start >= m.start - 0.001 && note.start < m.end - 0.001)?.number ?? "?"} 小节 · {trackName(note.track)} · {pitchName(note.pitch)} · 音符 {note.index + 1} · 已存指法 {note.finger ?? "未标记"}。建议仅用于检查教学指法，历史 MIDI 不记录实际使用的手指。
+        </p>}
         <button disabled={busy} onClick={() => setPair(true)}>
           双手一起审阅
         </button>

@@ -51,6 +51,13 @@ impl Capture {
                 .then_some(result.reference.zip(result.input)).flatten()
         })))
     }
+    pub(crate) fn note_pedal_evidence(&self,results:&[neothesia_core::practice::PracticeResult],expected_notes:usize)->Option<crate::expression_goal::NotePedalEvidence>{
+        if self.truncated{return None}
+        Some(note_pedal_evidence(&self.references,&self.inputs,&self.pedals,expected_notes,results.iter().filter_map(|result|{
+            matches!(result.judgement,neothesia_core::practice::PracticeJudgement::Matched(_))
+                .then_some(result.reference.zip(result.input)).flatten()
+        })))
+    }
     pub fn advance(&mut self,at:f64,end:f64,from:f64,to:f64,speed:f64,grid:&[Duration],duration:f64){
         if grid.is_empty() || from>=duration-0.000001 || to<from || end<at{return;}
         let mut source=from;let mut clock=at;
@@ -320,6 +327,29 @@ fn pedal_at(events: &[(f64, bool)], at: f64) -> Option<bool> {
     let previous = events.partition_point(|event| event.0 <= at);
     previous.checked_sub(1).map(|index| events[index].1)
 }
+fn pedal_before(events:&[(f64,bool)],at:f64)->Option<bool>{
+    let previous=events.partition_point(|event|event.0<at);
+    previous.checked_sub(1).map(|index|events[index].1)
+}
+fn note_pedal_evidence(
+    references:&[Reference],inputs:&[Input],reference_pedals:&[Input],expected_notes:usize,
+    pairs:impl IntoIterator<Item=(usize,usize)>,
+)->crate::expression_goal::NotePedalEvidence{
+    let target_events=pedal_events(reference_pedals);
+    let actual_events=pedal_events(inputs);
+    let mut matched=BTreeSet::new();let mut paired=0;let mut unknown=0;let mut mismatches=0;
+    for (reference_index,input_index) in pairs{
+        let (Some(reference),Some(input))=(references.get(reference_index),inputs.get(input_index))else{continue};
+        if input.synthetic||input.bytes[0]!=144||input.bytes[2]==0||input.bytes[1]!=reference.pitch||!matched.insert(reference_index){continue}
+        match (pedal_before(&target_events,reference.at),pedal_before(&actual_events,input.at)){
+            (Some(target),Some(actual))=>{paired+=1;if target!=actual{mismatches+=1}},
+            _=>unknown+=1,
+        }
+    }
+    let reference_notes=expected_notes.max(references.len());
+    crate::expression_goal::NotePedalEvidence{reference_notes,matched_notes:matched.len(),paired_state_notes:paired,
+        missing_notes:reference_notes.saturating_sub(matched.len()),unknown_state_notes:unknown,mismatch_count:mismatches}
+}
 fn note_velocity_evidence(
     references: &[Reference], inputs: &[Input], expected_notes: usize,
     pairs: impl IntoIterator<Item=(usize,usize)>,
@@ -338,6 +368,14 @@ fn note_velocity_evidence(
         missing_notes:reference_notes.saturating_sub(matched.len()),max_abs_difference:largest}
 }
 impl Archive {
+    pub(crate) fn note_pedal_evidence(&self,expected_notes:usize)->Option<crate::expression_goal::NotePedalEvidence>{
+        let judgments=self.judgments.as_ref()?;
+        if self.truncated{return None}
+        Some(note_pedal_evidence(&self.references,&self.inputs,&self.reference_pedals,expected_notes,judgments.iter().filter_map(|decision|{
+            matches!(decision.kind.as_str(),"onTime"|"early"|"late")
+                .then_some(decision.reference.zip(decision.input)).flatten()
+        })))
+    }
     pub(crate) fn note_velocity_evidence(&self, expected_notes: usize) -> Option<crate::expression_goal::NoteVelocityEvidence> {
         let judgments=self.judgments.as_ref()?;
         if self.truncated { return None; }
@@ -785,6 +823,29 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn note_pedal_uses_only_explicit_cc64_strictly_before_exact_pairs(){
+        let references=(1..=4).map(|i|Reference{at:i as f64,end:i as f64+0.25,pitch:60,velocity:80,measure:i,
+            song_time:i as f64,track:0}).collect::<Vec<_>>();
+        let note_inputs=(1..=4).map(|i|Input{at:i as f64,judged_at:i as f64,song_time:i as f64,
+            bytes:[144,60,80],synthetic:false}).collect::<Vec<_>>();
+        let pedal=|at:f64,value:u8|Input{at,judged_at:at,song_time:at,bytes:[176,64,value],synthetic:false};
+        let reference_pedals=vec![pedal(0.5,127),pedal(2.5,0)];
+        let mut inputs=note_inputs.clone();inputs.extend([pedal(0.5,127),pedal(2.5,0)]);
+        let pairs=(0..4).map(|i|(i,i)).collect::<Vec<_>>();
+        let good=note_pedal_evidence(&references,&inputs,&reference_pedals,4,pairs.clone());
+        assert_eq!((good.matched_notes,good.paired_state_notes,good.unknown_state_notes,good.mismatch_count),(4,4,0,0));
+        inputs[5].bytes[2]=127;
+        let wrong=note_pedal_evidence(&references,&inputs,&reference_pedals,4,pairs.clone());
+        assert_eq!(wrong.mismatch_count,2);
+        inputs[5].bytes[2]=0;inputs[4].at=1.;
+        let same_onset=note_pedal_evidence(&references,&inputs,&reference_pedals,4,pairs.clone());
+        assert_eq!(same_onset.unknown_state_notes,1);
+        let no_actual=note_pedal_evidence(&references,&note_inputs,&reference_pedals,4,pairs.clone());
+        assert_eq!(no_actual.unknown_state_notes,4);
+        let missed=note_pedal_evidence(&references,&inputs,&reference_pedals,4,pairs.into_iter().take(3));
+        assert_eq!(missed.missing_notes,1);
+    }
     #[test]
     fn measure_capture_preserves_rests_waits_partial_spans_and_boundaries(){
         let grid=[0.,0.5,1.,1.5].map(Duration::from_secs_f64);

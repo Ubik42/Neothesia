@@ -538,7 +538,7 @@ mod tests {
         let mut snapshot=p.history.snapshot();
         let session=&mut snapshot.get_mut(&spec.content_id).unwrap().sessions[0];
         session.context.as_mut().unwrap().expression=Some(neothesia_core::practice_history::PracticeExpressionCondition{
-            velocity_difference:None,note_velocity_difference:Some(8),contour_percent:None,pedal_offset_ms:None,
+            velocity_difference:None,note_velocity_difference:Some(8),note_pedal_mismatch_count:None,contour_percent:None,pedal_offset_ms:None,
         });
         p.history.replace_snapshot(snapshot);
         p.history.save().unwrap();

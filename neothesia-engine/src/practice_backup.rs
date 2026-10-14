@@ -588,6 +588,7 @@ impl Backup {
                         crate::expression_goal::ExpressionGoal {
                             velocity_difference: e.velocity_difference,
                             note_velocity_difference: e.note_velocity_difference,
+                            note_pedal_mismatch_count: e.note_pedal_mismatch_count,
                             contour_percent: e.contour_percent,
                             pedal_offset_ms: e.pedal_offset_ms,
                         }
@@ -1226,6 +1227,7 @@ impl Player {
             let mut parts = Vec::new();
             if let Some(value) = goal.velocity_difference { parts.push(format!("力度平均差 ≤ {value}")); }
             if let Some(value) = goal.note_velocity_difference { parts.push(format!("逐音力度差 ≤ {value}")); }
+            if let Some(value) = goal.note_pedal_mismatch_count { parts.push(format!("逐音踏板错配 ≤ {value} 个")); }
             if let Some(value) = goal.contour_percent { parts.push(format!("起伏一致率 ≥ {value}%")); }
             if let Some(value) = goal.pedal_offset_ms { parts.push(format!("踏板偏移 ≤ {value} ms")); }
             parts.join(" · ")

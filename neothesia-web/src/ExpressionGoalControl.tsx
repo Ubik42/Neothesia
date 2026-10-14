@@ -1,6 +1,7 @@
 export interface ExpressionGoal {
   velocityDifference: number | null;
   noteVelocityDifference?: number | null;
+  notePedalMismatchCount?: number | null;
   contourPercent: number | null;
   pedalOffsetMs: number | null;
 }
@@ -10,6 +11,18 @@ export type NoteVelocityEvidence = {
   missingNotes: number;
   maxAbsDifference: number | null;
 };
+export type NotePedalEvidence = {
+  referenceNotes: number;
+  matchedNotes: number;
+  pairedStateNotes: number;
+  missingNotes: number;
+  unknownStateNotes: number;
+  mismatchCount: number;
+};
+export function notePedalEvidenceText(value?: NotePedalEvidence | null) {
+  if (!value) return "";
+  return `踏板状态可对照 ${value.pairedStateNotes} / ${value.referenceNotes} 音 · 不一致 ${value.mismatchCount} 音${value.unknownStateNotes ? ` · 状态未知 ${value.unknownStateNotes} 音` : ""}`;
+}
 export function noteVelocityEvidenceText(value?: NoteVelocityEvidence | null) {
   if (!value) return "";
   return `确切配对 ${value.matchedNotes} / ${value.referenceNotes} 音 · 最大力度差 ${value.maxAbsDifference ?? "无证据"}`;
@@ -22,6 +35,9 @@ export function expressionGoalText(goal?: ExpressionGoal | null) {
       : "",
     goal.noteVelocityDifference != null
       ? `逐音力度差 ≤ ${goal.noteVelocityDifference}`
+      : "",
+    goal.notePedalMismatchCount != null
+      ? `逐音踏板不一致 ≤ ${goal.notePedalMismatchCount} 音`
       : "",
     goal.contourPercent != null ? `起伏一致率 ≥ ${goal.contourPercent}%` : "",
     goal.pedalOffsetMs != null ? `踏板偏移 ≤ ${goal.pedalOffsetMs} ms` : "",
@@ -46,6 +62,7 @@ export function ExpressionGoalControl({
     const next = {
       velocityDifference: null,
       noteVelocityDifference: null,
+      notePedalMismatchCount: null,
       contourPercent: null,
       pedalOffsetMs: null,
       ...value,
@@ -90,6 +107,15 @@ export function ExpressionGoalControl({
       max: 500,
       unit: " ms",
     },
+    {
+      key: "notePedalMismatchCount" as const,
+      label: "逐音踏板不一致音数",
+      hint: "参考与实际起音前都需有明确踏板状态；至少 4 个确切配对音，漏音或状态未知不能达标",
+      initial: 0,
+      min: 0,
+      max: 8,
+      unit: " 音",
+    },
   ];
   return (
     <fieldset className="expression-goal-control" disabled={disabled}>
@@ -131,7 +157,7 @@ export function ExpressionGoalControl({
       ))}
       <p className="parameter-help">
         对照参考
-        MIDI；键盘力度曲线会影响绝对差值，也可只选起伏方向。逐音力度会逐一核对计分器确切配对音。踏板时机不适用于等音。参考范围或本轮数据不足时不会达标；踏板波动还需不超过
+        MIDI；键盘力度曲线会影响绝对差值，也可只选起伏方向。逐音力度和踏板状态会逐一核对计分器确切配对音。踏板状态缺少明确控制事件时不会猜为松开。踏板时机不适用于等音。参考范围或本轮数据不足时不会达标；踏板波动还需不超过
         120 ms。
       </p>
     </fieldset>

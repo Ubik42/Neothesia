@@ -178,7 +178,7 @@ export interface LadderRun {
 }
 export interface Snapshot {
   songExpressionGoal: import("./ExpressionGoalControl").ExpressionGoal | null;
-  songExpressionGoalResult: { passed: boolean; message: string; noteVelocity?: import("./ExpressionGoalControl").NoteVelocityEvidence } | null;
+  songExpressionGoalResult: { passed: boolean; message: string; noteVelocity?: import("./ExpressionGoalControl").NoteVelocityEvidence; notePedal?: import("./ExpressionGoalControl").NotePedalEvidence } | null;
   routine: RoutineState | null;
   ladder: LadderRun | null;
   status: string;

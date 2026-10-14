@@ -4029,8 +4029,9 @@ impl Player {
         state.routine=self.routine_status();
         state.song_expression_goal=self.current_song_expression_goal();
         state.song_expression_goal_result=if self.state.status=="finished" && self.routine.is_none() && !self.ladder.as_ref().is_some_and(|ladder| ladder.active) {
-            self.active_expression_goal.as_ref().map(|g|g.result_with_note_velocity(self.matcher.summary().expression,
-                g.note_velocity_difference.and_then(|_|self.performance_capture.note_velocity_evidence(self.matcher.results(),self.history_context().target_notes))))
+            self.active_expression_goal.as_ref().map(|g|g.result_with_note_evidence(self.matcher.summary().expression,
+                g.note_velocity_difference.and_then(|_|self.performance_capture.note_velocity_evidence(self.matcher.results(),self.history_context().target_notes)),
+                g.note_pedal_mismatch_count.and_then(|_|self.performance_capture.note_pedal_evidence(self.matcher.results(),self.history_context().target_notes))))
         } else { None };
         state.input_connected = self.input_connection.is_some();
         state.required = self.matcher.required_note_pitches();

@@ -95,7 +95,7 @@ export function HistoryPerformance({
     reference: number,
     before: number,
     after: number,
-    destination?: "score" | "paper",
+    destination?: "score" | "paper" | "finger",
   ) => Promise<void>;
   blocked: boolean;
   review: () => Promise<void>;
@@ -664,6 +664,13 @@ export function HistoryPerformance({
                             }
                           >
                             在纸谱中重练
+                          </button>
+                          <button
+                            disabled={busy || blocked}
+                            aria-label={`检查演奏第 ${p.reference.measure} 小节参考音 ${p.index + 1} 的指法`}
+                            onClick={() => void stop().then(() => practice(p.index, before, after, "finger"))}
+                          >
+                            检查此音指法
                           </button>
                         </td>
                       </tr>

@@ -72,7 +72,7 @@ import {
 } from "./PracticeDialogs";
 import { HistoryProblemPlan } from "./HistoryProblemPlan";
 import { HistoryDialog, type HistoryPaperTarget } from "./HistoryDialog";
-import { ExpressionGoalControl, expressionGoalText, noteVelocityEvidenceText, type ExpressionGoal } from "./ExpressionGoalControl";
+import { ExpressionGoalControl, expressionGoalText, noteVelocityEvidenceText, notePedalEvidenceText, type ExpressionGoal } from "./ExpressionGoalControl";
 type Tab = "全部" | "收藏" | "最近" | "队列";
 const normalize = (path: string | null | undefined) =>
   (path || "").replaceAll("\\", "/").toLowerCase();
@@ -115,7 +115,7 @@ export default function App() {
   const [expressionDraft, setExpressionDraft] = useState<ExpressionGoal | null>(null);
   useEffect(() => {
     setExpressionDraft(state.songExpressionGoal ?? null);
-  }, [song?.contentId, state.songExpressionGoal?.velocityDifference, state.songExpressionGoal?.noteVelocityDifference, state.songExpressionGoal?.contourPercent, state.songExpressionGoal?.pedalOffsetMs]);
+  }, [song?.contentId, state.songExpressionGoal?.velocityDifference, state.songExpressionGoal?.noteVelocityDifference, state.songExpressionGoal?.notePedalMismatchCount, state.songExpressionGoal?.contourPercent, state.songExpressionGoal?.pedalOffsetMs]);
   const expressionChanged = JSON.stringify(expressionDraft) !== JSON.stringify(state.songExpressionGoal ?? null);
   const [devices, setDevices] = useState({
     inputs: [] as string[],
@@ -2030,6 +2030,7 @@ export default function App() {
                 <p className={state.songExpressionGoalResult.passed ? "song-expression-passed" : "song-expression-failed"}>
                   本轮目标：{state.songExpressionGoalResult.message}
                   {state.songExpressionGoalResult.noteVelocity && <> · {noteVelocityEvidenceText(state.songExpressionGoalResult.noteVelocity)}</>}
+                  {state.songExpressionGoalResult.notePedal && <> · {notePedalEvidenceText(state.songExpressionGoalResult.notePedal)}</>}
                 </p>
               )}
               {(routineActive || ladderActive) && <p className="parameter-help">当前按计划或阶梯项目的要求练习；单曲目标暂不参与本轮。</p>}
@@ -2595,6 +2596,21 @@ export default function App() {
             setView("paper");
             setEditFingers(false);
             setSelectedNote(null);
+          }}
+          finger={async (focus) => {
+            const loaded = await api.song();
+            if (!loaded || loaded.contentId !== focus.contentId) throw new Error("曲目已经切换，请重新从历史定位指法");
+            const note = loaded.notes.find((n) => n.track === focus.track && n.index === focus.index &&
+              n.pitch === focus.pitch && Math.abs(n.start - focus.songTime) < 0.001);
+            if (!note) throw new Error("原曲音符位置已经改变，无法安全定位指法");
+            setSong(loaded);
+            setHistoryScoreReview(null);
+            setHistoryScoreFocus(null);
+            setHistoryPaperFocus(null);
+            setView("keyboard");
+            setEditFingers(false);
+            setSelectedNote(note);
+            setFingeringDialog(true);
           }}
           close={() => {
             setHistory(false);
