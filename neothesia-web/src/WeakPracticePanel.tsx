@@ -57,6 +57,13 @@ type SuggestionResult = {
   hasMore?: boolean;
 };
 type AddedResult = { id: string; added: number; skipped: number };
+type ReviewEdit = { speedPercent: number; passes: number; accuracy: number; onTime: number | null };
+const suggestedEdit = (row: Suggestion): ReviewEdit => ({
+  speedPercent: Math.round(row.item.speed * 100),
+  passes: row.item.goal.passes,
+  accuracy: row.item.goal.accuracy,
+  onTime: row.item.goal.onTime,
+});
 const addedMessage = (result: AddedResult) =>
   `已加入 ${result.added} 项，跳过相同条件项目 ${result.skipped} 项。`;
 export function WeakPracticePanel({
@@ -80,6 +87,7 @@ export function WeakPracticePanel({
   const requestRevision = useRef(0);
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
+    [edits, setEdits] = useState<Record<string, ReviewEdit>>({}),
     [note, setNote] = useState(""),
     [duePage, setDuePage] = useState<{
       dueTotal: number;
@@ -98,6 +106,7 @@ export function WeakPracticePanel({
     requestRevision.current++;
     setRows([]);
     setChosen([]);
+    setEdits({});
     setNote("");
     setDuePage(null);
     setMessage(pendingAdded
@@ -109,6 +118,7 @@ export function WeakPracticePanel({
       const request = ++requestRevision.current;
       setRows([]);
       setChosen([]);
+      setEdits({});
       setDuePage(null);
       setNote("");
       setMessage("");
@@ -190,6 +200,12 @@ export function WeakPracticePanel({
       }
     });
   const shownDue = rows.filter((row) => row.kind === "review").length;
+  const editFor = (row: Suggestion) => edits[row.id] ?? suggestedEdit(row);
+  const patchEdit = (row: Suggestion, change: Partial<ReviewEdit>) =>
+    setEdits((current) => ({
+      ...current,
+      [row.id]: { ...(current[row.id] ?? suggestedEdit(row)), ...change },
+    }));
   return (
     <details className="weak-practice-panel">
       <summary>从历史练习安排复习</summary>
@@ -349,13 +365,12 @@ export function WeakPracticePanel({
                   </small>
                   <small>
                     {({ wait: "等音", flow: "连续", recital: "完整演奏", memory: "背谱" } as Record<string, string>)[r.item.settings.mode] ?? r.item.settings.mode} ·{" "}
-                    {Math.round(r.item.speed * 100)}% · 连续{" "}
-                    {r.item.goal.passes} 轮达标，正确率 ≥ {r.item.goal.accuracy}%
+                    {editFor(r).speedPercent}% · 连续{" "}
+                    {editFor(r).passes} 轮达标，正确率 ≥ {editFor(r).accuracy}%
                     {r.item.goal.expression &&
                       `、${expressionGoalText(r.item.goal.expression)}`}
-                    {r.item.goal.onTime !== null &&
-                    r.item.goal.onTime !== undefined
-                      ? `、准时率 ≥ ${r.item.goal.onTime}%`
+                    {editFor(r).onTime !== null
+                      ? `、准时率 ≥ ${editFor(r).onTime}%`
                       : ""}
                     {r.item.settings.metronome ? "、节拍器开启" : ""}
                     ；打开时检查曲目版本与练习范围
@@ -366,6 +381,44 @@ export function WeakPracticePanel({
                 <summary>查看建议依据与练习要求</summary>
                 <p>{r.item.notes}</p>
                 <p>最近一轮相关成绩：{new Date(r.sourceAt).toLocaleString("zh-CN")}</p>
+              </details>
+              <details className="weak-practice-edit">
+                <summary>调整加入计划的条件</summary>
+                <div>
+                  <label>练习速度
+                    <input type="number" min={25} max={200} step={5} disabled={disabled}
+                      value={editFor(r).speedPercent}
+                      onChange={(e) => patchEdit(r, { speedPercent: Number(e.target.value) })} />%
+                  </label>
+                  <label>达标轮数
+                    <input type="number" min={1} max={100} disabled={disabled}
+                      value={editFor(r).passes}
+                      onChange={(e) => patchEdit(r, { passes: Number(e.target.value) })} />
+                  </label>
+                  <label>正确率门槛
+                    <input type="number" min={50} max={100} disabled={disabled}
+                      value={editFor(r).accuracy}
+                      onChange={(e) => patchEdit(r, { accuracy: Number(e.target.value) })} />%
+                  </label>
+                  {r.item.settings.mode !== "wait" && (
+                    <label><input type="checkbox" disabled={disabled}
+                      checked={editFor(r).onTime !== null}
+                      onChange={(e) => patchEdit(r, { onTime: e.target.checked ? 80 : null })} />
+                      准时率门槛
+                      {editFor(r).onTime !== null && (
+                        <><input type="number" min={50} max={100} disabled={disabled}
+                          value={editFor(r).onTime ?? 80}
+                          onChange={(e) => patchEdit(r, { onTime: Number(e.target.value) })} />%</>
+                      )}
+                    </label>
+                  )}
+                  <button type="button" disabled={disabled || !edits[r.id]}
+                    onClick={() => setEdits((current) => {
+                      const next = { ...current };
+                      delete next[r.id];
+                      return next;
+                    })}>恢复建议值</button>
+                </div>
               </details>
               </div>
             ))}
@@ -381,9 +434,23 @@ export function WeakPracticePanel({
             }
             onClick={() =>
               void work(async () => {
+                const selectedEdits = chosen.map((id) => {
+                  const row = rows.find((item) => item.id === id);
+                  if (!row) throw new Error("所选建议已变化，请重新生成");
+                  const edit = editFor(row);
+                  if (!Number.isFinite(edit.speedPercent) || edit.speedPercent < 25 || edit.speedPercent > 200 ||
+                      !Number.isInteger(edit.passes) || edit.passes < 1 || edit.passes > 100 ||
+                      !Number.isInteger(edit.accuracy) || edit.accuracy < 50 || edit.accuracy > 100 ||
+                      (edit.onTime !== null && (!Number.isInteger(edit.onTime) || edit.onTime < 50 || edit.onTime > 100))) {
+                    throw new Error(`“${row.title}”的练习条件超出范围，请核对速度、轮数和达标门槛`);
+                  }
+                  return { id, speed: edit.speedPercent / 100, passes: edit.passes,
+                    accuracy: edit.accuracy, onTime: edit.onTime };
+                });
                 const result = await api.command<AddedResult>({
                   type: "acceptWeakPractice",
                   ids: chosen,
+                  edits: selectedEdits,
                   routine_id: routineId,
                   day,
                   name,

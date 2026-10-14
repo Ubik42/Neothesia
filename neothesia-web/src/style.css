@@ -2373,6 +2373,12 @@ button.icon-button {
 .weak-practice-reason {margin:7px 0 0 25px;color:var(--muted);font-size:12px;line-height:1.5;}
 .weak-practice-reason summary {margin:0;color:#d4d8df;}
 .weak-practice-reason p {margin:5px 0;}
+.weak-practice-edit {margin:7px 0 0 25px;font-size:12px;}
+.weak-practice-edit summary {color:#d4d8df;cursor:pointer;}
+.weak-practice-edit > div {display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:8px 0;}
+.weak-practice-rows .weak-practice-edit label {display:inline-flex;align-items:center;gap:5px;cursor:default;}
+.weak-practice-edit input[type="number"] {width:62px;}
+.weak-practice-edit button {font-size:12px;}
 
 .track-sound { grid-column:1/-1; width:100%; font-size:12px; }
 .track-sound summary {cursor:pointer;color:var(--text-muted,#b0b4bd);padding:5px 0;}

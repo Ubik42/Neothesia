@@ -53,6 +53,15 @@ fn median(values: &mut [f64]) -> f64 {
         values[n / 2]
     }
 }
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeakPracticeEdit {
+    pub(super) id: String,
+    pub(super) speed: f64,
+    pub(super) passes: u16,
+    pub(super) accuracy: u8,
+    pub(super) on_time: Option<u8>,
+}
 fn due_review_suggestion(
     cid: &str,
     history: &neothesia_core::practice_history::SongPracticeHistory,
@@ -449,6 +458,16 @@ impl Player {
         day: Option<&str>,
         name: &str,
     ) -> Result<Value, String> {
+        self.accept_weak_practice_with_edits(ids, &[], routine_id, day, name)
+    }
+    pub(super) fn accept_weak_practice_with_edits(
+        &mut self,
+        ids: &[String],
+        edits: &[WeakPracticeEdit],
+        routine_id: Option<&str>,
+        day: Option<&str>,
+        name: &str,
+    ) -> Result<Value, String> {
         if ids.is_empty()
             || ids.len() > 60
             || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len()
@@ -457,6 +476,12 @@ impl Player {
         }
         if day.is_some_and(|d| !routine_commands::day_valid(d)) {
             return Err("日期无效".into());
+        }
+        if edits.len() > ids.len()
+            || edits.iter().map(|edit| &edit.id).collect::<std::collections::BTreeSet<_>>().len() != edits.len()
+            || edits.iter().any(|edit| !ids.contains(&edit.id))
+        {
+            return Err("复习条件与所选建议不一致，请重新核对".into());
         }
         let mut rows = self.weak_practice_rows();
         rows.extend(self.due_review_rows()?);
@@ -474,7 +499,18 @@ impl Player {
                     row.item.path.clone().into_iter(),
                 )?;
             }
-            selected.push(row.item.clone());
+            let mut item = row.item.clone();
+            if let Some(edit) = edits.iter().find(|edit| &edit.id == id) {
+                if !edit.speed.is_finite() || !(0.25..=2.).contains(&edit.speed) {
+                    return Err("复习速度需在 25%～200% 之间".into());
+                }
+                item.speed = edit.speed;
+                item.goal.passes = edit.passes;
+                item.goal.accuracy = edit.accuracy;
+                item.goal.on_time = edit.on_time;
+                item.goal.validate(item.settings.mode.as_deref().unwrap_or("wait"))?;
+            }
+            selected.push(item);
         }
         let old = self.preferences.clone();
         let id = if let Some(id) = routine_id {
@@ -658,7 +694,7 @@ mod tests {
                     .unwrap()
                     .as_nanos()
             ));
-        let mut p = Player::new(data, PathBuf::new(), true);
+        let mut p = Player::new(data.clone(), PathBuf::new(), true);
         p.command(Command::Generate {
             spec: ExerciseSpec::default(),
         })
@@ -726,24 +762,32 @@ mod tests {
                 .all(|r| r.source_mode != "wait")
         );
         let before = p.preferences.routines.len();
+        let edit = WeakPracticeEdit {
+            id: rows[0].id.clone(), speed: 0.7, passes: 3,
+            accuracy: 92, on_time: Some(90),
+        };
+        assert!(p.accept_weak_practice_with_edits(
+            &[rows[0].id.clone()], &[WeakPracticeEdit { speed: 0.1, ..edit.clone() }],
+            None, None, "无效速度",
+        ).is_err());
+        assert_eq!(p.preferences.routines.len(), before);
         let id = p
-            .accept_weak_practice(&[rows[0].id.clone()], None, None, "节奏复习")
+            .accept_weak_practice_with_edits(&[rows[0].id.clone()], &[edit], None, None, "节奏复习")
             .unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
         assert_eq!(p.preferences.routines.len(), before + 1);
-        assert_eq!(
-            p.preferences
-                .routines
-                .iter()
-                .find(|r| r.id == id)
-                .unwrap()
-                .items[0]
-                .goal
-                .on_time,
-            Some(85)
-        );
+        let saved = &p.preferences.routines.iter().find(|r| r.id == id).unwrap().items[0];
+        assert_eq!(saved.goal.on_time, Some(90));
+        assert_eq!(saved.goal.passes, 3);
+        assert_eq!(saved.goal.accuracy, 92);
+        assert_eq!(saved.speed, 0.7);
+        let reopened = Player::new(data, PathBuf::new(), true);
+        let persisted = &reopened.preferences.routines.iter().find(|r| r.id == id).unwrap().items[0];
+        assert_eq!(persisted.goal.on_time, Some(90));
+        assert_eq!(persisted.goal.passes, 3);
+        assert_eq!(persisted.speed, 0.7);
     }
     #[test]
     fn repeated_complete_evidence_conditions_preview_and_plan_snapshots() {
