@@ -164,7 +164,7 @@ impl ScoreAsset {
             }).collect();
             serde_json::json!({"complete":plan.complete && a.readiness == neothesia_core::score_alignment::AlignmentReadiness::Ready,"visits":visits})
         }));
-        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>()})
+        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"sourceFingerprint":self.source_fingerprint,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>()})
     }
     pub fn map(
         &self,

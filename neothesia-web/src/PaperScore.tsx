@@ -764,7 +764,7 @@ export function PaperReader({
       }
     }
     const location = exactNote
-      ? "已标出手动核对的目标音符位置"
+      ? "已标出目标音符位置"
       : exactRegion
       ? "已标出目标小节区域；这个区域不是单个音符的精确位置"
       : anchor.region

@@ -15,9 +15,11 @@ import { ScoreNoteEditor, type ScoreMapping } from "./ScoreNoteEditor";
 import { ScoreExportDialog } from "./ScoreExportDialog";
 import { ScoreRoute, type WrittenRoute } from "./ScoreRoute";
 import { ScoreRangeDialog } from "./ScoreRangeDialog";
+import { LocatedScorePaperDialog } from "./LocatedScorePaperDialog";
 import { actionsForNote, actionUsable, fingerSequence } from "./fingerActions";
 interface Asset {
   contentId: string;
+  sourceFingerprint: string;
   bytes: number[];
   name: string;
   compressed: boolean;
@@ -92,6 +94,7 @@ export function Notation({
     [page, setPage] = useState(0),
     [asset, setAsset] = useState<Asset | null>(null),
     [mapping, setMapping] = useState<Mapping[]>([]),
+    [mappingToken, setMappingToken] = useState(""),
     [follow, setFollow] = useState(true),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
@@ -104,7 +107,9 @@ export function Notation({
   }, [edit]);
   const [editorBusy, setEditorBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [locatingPaper, setLocatingPaper] = useState(false);
   useEffect(() => setExporting(false), [song.contentId, song.scoreRevision]);
+  useEffect(() => setLocatingPaper(false), [song.contentId, song.scoreRevision]);
   const [zoom, setZoom] = useState(0),
     [simpleFingers, setSimpleFingers] = useState(false),
     [paperWidth, setPaperWidth] = useState(900),
@@ -198,6 +203,7 @@ export function Notation({
     setSelected(null);
     setSelectionError("");
     setMapping([]);
+    setMappingToken("");
     setLoading(true);
     setError("");
     setPage(0);
@@ -227,6 +233,7 @@ export function Notation({
               mapping: Mapping[];
               ambiguities: number;
               following: boolean;
+              mappingToken: string;
             }>({
               type: "scoreMap",
               score_revision: song.scoreRevision,
@@ -236,6 +243,7 @@ export function Notation({
             });
             if (disposed) return;
             setMapping(correlated.mapping);
+            setMappingToken(correlated.mappingToken);
             setAmbiguities(correlated.ambiguities);
             setPages(result.pages.map(cleanSvg));
             setFollow(correlated.following);
@@ -646,6 +654,13 @@ export function Notation({
         >
           导出标记谱
         </button>
+        <button
+          disabled={loading || editorBusy || asset?.readiness !== "Ready" || !asset.sourceFingerprint || !mappingToken || !mapping.length || !pages.length}
+          onClick={() => setLocatingPaper(true)}
+          title="根据已核对的 MusicXML 谱页，生成可从练习历史逐音定位的纸谱"
+        >
+          生成可定位纸谱
+        </button>
         <span>
           {asset
             ? `配对 ${asset.coverage}% · ${asset.readiness === "Ready" ? "可跟随" : asset.readiness === "Blocked" ? "导航未通过" : "需校对"}`
@@ -730,6 +745,16 @@ export function Notation({
       )}
       {exporting && (
         <ScoreExportDialog song={song} close={() => setExporting(false)} />
+      )}
+      {locatingPaper && asset?.readiness === "Ready" && mappingToken && (
+        <LocatedScorePaperDialog
+          song={song}
+          pages={pages}
+          mapping={mapping}
+          sourceFingerprint={asset.sourceFingerprint}
+          mappingToken={mappingToken}
+          close={() => setLocatingPaper(false)}
+        />
       )}
       {loading && <p className="score-message">正在排版乐谱…</p>}
       {error && (

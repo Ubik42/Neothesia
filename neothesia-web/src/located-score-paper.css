@@ -1,0 +1,41 @@
+.located-paper-dialog {
+  width: min(760px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.located-paper-dialog > label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.located-paper-dialog > label input {
+  flex: 1;
+  min-width: 0;
+}
+
+.located-paper-summary {
+  padding: 10px 14px;
+  background: var(--surface-2, #f3f0e9);
+  border-radius: 8px;
+}
+
+.located-paper-summary p {
+  margin: 3px 0;
+}
+
+.located-paper-preview {
+  height: min(42vh, 440px);
+  overflow: auto;
+  margin: 12px 0;
+  border: 1px solid var(--border, #d6d1c8);
+  background: white;
+}
+
+.located-paper-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

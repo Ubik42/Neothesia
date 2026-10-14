@@ -296,6 +296,7 @@ async function http<T>(path: string, command?: EngineCommand): Promise<T> {
           "libraryScores",
           "manageLibraryScore",
           "openLibraryScore",
+          "createLocatedScorePaper",
         ].includes(command.type)
         ? 120000
         : 15000,

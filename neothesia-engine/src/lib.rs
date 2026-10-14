@@ -320,6 +320,8 @@ pub enum Command {
     SavePaperPractice{request:paper_practice::Request},
     EditPaperAnnotation{content_id:String,book:String,#[serde(default)] id:Option<String>,draft:Option<score_attachments::AnnotationDraft>,#[serde(default)] expected:Option<score_attachments::Annotation>},
     EditPaperNoteAnchor{content_id:String,book:String,track:usize,index:usize,draft:Option<score_attachments::NoteAnchorDraft>,#[serde(default)] expected:Option<score_attachments::NoteAnchor>},
+    BatchPaperNoteAnchors{content_id:String,book:String,edits:Vec<score_attachments::NoteAnchorEdit>},
+    CreateLocatedScorePaper{content_id:String,score_revision:u64,source_fingerprint:String,mapping_token:String,name:String,pages:Vec<Vec<u8>>,anchors:Vec<score_attachments::LocatedNoteDraft>},
     SetPaperMapping{content_id:String,id:String,mapping:Option<score_attachments::Mapping>},
     AddScoreAttachment{content_id:String,name:String,bytes:Vec<u8>,#[serde(default)] append:Option<String>},
     UpdateScoreAttachment{content_id:String,#[serde(default)] id:Option<String>,action:String,#[serde(default)] name:Option<String>,#[serde(default)] view:Option<score_attachments::View>,#[serde(default)] page:usize,#[serde(default)] direction:i32},
@@ -818,6 +820,7 @@ impl Engine {
         let timeout = if matches!(
             command,
             Command::ImportScore { .. }
+                | Command::CreateLocatedScorePaper { .. }
                 | Command::SoundFont { .. }
                 | Command::ImportMidi { .. }
                 | Command::ImportPackage { .. }
@@ -879,6 +882,14 @@ impl std::ops::Deref for PracticeNote {
         &self.inner
     }
 }
+struct LocatedScoreMap {
+    content_id:String,
+    score_revision:u64,
+    source_fingerprint:String,
+    token:String,
+    grid:String,
+    notes:HashMap<(usize,usize),(String,usize)>,
+}
 struct Player {
     state: Snapshot,
     file: Option<MidiFile>,
@@ -930,6 +941,7 @@ struct Player {
     data: PathBuf,
     notation: Option<notation::ScoreAsset>,
     score_revision: u64,
+    located_score_map: Option<LocatedScoreMap>,
     vst: Option<neothesia_core::vst3_backend::Vst3OutputConnection>,
     end_hold: f64,
     previous_mode: Option<String>,
@@ -984,6 +996,7 @@ impl Player {
             data: data.clone(),
             notation: None,
             score_revision: 0,
+            located_score_map: None,
             vst: None,
             end_hold: 0.,
             previous_mode: None,
@@ -2620,6 +2633,35 @@ impl Player {
                 }
                 return score_attachments::edit_note_anchor(&self.data,&content_id,&book,track,index,draft,expected,&grid);
             }
+            Command::BatchPaperNoteAnchors{content_id,book,edits}=>{
+                let file=self.file.as_ref().filter(|f|f.content_id==content_id).ok_or("曲目已切换，请重新打开谱页音符位置")?;
+                let grid=self.grid_signature();
+                for e in &edits {
+                    let candidates:Vec<_>=self.notes.iter().filter(|n|n.track_id==e.track&&n.index==e.index).collect();
+                    if candidates.len()!=1||candidates[0].note!=e.draft.pitch {return Err("参考音已改变或存在重复身份，请重新选择音符".into());}
+                    let measure=file.measures.partition_point(|t|t.as_secs_f64()<=candidates[0].start.as_secs_f64());
+                    if measure==0||measure!=e.draft.measure||measure>file.musical_time.measures.len(){return Err("音符所在小节已改变，请重新选择音符".into());}
+                }
+                return score_attachments::batch_note_anchors(&self.data,&content_id,&book,edits,&grid);
+            }
+            Command::CreateLocatedScorePaper{content_id,score_revision,source_fingerprint,mapping_token,name,pages,anchors}=>{
+                self.score_range_context(&content_id,score_revision)?;
+                let asset=self.notation.as_ref().ok_or("当前曲目没有原谱")?;
+                if asset.source_fingerprint!=source_fingerprint{return Err("原谱内容已改变，请重新生成纸谱".into());}
+                let summary=neothesia_core::score_alignment::summarize_alignment(&asset.alignment);
+                if summary.readiness!=neothesia_core::score_alignment::AlignmentReadiness::Ready||!asset.alignment.navigation_complete{return Err("原谱与 MIDI 尚未可靠对应，不能自动定位音符".into());}
+                let file=self.file.as_ref().ok_or("请先打开曲目")?;
+                let grid=self.grid_signature();
+                let trusted=self.located_score_map.as_ref().filter(|m|m.content_id==content_id&&m.score_revision==score_revision&&m.source_fingerprint==source_fingerprint&&m.token==mapping_token&&m.grid==grid).ok_or("原谱逐音映射已改变，请重新打开原谱")?;
+                for a in &anchors {
+                    if trusted.notes.get(&(a.track,a.index))!=Some(&(a.renderer_id.clone(),a.page.wrapping_sub(1))){return Err("音符与原谱位置不符，请重新生成纸谱".into());}
+                    let candidates:Vec<_>=self.notes.iter().filter(|n|n.track_id==a.track&&n.index==a.index).collect();
+                    if candidates.len()!=1||candidates[0].note!=a.pitch{return Err("参考音已改变或存在重复身份，请重新生成纸谱".into());}
+                    let measure=file.measures.partition_point(|t|t.as_secs_f64()<=candidates[0].start.as_secs_f64());
+                    if measure==0||measure!=a.measure||measure>file.musical_time.measures.len(){return Err("音符所在小节已改变，请重新生成纸谱".into());}
+                }
+                return score_attachments::create_located_paper(&self.data,&content_id,&name,pages,anchors,&grid,&source_fingerprint);
+            }
             Command::EditPaperInk{content_id,book,asset_id,page,expected,strokes}=>return score_attachments::edit_ink(&self.data,&content_id,&book,&asset_id,page,expected,strokes),
             Command::PaperPracticeContext=>return Ok(serde_json::json!({"contentId":self.file.as_ref().map(|f|&f.content_id),"grid":self.grid_signature(),"measures":self.file.as_ref().map_or(0,|f|f.musical_time.measures.len()),"measure":self.snapshot().measure})),
             Command::PreviewPaperPractice{content_id,book,measure}=>return self.preview_paper_practice(&content_id,&book,measure),
@@ -2928,11 +2970,32 @@ impl Player {
                 if f.content_id != content_id {
                     return Err("曲目已切换，乐谱映射已取消".into());
                 }
-                return self
-                    .notation
-                    .as_ref()
-                    .ok_or("尚未配对乐谱")?
-                    .map(f, &midi, notes);
+                let asset=self.notation.as_ref().ok_or("尚未配对乐谱")?;
+                let fingerprint=asset.source_fingerprint.clone();
+                let mut result=asset.map(f,&midi,notes)?;
+                self.located_score_map=None;
+                if result["following"]==true {
+                    let mut trusted=HashMap::new();
+                    let mut conflicting=std::collections::HashSet::new();
+                    if let Some(rows)=result["mapping"].as_array(){
+                        for row in rows {
+                            if let (Some(track),Some(index),Some(id),Some(page))=(row["track"].as_u64(),row["index"].as_u64(),row["id"].as_str(),row["page"].as_u64()) {
+                                if id.is_empty(){continue;}
+                                let key=(track as usize,index as usize);let target=(id.to_owned(),page as usize);
+                                if trusted.get(&key).is_some_and(|old|old!=&target){conflicting.insert(key);}
+                                trusted.insert(key,target);
+                            }
+                        }
+                    }
+                    trusted.retain(|key,_|!conflicting.contains(key));
+                    if !trusted.is_empty(){
+                        let grid=self.grid_signature();
+                        let token=blake3::hash(format!("located-score-map:{}:{}:{}:{}",fingerprint,self.score_revision,grid,result["mapping"]).as_bytes()).to_hex().to_string();
+                        result["mappingToken"]=serde_json::json!(token);
+                        self.located_score_map=Some(LocatedScoreMap{content_id,score_revision:self.score_revision,source_fingerprint:fingerprint,token,grid,notes:trusted});
+                    }
+                }
+                return Ok(result);
             }
             Command::UpdateLibraryPaper{..}=>return Err("谱页整理应由独立调用线程执行".into()),
             Command::ExportPracticeBackup{..}|Command::ImportStagedPracticeBackup{..}=>return Err("备份文件应由独立调用线程处理".into()),

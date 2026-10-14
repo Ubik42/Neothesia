@@ -251,6 +251,25 @@ pub struct NoteAnchorDraft {
     pub page:usize,
     pub region:PageRegion,
 }
+#[derive(Clone, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct NoteAnchorEdit {
+    pub track:usize,
+    pub index:usize,
+    pub draft:NoteAnchorDraft,
+    #[serde(default)] pub expected:Option<NoteAnchor>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct LocatedNoteDraft {
+    pub track:usize,
+    pub index:usize,
+    pub pitch:u8,
+    pub measure:usize,
+    pub page:usize,
+    pub renderer_id:String,
+    pub region:PageRegion,
+}
 pub fn validate_note_anchors(anchors:&[NoteAnchor],format:&str,pages:&[PageAsset])->Result<(),String>{
     if anchors.len()>10000{return Err("一份谱面最多标记 10000 个音符位置".into());}
     let mut identities=std::collections::BTreeSet::new();
@@ -275,6 +294,90 @@ pub fn edit_note_anchor(data:&Path,cid:&str,book:&str,track:usize,index:usize,dr
     }else if let Some(i)=current{a.note_anchors.remove(i);}else{return Err("音符位置已被移除，请重新打开谱面".into());}
     validate_note_anchors(&a.note_anchors,&a.format,&a.pages)?;
     save(data,&store)?;describe(data,&store)
+}
+/// Validate the complete proposed result before writing. Existing anchors outside
+/// the submitted identities stay untouched, including hand-placed anchors.
+pub fn batch_note_anchors(data:&Path,cid:&str,book:&str,edits:Vec<NoteAnchorEdit>,grid:&str)->Result<Value,String>{
+    if edits.is_empty()||edits.len()>10000 {return Err("请提交 1 至 10000 个音符位置".into());}
+    let lock=crate::library_workspace::lock_for(data)?;let _g=lock.lock().map_err(|_|"谱页目录正忙")?;
+    let mut store=load(data,cid)?;
+    let a=store.attachments.iter_mut().find(|a|a.id==book).ok_or("谱面版本不存在")?;
+    let mut identities=std::collections::BTreeSet::new();
+    for e in edits {
+        if !identities.insert((e.track,e.index)){return Err("同一音符位置在本批次重复，请重新检查".into());}
+        let current=a.note_anchors.iter().position(|n|n.track==e.track&&n.index==e.index);
+        if current.and_then(|i|a.note_anchors.get(i))!=e.expected.as_ref(){return Err("音符位置已在其他窗口改变，请重新打开谱面".into());}
+        let d=e.draft;
+        let next=NoteAnchor{grid:grid.into(),track:e.track,index:e.index,pitch:d.pitch,measure:d.measure,asset_id:d.asset_id,page:d.page,region:d.region};
+        if let Some(i)=current{a.note_anchors[i]=next;}else{a.note_anchors.push(next);}
+    }
+    validate_note_anchors(&a.note_anchors,&a.format,&a.pages)?;
+    save(data,&store)?;describe(data,&store)
+}
+/// Publish a generated multi-page score only after every page and note position
+/// has passed validation. Asset files may be staged before the manifest commit,
+/// but an interrupted generation never exposes a partial attachment.
+pub fn create_located_paper(data:&Path,cid:&str,name:&str,pages:Vec<Vec<u8>>,anchors:Vec<LocatedNoteDraft>,grid:&str,source_fingerprint:&str)->Result<Value,String>{
+    if pages.is_empty()||pages.len()>80{return Err("图片谱面需有 1 至 80 页".into());}
+    if anchors.is_empty()||anchors.len()>10000{return Err("自动定位需有 1 至 10000 个音符".into());}
+    // The command HTTP endpoint accepts at most 16 MB of JSON. A byte array
+    // expands to roughly four decimal characters per byte in that transport.
+    if pages.iter().map(Vec::len).sum::<usize>()>3_000_000{return Err("生成谱页超过本次传输容量，请降低图片分辨率或分段生成".into());}
+    let name=title(name)?;
+    let mut assets=Vec::with_capacity(pages.len());
+    let mut page_ids=std::collections::BTreeSet::new();
+    for (i,bytes) in pages.iter().enumerate(){
+        if kind(bytes)?!="png" {return Err("自动生成的谱页必须是 PNG 图片".into());}
+        let id=blake3::hash(bytes).to_hex().to_string();
+        if !page_ids.insert(id.clone()){return Err("生成的谱页内容重复，请检查分页".into());}
+        assets.push(PageAsset{id,name:format!("第 {} 页",i+1),kind:"png".into(),size:bytes.len()});
+    }
+    let notes=anchors.into_iter().map(|n|{
+        let asset_id=assets.get(n.page.wrapping_sub(1)).map(|a|a.id.clone()).unwrap_or_default();
+        NoteAnchor{grid:grid.into(),track:n.track,index:n.index,pitch:n.pitch,measure:n.measure,asset_id,page:n.page,region:n.region}
+    }).collect::<Vec<_>>();
+    validate_note_anchors(&notes,"images",&assets)?;
+    let mut measures=std::collections::BTreeMap::<usize,(usize,PageRegion)>::new();
+    for note in &notes {
+        let r=&note.region;
+        measures.entry(note.measure).and_modify(|(page,span)|{
+            if *page==note.page {
+                let right=(span.x+span.width).max(r.x+r.width);
+                let bottom=(span.y+span.height).max(r.y+r.height);
+                span.x=span.x.min(r.x);span.y=span.y.min(r.y);
+                span.width=right-span.x;span.height=bottom-span.y;
+            }
+        }).or_insert((note.page,r.clone()));
+    }
+    let mapping=Mapping{grid:grid.into(),enabled:true,anchors:measures.into_iter().map(|(measure,(page,region))|PageAnchor{measure,page,region:Some(region)}).collect()};
+    mapping.validate("images",assets.len())?;
+    let lock=crate::library_workspace::lock_for(data)?;let _g=lock.lock().map_err(|_|"谱页目录正忙")?;
+    let mut store=load(data,cid)?;
+    if store.attachments.len()>=40{return Err("一首曲目最多 40 份谱面附件".into());}
+    let total=store.attachments.iter().flat_map(|a|&a.pages).map(|a|a.size).sum::<usize>();
+    let added=pages.iter().map(Vec::len).sum::<usize>();
+    if total.checked_add(added).is_none_or(|n|n>240_000_000){return Err("这首曲目的谱面附件总量超过 240 MB".into());}
+    let base=blake3::hash(format!("located-paper:{cid}:{source_fingerprint}:{}",assets.iter().map(|a|a.id.as_str()).collect::<Vec<_>>().join(":")).as_bytes()).to_hex().to_string();
+    let mut id=base.clone();let mut version=2;
+    while store.attachments.iter().any(|a|a.id==id){id=format!("{base}-{version}");version+=1;}
+    let dir=folder(data,cid)?;
+    std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
+    let mut created=Vec::new();
+    for (asset,bytes) in assets.iter().zip(&pages){
+        let path=asset_path(data,cid,asset)?;
+        if !path.is_file(){
+            if let Err(e)=std::fs::write(&path,bytes){
+                let _=std::fs::remove_file(&path);
+                for staged in created {let _=std::fs::remove_file(staged);}
+                return Err(format!("谱页写入失败：{e}"));
+            }
+            created.push(path);
+        }
+    }
+    store.attachments.push(Attachment{id:id.clone(),name,format:"images".into(),pages:assets,view:View::default(),mapping:Some(mapping),annotations:vec![],note_anchors:notes,sources:Default::default()});
+    store.active=Some(id);
+    if let Err(e)=save(data,&store){for staged in created {let _=std::fs::remove_file(staged);}return Err(e);}
+    describe(data,&store)
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -783,6 +886,49 @@ pub fn summaries(data: &Path) -> std::collections::BTreeMap<String, (usize, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn batch_note_anchors_is_atomic_and_preserves_unmentioned_marks(){
+        let root=std::env::temp_dir().join(format!("paper-note-batch-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let cid="batch-song";
+        let added=add(&root,cid,"演奏谱",b"\x89PNG\r\n\x1a\nfirst".to_vec(),None).unwrap();
+        let book=added["active"].as_str().unwrap().to_owned();
+        let asset=added["attachments"][0]["pages"][0]["id"].as_str().unwrap().to_owned();
+        let region=PageRegion{x:0.2,y:0.3,width:0.1,height:0.06};
+        let draft=|pitch,measure|NoteAnchorDraft{pitch,measure,asset_id:asset.clone(),page:1,region:region.clone()};
+        edit_note_anchor(&root,cid,&book,0,0,Some(draft(60,1)),None,"grid").unwrap();
+        let hand:NoteAnchor=serde_json::from_value(list(&root,cid).unwrap()["attachments"][0]["noteAnchors"][0].clone()).unwrap();
+        let edits=vec![NoteAnchorEdit{track:0,index:1,draft:draft(62,1),expected:None},NoteAnchorEdit{track:0,index:2,draft:draft(64,1),expected:None}];
+        let saved=batch_note_anchors(&root,cid,&book,edits,"grid").unwrap();
+        let anchors=saved["attachments"][0]["noteAnchors"].as_array().unwrap();
+        assert_eq!(anchors.len(),3);
+        assert!(serde_json::from_value::<NoteAnchor>(anchors[0].clone()).unwrap()==hand);
+        let invalid=vec![NoteAnchorEdit{track:0,index:3,draft:draft(65,1),expected:None},NoteAnchorEdit{track:0,index:0,draft:draft(67,1),expected:None}];
+        assert!(batch_note_anchors(&root,cid,&book,invalid,"grid").is_err());
+        assert_eq!(list(&root,cid).unwrap()["attachments"][0]["noteAnchors"].as_array().unwrap().len(),3);
+        let duplicate=vec![NoteAnchorEdit{track:0,index:3,draft:draft(65,1),expected:None},NoteAnchorEdit{track:0,index:3,draft:draft(67,1),expected:None}];
+        assert!(batch_note_anchors(&root,cid,&book,duplicate,"grid").is_err());
+        assert_eq!(list(&root,cid).unwrap()["attachments"][0]["noteAnchors"].as_array().unwrap().len(),3);
+        let _=std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn located_paper_publishes_pages_mapping_and_notes_together(){
+        let root=std::env::temp_dir().join(format!("paper-located-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let cid="located-song";
+        let pages=vec![b"\x89PNG\r\n\x1a\npage-one".to_vec(),b"\x89PNG\r\n\x1a\npage-two".to_vec()];
+        let region=PageRegion{x:0.2,y:0.3,width:0.1,height:0.06};
+        let anchors=vec![LocatedNoteDraft{track:0,index:0,pitch:60,measure:1,page:1,renderer_id:"n1".into(),region:region.clone()},LocatedNoteDraft{track:0,index:1,pitch:62,measure:2,page:2,renderer_id:"n2".into(),region:region.clone()}];
+        let invalid=vec![anchors[0].clone(),LocatedNoteDraft{page:3,..anchors[1].clone()}];
+        assert!(create_located_paper(&root,cid,"已定位谱",pages.clone(),invalid,"grid","source").is_err());
+        assert_eq!(list(&root,cid).unwrap()["attachments"].as_array().unwrap().len(),0);
+        let saved=create_located_paper(&root,cid,"已定位谱",pages.clone(),anchors,"grid","source").unwrap();
+        let book=&saved["attachments"][0];
+        assert_eq!(book["pages"].as_array().unwrap().len(),2);
+        assert_eq!(book["noteAnchors"].as_array().unwrap().len(),2);
+        assert_eq!(book["mapping"]["anchors"][1]["measure"],2);
+        assert_eq!(book["mapping"]["anchors"][1]["page"],2);
+        assert_eq!(book["noteAnchors"][1]["assetId"],book["pages"][1]["id"]);
+        let _=std::fs::remove_dir_all(root);
+    }
     #[test]
     fn note_anchor_survives_mapping_and_page_move_then_expires_on_page_removal(){
         let root=std::env::temp_dir().join(format!("paper-note-anchors-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
