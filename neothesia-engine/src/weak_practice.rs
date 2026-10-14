@@ -124,15 +124,22 @@ fn due_review_suggestion(
     })
 }
 impl Player {
-    fn due_review_rows(&self) -> Vec<Suggestion> {
+    fn due_review_candidates(&self) -> (Vec<Suggestion>, usize, usize) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-        let mut rows: Vec<_> = self.history.snapshot().into_iter()
-            .filter_map(|(cid, history)| due_review_suggestion(&cid, &history, now))
-            .collect();
+        let mut rows = Vec::new();
+        let mut due_total = 0;
+        for (cid, history) in self.history.snapshot() {
+            if !history.review_status(now).is_some_and(|status| status.is_due) { continue; }
+            due_total += 1;
+            if let Some(row) = due_review_suggestion(&cid, &history, now) { rows.push(row); }
+        }
         rows.sort_by(|a, b| a.source_at.cmp(&b.source_at).then_with(|| a.id.cmp(&b.id)));
-        rows.truncate(30);
-        rows
+        let eligible_total = rows.len();
+        (rows, due_total, eligible_total)
+    }
+    fn due_review_rows(&self) -> Vec<Suggestion> {
+        self.due_review_candidates().0
     }
     fn weak_practice_rows(&self) -> Vec<Suggestion> {
         let mut rows = vec![];
@@ -408,8 +415,17 @@ impl Player {
         rows.truncate(60);
         rows
     }
-    pub(super) fn due_review(&self) -> Result<Value, String> {
-        Ok(json!({"suggestions":self.due_review_rows(),"note":"到期整曲复习只使用条件完整的最近成绩，保留原声部、模式、速度及小节网格；特殊阶梯、非整曲与旧记录暂不自动编排。"}))
+    pub(super) fn due_review(&self, offset: usize, expected: Option<&str>) -> Result<Value, String> {
+        let (rows, due_total, eligible_total) = self.due_review_candidates();
+        let revision = blake3::hash(&serde_json::to_vec(&rows.iter().map(|row| &row.id).collect::<Vec<_>>())
+            .map_err(|e| e.to_string())?).to_hex().to_string();
+        if expected.is_some_and(|value| value != revision.as_str()) {
+            return Err("到期复习建议已变化，请重新生成后再读取".into());
+        }
+        if offset > rows.len() { return Err("到期复习读取位置无效，请重新生成建议".into()); }
+        let suggestions: Vec<_> = rows.into_iter().skip(offset).take(30).collect();
+        let next_offset = offset + suggestions.len();
+        Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习只使用条件完整的最近成绩，保留原声部、模式、速度及小节网格；特殊阶梯、非整曲与旧记录请在曲库直接打开核对。"}))
     }
     pub(super) fn weak_practice(&self) -> Result<Value, String> {
         Ok(
@@ -546,7 +562,12 @@ mod tests {
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
-        let due = p.due_review().unwrap();
+        let due = p.due_review(0, None).unwrap();
+        assert_eq!(due["dueTotal"], 1);
+        assert_eq!(due["eligibleTotal"], 1);
+        let revision = due["revision"].as_str().unwrap();
+        assert_eq!(p.due_review(1, Some(revision)).unwrap()["suggestions"].as_array().unwrap().len(), 0);
+        assert!(p.due_review(0, Some("outdated")).is_err());
         let row = &due["suggestions"][0];
         assert_eq!(row["kind"], "review");
         assert_eq!(row["item"]["target"]["kind"], "whole");

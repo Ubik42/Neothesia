@@ -562,7 +562,7 @@ pub enum Command {
     StartLadder {id:String,resume:bool},
     StopLadder,
     WeakPractice,
-    DueReview,
+    DueReview{#[serde(default)] offset:usize,#[serde(default)] expected:Option<String>},
     AcceptWeakPractice {ids:Vec<String>,routine_id:Option<String>,day:Option<String>,name:String},
     History,
     HistoryQuery {
@@ -2102,7 +2102,7 @@ impl Player {
         }
         match &command {
             Command::WeakPractice=>return self.weak_practice(),
-            Command::DueReview=>return self.due_review(),
+            Command::DueReview{offset,expected}=>return self.due_review(*offset,expected.as_deref()),
             Command::AcceptWeakPractice{ids,routine_id,day,name}=>return self.accept_weak_practice(ids,routine_id.as_deref(),day.as_deref(),name),
             Command::HistoryQuery { query, mode, hands, range, days, offset, limit,from,to } => {
                 return self.history_query_window(query, mode, hands, range, *days, *offset, *limit,*from,*to);
@@ -3591,7 +3591,7 @@ impl Player {
             | Command::RemoveLadder{..}
             | Command::StartLadder{..}
             | Command::StopLadder
-            | Command::WeakPractice | Command::DueReview | Command::AcceptWeakPractice{..}
+            | Command::WeakPractice | Command::DueReview{..} | Command::AcceptWeakPractice{..}
             | Command::History
             | Command::HistoryQuery { .. }
             | Command::AnnotateHistory { .. }

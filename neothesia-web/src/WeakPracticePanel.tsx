@@ -46,6 +46,15 @@ interface Suggestion {
     };
   };
 }
+type SuggestionResult = {
+  suggestions: Suggestion[];
+  note: string;
+  dueTotal?: number;
+  eligibleTotal?: number;
+  revision?: string;
+  nextOffset?: number;
+  hasMore?: boolean;
+};
 export function WeakPracticePanel({
   routineId,
   day,
@@ -62,33 +71,65 @@ export function WeakPracticePanel({
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
     [note, setNote] = useState(""),
+    [duePage, setDuePage] = useState<{
+      dueTotal: number;
+      eligibleTotal: number;
+      revision: string;
+      nextOffset: number;
+      hasMore: boolean;
+    } | null>(null),
     [name, setName] = useState("专项复习"),
     [message, setMessage] = useState("");
   const generate = () =>
     void work(async () => {
-      type SuggestionResult = {
-        suggestions: Suggestion[];
-        note: string;
-      };
       const [due, weak] = await Promise.all([
         api.command<SuggestionResult>({ type: "dueReview" }),
         api.command<SuggestionResult>({ type: "weakPractice" }),
       ]);
-      const dueRows = due.suggestions.slice(0, 30);
       const suggestions = [
-        ...weak.suggestions.slice(0, 60 - dueRows.length),
-        ...dueRows,
+        ...weak.suggestions,
+        ...due.suggestions,
       ];
       setRows(suggestions);
       setChosen((weak.suggestions.length ? weak.suggestions : due.suggestions)
         .slice(0, 6).map((r) => r.id));
       setNote(`${due.note} ${weak.note}`);
+      setDuePage({
+        dueTotal: due.dueTotal ?? 0,
+        eligibleTotal: due.eligibleTotal ?? 0,
+        revision: due.revision ?? "",
+        nextOffset: due.nextOffset ?? due.suggestions.length,
+        hasMore: due.hasMore === true,
+      });
       setMessage(
         suggestions.length
           ? ""
-          : "暂无足够的重复薄弱证据；完成几轮后再生成。",
+          : due.dueTotal
+            ? "待复习曲目的原条件暂不能自动编排。请在曲库打开曲目核对，或完成几轮后重新生成。"
+            : "暂无足够的重复薄弱证据；完成几轮后再生成。",
       );
     });
+  const loadMoreDue = () =>
+    void work(async () => {
+      if (!duePage?.hasMore) return;
+      const data = await api.command<SuggestionResult>({
+        type: "dueReview",
+        offset: duePage.nextOffset,
+        expected: duePage.revision,
+      });
+      setRows((current) => [
+        ...current,
+        ...data.suggestions.filter((row) => !current.some((item) => item.id === row.id)),
+      ]);
+      setDuePage({
+        dueTotal: data.dueTotal ?? duePage.dueTotal,
+        eligibleTotal: data.eligibleTotal ?? duePage.eligibleTotal,
+        revision: data.revision ?? duePage.revision,
+        nextOffset: data.nextOffset ?? duePage.nextOffset + data.suggestions.length,
+        hasMore: data.hasMore === true,
+      });
+    });
+  const shownDue = rows.filter((row) => row.kind === "review").length;
   return (
     <details className="weak-practice-panel">
       <summary>从历史练习安排复习</summary>
@@ -106,6 +147,13 @@ export function WeakPracticePanel({
             : "新的常用计划"}
         ，不自动演奏。
       </p>
+      {duePage && duePage.dueTotal > 0 && (
+        <p className="parameter-help">
+          曲库中 {duePage.dueTotal} 首曲目待复习；{duePage.eligibleTotal} 首可按原条件加入计划，当前已读取 {shownDue} 首。
+          {duePage.dueTotal > duePage.eligibleTotal &&
+            ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库直接打开核对。`}
+        </p>
+      )}
       {note && (
         <details className="weak-practice-method">
           <summary>建议依据与适用范围</summary>
@@ -139,7 +187,7 @@ export function WeakPracticePanel({
                         ? `选择 ${r.title} 全曲到期复习`
                       : `选择 ${r.title} 第 ${r.measure} 小节`
                   }
-                  disabled={disabled}
+                  disabled={disabled || (!chosen.includes(r.id) && chosen.length >= 60)}
                   checked={chosen.includes(r.id)}
                   onChange={(e) =>
                     setChosen((v) =>
@@ -247,6 +295,11 @@ export function WeakPracticePanel({
               </div>
             ))}
           </div>
+          {duePage?.hasMore && (
+            <button disabled={disabled} onClick={loadMoreDue}>
+              再读取 30 首到期曲目
+            </button>
+          )}
           <button
             disabled={
               disabled || !chosen.length || (!routineId && !name.trim())
