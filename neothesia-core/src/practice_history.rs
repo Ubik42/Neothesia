@@ -334,23 +334,19 @@ pub struct ReviewStatus {
 
 impl SongPracticeHistory {
     pub fn latest_regular_whole_song(&self) -> Option<&PracticeSession> {
-        self.sessions.iter().rev().find(|session| {
-            matches!(session.kind, PracticeSessionKind::WholeSong)
-                && session.context.as_ref().is_none_or(|context| {
-                    context.ladder.is_none() && context.rounds == 0 && !context.adaptive
-                })
-        })
+        self.sessions.iter().rev().find(|session| regular_whole_song(session))
     }
 
     pub fn review_status(&self, now_unix_ms: u64) -> Option<ReviewStatus> {
-        let latest = self
-            .latest_regular_whole_song()
-            .or_else(|| self.sessions.last())?;
+        let regular_latest = self.latest_regular_whole_song();
+        let latest = regular_latest.or_else(|| self.sessions.last())?;
         let complete = review_conditions_complete(latest);
         let mastery_streak = if complete {
             self.sessions.iter().rev()
-                .filter(|session| same_review_conditions(latest, session))
-                .take_while(|session| session_is_mastered(session))
+                .filter(|session| regular_latest.is_none() || regular_whole_song(session))
+                .take_while(|session| {
+                    same_review_conditions(latest, session) && session_is_mastered(session)
+                })
                 .count()
         } else { 0 };
         let latest_accuracy = latest.summary.overall.accuracy();
@@ -625,6 +621,13 @@ impl SongPracticeHistory {
                 .collect(),
         }
     }
+}
+
+fn regular_whole_song(session: &PracticeSession) -> bool {
+    matches!(session.kind, PracticeSessionKind::WholeSong)
+        && session.context.as_ref().is_none_or(|context| {
+            context.ladder.is_none() && context.rounds == 0 && !context.adaptive
+        })
 }
 
 /// A review interval is earned only by attempts whose saved task is complete
@@ -1872,6 +1875,34 @@ mod tests {
         assert!(review.is_due);
         assert_eq!(review.reason, ReviewReason::FirstMastery);
         assert_eq!(review.mastery_streak, 1);
+    }
+
+    #[test]
+    fn changed_whole_song_conditions_break_the_review_streak() {
+        let day = 86_400_000_u64;
+        let mut first = review_session(day);
+        first.context.as_mut().unwrap().rounds = 0;
+        let mut changed = review_session(day * 2);
+        changed.context.as_mut().unwrap().rounds = 0;
+        changed.speed = 0.6;
+        let mut latest = review_session(day * 3);
+        latest.context.as_mut().unwrap().rounds = 0;
+        let history = SongPracticeHistory {
+            sessions: vec![first.clone(), changed, latest.clone()],
+            ..Default::default()
+        };
+        assert_eq!(history.review_status(day * 3).unwrap().mastery_streak, 1);
+
+        let mut passage = review_session(day * 2);
+        passage.kind = PracticeSessionKind::Loop {
+            start_measure: 2,
+            end_measure: 3,
+        };
+        let history = SongPracticeHistory {
+            sessions: vec![first, passage, latest],
+            ..Default::default()
+        };
+        assert_eq!(history.review_status(day * 3).unwrap().mastery_streak, 2);
     }
 
     #[test]
