@@ -1822,6 +1822,22 @@ button.icon-button {
   overflow: auto;
   max-height: 62vh;
 }
+.passage-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 8px;
+  font-size: 12px;
+}
+.passage-search input {
+  width: 100%;
+}
+.passage-list-count {
+  margin: 0;
+  padding: 0 12px 6px;
+  color: #9daabe;
+  font-size: 12px;
+}
 .passage-list article {
   border-bottom: 1px solid #39414b;
   padding: 12px 0;

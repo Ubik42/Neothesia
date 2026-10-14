@@ -40,10 +40,12 @@ export function PassageDialog({
     [first, setFirst] = useState(start),
     [last, setLast] = useState(end),
     [notes, setNotes] = useState(""),
+    [query, setQuery] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [message, setMessage] = useState("");
   const currentSong = useRef(song.contentId);
+  const working = useRef(false);
   currentSong.current = song.contentId;
   const reload = async () => {
     const expected = song.contentId;
@@ -73,6 +75,7 @@ export function PassageDialog({
     setPassages([]);
     setLoaded(false);
     setId(null);
+    setQuery("");
     setError("");
     setMessage("");
     void reload().catch((e) => {
@@ -80,6 +83,8 @@ export function PassageDialog({
     });
   }, [song.contentId]);
   const work = async (job: () => Promise<void>) => {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     setMessage("");
@@ -88,6 +93,7 @@ export function PassageDialog({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   };
@@ -99,6 +105,14 @@ export function PassageDialog({
     setNotes("");
   };
   const active = passages.find((p) => p.id === id);
+  const search = query.trim().toLocaleLowerCase("zh-CN");
+  const visiblePassages = search
+    ? passages.filter((p) =>
+        `${p.name} ${p.notes} ${p.start} ${p.end}`
+          .toLocaleLowerCase("zh-CN")
+          .includes(search),
+      )
+    : passages;
   const stale = (p: Passage) => !!(grid && p.grid && p.grid !== grid);
   const validRange =
     Number.isInteger(first) &&
@@ -148,7 +162,18 @@ export function PassageDialog({
         {message && <p role="status">{message}</p>}
         <div className="passage-layout">
           <div className="passage-list">
-            {passages.map((p) => (
+            <label className="passage-search">
+              查找练习段
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="名称、备注或小节号"
+                aria-label="查找练习段"
+              />
+            </label>
+            {loaded && <p className="passage-list-count">显示 {visiblePassages.length} / {passages.length} 段</p>}
+            {visiblePassages.map((p) => (
               <article key={p.id} className={id === p.id ? "active" : ""}>
                 <button
                   className="passage-select"
@@ -194,9 +219,14 @@ export function PassageDialog({
                     disabled={busy}
                     onClick={() =>
                       void work(async () => {
-                        await api.command({ type: "removePassage", content_id: song.contentId, id: p.id });
-                        await reload();
+                        const result = await api.command<{ removed: boolean }>({ type: "removePassage", content_id: song.contentId, id: p.id });
                         if (id === p.id) reset();
+                        setMessage(result.removed ? "练习段已移除。" : "这段练习已不存在，列表将重新读取。");
+                        try {
+                          await reload();
+                        } catch (cause) {
+                          throw new Error(`移除结果已返回，但列表暂未刷新：${String(cause)}`);
+                        }
                       })
                     }
                   >
@@ -210,6 +240,9 @@ export function PassageDialog({
               <p className="library-empty">
                 保存经常重练的小节段。每一段都可以有自己的配置和练习备注。
               </p>
+            )}
+            {loaded && passages.length > 0 && visiblePassages.length === 0 && (
+              <p className="library-empty">没有找到符合条件的练习段。</p>
             )}
           </div>
           <div className="passage-form">
