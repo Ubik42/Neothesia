@@ -1850,6 +1850,16 @@ button.icon-button {
 .passage-list article.active .passage-select {
   background: #334331;
 }
+.passage-list .passage-stale,
+.passage-form .passage-stale {
+  color: #f3c981;
+}
+.passage-form .passage-stale {
+  margin: 0;
+  border-left: 3px solid #d29d4c;
+  padding: 8px 12px;
+  background: #332a1e;
+}
 .passage-form {
   display: flex;
   flex-direction: column;

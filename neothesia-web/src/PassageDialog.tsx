@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TickRangeDialog, type TickRange } from "./TickRangeDialog";
 import { X } from "lucide-react";
 import { api, type LoadedSong, type Snapshot } from "./api";
 import { ScoreRangeDialog, type ScoreRange } from "./ScoreRangeDialog";
 type Passage = {
+  grid?: string | null;
   preciseRange?: TickRange;
   scoreRange?: ScoreRange;
   id: string;
@@ -32,26 +33,56 @@ export function PassageDialog({
   const [precise, setPrecise] = useState<Passage | "new" | null>(null);
   const [review, setReview] = useState<Passage | null>(null);
   const [passages, setPassages] = useState<Passage[]>([]),
+    [grid, setGrid] = useState(""),
+    [loaded, setLoaded] = useState(false),
     [id, setId] = useState<string | null>(null),
     [name, setName] = useState(""),
     [first, setFirst] = useState(start),
     [last, setLast] = useState(end),
     [notes, setNotes] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const currentSong = useRef(song.contentId);
+  currentSong.current = song.contentId;
   const reload = async () => {
-    const rows = (
-      await api.command<{ passages: Passage[] }>({ type: "passages" })
-    ).passages;
-    setPassages(rows);
-    return rows;
+    const expected = song.contentId;
+    setLoaded(false);
+    const result = await api.command<{
+      contentId: string;
+      grid: string;
+      passages: Passage[];
+    }>({ type: "passages" }).catch((cause) => {
+      if (currentSong.current === expected) {
+        setGrid("");
+        setPassages([]);
+        setLoaded(false);
+      }
+      throw cause;
+    });
+    if (result.contentId !== expected || currentSong.current !== expected) {
+      throw new Error("曲目已切换，请重新打开练习段落");
+    }
+    setGrid(result.grid);
+    setPassages(result.passages);
+    setLoaded(true);
+    return result.passages;
   };
   useEffect(() => {
-    void reload().catch((e) => setError(String(e.message)));
+    setGrid("");
+    setPassages([]);
+    setLoaded(false);
+    setId(null);
+    setError("");
+    setMessage("");
+    void reload().catch((e) => {
+      if (currentSong.current === song.contentId) setError(String(e.message));
+    });
   }, [song.contentId]);
   const work = async (job: () => Promise<void>) => {
     setBusy(true);
     setError("");
+    setMessage("");
     try {
       await job();
     } catch (e) {
@@ -68,6 +99,13 @@ export function PassageDialog({
     setNotes("");
   };
   const active = passages.find((p) => p.id === id);
+  const stale = (p: Passage) => !!(grid && p.grid && p.grid !== grid);
+  const validRange =
+    Number.isInteger(first) &&
+    Number.isInteger(last) &&
+    first >= 1 &&
+    last >= first &&
+    last <= song.measures.length;
   return (
     <div
       className="modal-backdrop"
@@ -97,10 +135,17 @@ export function PassageDialog({
           </button>
         </div>
         {error && (
-          <p role="alert" className="dialog-error">
-            {error}
-          </p>
+          <div className="dialog-error" role="alert">
+            <p>{error}</p>
+            <button
+              disabled={busy}
+              onClick={() => void work(async () => { await reload(); })}
+            >
+              重新读取练习段
+            </button>
+          </div>
         )}
+        {message && <p role="status">{message}</p>}
         <div className="passage-layout">
           <div className="passage-list">
             {passages.map((p) => (
@@ -128,10 +173,13 @@ export function PassageDialog({
                         : "等音"}
                   </span>
                   <small>{p.notes || "未添加备注"}</small>
+                  {stale(p) && (
+                    <span className="passage-stale">小节网格已变，需重新确认范围</span>
+                  )}
                 </button>
                 <div>
                   <button
-                    disabled={busy}
+                    disabled={busy || stale(p)}
                     onClick={() =>
                       void work(async () => {
                         await api.command({ type: "openPassage", id: p.id });
@@ -157,14 +205,30 @@ export function PassageDialog({
                 </div>
               </article>
             ))}
-            {!passages.length && (
+            {!loaded && !error && <p className="library-empty">正在读取练习段…</p>}
+            {loaded && !passages.length && (
               <p className="library-empty">
                 保存经常重练的小节段。每一段都可以有自己的配置和练习备注。
               </p>
             )}
           </div>
           <div className="passage-form">
-            <h3>{id ? "编辑练习段" : "新建练习段"}</h3>
+            <h3>
+              {active && stale(active)
+                ? "重新确认练习段"
+                : id
+                  ? "编辑练习段"
+                  : "新建练习段"}
+            </h3>
+            {active && stale(active) && (
+              <p className="passage-stale" role="status">
+                {active.scoreRange
+                  ? "原谱路线或小节网格已变。请点击下方“重新审阅原谱范围”，核对位置后保存。"
+                  : active.preciseRange
+                    ? "小节网格已变。请点击下方“编辑拍内范围”，重新选择起点和终点后保存。"
+                    : "小节网格已变。请修改下方的起止小节，再用当前练习设置更新这一段。"}
+              </p>
+            )}
             <label>
               名称
               <input
@@ -237,7 +301,7 @@ export function PassageDialog({
             <div className="file-actions">
               <button
                 className="primary-button"
-                disabled={busy || !name.trim()}
+                disabled={busy || !loaded || !name.trim() || (!active?.scoreRange && !active?.preciseRange && !validRange)}
                 onClick={() =>
                   void work(async () => {
                     await api.command(
@@ -258,8 +322,13 @@ export function PassageDialog({
                             notes,
                           },
                     );
-                    await reload();
                     reset();
+                    setMessage("练习段已保存。可在左侧打开，或加入日课。");
+                    try {
+                      await reload();
+                    } catch (cause) {
+                      throw new Error(`练习段已保存，但列表暂未刷新：${String(cause)}`);
+                    }
                   })
                 }
               >
