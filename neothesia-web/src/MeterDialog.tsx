@@ -83,6 +83,7 @@ export function MeterDialog({
   >(null);
   const [busy, setBusy] = useState(false),
     [previewing, setPreviewing] = useState(false),
+    [saved, setSaved] = useState(false),
     [error, setError] = useState("");
   const [page, setPage] = useState(0),
     [jump, setJump] = useState(1),
@@ -119,13 +120,13 @@ export function MeterDialog({
   const exit = () => {
     if (
       !saving.current &&
-      (!dirty || window.confirm("小节网格尚未保存，放弃本次修改？"))
+      (saved || !dirty || window.confirm("小节网格尚未保存，放弃本次修改？"))
     )
       close();
   };
   useEffect(() => {
     const unload = (e: BeforeUnloadEvent) => {
-      if (dirty || saving.current) {
+      if ((!saved && dirty) || saving.current) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -158,7 +159,7 @@ export function MeterDialog({
       document.removeEventListener("keydown", escape, true);
       window.removeEventListener("beforeunload", unload);
     };
-  }, [dirty, close]);
+  }, [dirty, saved, close]);
   useEffect(
     () => () => {
       request.current++;
@@ -225,10 +226,11 @@ export function MeterDialog({
     void inspect(null);
   };
   const save = async () => {
-    if (saving.current || !validPreview) return;
+    if (saving.current || saved || !validPreview) return;
     saving.current = true;
     setBusy(true);
     setError("");
+    let didSave = false;
     try {
       await api.command({
         type: "saveMeterMap",
@@ -236,13 +238,31 @@ export function MeterDialog({
         value: draft,
         proof: validPreview.proof,
       });
+      didSave = true;
+      setSaved(true);
       await changed();
       close();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const detail = e instanceof Error ? e.message : String(e);
+      setError(didSave
+        ? `小节网格已保存，但界面刷新失败：${detail}。你可以重试刷新，或关闭窗口后重新打开曲目。`
+        : detail);
       setPreview(null);
     } finally {
       saving.current = false;
+      setBusy(false);
+    }
+  };
+  const retryRefresh = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await changed();
+      close();
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      setError(`小节网格已保存，但界面刷新失败：${detail}。你可以重试刷新，或关闭窗口后重新打开曲目。`);
+    } finally {
       setBusy(false);
     }
   };
@@ -284,7 +304,7 @@ export function MeterDialog({
           导航小节从 1 开始，按演奏顺序排列。显示编号用于对应纸谱，可以从 0
           开始，也可以在新段落重新编号。练习选段仍使用导航小节。
         </p>
-        <fieldset disabled={busy} className="meter-map-editor">
+        <fieldset disabled={busy || saved} className="meter-map-editor">
           <legend>拍号变化</legend>
           <div className="meter-table-wrap">
             <table className="meter-map-table">
@@ -557,7 +577,7 @@ export function MeterDialog({
           </p>
         </fieldset>
         <div className="meter-map-toolbar">
-          <button disabled={busy || previewing} onClick={() => void inspect()}>
+          <button disabled={busy || saved || previewing} onClick={() => void inspect()}>
             {previewing ? "正在计算…" : "预览小节网格"}
           </button>
           <span role="status">
@@ -651,15 +671,20 @@ export function MeterDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button disabled={busy || previewing} onClick={restore}>
+          <button disabled={busy || saved || previewing} onClick={restore}>
             恢复文件原始网格
           </button>
           <button disabled={busy} onClick={exit}>
-            取消
+            {saved ? "关闭" : "取消"}
           </button>
+          {saved && (
+            <button disabled={busy} onClick={() => void retryRefresh()}>
+              重试刷新界面
+            </button>
+          )}
           <button
             className="primary-button"
-            disabled={busy || !validPreview}
+            disabled={busy || saved || !validPreview}
             onClick={() => void save()}
           >
             {busy ? "正在保存…" : "保存小节网格"}
