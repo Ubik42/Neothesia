@@ -405,13 +405,15 @@ export default function App() {
   }, [state.speed, song?.contentId, !!song?.fingerActions?.length]);
   const run = useCallback(
     async (value: EngineCommand, changesSong = false) => {
-      if (requestBusy.current) return;
+      if (requestBusy.current) return false;
       requestBusy.current = true;
       setBusy(true);
+      let coreReady = false;
       try {
         await api.command(value);
         if (changesSong) setSong(await api.song());
         setState(await api.state());
+        coreReady = true;
         if (
           [
             "load",
@@ -426,8 +428,11 @@ export default function App() {
         )
           await updateCollection();
         setError("");
+        return true;
       } catch (e) {
-        setError(String(e instanceof Error ? e.message : e));
+        const message = String(e instanceof Error ? e.message : e);
+        setError(coreReady ? `操作已完成，但曲目收藏信息刷新失败：${message}` : message);
+        return coreReady;
       } finally {
         requestBusy.current = false;
         setBusy(false);
@@ -934,8 +939,10 @@ export default function App() {
     ],
     [songs],
   );
-  const load = async (row: SongRow) => {
-    const record = byPath.get(normalize(row.path));
+  const load = async (row: SongRow, expectedContentId?: string) => {
+    const record = expectedContentId
+      ? collection.find((entry) => entry.contentId === expectedContentId)
+      : byPath.get(normalize(row.path));
     if (record?.available === false && api.desktop) {
       try {
         const restored = await api.relocate(record.contentId);
@@ -944,19 +951,21 @@ export default function App() {
           setState(await api.state());
           await updateCollection();
           setError("");
+          return true;
         }
       } catch (e) {
         setError(String(e));
       }
-      return;
+      return false;
     }
-    await run(
-      record
-        ? { type: "openRecent", content_id: record.contentId }
+    const opened = await run(
+      expectedContentId || record
+        ? { type: "openRecent", content_id: expectedContentId ?? record!.contentId }
         : { type: "load", path: row.path, title: row.title },
       true,
     );
-    if (window.innerWidth < 1000) setLibraryOpen(false);
+    if (opened && window.innerWidth < 1000) setLibraryOpen(false);
+    return opened;
   };
   const importMidi = async () => {
     if (!api.desktop) {
@@ -2635,12 +2644,13 @@ export default function App() {
             if (openWarnings.length)
               setError(`乐谱已打开，但${openWarnings.join("；")}`);
           }}
-          open={async (row) => {
-            await load(row);
+          open={async (row, expectedContentId) => {
+            if (!(await load(row, expectedContentId))) return false;
             setRoutineSuspended(false);
             setRoutineDialog(false);
             setRoutineLaunch(null);
             setLibraryDialog(false);
+            return true;
           }}
         />
       )}

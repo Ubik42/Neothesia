@@ -94,7 +94,7 @@ export function LibraryDialog({
   rows: SongRow[];
   close: () => void;
   changed: () => Promise<void>;
-  open: (row: SongRow) => Promise<void>;
+  open: (row: SongRow, expectedContentId?: string) => Promise<boolean>;
   initialFocus?: "missing" | "review" | null;
   openVersion: (
     row: SongRow,
@@ -1536,7 +1536,7 @@ export function LibraryDialog({
                       {` · ${reviewReason(activeReview)}`}
                     </span>
                     {activeReview.due && (
-                      <button disabled={busy || !entry.available} onClick={() => void open(current)}>
+                      <button disabled={busy || !entry.available} onClick={() => void open(current, historyFor(current)?.contentId)}>
                         打开曲目开始复习
                       </button>
                     )}
