@@ -581,6 +581,11 @@ impl Player {
                 .find(|i| Some(&i.id) == id.as_ref())
                 .cloned();
             let item = self.build_routine_item(id, source, source_id, title, notes, goal, old.clone())?;
+            if let Some(saved)=&old {
+                if serde_json::to_value(saved).map_err(|e|e.to_string())? == serde_json::to_value(&item).map_err(|e|e.to_string())? {
+                    return Ok(json!({"id":item.id,"existing":true}));
+                }
+            }
             let changed = old.as_ref().is_some_and(|old| source.is_some() || old.goal != item.goal);
             let item_id = item.id.clone();
             let rows = &mut self.routine_target_mut(routine_id, day)?.items;
@@ -1093,9 +1098,12 @@ mod routine_write_tests {
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
         p.preferences_path=path;
         let first=p.save_routine_item(&id,None,None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).unwrap()["id"].as_str().unwrap().to_owned();
-        let second=p.save_routine_item(&id,None,None,Some("current"),None,"第二段".into(),String::new(),goal).unwrap()["id"].as_str().unwrap().to_owned();
+        let second=p.save_routine_item(&id,None,None,Some("current"),None,"第二段".into(),String::new(),goal.clone()).unwrap()["id"].as_str().unwrap().to_owned();
         let before=serde_json::to_value(&p.preferences).unwrap();
         p.preferences_path=data;
+        let retry=p.save_routine_item(&id,None,Some(first.clone()),Some("current"),None,"第一段".into(),String::new(),goal).unwrap();
+        assert_eq!(retry["existing"],true);
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
         assert!(p.move_routine_item(&id,None,&first,1).is_err());
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
         assert!(p.remove_routine_item(&id,None,&second).is_err());

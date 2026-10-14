@@ -227,6 +227,7 @@ export function RoutineDialog({
     [openedItem, setOpenedItem] = useState<string | null>(null),
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
+  const draftItemId = useRef<string | null>(null);
   const listReadGeneration = useRef(0);
   const draftRevision = useRef(0);
   const selectedRef = useRef(selected);
@@ -326,6 +327,7 @@ export function RoutineDialog({
   useEffect(() => {
     if (previousSongId.current !== song?.contentId) {
       setItemId(null);
+      draftItemId.current = null;
       setSource("current");
       setLaunchPending(false);
       previousSongId.current = song?.contentId;
@@ -441,6 +443,7 @@ export function RoutineDialog({
     }, false, true);
   const choosePlan = (p: Plan) => {
     draftRevision.current++;
+    draftItemId.current = null;
     setSelected(p.id);
     setName(p.name);
     setNotes(p.notes);
@@ -451,6 +454,7 @@ export function RoutineDialog({
     setError("");
   };
   const chooseItem = (item: Item) => {
+    draftItemId.current = null;
     setLaunchPending(false);
     setItemId(item.id);
     setTitle(item.title);
@@ -461,6 +465,7 @@ export function RoutineDialog({
     setError("");
   };
   const newItem = () => {
+    draftItemId.current = null;
     setLaunchPending(false);
     setItemId(null);
     setTitle(song?.title ?? "");
@@ -582,6 +587,7 @@ export function RoutineDialog({
               draftRevision.current++;
               setTemplate(false);
               setItemId(null);
+              draftItemId.current = null;
               setTitle(launchPassage?.name ?? "");
               setRequirement(launchPassage?.notes ?? "");
               setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
@@ -601,6 +607,7 @@ export function RoutineDialog({
               draftRevision.current++;
               setTemplate(true);
               setItemId(null);
+              draftItemId.current = null;
               setTitle(launchPassage?.name ?? "");
               setRequirement(launchPassage?.notes ?? "");
               setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
@@ -622,6 +629,7 @@ export function RoutineDialog({
               draftRevision.current++;
               setDay(e.target.value);
               setItemId(null);
+              draftItemId.current = null;
               setTitle(launchPassage?.name ?? "");
               setRequirement(launchPassage?.notes ?? "");
               setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
@@ -665,6 +673,7 @@ export function RoutineDialog({
                 setName("");
                 setNotes("");
                 setItemId(null);
+                draftItemId.current = null;
                 setTitle(launchPassage?.name ?? "");
                 setRequirement(launchPassage?.notes ?? "");
                 setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
@@ -785,6 +794,7 @@ export function RoutineDialog({
                           setTemplate(true);
                           setName(name + "（副本）");
                           setItemId(null);
+                          draftItemId.current = null;
                           await refreshSavedList("计划副本");
                         })
                       }
@@ -1116,12 +1126,13 @@ export function RoutineDialog({
                         onClick={() =>
                           void work(async () => {
                             const [kind, ...parts] = source.split(":");
+                            const saveId = itemId ?? (draftItemId.current ??= crypto.randomUUID());
                             const data = await api.command<{ id: string }>({
                               type: "saveRoutineItem",
                               content_id: source ? song?.contentId ?? null : null,
                               routine_id: selected,
                               day: editDay,
-                              id: itemId,
+                              id: saveId,
                               source: source ? kind : null,
                               source_id: parts.join(":") || null,
                               title,
@@ -1129,6 +1140,7 @@ export function RoutineDialog({
                               goal,
                             });
                             setItemId(data.id);
+                            draftItemId.current = null;
                             setSource("");
                             setLaunchPending(false);
                             await refreshSavedList("练习项目");
@@ -1189,6 +1201,7 @@ export function RoutineDialog({
                                   itemCommand("removeRoutineItem"),
                                 );
                                 setItemId(null);
+                                draftItemId.current = null;
                                 setTitle("");
                                 await refreshSavedList("项目移除操作");
                               })
@@ -1274,6 +1287,7 @@ export function RoutineDialog({
                               });
                               await changed();
                               setItemId(null);
+                              draftItemId.current = null;
                               setTitle(row.title);
                               setRequirement("");
                               setSource("current");
@@ -1305,6 +1319,7 @@ export function RoutineDialog({
                               });
                               await changed();
                               setItemId(null);
+                              draftItemId.current = null;
                               setTitle(row.title);
                               setRequirement("");
                               setSource("current");
