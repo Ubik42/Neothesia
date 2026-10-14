@@ -465,6 +465,7 @@ mod tests {
             rounds: 0,
             adaptive: false,
             grid: practice_conditions::grid(file),
+            passage_bounds: None,
             source_path: None,
             exercise_spec: Some(spec),
         });

@@ -121,8 +121,16 @@ pub struct PracticeSessionContext {
     pub rounds: usize,
     pub adaptive: bool,
     pub grid: String,
+    #[serde(default, skip_serializing_if="Option::is_none")]
+    pub passage_bounds: Option<PracticePassageBounds>,
     pub source_path: Option<PathBuf>,
     pub exercise_spec: Option<ExerciseSpec>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PracticePassageBounds {
+    pub start_tick: u64,
+    pub end_tick: u64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
@@ -355,8 +363,10 @@ impl SongPracticeHistory {
                 continue;
             };
             if !ordinary_passage_context(latest) { continue; }
+            let Some(bounds) = latest.context.as_ref().and_then(|context| context.passage_bounds)
+                .filter(|bounds| bounds.start_tick < bounds.end_tick) else { continue; };
             if start_measure == 0 || end_measure < start_measure
-                || !seen.insert((start_measure, end_measure)) {
+                || !seen.insert((bounds.start_tick, bounds.end_tick)) {
                 continue;
             }
             if !review_conditions_complete(latest) { continue; }
@@ -713,6 +723,7 @@ fn same_review_conditions(a: &PracticeSession, b: &PracticeSession) -> bool {
     { return false; }
     let (a, b) = (a.context.as_ref().unwrap(), b.context.as_ref().unwrap());
     a.grid == b.grid
+        && a.passage_bounds == b.passage_bounds
         && a.ladder.as_ref().map(|ladder| (ladder.target_percent,ladder.accuracy_percent,ladder.on_time_percent,ladder.passes_required))
             == b.ladder.as_ref().map(|ladder| (ladder.target_percent,ladder.accuracy_percent,ladder.on_time_percent,ladder.passes_required))
         && a.tracks == b.tracks
@@ -1310,7 +1321,8 @@ mod tests {
             parts: BTreeMap::new(), hands: "both".into(),
             count_in: 1, metronome: true, latency: 12,
             pedal_latency_ms: Some(9), rounds: 1, adaptive: false,
-            grid: "grid-v1-original".into(), source_path: None, exercise_spec: None,
+            grid: "grid-v1-original".into(), passage_bounds: None,
+            source_path: None, exercise_spec: None,
         });
         item
     }
@@ -1919,6 +1931,9 @@ mod tests {
             let mut item = review_session(at);
             item.kind = PracticeSessionKind::Loop { start_measure: 8, end_measure: 12 };
             item.context.as_mut().unwrap().rounds = 0;
+            item.context.as_mut().unwrap().passage_bounds = Some(PracticePassageBounds {
+                start_tick: 7200, end_tick: 11520,
+            });
             item
         };
         let history = SongPracticeHistory {
@@ -1949,6 +1964,24 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(history.due_passage_reviews(day * 20, 10)[0].mastery_streak, 2);
+
+        let mut another_range = passage(day * 8);
+        another_range.context.as_mut().unwrap().passage_bounds = Some(PracticePassageBounds {
+            start_tick: 7680, end_tick: 11040,
+        });
+        let history = SongPracticeHistory {
+            sessions: vec![passage(day), passage(day * 2), another_range],
+            ..Default::default()
+        };
+        let due = history.due_passage_reviews(day * 20, 10);
+        assert_eq!(due.len(), 2);
+        assert_eq!(due[0].mastery_streak, 1);
+        assert_eq!(due[1].mastery_streak, 2);
+
+        let mut old = passage(day * 9);
+        old.context.as_mut().unwrap().passage_bounds = None;
+        let history = SongPracticeHistory { sessions: vec![old], ..Default::default() };
+        assert!(history.due_passage_reviews(day * 20, 10).is_empty());
     }
 
     #[test]

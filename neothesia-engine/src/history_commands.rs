@@ -1,5 +1,5 @@
 use super::*;
-use neothesia_core::practice_history::PracticeSessionContext;
+use neothesia_core::practice_history::{PracticePassageBounds, PracticeSessionContext};
 use serde_json::{Value, json};
 
 fn session_id(session: &PracticeSession) -> String {session.stable_id()}
@@ -37,7 +37,8 @@ fn condition_summary(session: &PracticeSession) -> Value {
             && session.mode.as_deref().is_some_and(|s|!s.is_empty())
             && context.target_notes>0 && context.judged_notes>0
             && !context.grid.is_empty() && !context.hands.is_empty(),
-        "range":range,"mode":session.mode,"hands":session.hands,"speed":session.speed,
+        "range":range,"passageBounds":context.passage_bounds,
+        "mode":session.mode,"hands":session.hands,"speed":session.speed,
         "effectiveTempoBpm":session.effective_tempo_bpm,"scope":session.scope,"grid":context.grid,
         "targetNotes":context.target_notes,"judgedNotes":context.judged_notes,
         "tracks":context.tracks,"parts":context.parts,"assignedHands":context.hands,
@@ -134,6 +135,12 @@ impl Player {
             rounds: self.state.rounds,
             adaptive: self.state.adaptive,
             grid: self.grid_signature(),
+            passage_bounds: self.state.passage.as_ref().and_then(|passage| {
+                let file = self.file.as_ref()?;
+                let start_tick = file.tempo_track.seconds_to_pulses(passage.start).round() as u64;
+                let end_tick = file.tempo_track.seconds_to_pulses(passage.end).round() as u64;
+                (start_tick < end_tick).then_some(PracticePassageBounds { start_tick, end_tick })
+            }),
             source_path: self.file.as_ref().and_then(|f| f.source_path.clone()),
             exercise_spec: self.exercise,
         }
@@ -338,11 +345,21 @@ impl Player {
                     end_measure,
                 } = session.kind
                 {
-                    self.command(Command::MeasureLoop {
-                        start: start_measure,
-                        end: end_measure,
-                        enabled: true,
-                    })?;
+                    if let Some(bounds) = context.passage_bounds {
+                        let range = crate::tick_ranges::TickRange {
+                            description: "历史练习原范围".into(),
+                            content_id: content_id.into(), grid: context.grid.clone(),
+                            start_tick: bounds.start_tick, end_tick: bounds.end_tick,
+                        };
+                        self.apply_tick_range(&range)?;
+                    } else {
+                        self.command(Command::MeasureLoop {
+                            start: start_measure,
+                            end: end_measure,
+                            enabled: true,
+                        })?;
+                        warning = Some("旧记录只保存了起止小节，原来的拍内起止位置无法确认；已按整小节恢复，请先核对范围。".into());
+                    }
                 } else {
                     self.reset(0.);
                 }
@@ -374,7 +391,7 @@ mod tests {
                 routine: None, ladder: None, target_notes: 18, judged_notes: 17,
                 tracks: vec![], parts, hands: "right".into(), count_in: 2,
                 metronome: true, latency: 24, pedal_latency_ms: None,
-                rounds: 3, adaptive: true, grid: "grid-1".into(),
+                rounds: 3, adaptive: true, grid: "grid-1".into(), passage_bounds: None,
                 source_path: None, exercise_spec: None,
             }),
             recorded_at_unix_ms: 1,
@@ -393,5 +410,36 @@ mod tests {
         assert_eq!(summary["adaptive"],true);
         assert_eq!(summary["effectiveTempoBpm"],90);
         assert_eq!(summary["complete"],true);
+    }
+
+    #[test]
+    fn history_restore_reopens_saved_beat_boundaries() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/history-exact-range-unit")
+            .join(format!("{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut player = Player::new(data, PathBuf::new(), true);
+        player.command(Command::Generate { spec: ExerciseSpec::default() }).unwrap();
+        let content_id = player.file.as_ref().unwrap().content_id.clone();
+        let duration = player.state.duration;
+        let start = duration * 0.25;
+        let end = duration * 0.75;
+        player.command(Command::Loop { start, end, enabled: true }).unwrap();
+        let context = player.history_context();
+        assert!(context.passage_bounds.is_some());
+        let mut session = PracticeSession::new(
+            PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 },
+            PracticeHands::Both, 1., AttemptSummary::default(),
+        ).with_context(context).with_scope(player.practice_scope()).with_mode("wait");
+        session.recorded_at_unix_ms = 1;
+        let id = session.stable_id();
+        player.history.record_session(&content_id, &player.title.clone(), session).unwrap();
+        player.command(Command::Loop { start: 0., end: 0., enabled: false }).unwrap();
+        let opened = player.history_open(&content_id, &id, true).unwrap();
+        assert!(opened["restoreWarning"].is_null());
+        let restored = player.state.passage.as_ref().unwrap();
+        let tolerance = player.file.as_ref().unwrap().tempo_track.pulses_to_duration(1).as_secs_f64();
+        assert!((restored.start - start).abs() <= tolerance);
+        assert!((restored.end - end).abs() <= tolerance);
     }
 }

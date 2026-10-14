@@ -29,6 +29,7 @@ pub(super) fn same_attempt_conditions(a: &PracticeSession, b: &PracticeSession) 
         && a.judged_notes > 0
         && b.judged_notes > 0
         && a.grid == b.grid
+        && a.passage_bounds == b.passage_bounds
         && a.tracks == b.tracks
         && a.parts == b.parts
         && a.hands == b.hands
@@ -283,6 +284,7 @@ mod tests {
                 rounds: 0,
                 adaptive: false,
                 grid: "grid-1".into(),
+                passage_bounds: None,
                 source_path: None,
                 exercise_spec: None,
             }),

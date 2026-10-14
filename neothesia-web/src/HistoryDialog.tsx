@@ -99,6 +99,7 @@ interface Detail extends Entry {
     conditions?: {
       complete: boolean;
       range: [number, number] | null;
+      passageBounds?: { start_tick: number; end_tick: number } | null;
       mode: string | null;
       hands: string;
       speed: number;
@@ -199,7 +200,7 @@ function ComparisonConditions({ detail }: { detail: Detail }) {
       <dl>
         <div><dt>曲目内容</dt><dd title={detail.contentId}>已按文件内容核对（{detail.contentId.slice(0, 12)}…）</dd></div>
         <div><dt>小节与练习音符</dt><dd>{c.grid ? `小节版本 ${c.grid}` : "小节版本未记录"}；{c.scope ? `练习音符版本 ${c.scope}` : "练习音符版本未记录"}</dd></div>
-        <div><dt>范围与弹法</dt><dd>{c.range ? `第 ${c.range[0]}–${c.range[1]} 小节` : "全曲"}；{modeName(c.mode)}；{handName(c.hands)}；逐音分手 {c.assignedHands || "未记录"}</dd></div>
+        <div><dt>范围与弹法</dt><dd>{c.range ? `第 ${c.range[0]}–${c.range[1]} 小节${c.passageBounds ? "（原起止拍位已保存）" : "（旧记录只保留小节）"}` : "全曲"}；{modeName(c.mode)}；{handName(c.hands)}；逐音分手 {c.assignedHands || "未记录"}</dd></div>
         <div><dt>速度</dt><dd>{Math.round(c.speed * 100)}%；{c.effectiveTempoBpm == null ? "有效速度未记录" : `${c.effectiveTempoBpm} BPM`}</dd></div>
         <div><dt>判断范围</dt><dd>{c.targetNotes == null || c.judgedNotes == null ? "目标音符与判断数未记录" : `${c.judgedNotes}/${c.targetNotes} 个目标音符已判断`}</dd></div>
         <div><dt>音轨安排</dt><dd>{c.tracks?.length ? c.tracks.map((t) => `音轨 ${t.track_id + 1} ${trackModeName(t.mode)}${t.visible ? "、显示" : "、隐藏"}`).join("；") : "未记录"}</dd></div>

@@ -178,6 +178,7 @@ impl Player {
                 if !last.speed.is_finite() || !(0.25..=2.).contains(&last.speed) {
                     continue;
                 }
+                let Some(bounds) = context.passage_bounds else { continue; };
                 let Some(scope) = last.scope.as_ref() else { continue; };
                 let expression = context.expression.as_ref().map(|condition|
                     crate::expression_goal::ExpressionGoal {
@@ -194,10 +195,15 @@ impl Player {
                 };
                 if goal.validate(mode).is_err() { continue; }
                 let range = if review.start_measure == review.end_measure {
-                    format!("第 {} 小节", review.start_measure)
+                    format!("第 {} 小节原选段", review.start_measure)
                 } else {
-                    format!("第 {}–{} 小节", review.start_measure, review.end_measure)
+                    format!("第 {}–{} 小节原选段", review.start_measure, review.end_measure)
                 };
+                let precise = crate::tick_ranges::TickRange {
+                    description: range.clone(), content_id: cid.clone(), grid: context.grid.clone(),
+                    start_tick: bounds.start_tick, end_tick: bounds.end_tick,
+                };
+                if precise.validate().is_err() { continue; }
                 let item = RoutineItem {
                     id: String::new(),
                     title: format!("{} · {}复习",
@@ -216,9 +222,7 @@ impl Player {
                         latency: context.latency, rounds: 0, adaptive: false,
                     },
                     speed: f64::from(last.speed),
-                    target: RoutineTarget::Passage {
-                        start: review.start_measure, end: review.end_measure,
-                    },
+                    target: RoutineTarget::PrecisePassage { range: precise },
                     goal,
                 };
                 due_total += 1;
@@ -769,7 +773,7 @@ mod tests {
             .join("../work/due-passage-unit")
             .join(format!("{}", std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        let mut p = Player::new(data, PathBuf::new(), true);
+        let mut p = Player::new(data.clone(), PathBuf::new(), true);
         p.command(Command::Generate { spec: ExerciseSpec::default() }).unwrap();
         let cid = p.file.as_ref().unwrap().content_id.clone();
         let mut summary = AttemptSummary::default();
@@ -784,16 +788,30 @@ mod tests {
         session.recorded_at_unix_ms = 1;
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
+        let measure = &p.file.as_ref().unwrap().musical_time.measures[0];
+        let quarter = (measure.end_tick - measure.start_tick) / 4;
+        let bounds = neothesia_core::practice_history::PracticePassageBounds {
+            start_tick: measure.start_tick + quarter,
+            end_tick: measure.end_tick - quarter,
+        };
+        session.context.as_mut().unwrap().passage_bounds = Some(bounds);
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
         let suggestions = p.weak_practice().unwrap();
         let row = suggestions["suggestions"].as_array().unwrap().iter()
             .find(|row| row["kind"] == "passageReview").unwrap();
-        assert_eq!(row["item"]["target"]["kind"], "passage");
-        assert_eq!(row["item"]["target"]["start"], 1);
-        assert_eq!(row["item"]["target"]["end"], 1);
+        assert_eq!(row["item"]["target"]["kind"], "precisePassage");
+        assert_eq!(row["item"]["target"]["range"]["startTick"], bounds.start_tick);
+        assert_eq!(row["item"]["target"]["range"]["endTick"], bounds.end_tick);
         let id = row["id"].as_str().unwrap().to_owned();
         let saved = p.accept_weak_practice(&[id], None, Some("2026-10-14"), "选段复习").unwrap();
         assert_eq!(saved["added"], 1);
+        let routine_id = saved["id"].as_str().unwrap().to_owned();
+        drop(p);
+        let reopened = Player::new(data, PathBuf::new(), true);
+        let item = &reopened.preferences.routines.iter()
+            .find(|routine| routine.id == routine_id).unwrap().items[0];
+        assert!(matches!(&item.target, RoutineTarget::PrecisePassage { range }
+            if range.start_tick == bounds.start_tick && range.end_tick == bounds.end_tick));
     }
     #[test]
     fn due_passage_with_changed_source_is_reported_but_not_suggested() {
@@ -819,6 +837,12 @@ mod tests {
         session.recorded_at_unix_ms = 1;
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
+        let measure = &p.file.as_ref().unwrap().musical_time.measures[0];
+        session.context.as_mut().unwrap().passage_bounds = Some(
+            neothesia_core::practice_history::PracticePassageBounds {
+                start_tick: measure.start_tick, end_tick: measure.end_tick,
+            },
+        );
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
         let before = p.weak_practice().unwrap();
         assert_eq!(before["passageDueTotal"], 1);
