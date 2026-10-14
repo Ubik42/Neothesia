@@ -247,7 +247,7 @@ pub fn expand_turn(
     };
     let second = parse_percent(mark.second_beat.as_deref(), 25, "second-beat")?;
     let last = parse_percent(mark.last_beat.as_deref(), 75, "last-beat")?;
-    if second == 0 || second >= last || last >= 100 {
+    if second == 0 || second >= last || last >= 1_000_000 {
         return Err("回音击键落点必须满足 0 < second-beat < last-beat < 100".into());
     }
     if mark.accelerate.as_deref().is_some_and(|value| value != "no") {
