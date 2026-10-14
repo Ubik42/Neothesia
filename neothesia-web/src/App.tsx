@@ -942,9 +942,10 @@ export default function App() {
     [songs],
   );
   const load = async (row: SongRow, expectedContentId?: string) => {
-    const record = expectedContentId
-      ? collection.find((entry) => entry.contentId === expectedContentId)
-      : byPath.get(normalize(row.path));
+    const pathRecord = byPath.get(normalize(row.path));
+    const record = expectedContentId && pathRecord?.contentId !== expectedContentId
+      ? undefined
+      : pathRecord;
     if (record?.available === false && api.desktop) {
       try {
         const restored = await api.relocate(record.contentId);
