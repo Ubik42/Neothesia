@@ -115,7 +115,13 @@ export function ScoreSourceBatch({
         }
       }
       setPhase(cancelled.current ? "已停止，完成项已保留" : "处理完成");
-      if (saved) await changed();
+      if (saved) {
+        try {
+          await changed();
+        } catch (error) {
+          setPhase((current) => `${current}；完成项已保存，曲库状态暂未同步：${String(error)}`);
+        }
+      }
     });
   const actionable = items.filter(
     (item) => item.state === "ready" && item.choice !== "skip",

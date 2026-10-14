@@ -110,6 +110,7 @@ export function ScoreSourcesDialog({
       ) {
         setEntries(data.entries);
         setLoading(false);
+        setError("");
       }
     } catch (cause) {
       if (
@@ -117,6 +118,7 @@ export function ScoreSourcesDialog({
         ticket === generation.current &&
         currentContentId.current === requestedContentId
       ) {
+        setEntries([]);
         setLoading(false);
         throw cause;
       }
@@ -155,25 +157,29 @@ export function ScoreSourcesDialog({
       document.removeEventListener("visibilitychange", refreshWhenActive);
     };
   }, [contentId, focusVersionId]);
-  const work = async (job: () => Promise<void>) => {
+  const work = async (job: () => Promise<void>, refreshAfter = true) => {
     if (working.current) return;
     const requestedContentId = contentId;
     const ticket = ++workSequence.current;
     working.current = true;
     setBusy(true);
     setError("");
-    setMessage("");
+    if (refreshAfter) setMessage("");
+    let jobSucceeded = false;
     try {
       await job();
-      await refresh();
+      jobSucceeded = true;
+      if (refreshAfter) await refresh();
     } catch (e) {
       if (
         alive.current &&
         workSequence.current === ticket &&
         currentContentId.current === requestedContentId
       ) {
-        setError(String(e));
-        setPreview(null);
+        setError(jobSucceeded
+          ? `当前操作已执行，但原谱列表读取失败：${String(e)}。请点击“立即检查”重读。`
+          : String(e));
+        if (!jobSucceeded) setPreview(null);
       }
     } finally {
       if (workSequence.current === ticket) {
@@ -273,7 +279,12 @@ export function ScoreSourcesDialog({
           ].join(" "),
         );
       }
-      await changed();
+      try {
+        await changed();
+      } catch (cause) {
+        if (alive.current && currentContentId.current === contentId)
+          setMessage((current) => `${current} 曲库状态暂未同步：${String(cause)}。请重新读取曲库。`);
+      }
     });
   const rows = entries.filter(
     (s) =>
@@ -338,7 +349,7 @@ export function ScoreSourcesDialog({
             <option value="changed">有更新</option>
             <option value="unavailable">缺失或无法读取</option>
           </select>
-          <button disabled={busy} onClick={() => void work(refresh)}>
+          <button disabled={busy} onClick={() => void work(refresh, false)}>
             <RefreshCw size={14} />
             立即检查
           </button>
@@ -350,7 +361,7 @@ export function ScoreSourcesDialog({
         )}
         {message && <p role="status">{message}</p>}
         {loading && <p className="parameter-help">正在读取原谱关联…</p>}
-        {!loading && !entries.length && (
+        {!loading && !error && !entries.length && (
           <p className="parameter-help">
             尚未关联原谱。在桌面版直接打开乐谱或在曲库添加演奏乐谱时会建立关联；已保存版本也可手动关联与其内容一致的原文件。
           </p>
