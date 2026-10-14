@@ -422,6 +422,7 @@ pub enum Command {
         part: Option<PracticePart>,
     },
     UndoHands,
+    HandUndoState,
     PreviewMeterMap {content_id:String,value:Option<neothesia_core::library::MeterMap>},
     SaveMeterMap {content_id:String,value:Option<neothesia_core::library::MeterMap>,proof:String},
     Meter {
@@ -2476,6 +2477,10 @@ impl Player {
                     merged.retain(|v| v.track_id != h.track_id || v.note_index != h.note_index);
                     merged.push(h);
                 }
+                merged.sort_by_key(|hint| (hint.track_id, hint.note_index));
+                if merged == hands::hints(&self.note_hands) {
+                    return Ok(serde_json::json!({"ok":true,"changed":false}));
+                }
                 self.write_hands(merged, true)?;
             }
             Command::NoteHand { track, index, part } => {
@@ -2508,6 +2513,13 @@ impl Player {
                     .ok_or("没有可撤销的分手修改")?;
                 self.write_hands(previous, false)?;
                 self.hand_undo.pop();
+            }
+            Command::HandUndoState => {
+                let file = self.file.as_ref().ok_or("请先选择曲目")?;
+                return Ok(serde_json::json!({
+                    "contentId": file.content_id,
+                    "undoAvailable": !self.hand_undo.is_empty(),
+                }));
             }
             Command::HandSpanDefault { hand, profile } => {
                 if hand == PracticePart::Other {
@@ -4874,6 +4886,15 @@ mod tests {
             proof: None,
         })
         .unwrap();
+        let undo_count = p.hand_undo.len();
+        p.command(Command::ApplyHands {
+            content_id: id.clone(),
+            hints: vec![hint],
+            clear: vec![],
+            proof: None,
+        }).unwrap();
+        assert_eq!(p.hand_undo.len(), undo_count);
+        assert_eq!(p.command(Command::HandUndoState).unwrap()["undoAvailable"], true);
         p.command(Command::Hands {
             value: "left".into(),
         })

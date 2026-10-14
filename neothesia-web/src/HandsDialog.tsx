@@ -45,6 +45,7 @@ export function HandsDialog({
     [values, setValues] = useState<Record<number, Choice>>({});
   const [accepted, setAccepted] = useState<Set<number>>(new Set()),
     [selectionTouched, setSelectionTouched] = useState<Set<number>>(new Set()),
+    [undoAvailable, setUndoAvailable] = useState(false),
     [page, setPage] = useState(0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -60,6 +61,32 @@ export function HandsDialog({
     "loading",
   );
   const [spanReload, setSpanReload] = useState(0);
+  const refreshUndo = async () => {
+    const data = await api.command<{
+      contentId: string;
+      undoAvailable: boolean;
+    }>({ type: "handUndoState" });
+    if (data.contentId === song.contentId)
+      setUndoAvailable(data.undoAvailable);
+  };
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .command<{ contentId: string; undoAvailable: boolean }>({
+        type: "handUndoState",
+      })
+      .then((data) => {
+        if (!cancelled && data.contentId === song.contentId)
+          setUndoAvailable(data.undoAvailable);
+      })
+      .catch((cause) => {
+        if (!cancelled)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [song.contentId]);
   useEffect(() => {
     let cancelled = false;
     setSpanStatus("loading");
@@ -285,6 +312,7 @@ export function HandsDialog({
                   contentId: string;
                   proposals: Proposal[];
                   proof: string;
+                  undoAvailable: boolean;
                 }>({
                   type: "suggestHands",
                   track,
@@ -329,6 +357,7 @@ export function HandsDialog({
                 }
                 setProposals(data.proposals);
                 setProof(data.proof);
+                setUndoAvailable(data.undoAvailable);
                 setValues(preservedValues);
                 setAccepted(nextAccepted);
                 setSelectionTouched(nextTouched);
@@ -480,12 +509,13 @@ export function HandsDialog({
         </div>
         <div className="dialog-actions">
           <button
-            disabled={busy}
+            disabled={busy || !undoAvailable}
             onClick={() =>
               void perform(async () => {
                 await api.command({ type: "undoHands" });
                 await changed();
                 reset();
+                await refreshUndo();
               })
             }
           >
@@ -537,6 +567,7 @@ export function HandsDialog({
                 });
                 await changed();
                 reset();
+                await refreshUndo();
               })
             }
           >
