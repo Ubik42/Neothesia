@@ -406,9 +406,11 @@ impl Player {
         if self.routine.as_ref().is_some_and(|a| a.routine_id == id) {
             return Err("请先结束该计划的当前项目".into());
         }
+        let previous=self.preferences.clone();
         self.preferences.routines.retain(|r| r.id != id);
-        self.persist()?;
-        Ok(json!({"ok":true}))
+        if self.preferences.routines.len()==previous.routines.len(){return Ok(json!({"ok":true,"removed":false}));}
+        if let Err(error)=self.persist(){self.preferences=previous;return Err(error);}
+        Ok(json!({"ok":true,"removed":true}))
     }
     fn build_routine_item(&mut self, id: Option<String>, source: Option<&str>, source_id: Option<&str>, title: String, notes: String, goal: RoutineGoal, old: Option<RoutineItem>) -> Result<RoutineItem, String> {
         if title.trim().is_empty() || title.chars().count() > 100 || notes.len() > 8192 {
@@ -701,18 +703,23 @@ impl Player {
         if ![-1, 1].contains(&direction) {
             return Err("移动方向无效".into());
         }
-        let rows = &mut self.routine_target_mut(id, day)?.items;
-        let index = rows.iter().position(|i| i.id == item).ok_or("项目不存在")?;
-        let target = if direction < 0 {
-            index.checked_sub(1)
-        } else {
-            (index + 1 < rows.len()).then_some(index + 1)
-        };
-        if let Some(target) = target {
-            rows.swap(index, target);
-        }
-        self.persist()?;
-        Ok(json!({"ok":true}))
+        let previous=self.preferences.clone();
+        let result=(|| -> Result<Value,String> {
+            let rows = &mut self.routine_target_mut(id, day)?.items;
+            let index = rows.iter().position(|i| i.id == item).ok_or("项目不存在")?;
+            let target = if direction < 0 {
+                index.checked_sub(1)
+            } else {
+                (index + 1 < rows.len()).then_some(index + 1)
+            };
+            if let Some(target) = target {
+                rows.swap(index, target);
+            }
+            self.persist()?;
+            Ok(json!({"ok":true,"moved":target.is_some()}))
+        })();
+        if result.is_err(){self.preferences=previous;}
+        result
     }
     pub(super) fn remove_routine_item(
         &mut self,
@@ -720,11 +727,22 @@ impl Player {
         day: Option<&str>,
         item: &str,
     ) -> Result<Value, String> {
-        self.routine_target_mut(id, day)?
-            .items
-            .retain(|i| i.id != item);
-        self.persist()?;
-        Ok(json!({"ok":true}))
+        let previous=self.preferences.clone();
+        let result=(|| -> Result<Value,String> {
+            let rows=&mut self.routine_target_mut(id, day)?.items;
+            let before=rows.len();
+            rows.retain(|i|i.id!=item);
+            if rows.len()==before {return Err("项目已不存在，请刷新计划".into());}
+            if let Some(day)=day {
+                let run=self.preferences.routine_runs.get_mut(&run_key(id,day)).unwrap();
+                run.progress.remove(item);
+                if run.last_item.as_deref()==Some(item){run.last_item=None;}
+            }
+            self.persist()?;
+            Ok(json!({"ok":true}))
+        })();
+        if result.is_err(){self.preferences=previous;}
+        result
     }
     pub(super) fn open_routine_item(
         &mut self,
@@ -1062,14 +1080,25 @@ mod routine_write_tests {
         p.preferences_path=data.clone();
         assert!(p.save_routine(None,None,"未保存计划".into(),String::new(),None).is_err());
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
-        p.preferences_path=path;
+        p.preferences_path=path.clone();
         let id=p.save_routine(None,None,"手位日课".into(),String::new(),None).unwrap()["id"].as_str().unwrap().to_owned();
         let before=serde_json::to_value(&p.preferences).unwrap();
-        p.preferences_path=data;
+        p.preferences_path=data.clone();
         let goal=RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:20};
         assert!(p.save_routine_item(&id,None,None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).is_err());
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
-        assert!(p.save_routine_item(&id,Some("2026-10-02"),None,Some("current"),None,"第一段".into(),String::new(),goal).is_err());
+        assert!(p.save_routine_item(&id,Some("2026-10-02"),None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        p.preferences_path=path;
+        let first=p.save_routine_item(&id,None,None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).unwrap()["id"].as_str().unwrap().to_owned();
+        let second=p.save_routine_item(&id,None,None,Some("current"),None,"第二段".into(),String::new(),goal).unwrap()["id"].as_str().unwrap().to_owned();
+        let before=serde_json::to_value(&p.preferences).unwrap();
+        p.preferences_path=data;
+        assert!(p.move_routine_item(&id,None,&first,1).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        assert!(p.remove_routine_item(&id,None,&second).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        assert!(p.remove_routine(&id).is_err());
         assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
     }
 }
