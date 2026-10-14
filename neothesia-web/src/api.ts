@@ -93,6 +93,7 @@ export interface MeterMapPreview {
   measures: LoadedSong["measures"];
 }
 export interface LoadedSong {
+  grid?: string;
   meterMap?: MeterMap | null;
   fingerActionRevision?: string;
   fingerActions?: {

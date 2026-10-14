@@ -100,9 +100,13 @@ export function TickRangeDialog({
   useEffect(() => {
     alive.current = true;
     void api
-      .command<{ grid: string }>({ type: "passages" })
+      .command<{ contentId: string; grid: string }>({ type: "passages" })
       .then((v) => {
         if (!alive.current) return;
+        if (v.contentId !== song.contentId || (song.grid && song.grid !== v.grid)) {
+          setError("曲目或小节网格已更新，请关闭窗口并重新打开拍内段落。");
+          return;
+        }
         setGrid(v.grid);
         if (preset) {
           if (preset.preciseRange.contentId !== song.contentId) {
