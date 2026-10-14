@@ -172,7 +172,7 @@ export function WeakPracticePanel({
             </button>
           )}
           {duePage.dueTotal > duePage.eligibleTotal &&
-            <small>曲库会替换当前计划编辑窗口；请先保存正在修改的内容。</small>}
+            <small>关闭曲库后会返回当前计划；未保存的输入会丢失，请先保存。</small>}
         </div>
       )}
       {note && (

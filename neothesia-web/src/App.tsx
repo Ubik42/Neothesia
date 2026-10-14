@@ -146,6 +146,7 @@ export default function App() {
     [legacyExerciseDialog, setLegacyExerciseDialog] = useState(false),
     [libraryDialog, setLibraryDialog] = useState(false),
     [libraryLaunch, setLibraryLaunch] = useState<"normal" | "missing" | "review">("normal"),
+    [libraryReturn, setLibraryReturn] = useState<{ plan: { id: string; day: string | null } } | null>(null),
     [libraryScoreRange, setLibraryScoreRange] = useState<{ song: LoadedSong; first: number; last: number } | null>(null),
     [passageDialog, setPassageDialog] = useState(false),
     [ladderDialog, setLadderDialog] = useState(false),
@@ -637,6 +638,7 @@ export default function App() {
             break;
           case "libraryManager":
             void run({ type: "pause" }).then(() => {
+              setLibraryReturn(null);
               setLibraryLaunch("normal");
               setLibraryDialog(true);
             });
@@ -1048,6 +1050,7 @@ export default function App() {
         <button
           onClick={() => {
             action({ type: "pause" });
+            setLibraryReturn(null);
             setLibraryLaunch("normal");
             setLibraryDialog(true);
           }}
@@ -2451,10 +2454,11 @@ export default function App() {
             setRoutineDialog(false);
             setPracticeBackup(true);
           }}
-          openLibrary={(focus) => {
+          openLibrary={(focus, returnTo) => {
             setRoutineDialog(false);
             setRoutineLaunch(null);
             action({ type: "pause" });
+            setLibraryReturn({ plan: returnTo });
             setLibraryLaunch(focus);
             setLibraryDialog(true);
           }}
@@ -2489,7 +2493,15 @@ export default function App() {
         <LibraryDialog
           initialFocus={libraryLaunch === "normal" ? null : libraryLaunch}
           rows={allLibraryRows}
-          close={() => setLibraryDialog(false)}
+          close={() => {
+            setLibraryDialog(false);
+            setLibraryLaunch("normal");
+            if (libraryReturn) {
+              setRoutineLaunch(libraryReturn.plan);
+              setRoutineDialog(true);
+            }
+            setLibraryReturn(null);
+          }}
           changed={refresh}
           openVersion={async (row, contentId, kind, id, selection) => {
             const matchesVisit = (route: import("./ScoreRoute").WrittenRoute | null | undefined, expected: import("./ScoreRoutePreview").ScoreRouteVisit) => {
@@ -2517,6 +2529,7 @@ export default function App() {
               kind,
               id,
             });
+            setLibraryReturn(null);
             if (selection) {
               const active = await api.command<{contentId: string; route: import("./ScoreRoute").WrittenRoute | null}>({type: "score"});
               if (active.contentId !== contentId || !active.route?.complete ||
@@ -2538,6 +2551,7 @@ export default function App() {
           }}
           open={async (row) => {
             await load(row);
+            setLibraryReturn(null);
             setLibraryDialog(false);
           }}
         />

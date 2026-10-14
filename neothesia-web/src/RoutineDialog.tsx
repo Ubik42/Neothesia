@@ -173,7 +173,7 @@ export function RoutineDialog({
   close: () => void;
   changed: () => Promise<void>;
   backup: () => void;
-  openLibrary: (focus: "missing" | "review") => void;
+  openLibrary: (focus: "missing" | "review", returnTo: { id: string; day: string | null }) => void;
 }) {
   const [day, setDay] = useState(
       () => initialPlan?.day ?? state.routine?.day ?? localDay(),
@@ -518,7 +518,7 @@ export function RoutineDialog({
               day={editDay}
               disabled={locked}
               work={work}
-              openLibrary={openLibrary}
+              openLibrary={(focus) => openLibrary(focus, { id: selected ?? "", day: editDay })}
               added={async (id) => {
                 setSelected(id);
                 await reload();
