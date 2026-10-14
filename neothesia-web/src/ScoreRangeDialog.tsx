@@ -66,7 +66,8 @@ export function ScoreRangeDialog({
   const [page, setPage] = useState(0),
     [reading, setReading] = useState(true),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [appliedAction, setAppliedAction] = useState<"saved" | "loop" | null>(null);
   const busyRef = useRef(false);
   const exit = () => {
     if (
@@ -220,7 +221,7 @@ export function ScoreRangeDialog({
           <select
             aria-label={`${kind}原谱小节`}
             value={visit?.measure ?? -1}
-            disabled={busy || !route}
+            disabled={busy || !!appliedAction || !route}
             onChange={(e) => {
               const options = route!.visits.filter(
                 (v) => v.measure === Number(e.target.value),
@@ -249,7 +250,7 @@ export function ScoreRangeDialog({
           <select
             aria-label={`${kind}演奏次数`}
             value={ordinal}
-            disabled={busy || !visit}
+            disabled={busy || !!appliedAction || !visit}
             onChange={(e) => {
               const next = Number(e.target.value);
               update(next);
@@ -276,6 +277,7 @@ export function ScoreRangeDialog({
             value={kind === "起点" ? startText : endText}
             disabled={
               busy ||
+              !!appliedAction ||
               !limitsCache.current ||
               limitsCache.current.first !== first ||
               limitsCache.current.last !== last
@@ -319,6 +321,7 @@ export function ScoreRangeDialog({
   };
   const allowed =
     !!preview &&
+    !appliedAction &&
     preview.range.firstVisit === first &&
     preview.range.lastVisit === last &&
     (preview.range.startTrim??0)===startTrim && (preview.range.endTrim??0)===endTrim &&
@@ -326,8 +329,36 @@ export function ScoreRangeDialog({
     !beatDirty &&
     !busy &&
     (preview.crossings === 0 || confirmed);
+  const finish = async (action: "saved" | "loop") => {
+    try {
+      await changed();
+      close();
+    } catch (e) {
+      setError(
+        `${action === "saved" ? "原谱练习段已保存" : "循环范围已用于练习"}，界面刷新失败：${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  };
+  const retryRefresh = async () => {
+    if (!appliedAction || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await finish(appliedAction);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
   const work = async (save: boolean) => {
     if (!allowed || !preview || busyRef.current) return;
+    if (
+      !save &&
+      (name !== (preset?.name ?? "") || notes !== (preset?.notes ?? "")) &&
+      !window.confirm("循环只应用练习范围，不保存段落名称或备注。继续并放弃这两项修改？")
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     setError("");
@@ -339,8 +370,11 @@ export function ScoreRangeDialog({
         range: preview.range,
         ...(save ? { id: preset?.id ?? null, name, notes } : {}),
       });
-      await changed();
-      close();
+      const action = save ? "saved" : "loop";
+      setAppliedAction(action);
+      setDirty(false);
+      dirtyRef.current = false;
+      await finish(action);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -419,13 +453,13 @@ export function ScoreRangeDialog({
         </p>
         <div className="file-actions">
           <button
-            disabled={busy || reading || !limitsCache.current}
+            disabled={busy || !!appliedAction || reading || !limitsCache.current}
             onClick={reviewBeats}
           >
             审阅拍内范围
           </button>
           <button
-            disabled={busy}
+            disabled={busy || !!appliedAction}
             onClick={() => {
               setStartTrim(0);
               setEndTrim(0);
@@ -446,6 +480,11 @@ export function ScoreRangeDialog({
         {error && (
           <p className="dialog-error" role="alert">
             {error}
+          </p>
+        )}
+        {appliedAction && (
+          <p role="status">
+            {appliedAction === "saved" ? "原谱练习段已保存" : "循环范围已用于练习"}。重试只读取当前状态，不会重复执行。
           </p>
         )}
         {preview && (
@@ -512,7 +551,7 @@ export function ScoreRangeDialog({
               <label className="score-range-confirm">
                 <input
                   type="checkbox"
-                  disabled={busy}
+                  disabled={busy || !!appliedAction}
                   checked={confirmed}
                   onChange={(e) => setConfirmed(e.target.checked)}
                 />
@@ -527,7 +566,7 @@ export function ScoreRangeDialog({
             <input
               aria-label="原谱练习段名称"
               maxLength={80}
-              disabled={busy}
+              disabled={busy || !!appliedAction}
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -540,7 +579,7 @@ export function ScoreRangeDialog({
             练习备注
             <textarea
               aria-label="原谱练习段备注"
-              disabled={busy}
+              disabled={busy || !!appliedAction}
               rows={2}
               value={notes}
               onChange={(e) => {
@@ -554,6 +593,15 @@ export function ScoreRangeDialog({
           保存时记住当前手别、音轨、速度、模式、预备拍与遍数。练习计划也可使用此段落；谱面或路径改变时需重新审阅。
         </p>
         <div className="file-actions">
+          {appliedAction && (
+            <button
+              className="primary-button"
+              disabled={busy}
+              onClick={() => void retryRefresh()}
+            >
+              重试读取已{appliedAction === "saved" ? "保存的段落" : "启用的循环"}
+            </button>
+          )}
           <button disabled={!allowed} onClick={() => void work(false)}>
             循环所选范围
           </button>
@@ -565,7 +613,7 @@ export function ScoreRangeDialog({
             {preset ? "更新原谱练习段" : "保存原谱练习段"}
           </button>
           <button disabled={busy} onClick={exit}>
-            取消
+            {appliedAction ? "关闭" : "取消"}
           </button>
         </div>
       </section>
