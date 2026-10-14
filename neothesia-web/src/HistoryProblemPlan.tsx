@@ -122,6 +122,7 @@ export function HistoryProblemPlan({
     [preview, setPreview] = useState<Preview | null>(null),
     [edits, setEdits] = useState<Row[]>([]),
     [plans, setPlans] = useState<{ id: string; name: string }[]>([]),
+    [plansLoaded, setPlansLoaded] = useState(false),
     [target, setTarget] = useState(
       typeof cached.current.target === "string" ? cached.current.target : "",
     ),
@@ -203,6 +204,7 @@ export function HistoryProblemPlan({
   const alive = useRef(true),
     working = useRef(false),
     epoch = useRef(0),
+    plansDay = useRef(day),
     dialog = useRef<HTMLElement>(null),
     draftEdits = useRef<Record<string, DraftEdit>>(
       cached.current.edits && typeof cached.current.edits === "object"
@@ -410,16 +412,27 @@ export function HistoryProblemPlan({
       if (alive.current) setBusy(false);
     }
   }
+  const readPlans = async () => {
+    const request = ++epoch.current;
+    plansDay.current = day;
+    setPlans([]);
+    setPlansLoaded(false);
+    const data = await api.command<{ plans: { id: string; name: string }[] }>(
+      { type: "routines", day },
+    );
+    if (!alive.current || request !== epoch.current) return;
+    setPlans(data.plans);
+    setPlansLoaded(true);
+  };
   async function show() {
     setOpen(true);
-    await work(async () => {
-      const request = ++epoch.current;
-      const data = await api.command<{ plans: { id: string; name: string }[] }>(
-        { type: "routines", day },
-      );
-      if (alive.current && request === epoch.current) setPlans(data.plans);
-    });
+    await work(readPlans);
   }
+  useEffect(() => {
+    if (!open || plansDay.current === day) return;
+    plansDay.current = day;
+    void work(readPlans);
+  }, [day, open]);
   useEffect(() => {
     if (!launchImmediately) return;
     let cancelled = false;
@@ -497,6 +510,11 @@ export function HistoryProblemPlan({
       setPreview(null);
       setDirty(false);
     });
+  const plansCurrent = plansLoaded && plansDay.current === day;
+  const targetAvailable = !target || (
+    plansCurrent &&
+    plans.some((plan) => plan.id === target)
+  );
   const changeCut = (row: Row, cut: ProblemCut | null) => {
     draftEdits.current[row.key] = { title: row.title, notes: row.notes, cut };
     setEdits((old) =>
@@ -832,6 +850,9 @@ export function HistoryProblemPlan({
                       }}
                     >
                       <option value="">新建常用计划</option>
+                      {target && !targetAvailable && (
+                        <option value={target}>原目标计划暂不可用，请重新选择</option>
+                      )}
                       {plans.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name}
@@ -839,6 +860,15 @@ export function HistoryProblemPlan({
                       ))}
                     </select>
                   </label>
+                  <button disabled={busy} onClick={() => void work(readPlans)}>
+                    重新读取可用计划
+                  </button>
+                  {!plansCurrent && (
+                    <p role="status">目标计划列表尚未确认。已有目标请先重新读取；新建计划可以继续。</p>
+                  )}
+                  {plansCurrent && !targetAvailable && (
+                    <p role="alert">原目标计划已不可用，请重新选择计划或新建计划。</p>
+                  )}
                   <label>
                     <input
                       type="checkbox"
@@ -1078,6 +1108,7 @@ export function HistoryProblemPlan({
                         disabled ||
                         !cutsChecked ||
                         unverifiedSources.length > 0 ||
+                        !targetAvailable ||
                         edits.some((e) => !e.title.trim()) ||
                         (!target && !name.trim())
                       }
