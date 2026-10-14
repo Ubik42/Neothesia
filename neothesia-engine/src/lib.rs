@@ -2588,6 +2588,7 @@ impl Player {
                 notes,
             } => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
+                let content_id=f.content_id.clone();
                 if id.as_ref().is_some_and(|id|self.preferences.passages.get(&f.content_id).is_some_and(|p|p.iter().any(|p|&p.id==id&&(p.score_range.is_some()||p.precise_range.is_some())))){return Err("精确练习段请重新审阅对应范围，或只更新名称与备注".into());}
                 if name.trim().is_empty() || name.chars().count() > 80 {
                     return Err("练习段名称需要 1～80 个字".into());
@@ -2635,11 +2636,8 @@ impl Player {
                     speed: self.state.speed,
                     settings,
                 };
-                let passages = self
-                    .preferences
-                    .passages
-                    .entry(f.content_id.clone())
-                    .or_default();
+                let mut prefs=self.preferences.clone();
+                let passages = prefs.passages.entry(content_id).or_default();
                 if let Some(old) = passages.iter_mut().find(|p| p.id == id) {
                     *old = preset;
                 } else {
@@ -2648,12 +2646,23 @@ impl Player {
                     }
                     passages.push(preset);
                 }
+                prefs.save(&self.preferences_path)?;
+                self.preferences=prefs;
+                return Ok(serde_json::json!({"saved":true,"id":id}));
             }
             Command::RemovePassage { id } => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
-                if let Some(passages) = self.preferences.passages.get_mut(&f.content_id) {
+                let mut prefs=self.preferences.clone();
+                if let Some(passages) = prefs.passages.get_mut(&f.content_id) {
+                    let before=passages.len();
                     passages.retain(|p| p.id != id);
+                    if passages.len()!=before {
+                        prefs.save(&self.preferences_path)?;
+                        self.preferences=prefs;
+                        return Ok(serde_json::json!({"removed":true}));
+                    }
                 }
+                return Ok(serde_json::json!({"removed":false}));
             }
             Command::OpenPassage { id } => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
@@ -4374,6 +4383,19 @@ mod tests {
         assert_eq!(p.state.latency,7);
         assert_eq!(p.state.mode,"flow");
         assert_eq!(p.state.status,before);
+    }
+    #[test]
+    fn passage_write_failure_keeps_memory_equal_to_saved_data() {
+        let mut p=player();
+        p.command(Command::SavePassage{id:None,name:"原练习段".into(),start:1,end:1,notes:String::new()}).unwrap();
+        let content_id=p.file.as_ref().unwrap().content_id.clone();
+        let id=p.preferences.passages[&content_id][0].id.clone();
+        let before=serde_json::to_value(&p.preferences.passages).unwrap();
+        p.preferences_path=p.preferences_path.parent().unwrap().to_path_buf();
+        assert!(p.command(Command::SavePassage{id:Some(id.clone()),name:"未写入的改名".into(),start:1,end:1,notes:String::new()}).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences.passages).unwrap(),before);
+        assert!(p.command(Command::RemovePassage{id}).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences.passages).unwrap(),before);
     }
     #[test]
     fn wait_freezes_transport_and_pause_keeps_required_target() {
