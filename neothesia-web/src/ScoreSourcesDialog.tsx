@@ -76,6 +76,7 @@ export function ScoreSourcesDialog({
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all");
   const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState(false);
   const focusPending = useRef(Boolean(focusVersionId));
@@ -89,34 +90,75 @@ export function ScoreSourcesDialog({
     focusPending.current = false;
   }, [entries, focusVersionId]);
   const working = useRef(false),
+    workSequence = useRef(0),
     alive = useRef(true),
     generation = useRef(0);
+  const currentContentId = useRef(contentId);
+  currentContentId.current = contentId;
   const refresh = async () => {
     const ticket = ++generation.current;
-    const data = await api.command<{ entries: Source[] }>({
-      type: "scoreSources",
-      content_id: contentId ?? null,
-    });
-    if (alive.current && ticket === generation.current)
-      setEntries(data.entries);
+    const requestedContentId = contentId;
+    try {
+      const data = await api.command<{ entries: Source[] }>({
+        type: "scoreSources",
+        content_id: requestedContentId ?? null,
+      });
+      if (
+        alive.current &&
+        ticket === generation.current &&
+        currentContentId.current === requestedContentId
+      ) {
+        setEntries(data.entries);
+        setLoading(false);
+      }
+    } catch (cause) {
+      if (
+        alive.current &&
+        ticket === generation.current &&
+        currentContentId.current === requestedContentId
+      ) {
+        setLoading(false);
+        throw cause;
+      }
+    }
   };
   useEffect(() => {
     alive.current = true;
+    workSequence.current++;
+    working.current = false;
+    setBusy(false);
+    setEntries([]);
+    setChosen(new Set());
+    setBatch(false);
+    setLoading(true);
     setPreview(null);
     setSelected(null);
+    focusPending.current = Boolean(focusVersionId);
     void refresh().catch((e) => alive.current && setError(String(e)));
+    const refreshWhenActive = () => {
+      if (
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        !working.current
+      ) void refresh().catch((e) => alive.current && setError(String(e)));
+    };
     const timer = setInterval(() => {
-      if (!working.current)
-        void refresh().catch((e) => alive.current && setError(String(e)));
+      refreshWhenActive();
     }, 5000);
+    window.addEventListener("focus", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
     return () => {
       alive.current = false;
       generation.current++;
       clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
     };
-  }, [contentId]);
+  }, [contentId, focusVersionId]);
   const work = async (job: () => Promise<void>) => {
     if (working.current) return;
+    const requestedContentId = contentId;
+    const ticket = ++workSequence.current;
     working.current = true;
     setBusy(true);
     setError("");
@@ -125,13 +167,20 @@ export function ScoreSourcesDialog({
       await job();
       await refresh();
     } catch (e) {
-      if (alive.current) {
+      if (
+        alive.current &&
+        workSequence.current === ticket &&
+        currentContentId.current === requestedContentId
+      ) {
         setError(String(e));
         setPreview(null);
       }
     } finally {
-      working.current = false;
-      if (alive.current) setBusy(false);
+      if (workSequence.current === ticket) {
+        working.current = false;
+        if (alive.current && currentContentId.current === requestedContentId)
+          setBusy(false);
+      }
     }
   };
   useEffect(() => {
@@ -211,7 +260,7 @@ export function ScoreSourcesDialog({
           }
         }
       }
-      if (alive.current) {
+      if (alive.current && currentContentId.current === contentId) {
         setPreview(null);
         setMessage(
           [
@@ -300,7 +349,8 @@ export function ScoreSourcesDialog({
           </p>
         )}
         {message && <p role="status">{message}</p>}
-        {!entries.length && (
+        {loading && <p className="parameter-help">正在读取原谱关联…</p>}
+        {!loading && !entries.length && (
           <p className="parameter-help">
             尚未关联原谱。在桌面版直接打开乐谱或在曲库添加演奏乐谱时会建立关联；已保存版本也可手动关联与其内容一致的原文件。
           </p>
@@ -416,7 +466,8 @@ export function ScoreSourcesDialog({
                         id: s.id,
                         fingerprint: s.fingerprint,
                       });
-                      if (alive.current) setPreview(value);
+                      if (alive.current && currentContentId.current === contentId)
+                        setPreview(value);
                     })
                   }
                 >
@@ -433,10 +484,10 @@ export function ScoreSourcesDialog({
                         id: s.id,
                         fingerprint: s.fingerprint,
                       });
-                      setPreview(null);
-                      setMessage(
-                        "已保留当前版本；原文件再次修改时会重新显示更新。",
-                      );
+                      if (alive.current && currentContentId.current === contentId) {
+                        setPreview(null);
+                        setMessage("已保留当前版本；原文件再次修改时会重新显示更新。");
+                      }
                     })
                   }
                 >
@@ -452,7 +503,7 @@ export function ScoreSourcesDialog({
                           s.contentId,
                           s.versionId,
                         );
-                        if (result) {
+                        if (result && alive.current && currentContentId.current === contentId) {
                           setPreview(null);
                           setMessage("已重新关联原文件。");
                         }
@@ -471,8 +522,10 @@ export function ScoreSourcesDialog({
                         id: s.id,
                         path: s.path,
                       });
-                      setPreview(null);
-                      setMessage("已取消原文件关联，保存谱面和曲目继续保留。");
+                      if (alive.current && currentContentId.current === contentId) {
+                        setPreview(null);
+                        setMessage("已取消原文件关联，保存谱面和曲目继续保留。");
+                      }
                     })
                   }
                 >
