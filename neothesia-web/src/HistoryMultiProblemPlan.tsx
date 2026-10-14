@@ -32,11 +32,13 @@ export function HistoryMultiProblemPlan({
   const [loaded, setLoaded] = useState<
       Record<string, { notes: Notes[]; total: number; error: string }>
     >({}),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [restoreMessage, setRestoreMessage] = useState("");
   const epoch = useRef(0);
   useEffect(() => {
     const version = ++epoch.current;
     let alive = true;
+    setRestoreMessage("");
     setBusy(true);
     void Promise.all(
       sources.map(async (s) => {
@@ -122,6 +124,46 @@ export function HistoryMultiProblemPlan({
       if (version === epoch.current) setBusy(false);
     }
   };
+  const restoreMissing = async (references: number[]) => {
+    const version = epoch.current;
+    const remaining = new Set(references);
+    let batches = 0;
+    setBusy(true);
+    setRestoreMessage("正在读取草稿中已选的问题音…");
+    try {
+      for (const source of sources) {
+        if (version !== epoch.current || batches >= 20) break;
+        let row = loaded[source.slot];
+        if (!row) continue;
+        for (const note of row.notes) remaining.delete(source.slot * 1_000_000 + note.reference);
+        const hasMissing = () => [...remaining].some((reference) =>
+          Math.floor(reference / 1_000_000) === source.slot);
+        while (hasMissing() && row.notes.length < row.total && batches < 20) {
+          const data = await api.command<{ notes: Notes[]; total: number }>({
+            type: "historyProblemNotes",
+            content_id: source.contentId,
+            id: source.id,
+            offset: row.notes.length,
+          });
+          if (version !== epoch.current) return;
+          if (!data.notes.length) break;
+          batches++;
+          row = { notes: [...row.notes, ...data.notes], total: data.total, error: "" };
+          const updated = row;
+          setLoaded((current) => ({ ...current, [source.slot]: updated }));
+          for (const note of data.notes) remaining.delete(source.slot * 1_000_000 + note.reference);
+          setRestoreMessage(`已继续读取 ${batches} 页问题音…`);
+        }
+      }
+      if (version === epoch.current) setRestoreMessage(remaining.size
+        ? `${remaining.size} 个已选问题音仍未找到。若这条记录还有后续问题，请再次点击“继续读取已选问题音”；记录已变化时请移除旧选择。`
+        : "草稿中已选的问题音已全部读取。");
+    } catch (cause) {
+      if (version === epoch.current) setRestoreMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (version === epoch.current) setBusy(false);
+    }
+  };
   return (
     <details className="history-multi-sources">
       <summary>复习编排 · {sources.length}/20 条记录</summary>
@@ -151,6 +193,8 @@ export function HistoryMultiProblemPlan({
         key={draftScope}
         multi
         draftScope={draftScope}
+        onRestoreMissing={restoreMissing}
+        restoreMessage={restoreMessage}
         review={review}
         disabled={busy || !sources.length}
         openPlan={openPlan}

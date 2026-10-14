@@ -48,11 +48,15 @@ export function HistoryProblemPlan({
   dirtyChanged,
   multi = false,
   draftScope,
+  onRestoreMissing,
+  restoreMessage,
   launchImmediately = false,
   onClose,
 }: {
   multi?: boolean;
   draftScope?: string;
+  onRestoreMissing?: (references: number[]) => Promise<void>;
+  restoreMessage?: string;
   review: ProblemPlanReview;
   disabled: boolean;
   openPlan: (id: string, day: string | null) => void;
@@ -508,6 +512,9 @@ export function HistoryProblemPlan({
       search.trim(),
     ),
   );
+  const missingChosen = multi
+    ? chosen.filter((reference) => !review.notes.some((note) => note.reference === reference))
+    : [];
   const changeGoal = (patch: Partial<RoutineGoal>) => {
     setGoal({ ...goal, ...patch });
     setDirty(true);
@@ -634,6 +641,16 @@ export function HistoryProblemPlan({
               </div>
               <div className="history-problem-editor">
                 <h3>练习顺序 · 已选 {chosen.length}/60</h3>
+                {missingChosen.length > 0 && (
+                  <p role="status">
+                    {missingChosen.length} 个已选问题音尚未读取。
+                    <button disabled={busy || disabled || !onRestoreMissing}
+                      onClick={() => void onRestoreMissing?.(missingChosen)}>
+                      继续读取已选问题音
+                    </button>
+                  </p>
+                )}
+                {restoreMessage && <p role="status">{restoreMessage}</p>}
                 <ol className="history-problem-order">
                   {chosen.map((ref, index) => {
                     const n = review.notes.find((n) => n.reference === ref);
@@ -911,7 +928,7 @@ export function HistoryProblemPlan({
                   )}
                 </div>
                 <button
-                  disabled={busy || disabled || !chosen.length}
+                  disabled={busy || disabled || !chosen.length || missingChosen.length > 0}
                   onClick={() => void generate()}
                 >
                   预览练习编排
