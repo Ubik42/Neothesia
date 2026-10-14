@@ -304,7 +304,7 @@ async fn import_library_scores(
                 "batchId": batch_id, "current": i+1, "total": total,
                 "name": name, "results": results
             }));
-            let result = (|| -> Result<Option<String>, String> {
+            let result = (|| -> Result<(String, &'static str, Option<String>), String> {
                 let limit = if kind == "notation" { 4_000_000 } else { 48_000_000 };
                 if std::fs::metadata(&file).map_err(|e|e.to_string())?.len() > limit {
                     return Err("文件超过当前谱面格式容量上限".into());
@@ -331,11 +331,13 @@ async fn import_library_scores(
                         .and_then(|book| engine.command(Command::LinkPaperSource{content_id:content_id.clone(),book,asset:hash.clone(),path:Some(file.clone()),baseline:None}).map(|_|()))
                         .map_err(|e|format!("谱页已修复，原件关联失败：{e}"))
                 } else { Ok(()) };
-                Ok(linked.err())
+                let saved_id = if kind == "notation" || kind == "repairPaper" { value["id"].as_str() } else { value["active"].as_str() }
+                    .unwrap_or_default().to_string();
+                Ok((saved_id, if kind == "notation" { "notation" } else { "paper" }, linked.err()))
             })();
             results.push(match result {
-                Ok(Some(warning)) => serde_json::json!({"name":name,"ok":true,"warning":warning}),
-                Ok(None) => serde_json::json!({"name":name,"ok":true}),
+                Ok((id, saved_kind, Some(warning))) => serde_json::json!({"name":name,"ok":true,"id":id,"kind":saved_kind,"warning":warning}),
+                Ok((id, saved_kind, None)) => serde_json::json!({"name":name,"ok":true,"id":id,"kind":saved_kind}),
                 Err(error) => serde_json::json!({"name":name,"ok":false,"error":error})
             });
         }

@@ -31,7 +31,7 @@ type Data = {
   versions: Version[];
   papers: { active: string | null; attachments: PaperAttachment[] };
 };
-type ImportResult = { name: string; ok: boolean; error?: string; warning?: string };
+type ImportResult = { name: string; ok: boolean; id?: string; kind?: "notation" | "paper"; error?: string; warning?: string };
 const statuses: Record<string, string> = {
   ready: "文件可用",
   changed: "内容已改变",
@@ -495,9 +495,21 @@ export function LibraryScoresPane({
                 {imports.some((r) => r.warning) && ` · ${imports.filter((r) => r.warning).length} 份原件关联待修复`}
               </summary>
               {imports.map((r, i) => (
-                <p key={i} className={r.ok && !r.warning ? "parameter-help" : "dialog-error"}>
-                  {r.name}：{r.ok ? r.warning ?? "已保存" : r.error}
-                </p>
+                <div key={i}>
+                  <p className={r.ok && !r.warning ? "parameter-help" : "dialog-error"}>
+                    {r.name}：{r.ok ? r.warning ?? "已保存" : r.error}
+                  </p>
+                  {r.warning && r.id && r.kind === "notation" && api.desktop && (
+                    <button disabled={busy || !data} onClick={() => void work(async () => {
+                      await api.linkScoreSource(row.path, contentId, r.id!);
+                    })}>重新选择原谱文件</button>
+                  )}
+                  {r.warning && r.id && r.kind === "paper" && (
+                    <button disabled={busy || !data} onClick={() => setPreview(r.id!)}>
+                      打开已保存谱页并补原件
+                    </button>
+                  )}
+                </div>
               ))}
             </details>
           )}
