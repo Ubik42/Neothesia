@@ -315,9 +315,21 @@ impl Player {
         notes: String,
         copy_of: Option<String>,
     ) -> Result<Value, String> {
+        self.save_routine_with_request(id,day,name,notes,copy_of,None)
+    }
+    pub(super) fn save_routine_with_request(
+        &mut self,
+        id: Option<String>,
+        day: Option<String>,
+        name: String,
+        notes: String,
+        copy_of: Option<String>,
+        request_id: Option<String>,
+    ) -> Result<Value, String> {
         if name.trim().is_empty() || name.chars().count() > 80 || notes.len() > 8192 {
             return Err("计划名称需 1～80 个字，备注最长 8192 字节".into());
         }
+        if id.is_some() && request_id.is_some(){return Err("更新已有计划不能带新建请求编号".into());}
         let previous=self.preferences.clone();
         let result=(|| -> Result<Value,String> {
             if let Some(id) = id {
@@ -327,10 +339,22 @@ impl Player {
                 self.persist()?;
                 return Ok(json!({"id":id}));
             }
+            let requested_id=if let Some(request_id)=request_id {
+                if request_id.is_empty()||request_id.len()>128||!request_id.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'-'||c==b'_'){
+                    return Err("计划请求编号无效".into());
+                }
+                Some(format!("routine-request-{request_id}"))
+            }else{None};
+            if let Some(requested_id)=&requested_id {
+                if let Some(saved)=self.preferences.routines.iter().find(|routine|&routine.id==requested_id){
+                    if saved.name==name.trim()&&saved.notes==notes{return Ok(json!({"id":saved.id,"existing":true}));}
+                    return Err("这份计划已创建且内容已变化，请重新读取计划列表".into());
+                }
+            }
             if self.preferences.routines.len() >= 100 {
                 return Err("最多保存 100 个常用计划".into());
             }
-            let id = new_id("routine");
+            let id = requested_id.unwrap_or_else(||new_id("routine"));
             let mut routine = if let Some(source) = copy_of {
                 if let Some(day) = day.as_deref() {
                     self.preferences

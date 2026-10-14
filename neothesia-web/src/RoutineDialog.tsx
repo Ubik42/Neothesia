@@ -228,6 +228,8 @@ export function RoutineDialog({
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
   const draftItemId = useRef<string | null>(null);
+  const draftPlanRequest = useRef<string | null>(null);
+  const copyPlanRequest = useRef<string | null>(null);
   const listReadGeneration = useRef(0);
   const draftRevision = useRef(0);
   const selectedRef = useRef(selected);
@@ -444,6 +446,8 @@ export function RoutineDialog({
   const choosePlan = (p: Plan) => {
     draftRevision.current++;
     draftItemId.current = null;
+    draftPlanRequest.current = null;
+    copyPlanRequest.current = null;
     setSelected(p.id);
     setName(p.name);
     setNotes(p.notes);
@@ -672,6 +676,8 @@ export function RoutineDialog({
                 setSelected(null);
                 setName("");
                 setNotes("");
+                draftPlanRequest.current = null;
+                copyPlanRequest.current = null;
                 setItemId(null);
                 draftItemId.current = null;
                 setTitle(launchPassage?.name ?? "");
@@ -768,8 +774,10 @@ export function RoutineDialog({
                         name,
                         notes,
                         copy_of: null,
+                        request_id: selected ? null : (draftPlanRequest.current ??= crypto.randomUUID()),
                       });
                       setSelected(data.id);
+                      draftPlanRequest.current = null;
                       await refreshSavedList(selected ? "计划信息" : "新计划");
                     })
                   }
@@ -789,8 +797,10 @@ export function RoutineDialog({
                             name: name + "（副本）",
                             notes,
                             copy_of: selected,
+                            request_id: (copyPlanRequest.current ??= crypto.randomUUID()),
                           });
                           setSelected(data.id);
+                          copyPlanRequest.current = null;
                           setTemplate(true);
                           setName(name + "（副本）");
                           setItemId(null);
