@@ -210,12 +210,12 @@ export function WeakPracticePanel({
                   <small>
                     {r.item.settings.mode === "wait" ? "等音" : "连续"} ·{" "}
                     {Math.round(r.item.speed * 100)}% · 连续{" "}
-                    {r.item.goal.passes} 轮达标
+                    {r.item.goal.passes} 轮达标，正确率 ≥ {r.item.goal.accuracy}%
                     {r.item.goal.expression &&
-                      `，正确率 ≥ ${r.item.goal.accuracy}%、${expressionGoalText(r.item.goal.expression)}`}
+                      `、${expressionGoalText(r.item.goal.expression)}`}
                     {r.item.goal.onTime !== null &&
                     r.item.goal.onTime !== undefined
-                      ? `，正确率 ≥ ${r.item.goal.accuracy}%、准时率 ≥ ${r.item.goal.onTime}%、节拍器开启`
+                      ? `、准时率 ≥ ${r.item.goal.onTime}%、节拍器开启`
                       : ""}
                     ；打开时检查曲目版本与练习范围
                   </small>

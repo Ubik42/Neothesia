@@ -47,10 +47,12 @@ export function HistoryProblemPlan({
   openPlan,
   dirtyChanged,
   multi = false,
+  draftScope,
   launchImmediately = false,
   onClose,
 }: {
   multi?: boolean;
+  draftScope?: string;
   review: ProblemPlanReview;
   disabled: boolean;
   openPlan: (id: string, day: string | null) => void;
@@ -58,14 +60,19 @@ export function HistoryProblemPlan({
   launchImmediately?: boolean;
   onClose?: () => void;
 }) {
+  const draftStorageKey = multi ? `neothesia-multi-plan-draft:${draftScope ?? ""}` : "";
   const cached = useRef<Record<string, any>>(
     (() => {
       if (!multi) return {};
       try {
-        const v = JSON.parse(
-          localStorage.getItem("neothesia-multi-plan-draft") || "{}",
-        );
-        return v && typeof v === "object" ? v : {};
+        const old = JSON.parse(localStorage.getItem("neothesia-multi-plan-draft") || "null");
+        const legacyDraft = old && typeof old === "object" && !Array.isArray(old) ? old : null;
+        const saved = localStorage.getItem(draftStorageKey);
+        if (saved) {
+          const v = JSON.parse(saved);
+          return v && typeof v === "object" && !Array.isArray(v) ? { ...v, legacyDraft } : { legacyDraft };
+        }
+        return { legacyDraft };
       } catch {
         return {};
       }
@@ -259,7 +266,7 @@ export function HistoryProblemPlan({
     if (!multi) return;
     try {
       localStorage.setItem(
-        "neothesia-multi-plan-draft",
+        draftStorageKey,
         JSON.stringify({
           chosen,
           before,
@@ -279,6 +286,7 @@ export function HistoryProblemPlan({
     } catch {}
   }, [
     multi,
+    draftStorageKey,
     chosen,
     before,
     after,
@@ -538,6 +546,18 @@ export function HistoryProblemPlan({
               挑选问题音并安排顺序，同一范围合成一项，重叠范围分别练习。关闭此窗口保留输入，离开批阅前请保存。
             </p>
             {launchImmediately && <p>这些问题来自刚保存的一次练习。计划日期默认是明天；单次结果不代表长期弱项。</p>}
+            {multi && cached.current.legacyDraft && (
+              <details>
+                <summary>查看旧版复习编排草稿</summary>
+                <p>旧草稿没有记录参与编排的成绩。软件保留了旧草稿，但不会把其中的问题音自动选入当前编排。请重新选择问题音。</p>
+                <button disabled={busy} onClick={() => {
+                  const old = cached.current.legacyDraft;
+                  if (typeof old.name === "string") setName(old.name.slice(0, 80));
+                  if (typeof old.notes === "string") setNotes(old.notes.slice(0, 2000));
+                  invalidate();
+                }}>复制旧草稿的计划名称和备注</button>
+              </details>
+            )}
             <div className="history-problem-layout">
               <div className="history-problem-source">
                 <div className="history-range-controls">

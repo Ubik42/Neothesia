@@ -91,6 +91,7 @@ export function HistoryMultiProblemPlan({
       })),
     ),
   };
+  const draftScope = JSON.stringify(sources.map((source) => [source.contentId, source.id, source.slot]));
   const more = async (s: ReviewSource) => {
     const version = epoch.current;
     setBusy(true);
@@ -147,7 +148,9 @@ export function HistoryMultiProblemPlan({
         </div>
       ))}
       <HistoryProblemPlan
+        key={draftScope}
         multi
+        draftScope={draftScope}
         review={review}
         disabled={busy || !sources.length}
         openPlan={openPlan}
