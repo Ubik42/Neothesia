@@ -51,6 +51,10 @@ export function TickRangeDialog({
     const m = song.measures[index];
     return { measure: index + 1, beat: 1 + (tick - m.startTick) / length(m) };
   };
+  const onCurrentGrid = (tick: number, end = false) =>
+    song.measures.some((m) => end
+      ? tick > m.startTick && tick <= m.endTick
+      : tick >= m.startTick && tick < m.endTick);
   const endPoint = (bar: number) => {
     let tick = song.measures[bar - 1].endTick;
     const tempo = [...song.tempo]
@@ -77,6 +81,7 @@ export function TickRangeDialog({
     [preview, setPreview] = useState<Preview | null>(null),
     [busy, setBusy] = useState(false),
     [dirty, setDirty] = useState(false),
+    [mappingNotice, setMappingNotice] = useState(""),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
   const alive = useRef(true),
@@ -100,13 +105,17 @@ export function TickRangeDialog({
         if (!alive.current) return;
         setGrid(v.grid);
         if (preset) {
-          if (
-            preset.preciseRange.contentId === song.contentId &&
-            preset.preciseRange.grid === v.grid
-          ) {
+          if (preset.preciseRange.contentId !== song.contentId) {
+            setError("练习段的曲目身份已改变，请重新选择曲目。");
+          } else if (onCurrentGrid(preset.preciseRange.startTick) &&
+                     onCurrentGrid(preset.preciseRange.endTick, true)) {
             setA(point(preset.preciseRange.startTick));
             setB(point(preset.preciseRange.endTick, true));
-          } else setError("原小节网格已改变，请重新设置范围并预览后保存。");
+            if (preset.preciseRange.grid !== v.grid)
+              setMappingNotice("小节网格已改变。软件已按原 MIDI 起止位置填入当前拍位；请核对两端并预览后保存。");
+          } else {
+            setError("原练习段的起止位置不在当前小节网格内，请重新设置范围并预览后保存。");
+          }
         }
       })
       .catch((e) => {
@@ -297,6 +306,7 @@ export function TickRangeDialog({
             {error}
           </p>
         )}
+        {mappingNotice && <p className="parameter-help" role="status">{mappingNotice}</p>}
         {preview && (
           <div className="tick-preview" role="status">
             <strong>{preview.description}</strong>
