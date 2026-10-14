@@ -224,7 +224,7 @@ export function RoutineDialog({
   const [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [openedItem, setOpenedItem] = useState<string | null>(null),
+    [openedItem, setOpenedItem] = useState<{ id: string; title: string; confirmed: boolean } | null>(null),
     [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
   const draftItemId = useRef<string | null>(null);
@@ -519,6 +519,7 @@ export function RoutineDialog({
     ...extra,
   });
   const openSavedItem = async (savedId: string, savedTitle: string) => {
+      const opened = { id: savedId, title: savedTitle || "当前项目", confirmed: true };
       try {
         await api.command({
           type: "openRoutineItem",
@@ -528,14 +529,23 @@ export function RoutineDialog({
           resume: true,
         });
       } catch (e) {
+        let latest: Snapshot;
         try {
-          await changed();
-        } catch (refreshError) {
-          throw new Error(`${e instanceof Error ? e.message : String(e)}；当前曲目刷新失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
+          latest = await api.state();
+        } catch (readError) {
+          setOpenedItem({ ...opened, confirmed: false });
+          throw new Error(`练习是否已打开尚未确认，请重试读取当前练习：${readError instanceof Error ? readError.message : String(readError)}`);
         }
-        throw e;
+        if (!latest.routine || latest.routine.routineId !== selected || latest.routine.day !== day || latest.routine.itemId !== savedId) {
+          try {
+            await changed();
+          } catch (refreshError) {
+            throw new Error(`${e instanceof Error ? e.message : String(e)}；当前曲目刷新失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
+          }
+          throw e;
+        }
       }
-      setOpenedItem(savedTitle || "当前项目");
+      setOpenedItem(opened);
       try {
         await changed();
         close();
@@ -571,7 +581,7 @@ export function RoutineDialog({
           await openSavedItem(data.id, title.trim());
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
-          throw new Error(message.includes("练习项目已打开")
+          throw new Error(message.includes("练习项目已打开") || message.includes("练习是否已打开尚未确认")
             ? message
             : `练习项目已保存，但打开失败：${message}`);
         }
@@ -579,6 +589,12 @@ export function RoutineDialog({
     }, !startPractice);
   const retryOpenedItem = () =>
     void work(async () => {
+      const latest = await api.state();
+      if (!openedItem || !latest.routine || latest.routine.routineId !== selected || latest.routine.day !== day || latest.routine.itemId !== openedItem.id) {
+        setOpenedItem(null);
+        throw new Error("当前练习未打开，请核对项目后再操作");
+      }
+      setOpenedItem({ ...openedItem, confirmed: true });
       await changed();
       close();
     }, false, true);
@@ -722,7 +738,8 @@ export function RoutineDialog({
         )}
         {openedItem && (
           <p role="status">
-            “{openedItem}”已打开。重试只读取当前练习状态，不会再次打开项目。
+            “{openedItem.title}”{openedItem.confirmed ? "已打开，当前界面尚未刷新。" : "是否已打开尚未确认。"}
+            重试只读取当前练习状态，不会再次打开项目。
             <button disabled={busy} onClick={retryOpenedItem}>重试读取当前练习</button>
           </p>
         )}
