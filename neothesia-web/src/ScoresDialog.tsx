@@ -98,6 +98,7 @@ export function ScoresDialog({
   changed: () => Promise<void>;
 }) {
   const [versions, setVersions] = useState<Version[]>([]),
+    [versionsLoading, setVersionsLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
@@ -108,6 +109,7 @@ export function ScoresDialog({
   const input = useRef<HTMLInputElement>(null);
   const currentContentId = useRef(song.contentId);
   currentContentId.current = song.contentId;
+  const refreshSequence = useRef(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [sourceFocusVersionId, setSourceFocusVersionId] = useState<string>();
   const canGenerateMuseScorePdf = api.desktop && /Windows/i.test(navigator.userAgent);
@@ -126,19 +128,40 @@ export function ScoresDialog({
     previewToken?: string;
   } | null>(null);
   const refresh = async () => {
-    const data = await api.command<{ versions: Version[] }>({
-      type: "scoreVersions",
-    });
-    setVersions(data.versions);
-    if (api.desktop) {
-      const sources = await api.command<{ entries: OriginalSource[] }>({
-        type: "scoreSources",
-        content_id: song.contentId,
+    const contentId = song.contentId;
+    const sequence = ++refreshSequence.current;
+    try {
+      const data = await api.command<{ versions: Version[] }>({
+        type: "scoreVersions",
       });
-      setOriginals(sources.entries);
+      const sources = api.desktop
+        ? await api.command<{ entries: OriginalSource[] }>({
+            type: "scoreSources",
+            content_id: contentId,
+          })
+        : null;
+      if (
+        currentContentId.current !== contentId ||
+        refreshSequence.current !== sequence
+      ) return;
+      setVersions(data.versions);
+      setOriginals(sources?.entries ?? []);
+      setVersionsLoading(false);
+    } catch (cause) {
+      if (
+        currentContentId.current === contentId &&
+        refreshSequence.current === sequence
+      ) {
+        setVersionsLoading(false);
+        throw cause;
+      }
     }
   };
   useEffect(() => {
+    setVersions([]);
+    setOriginals([]);
+    setVersionsLoading(true);
+    setBusy(false);
     setVersionPreview(null);
     setFilePreview(null);
     setEditMessage("");
@@ -159,6 +182,7 @@ export function ScoresDialog({
     };
   }, [song.contentId]);
   const previewVersion = async (version: Version) => {
+    const contentId = song.contentId;
     setBusy(true);
     setError("");
     setVersionPreview(null);
@@ -166,16 +190,19 @@ export function ScoresDialog({
       const evidence = await api.command<ScoreRouteEvidence>({
         type: "previewScoreVersionRoute",
         id: version.id,
-        content_id: song.contentId,
+        content_id: contentId,
       });
-      setVersionPreview({ id: version.id, path: version.path, evidence });
+      if (currentContentId.current === contentId)
+        setVersionPreview({ id: version.id, path: version.path, evidence });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (currentContentId.current === contentId)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      if (currentContentId.current === contentId) setBusy(false);
     }
   };
   const previewFile = async (file: File) => {
+    const contentId = song.contentId;
     setBusy(true);
     setError("");
     setFilePreview(null);
@@ -186,32 +213,37 @@ export function ScoresDialog({
         type: "previewScoreBytesRoute",
         bytes,
         name: file.name,
-        content_id: song.contentId,
+        content_id: contentId,
       });
-      setFilePreview({ name: file.name, bytes, evidence });
+      if (currentContentId.current === contentId)
+        setFilePreview({ name: file.name, bytes, evidence });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (currentContentId.current === contentId)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      if (currentContentId.current === contentId) setBusy(false);
     }
   };
   const generateScore = async () => {
+    const contentId = song.contentId;
     setBusy(true);
     setError("");
     setFilePreview(null);
     try {
-      const draft = await api.generateMuseScoreScore(song.contentId);
+      const draft = await api.generateMuseScoreScore(contentId);
       const evidence = await api.command<ScoreRouteEvidence>({
         type: "previewScoreBytesRoute",
         bytes: draft.bytes,
         name: draft.name,
-        content_id: song.contentId,
+        content_id: contentId,
       });
-      setFilePreview({ ...draft, evidence, generated: true });
+      if (currentContentId.current === contentId)
+        setFilePreview({ ...draft, evidence, generated: true });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (currentContentId.current === contentId)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
+      if (currentContentId.current === contentId) setBusy(false);
     }
   };
   const recognizePaper = async (attachment: PaperAttachment, report: (message: string) => void) => {
@@ -245,7 +277,7 @@ export function ScoresDialog({
       setFilePreview({ ...draft, evidence, recognizedFrom: attachment.name });
       setTab("notation");
     } finally {
-      setBusy(false);
+      if (currentContentId.current === contentId) setBusy(false);
     }
   };
   const saveFile = (mode: "use" | "save") =>
@@ -314,8 +346,11 @@ export function ScoresDialog({
         : `可编辑原谱已保存：${saved.path}。${saved.warning ?? "请手动在 MuseScore Studio 中打开该文件。"} 修改并保存后，请返回这里检查原谱更新。`);
       setSourceFocusVersionId(saved.versionId);
       setSourcesOpen(saved.opened);
-      await refresh();
-      await changed();
+      try {
+        await refresh();
+      } finally {
+        await changed();
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -327,8 +362,11 @@ export function ScoresDialog({
     setError("");
     try {
       await work();
-      await refresh();
-      await changed();
+      try {
+        await refresh();
+      } finally {
+        await changed();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -403,7 +441,7 @@ export function ScoresDialog({
                   从 MIDI 生成谱面初稿
                 </button>
               )}
-              <span>{versions.length} 份谱面</span>
+              <span>{versionsLoading ? "正在读取谱面…" : `${versions.length} 份谱面`}</span>
               <button disabled={busy} onClick={() => {
                 setSourceFocusVersionId(undefined);
                 setSourcesOpen(true);
