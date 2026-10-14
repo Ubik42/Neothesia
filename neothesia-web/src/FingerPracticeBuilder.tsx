@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, pitchName } from "./api";
 
 export type FingerDifficulty = {
@@ -115,7 +115,10 @@ export function FingerPracticeBuilder({
   const [open, setOpen] = useState(false),
     [rows, setRows] = useState<Draft[]>([]),
     [busy, setBusy] = useState(false),
+    [pendingRefresh, setPendingRefresh] = useState(false),
+    [error, setError] = useState(""),
     [message, setMessage] = useState("");
+  const working = useRef(false);
   const update = (i: number, patch: Partial<Draft>) =>
     setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const selected = rows.filter((r) => r.selected);
@@ -138,8 +141,11 @@ export function FingerPracticeBuilder({
         r.rounds <= 99,
     );
   async function save() {
+    if (working.current || pendingRefresh || disabled || !valid) return;
+    working.current = true;
     busyChanged?.(true);
     setBusy(true);
+    setError("");
     setMessage("");
     try {
       const result = await api.command<{ saved: number; existing?: number }>(
@@ -160,10 +166,35 @@ export function FingerPracticeBuilder({
         `已保存 ${result.saved} 个练习段${result.existing ? `，${result.existing} 个相同练习段已存在` : ""}，可在练习段列表打开，或加入日课。指法仍需在本窗口确认保存。`,
       );
       setOpen(false);
-      await changed();
+      setRows([]);
+      setPendingRefresh(true);
+      try {
+        await changed();
+        setPendingRefresh(false);
+      } catch (cause) {
+        setError(`练习段已保存，但列表暂未刷新：${String(cause)}。请只重试读取。`);
+      }
     } catch (e) {
-      setMessage(String(e));
+      setError(String(e));
     } finally {
+      working.current = false;
+      setBusy(false);
+      busyChanged?.(false);
+    }
+  }
+  async function retryRefresh() {
+    if (working.current || !pendingRefresh) return;
+    working.current = true;
+    busyChanged?.(true);
+    setBusy(true);
+    setError("");
+    try {
+      await changed();
+      setPendingRefresh(false);
+    } catch (cause) {
+      setError(`练习段已保存，但列表暂未刷新：${String(cause)}。请只重试读取。`);
+    } finally {
+      working.current = false;
       setBusy(false);
       busyChanged?.(false);
     }
@@ -171,7 +202,7 @@ export function FingerPracticeBuilder({
   return (
     <section className="finger-practice-builder" aria-label="指法难点练习段">
       <button
-        disabled={disabled || busy || (!review.length && !fallback?.length)}
+        disabled={disabled || busy || pendingRefresh || (!review.length && !fallback?.length)}
         onClick={() => {
           setRows(
             review.length ? drafts(review, rate, hand) : (fallback ?? []),
@@ -292,6 +323,8 @@ export function FingerPracticeBuilder({
         </>
       )}
       {message && <p role="status">{message}</p>}
+      {error && <p role="alert" className="dialog-error">{error}</p>}
+      {pendingRefresh && <button disabled={busy} onClick={() => void retryRefresh()}>重试读取已保存练习段</button>}
     </section>
   );
 }
