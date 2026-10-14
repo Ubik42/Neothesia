@@ -1,5 +1,8 @@
 use midi_file::MidiFile;
-use neothesia_core::{library::NoteHandHint, practice::PracticePart, song_config::SongConfig};
+use neothesia_core::{
+    fingering::HandSpanProfile, library::NoteHandHint, practice::PracticePart,
+    song_config::SongConfig,
+};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -148,6 +151,7 @@ pub fn propose(
     track: usize,
     range: (usize, usize),
     reference: u8,
+    profiles: [HandSpanProfile; 2],
 ) -> Result<Vec<Proposal>, String> {
     let t = file
         .tracks
@@ -273,7 +277,13 @@ pub fn propose(
                     );
                     let reach = all.iter().copied().fold(f64::NEG_INFINITY, f64::max)
                         - all.iter().copied().fold(f64::INFINITY, f64::min);
-                    cost += (reach - 12.).max(0.).powi(2) * 0.8;
+                    let comfortable = f64::from(profiles[side].comfortable_span());
+                    if reach > comfortable + 2. {
+                        valid = false;
+                        break;
+                    }
+                    let stretched = reach > comfortable;
+                    cost += (reach - comfortable).max(0.).powi(2) * 3.;
                     cost += if hand == PracticePart::LeftHand {
                         (center - f64::from(reference)).max(0.) * 0.04
                     } else {
@@ -293,6 +303,8 @@ pub fn propose(
                             .is_some_and(|p| *p != PracticePart::Other);
                         let confidence = if anchor {
                             100
+                        } else if stretched {
+                            40
                         } else if layout.kind == LayoutKind::Interleaved {
                             45
                         } else if layout.kind == LayoutKind::Crossed {
@@ -304,6 +316,8 @@ pub fn propose(
                         };
                         let reason = if anchor {
                             "保留已确认的逐音分手"
+                        } else if stretched {
+                            "该手跨度超过个人舒适设置；请逐音检查手型"
                         } else if layout.kind == LayoutKind::Interleaved {
                             "根据已确认手别补足交错声部；请逐音检查手型与动作"
                         } else if layout.kind == LayoutKind::Crossed {
@@ -340,7 +354,7 @@ pub fn propose(
                             index,
                             part(config, assigned, track, index),
                             35,
-                            "同键重叠、交错声部或复杂和弦，请逐音指定手",
+                            "同键重叠、手型跨度或复杂和弦，请逐音指定手",
                         )
                     })
                     .collect();
@@ -478,6 +492,7 @@ mod tests {
             track.track_id,
             (1, 1),
             66,
+            [HandSpanProfile::Standard; 2],
         )
         .unwrap();
         assert_eq!(suggestions.len(), 3);
@@ -500,5 +515,60 @@ mod tests {
         let middle = suggestions.iter().find(|item| item.pitch == 64).unwrap();
         assert_ne!(middle.part, PracticePart::Other);
         assert_eq!(middle.confidence, 60);
+    }
+
+    #[test]
+    fn hand_span_profile_changes_wide_chord_suggestion() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work")
+            .join(format!(
+                "hand-span-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+        let mut player = Player::new(root, std::path::PathBuf::new(), true);
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note><note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note><note><chord/><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration></note></measure></part></score-partwise>"#;
+        player
+            .command(Command::ImportScore {
+                bytes: xml.as_bytes().to_vec(),
+                name: "hand-span.musicxml".into(),
+                default_bpm: 100,
+            })
+            .unwrap();
+        let file = player.file.as_ref().unwrap();
+        let track = file
+            .tracks
+            .iter()
+            .find(|track| track.notes.len() == 3)
+            .unwrap();
+        let anchors: HashMap<_, _> = track
+            .notes
+            .iter()
+            .enumerate()
+            .filter(|(_, note)| note.note == 60 || note.note == 74)
+            .map(|(index, _)| ((track.track_id, index), PracticePart::LeftHand))
+            .collect();
+        let suggest = |profile| {
+            propose(
+                file,
+                &SongConfig::new(&file.tracks),
+                &anchors,
+                track.track_id,
+                (1, 1),
+                66,
+                [profile, HandSpanProfile::Standard],
+            )
+            .unwrap()
+        };
+        let standard = suggest(HandSpanProfile::Standard);
+        let compact = suggest(HandSpanProfile::Compact);
+        let middle = |items: &[Proposal]| items.iter().find(|item| item.pitch == 64).unwrap();
+        assert_eq!(middle(&standard).part, PracticePart::LeftHand);
+        assert_eq!(middle(&standard).confidence, 40);
+        assert_eq!(middle(&compact).part, PracticePart::Other);
+        assert_eq!(compact.iter().filter(|item| item.pitch != 64).count(), 2);
     }
 }

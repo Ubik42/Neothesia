@@ -2384,6 +2384,25 @@ impl Player {
                 reference,
             } => {
                 let file = self.file.as_ref().ok_or("请先选择曲目")?;
+                let per_hand = self.preferences.hand_span_profiles.get(&file.content_id);
+                let legacy = self
+                    .preferences
+                    .fingering_profiles
+                    .get(&file.content_id)
+                    .and_then(|tracks| tracks.get(&track))
+                    .copied();
+                let profile_for = |hand: PracticePart| {
+                    per_hand
+                        .and_then(|profiles| profiles.get(&format!("{track}:{}", hands::label(hand))))
+                        .copied()
+                        .or_else(|| self.preferences.hand_span_defaults.get(&hand).copied())
+                        .or(legacy)
+                        .unwrap_or_default()
+                };
+                let profiles = [
+                    profile_for(PracticePart::LeftHand),
+                    profile_for(PracticePart::RightHand),
+                ];
                 let proposals = hands::propose(
                     file,
                     &self.config,
@@ -2391,6 +2410,7 @@ impl Player {
                     track,
                     range,
                     reference,
+                    profiles,
                 )?;
                 return Ok(
                     serde_json::json!({"contentId":file.content_id,"proposals":proposals,"undoAvailable":!self.hand_undo.is_empty()}),

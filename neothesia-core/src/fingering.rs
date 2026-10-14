@@ -22,6 +22,10 @@ pub enum HandSpanProfile {
 }
 
 impl HandSpanProfile {
+    pub fn comfortable_span(self) -> i32 {
+        self.comfortable_spans()[4]
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Compact => "Compact · up to a 7th",
