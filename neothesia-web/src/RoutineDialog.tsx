@@ -216,7 +216,9 @@ export function RoutineDialog({
   const [skipReason, setSkipReason] = useState("");
   const [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [openedItem, setOpenedItem] = useState<string | null>(null);
+  const working = useRef(false);
   const run = runs.find((r) => r.routine.id === selected),
     plan = template
       ? plans.find((p) => p.id === selected)
@@ -228,7 +230,7 @@ export function RoutineDialog({
       state.routine.day === day &&
       !template,
     ),
-    locked = busy || active;
+    locked = busy || active || !!openedItem;
   const progress = (id: string) =>
     state.routine?.routineId === selected &&
     state.routine.day === day &&
@@ -311,13 +313,19 @@ export function RoutineDialog({
     if (wasSuspended.current && !suspended) dialogRef.current?.focus();
     wasSuspended.current = suspended;
   }, [suspended]);
-  const work = async (job: () => Promise<void>) => {
+  const work = async (job: () => Promise<void>, recoverOnError = true) => {
+    if (working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
       await job();
     } catch (e) {
       const original = e instanceof Error ? e.message : String(e);
+      if (!recoverOnError) {
+        setError(original);
+        return;
+      }
       try {
         await changed();
         setError(original);
@@ -328,6 +336,7 @@ export function RoutineDialog({
         setError(`${original}；界面刷新也失败：${detail}`);
       }
     } finally {
+      working.current = false;
       setBusy(false);
     }
   };
@@ -374,16 +383,35 @@ export function RoutineDialog({
   });
   const openItem = (item: Item) =>
     void work(async () => {
-      await api.command({
-        type: "openRoutineItem",
-        routine_id: selected,
-        day,
-        item_id: item.id,
-        resume: true,
-      });
+      try {
+        await api.command({
+          type: "openRoutineItem",
+          routine_id: selected,
+          day,
+          item_id: item.id,
+          resume: true,
+        });
+      } catch (e) {
+        try {
+          await changed();
+        } catch (refreshError) {
+          throw new Error(`${e instanceof Error ? e.message : String(e)}；当前曲目刷新失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
+        }
+        throw e;
+      }
+      setOpenedItem(item.title || "当前项目");
+      try {
+        await changed();
+        close();
+      } catch (e) {
+        throw new Error(`练习项目已打开，当前状态读取失败：${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, false);
+  const retryOpenedItem = () =>
+    void work(async () => {
       await changed();
       close();
-    });
+    }, false);
   const allPlans = template
     ? plans
     : [
@@ -501,6 +529,12 @@ export function RoutineDialog({
         {error && (
           <p role="alert" className="routine-error">
             {error}
+          </p>
+        )}
+        {openedItem && (
+          <p role="status">
+            “{openedItem}”已打开。重试只读取当前练习状态，不会再次打开项目。
+            <button disabled={busy} onClick={retryOpenedItem}>重试读取当前练习</button>
           </p>
         )}
         <div className="routine-layout">
@@ -749,7 +783,7 @@ export function RoutineDialog({
                         <button
                           className="routine-quick-open"
                           disabled={
-                            busy || template || p?.completed || p?.skipped
+                            busy || !!openedItem || template || p?.completed || p?.skipped
                           }
                           aria-label={`练习项目：${item.title}`}
                           onClick={() => openItem(item)}
@@ -963,6 +997,7 @@ export function RoutineDialog({
                           <button
                             disabled={
                               busy ||
+                              !!openedItem ||
                               template ||
                               progress(currentItem.id)?.completed ||
                               progress(currentItem.id)?.skipped

@@ -266,25 +266,32 @@ export default function App() {
     });
     setCollection(data.songs);
   }, []);
+  const refreshOrThrow = useCallback(async () => {
+    const [library, current, inventory] = await Promise.all([
+      api.library(),
+      api.song(),
+      api.devices(),
+    ]);
+    const currentState = await api.state();
+    const collection = await api.command<{ songs: CollectionSong[] }>({
+      type: "collection",
+    });
+    setSongs(library.songs);
+    setSong(current);
+    setDevices(inventory);
+    setState(currentState);
+    setCollection(collection.songs);
+    setConnected(true);
+    setError("");
+  }, []);
   const refresh = useCallback(async () => {
     try {
-      const [library, current, inventory] = await Promise.all([
-        api.library(),
-        api.song(),
-        api.devices(),
-      ]);
-      setSongs(library.songs);
-      setSong(current);
-      setDevices(inventory);
-      setState(await api.state());
-      await updateCollection();
-      setConnected(true);
-      setError("");
+      await refreshOrThrow();
     } catch (e) {
       setConnected(false);
       setError(String(e instanceof Error ? e.message : e));
     }
-  }, [updateCollection]);
+  }, [refreshOrThrow]);
   useEffect(() => {
     let stopped = false,
       lastRevision = -1,
@@ -2461,7 +2468,7 @@ export default function App() {
             setLibraryLaunch(focus);
             setLibraryDialog(true);
           }}
-          changed={refresh}
+          changed={refreshOrThrow}
         />
       )}
       {ladderDialog && song && (
