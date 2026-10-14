@@ -167,7 +167,7 @@ impl Player {
         let mut rows = Vec::new();
         let mut due_total = 0;
         let mut missing_total = 0;
-        let mut verified_content = std::collections::HashMap::new();
+        let mut verified_content = std::collections::HashMap::<String, Option<midi_file::MidiFile>>::new();
         for (cid, history) in self.history.snapshot() {
             let mut offered_for_song = 0;
             for review in history.due_passage_reviews(now, usize::MAX) {
@@ -204,11 +204,11 @@ impl Player {
                     start_tick: bounds.start_tick, end_tick: bounds.end_tick,
                 };
                 if precise.validate().is_err() { continue; }
-                let item = RoutineItem {
+                let mut item = RoutineItem {
                     id: String::new(),
                     title: format!("{} · {}复习",
                         history.display_name.chars().take(70).collect::<String>(), range),
-                    notes: format!("此选段同条件连续达标 {} 次，距离最近一次已过 {} 天；最近正确率 {:.0}%。按原声部、模式、速度及小节范围复习，打开时重新核对曲目和音乐网格。",
+                    notes: format!("此选段同条件连续达标 {} 次，距离最近一次已过 {} 天；最近正确率 {:.0}%。按原声部、模式、速度及拍内起止位置复习，打开时重新核对曲目和音乐网格。",
                         review.mastery_streak, review.interval_days,
                         f64::from(review.latest_accuracy) * 100.),
                     content_id: cid.clone(), song_title: history.display_name.clone(),
@@ -226,25 +226,30 @@ impl Player {
                     goal,
                 };
                 due_total += 1;
-                let source_ready = item.exercise.is_some() || *verified_content
+                let source_ready = item.exercise.is_some() || verified_content
                     .entry(cid.clone())
                     .or_insert_with(|| {
-                        crate::library::available_path(&index, &cid, item.path.as_deref()).is_some()
-                            && crate::library::verified_file(
+                        crate::library::available_path(&index, &cid, item.path.as_deref())
+                            .and_then(|_| crate::library::verified_file(
                                 &self.data, &cid, item.path.clone().into_iter(),
-                            ).is_ok()
-                    });
+                            ).ok())
+                    }).is_some();
                 if !source_ready {
                     missing_total += 1;
                     continue;
                 }
                 if offered_for_song >= 2 { continue; }
+                let readable_range = verified_content.get(&cid).and_then(Option::as_ref)
+                    .filter(|file| crate::practice_conditions::grid(file) == context.grid)
+                    .and_then(|file| crate::history_commands::passage_location(file, bounds))
+                    .unwrap_or(range);
+                item.notes = format!("原选段：{}。{}", readable_range, item.notes);
                 let Ok(bytes) = serde_json::to_vec(&(&item, last.recorded_at_unix_ms)) else { continue; };
                 rows.push(Suggestion {
                     id: blake3::hash(&bytes).to_hex().to_string(),
                     title: history.display_name.clone(), measure: review.start_measure,
                     accuracy: f64::from(review.latest_accuracy), kind: "passageReview".into(),
-                    timing: None, expression: None, range: Some(range),
+                    timing: None, expression: None, range: Some(readable_range),
                     attempts: review.mastery_streak, judged: context.judged_notes,
                     source_at: last.recorded_at_unix_ms, source_speed: last.speed,
                     source_mode: mode.into(), item,
@@ -838,15 +843,19 @@ mod tests {
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
         let measure = &p.file.as_ref().unwrap().musical_time.measures[0];
-        session.context.as_mut().unwrap().passage_bounds = Some(
-            neothesia_core::practice_history::PracticePassageBounds {
-                start_tick: measure.start_tick, end_tick: measure.end_tick,
-            },
-        );
+        let bounds = neothesia_core::practice_history::PracticePassageBounds {
+            start_tick: measure.start_tick, end_tick: measure.end_tick,
+        };
+        session.context.as_mut().unwrap().passage_bounds = Some(bounds);
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
         let before = p.weak_practice().unwrap();
         assert_eq!(before["passageDueTotal"], 1);
         assert_eq!(before["passageUnavailableTotal"], 0);
+        let location = crate::history_commands::passage_location(p.file.as_ref().unwrap(), bounds).unwrap();
+        let suggestion = before["suggestions"].as_array().unwrap().iter()
+            .find(|row| row["kind"] == "passageReview").unwrap();
+        assert_eq!(suggestion["range"].as_str(), Some(location.as_str()));
+        assert!(suggestion["item"]["notes"].as_str().unwrap().contains(&location));
         let source_path = imported["sourcePath"].as_str().unwrap();
         std::fs::write(source_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
         let after = p.weak_practice().unwrap();

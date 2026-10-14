@@ -24,7 +24,7 @@ fn passage_beat_label(file: &midi_file::MidiFile, tick: u64) -> Option<String> {
     while b != 0 { (a, b) = (b, a % b); }
     Some(format!("第 {} 小节第 {} 拍后 {}/{} 拍", index + 1, beat, remainder / a, denominator / a))
 }
-fn passage_location(file: &midi_file::MidiFile, bounds: PracticePassageBounds) -> Option<String> {
+pub(super) fn passage_location(file: &midi_file::MidiFile, bounds: PracticePassageBounds) -> Option<String> {
     if bounds.start_tick >= bounds.end_tick { return None; }
     Some(format!("{} → {}",
         passage_beat_label(file, bounds.start_tick)?,
