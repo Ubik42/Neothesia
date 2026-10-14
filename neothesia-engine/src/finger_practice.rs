@@ -2,6 +2,12 @@ use crate::{fingerings, preferences, Player};
 use neothesia_core::practice_history::PracticeTrackMode;
 use serde::Deserialize;
 
+pub(crate) fn same_passage_content(saved: &preferences::PassagePreset, candidate: &preferences::PassagePreset) -> Result<bool,String> {
+    let mut candidate=candidate.clone();
+    candidate.id=saved.id.clone();
+    Ok(serde_json::to_value(saved).map_err(|e|e.to_string())? == serde_json::to_value(candidate).map_err(|e|e.to_string())?)
+}
+
 #[derive(Deserialize,serde::Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct PracticeRange {
@@ -44,11 +50,16 @@ impl Player {
             let preset=preferences::PassagePreset {id:id.clone(),name:range.name.trim().into(),start:range.start,end:range.end,
                 notes:range.notes,speed:range.speed,settings,grid:Some(grid.clone()),score_range:None,precise_range:None};
             if let Some(saved)=passages.iter().find(|saved|saved.id==id) {
-                if serde_json::to_value(saved).map_err(|e|e.to_string())? != serde_json::to_value(&preset).map_err(|e|e.to_string())? {
+                if !same_passage_content(saved,&preset)? {
                     return Err("练习条件或已保存练习段发生变化，请重新核对后保存".into());
                 }
                 existing+=1;
             } else {
+                let mut already_saved=false;
+                for saved in passages.iter() {
+                    if same_passage_content(saved,&preset)? {already_saved=true;break;}
+                }
+                if already_saved {existing+=1;continue;}
                 if passages.len()>=200 {return Err("每首曲目最多保存 200 个练习段，整批未保存".into());}
                 passages.push(preset);
                 ids.push(id);

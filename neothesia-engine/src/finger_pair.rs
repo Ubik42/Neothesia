@@ -93,9 +93,25 @@ impl Player {
    if seen.is_empty()||!has_review_target{return Err("练习段没有本次双手声部的审阅目标音".into());}
   }
   let settings=self.finger_pair_settings(parts);let grid=self.grid_signature();let mut prefs=self.preferences.clone();let rows=prefs.passages.entry(cid).or_default();if rows.len()>200{return Err("每首曲目最多保存 200 个练习段，整批未保存".into());}
-  let stamp=blake3::hash(&serde_json::to_vec(&serde_json::json!([proof,&ranges])).map_err(|e|e.to_string())?).to_hex().to_string();let mut ids=vec![];let mut existing=0;
-  for (i,r) in ranges.into_iter().enumerate(){let id=format!("finger-pair-practice-{stamp}-{i}");let mut settings=settings.clone();settings.rounds=r.rounds;let preset=preferences::PassagePreset{id:id.clone(),name:r.name.trim().into(),start:r.start,end:r.end,notes:r.notes,speed:r.speed,settings,grid:Some(grid.clone()),score_range:None,precise_range:None};if let Some(old)=rows.iter().find(|p|p.id==id){if serde_json::to_value(old).unwrap()!=serde_json::to_value(&preset).unwrap(){return Err("对应练习段后来已修改，请重新命名后保存".into());}existing+=1;}else{if rows.len()>=200{return Err("每首曲目最多保存 200 个练习段，整批未保存".into());}rows.push(preset);ids.push(id);}}
-  prefs.save(&self.preferences_path)?;self.preferences=prefs;Ok(serde_json::json!({"saved":ids.len(),"ids":ids,"existing":existing}))
+  let mut ids=vec![];let mut existing=0;
+  for r in ranges {
+   let identity=serde_json::to_vec(&serde_json::json!([proof,&r])).map_err(|e|e.to_string())?;
+   let id=format!("finger-pair-practice-{}",blake3::hash(&identity).to_hex());
+   let mut settings=settings.clone();settings.rounds=r.rounds;
+   let preset=preferences::PassagePreset{id:id.clone(),name:r.name.trim().into(),start:r.start,end:r.end,notes:r.notes,speed:r.speed,settings,grid:Some(grid.clone()),score_range:None,precise_range:None};
+   if let Some(old)=rows.iter().find(|p|p.id==id){
+    if !crate::finger_practice::same_passage_content(old,&preset)?{return Err("练习条件或已保存练习段发生变化，请重新核对后保存".into());}
+    existing+=1;
+   }else{
+    let mut already_saved=false;
+    for old in rows.iter(){if crate::finger_practice::same_passage_content(old,&preset)?{already_saved=true;break;}}
+    if already_saved{existing+=1;continue;}
+    if rows.len()>=200{return Err("每首曲目最多保存 200 个练习段，整批未保存".into());}
+    rows.push(preset);ids.push(id);
+   }
+  }
+  if !ids.is_empty(){prefs.save(&self.preferences_path)?;self.preferences=prefs;}
+  Ok(serde_json::json!({"saved":ids.len(),"ids":ids,"existing":existing}))
  }
 
 }
@@ -143,6 +159,9 @@ mod tests {
   p.state.metronome=true;assert!(p.save_pair_practice(&parts,&proof,true,vec![range()]).is_err());p.state.metronome=false;
   let original_path=p.preferences_path.clone();p.preferences_path=data.clone();assert!(p.save_pair_practice(&parts,&proof,true,vec![range()]).is_err());assert!(!p.preferences.passages.contains_key(&cid));p.preferences_path=original_path;
   let passage=p.save_pair_practice(&parts,&proof,true,vec![range()]).unwrap();assert_eq!(passage["saved"],1);assert_eq!(p.saved_hints().unwrap(),before);assert_eq!(p.save_pair_practice(&parts,&proof,true,vec![range()]).unwrap()["existing"],1);
+  let mut second=range();second.name="双手分段慢练".into();
+  let mixed=p.save_pair_practice(&parts,&proof,true,vec![range(),second]).unwrap();assert_eq!(mixed["saved"],1);assert_eq!(mixed["existing"],1);
+  assert_eq!(p.save_pair_practice(&parts,&proof,true,vec![range()]).unwrap()["existing"],1);
   let id=passage["ids"][0].as_str().unwrap().to_owned();let preset=&p.preferences.passages[&cid][0];assert_eq!(preset.settings.hands,"both");assert_eq!(preset.settings.rounds,3);assert_eq!(preset.speed,0.6);
   let rid=p.save_routine(None,None,"双手慢练日课".into(),"".into(),None).unwrap()["id"].as_str().unwrap().to_owned();
   let item=p.save_routine_item(&rid,None,None,Some("passage"),Some(&id),"双手达标".into(),"".into(),crate::routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:3}).unwrap()["id"].as_str().unwrap().to_owned();
