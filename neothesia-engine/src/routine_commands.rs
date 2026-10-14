@@ -1262,7 +1262,7 @@ mod sequence_tests {
         p.command(Command::CountIn{bars:0}).unwrap();
         let cid=p.file.as_ref().unwrap().content_id.clone();
         p.command(Command::Speed{value:0.6}).unwrap();
-        p.command(Command::SavePassage{id:Some("a".into()),name:"慢练开头".into(),start:1,end:1,notes:"放松手腕".into()}).unwrap();
+        p.command(Command::SavePassage{content_id:None,id:Some("a".into()),name:"慢练开头".into(),start:1,end:1,notes:"放松手腕".into()}).unwrap();
         p.command(Command::Speed{value:0.85}).unwrap();
         let v=p.preview_tick_range(&cid,&p.grid_signature(),&crate::tick_ranges::BeatPoint{measure:2,beat:1.5},&crate::tick_ranges::BeatPoint{measure:2,beat:3.5}).unwrap();
         p.command(Command::SaveTickPassage{id:None,name:"连接短句".into(),notes:"保持稳定".into(),range:serde_json::from_value(v["range"].clone()).unwrap()}).unwrap();

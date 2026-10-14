@@ -451,6 +451,7 @@ pub enum Command {
     ApplyTickRange {range:tick_ranges::TickRange},
     SaveTickPassage {id:Option<String>,name:String,notes:String,range:tick_ranges::TickRange},
     SavePassage {
+        #[serde(default)] content_id: Option<String>,
         id: Option<String>,
         name: String,
         start: usize,
@@ -462,6 +463,7 @@ pub enum Command {
         id: String,
     },
     RemovePassage {
+        #[serde(default)] content_id: Option<String>,
         id: String,
     },
     ExercisePresets,
@@ -2581,6 +2583,7 @@ impl Player {
                 return Ok(serde_json::json!({"saved":true}));
             }
             Command::SavePassage {
+                content_id: expected_content_id,
                 id,
                 name,
                 start,
@@ -2588,6 +2591,7 @@ impl Player {
                 notes,
             } => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
+                if expected_content_id.as_ref().is_some_and(|expected|expected!=&f.content_id){return Err("曲目已切换，请重新打开练习段落".into());}
                 let content_id=f.content_id.clone();
                 if id.as_ref().is_some_and(|id|self.preferences.passages.get(&f.content_id).is_some_and(|p|p.iter().any(|p|&p.id==id&&(p.score_range.is_some()||p.precise_range.is_some())))){return Err("精确练习段请重新审阅对应范围，或只更新名称与备注".into());}
                 if name.trim().is_empty() || name.chars().count() > 80 {
@@ -2650,8 +2654,9 @@ impl Player {
                 self.preferences=prefs;
                 return Ok(serde_json::json!({"saved":true,"id":id}));
             }
-            Command::RemovePassage { id } => {
+            Command::RemovePassage { content_id, id } => {
                 let f = self.file.as_ref().ok_or("请先选择曲目")?;
+                if content_id.as_ref().is_some_and(|expected|expected!=&f.content_id){return Err("曲目已切换，请重新打开练习段落".into());}
                 let mut prefs=self.preferences.clone();
                 if let Some(passages) = prefs.passages.get_mut(&f.content_id) {
                     let before=passages.len();
@@ -4368,7 +4373,7 @@ mod tests {
     #[test]
     fn opening_passage_restores_latency_and_rejects_invalid_range_before_changing_settings() {
         let mut p=player();
-        p.command(Command::SavePassage{id:None,name:"第一小节".into(),start:1,end:1,notes:String::new()}).unwrap();
+        p.command(Command::SavePassage{content_id:None,id:None,name:"第一小节".into(),start:1,end:1,notes:String::new()}).unwrap();
         let content_id=p.file.as_ref().unwrap().content_id.clone();
         let id=p.preferences.passages[&content_id][0].id.clone();
         p.preferences.passages.get_mut(&content_id).unwrap()[0].settings.latency=42;
@@ -4387,14 +4392,17 @@ mod tests {
     #[test]
     fn passage_write_failure_keeps_memory_equal_to_saved_data() {
         let mut p=player();
-        p.command(Command::SavePassage{id:None,name:"原练习段".into(),start:1,end:1,notes:String::new()}).unwrap();
+        p.command(Command::SavePassage{content_id:None,id:None,name:"原练习段".into(),start:1,end:1,notes:String::new()}).unwrap();
         let content_id=p.file.as_ref().unwrap().content_id.clone();
         let id=p.preferences.passages[&content_id][0].id.clone();
         let before=serde_json::to_value(&p.preferences.passages).unwrap();
-        p.preferences_path=p.preferences_path.parent().unwrap().to_path_buf();
-        assert!(p.command(Command::SavePassage{id:Some(id.clone()),name:"未写入的改名".into(),start:1,end:1,notes:String::new()}).is_err());
+        assert!(p.command(Command::SavePassage{content_id:Some("另一首曲目".into()),id:None,name:"错误曲目".into(),start:1,end:1,notes:String::new()}).is_err());
+        assert!(p.command(Command::RemovePassage{content_id:Some("另一首曲目".into()),id:id.clone()}).is_err());
         assert_eq!(serde_json::to_value(&p.preferences.passages).unwrap(),before);
-        assert!(p.command(Command::RemovePassage{id}).is_err());
+        p.preferences_path=p.preferences_path.parent().unwrap().to_path_buf();
+        assert!(p.command(Command::SavePassage{content_id:None,id:Some(id.clone()),name:"未写入的改名".into(),start:1,end:1,notes:String::new()}).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences.passages).unwrap(),before);
+        assert!(p.command(Command::RemovePassage{content_id:None,id}).is_err());
         assert_eq!(serde_json::to_value(&p.preferences.passages).unwrap(),before);
     }
     #[test]

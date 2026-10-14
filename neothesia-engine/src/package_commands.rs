@@ -787,6 +787,7 @@ mod tests {
         })
         .unwrap();
         p.command(Command::SavePassage {
+            content_id: None,
             id: None,
             name: "连音练习".into(),
             start: 1,

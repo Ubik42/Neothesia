@@ -194,7 +194,7 @@ export function PassageDialog({
                     disabled={busy}
                     onClick={() =>
                       void work(async () => {
-                        await api.command({ type: "removePassage", id: p.id });
+                        await api.command({ type: "removePassage", content_id: song.contentId, id: p.id });
                         await reload();
                         if (id === p.id) reset();
                       })
@@ -315,6 +315,7 @@ export function PassageDialog({
                           }
                         : {
                             type: "savePassage",
+                            content_id: song.contentId,
                             id,
                             name,
                             start: first,
