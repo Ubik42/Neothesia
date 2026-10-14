@@ -64,7 +64,7 @@ fn due_review_suggestion(
         | neothesia_core::practice_history::ReviewReason::IncompleteConditions) {
         return None;
     }
-    let last = history.sessions.last()?;
+    let last = history.latest_regular_whole_song()?;
     if !matches!(last.kind, PracticeSessionKind::WholeSong)
         || !matches!(last.mode.as_deref(), Some("wait" | "flow" | "recital" | "memory"))
         || !last.speed.is_finite() || !(0.25..=2.).contains(&last.speed) {
@@ -562,6 +562,13 @@ mod tests {
         session.context.as_mut().unwrap().target_notes = 8;
         session.context.as_mut().unwrap().judged_notes = 8;
         p.history.record_session(&cid, &p.title.clone(), session).unwrap();
+        let mut passage = PracticeSession::new(
+            PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 },
+            neothesia_core::practice::PracticeHands::Both,
+            1., AttemptSummary::default(),
+        ).with_context(p.history_context()).with_scope(p.practice_scope()).with_mode("wait");
+        passage.recorded_at_unix_ms = 2;
+        p.history.record_session(&cid, &p.title.clone(), passage).unwrap();
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);
         assert_eq!(due["eligibleTotal"], 1);
@@ -573,6 +580,7 @@ mod tests {
         assert_eq!(row["item"]["target"]["kind"], "whole");
         assert_eq!(row["item"]["settings"]["mode"], "wait");
         assert_eq!(row["item"]["speed"].as_f64(), Some(1.));
+        assert_eq!(row["sourceAt"].as_u64(), Some(1));
         let id = row["id"].as_str().unwrap().to_owned();
         let saved = p.accept_weak_practice(&[id], None, Some("2026-10-13"), "到期复习").unwrap();
         assert_eq!(saved["added"], 1);
