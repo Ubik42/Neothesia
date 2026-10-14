@@ -282,18 +282,20 @@ export function LibraryScoresPane({
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
   }, [preview]);
-  const work = async (job: () => Promise<void>) => {
+  const work = async (job: () => Promise<void>, leavesLibrary = false) => {
     if (working.current) return;
     working.current = true;
     setBusy(true);
     setError("");
     try {
       await job();
+      if (leavesLibrary || !alive.current) return;
       setRoutePreview(null);
       await refresh();
       await changed();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (alive.current)
+        setError(e instanceof Error ? e.message : String(e));
     } finally {
       working.current = false;
       setBusy(false);
@@ -518,8 +520,9 @@ export function LibraryScoresPane({
                 <button
                   disabled={busy || v.status !== "ready" || !data.songAvailable}
                   onClick={() =>
-                    void work(() =>
-                      openVersion(row, contentId, "notation", v.id),
+                    void work(
+                      () => openVersion(row, contentId, "notation", v.id),
+                      true,
                     )
                   }
                 >
@@ -628,13 +631,13 @@ export function LibraryScoresPane({
                         <button disabled={busy || !routePreview.evidence.fingerprint}
                           onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
                             first: routeSelected, last: routeSelected, mode: "loop", fingerprint: routePreview.evidence.fingerprint!,
-                          }))}>
+                          }), true)}>
                           循环起点这次小节
                         </button>
                         <button disabled={busy || !routePreview.evidence.fingerprint || !routeEndSelected}
                           onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
                             first: routeSelected, last: routeEndSelected!, mode: "range", fingerprint: routePreview.evidence.fingerprint!,
-                          }))}>
+                          }), true)}>
                           打开选段设置
                         </button>
                       </div>
@@ -756,8 +759,9 @@ export function LibraryScoresPane({
                   <button
                     disabled={busy || !!bad.length || !data.songAvailable}
                     onClick={() =>
-                      void work(() =>
-                        openVersion(row, contentId, "paper", a.id),
+                      void work(
+                        () => openVersion(row, contentId, "paper", a.id),
+                        true,
                       )
                     }
                   >

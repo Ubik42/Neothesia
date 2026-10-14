@@ -2530,24 +2530,52 @@ export default function App() {
             setRoutineSuspended(false);
             setRoutineDialog(false);
             setRoutineLaunch(null);
+            let selectionError = "";
             if (selection) {
-              const active = await api.command<{contentId: string; route: import("./ScoreRoute").WrittenRoute | null}>({type: "score"});
-              if (active.contentId !== contentId || !active.route?.complete ||
-                  !matchesVisit(active.route, selection.first) ||
-                  !matchesVisit(active.route, selection.last))
-                throw new Error("打开后的谱面演奏位置与预览不一致，请重新选择原谱小节");
-              if (selection.mode === "loop")
-                await api.command({ type: "loop", start: selection.first.start, end: selection.first.end, enabled: true });
+              try {
+                const active = await api.command<{contentId: string; route: import("./ScoreRoute").WrittenRoute | null}>({type: "score"});
+                if (active.contentId !== contentId || !active.route?.complete ||
+                    !matchesVisit(active.route, selection.first) ||
+                    !matchesVisit(active.route, selection.last))
+                  throw new Error("打开后的谱面演奏位置与预览不一致，请重新选择原谱小节");
+                if (selection.mode === "loop")
+                  await api.command({ type: "loop", start: selection.first.start, end: selection.first.end, enabled: true });
+              } catch (e) {
+                selectionError = e instanceof Error ? e.message : String(e);
+              }
             }
-            const loaded = await api.song();
+            let loaded: LoadedSong | null;
+            let openedState: Snapshot;
+            try {
+              loaded = await api.song();
+              openedState = await api.state();
+              if (!loaded || loaded.contentId !== contentId)
+                throw new Error("打开后没有读到所选曲目");
+            } catch (e) {
+              setLibraryDialog(false);
+              await refresh();
+              setError(`乐谱已打开，当前练习状态读取失败：${e instanceof Error ? e.message : String(e)}`);
+              return;
+            }
             setSong(loaded);
-            setState(await api.state());
+            setState(openedState);
             setView(kind === "paper" ? "paper" : "score");
             setPaperRevision((v) => v + 1);
-            await updateCollection();
             setLibraryDialog(false);
-            if (selection?.mode === "range" && loaded)
+            if (selection?.mode === "range" && !selectionError && loaded)
               setLibraryScoreRange({ song: loaded, first: selection.first.ordinal, last: selection.last.ordinal });
+            let collectionError = "";
+            try {
+              await updateCollection();
+            } catch (e) {
+              collectionError = e instanceof Error ? e.message : String(e);
+            }
+            const openWarnings = [
+              selectionError && `原谱小节定位失败：${selectionError}`,
+              collectionError && `曲目收藏信息刷新失败：${collectionError}`,
+            ].filter(Boolean);
+            if (openWarnings.length)
+              setError(`乐谱已打开，但${openWarnings.join("；")}`);
           }}
           open={async (row) => {
             await load(row);
