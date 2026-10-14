@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -334,7 +334,56 @@ pub struct ReviewStatus {
     pub reason: ReviewReason,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PassageReviewStatus {
+    pub start_measure: usize,
+    pub end_measure: usize,
+    pub session_index: usize,
+    pub due_at_unix_ms: u64,
+    pub interval_days: u16,
+    pub mastery_streak: usize,
+    pub latest_accuracy: f32,
+}
+
 impl SongPracticeHistory {
+    pub fn due_passage_reviews(&self, now_unix_ms: u64, limit: usize) -> Vec<PassageReviewStatus> {
+        if limit == 0 { return Vec::new(); }
+        let mut seen = BTreeSet::new();
+        let mut due = Vec::new();
+        for (session_index, latest) in self.sessions.iter().enumerate().rev() {
+            let PracticeSessionKind::Loop { start_measure, end_measure } = latest.kind else {
+                continue;
+            };
+            if !ordinary_passage_context(latest) { continue; }
+            if start_measure == 0 || end_measure < start_measure
+                || !seen.insert((start_measure, end_measure)) {
+                continue;
+            }
+            if !review_conditions_complete(latest) { continue; }
+            let mastery_streak = self.sessions[..=session_index].iter().rev()
+                .filter(|session| session.kind == latest.kind && ordinary_passage_context(session))
+                .take_while(|session| same_review_conditions(latest, session)
+                    && session_is_mastered(session))
+                .count();
+            if mastery_streak == 0 { continue; }
+            let interval_days = match mastery_streak {
+                1 => 1,
+                2 => 3,
+                3 | 4 => 7,
+                _ => 14,
+            };
+            let due_at_unix_ms = latest.recorded_at_unix_ms
+                .saturating_add(u64::from(interval_days) * 24 * 60 * 60 * 1_000);
+            if now_unix_ms < due_at_unix_ms { continue; }
+            let Some(latest_accuracy) = latest.summary.overall.accuracy() else { continue; };
+            due.push(PassageReviewStatus {
+                start_measure, end_measure, session_index, due_at_unix_ms,
+                interval_days, mastery_streak, latest_accuracy,
+            });
+            if due.len() >= limit { break; }
+        }
+        due
+    }
     pub fn latest_regular_whole_song(&self) -> Option<&PracticeSession> {
         self.sessions.iter().rev().find(|session| regular_whole_song(session))
     }
@@ -632,6 +681,13 @@ fn regular_whole_song(session: &PracticeSession) -> bool {
         && session.context.as_ref().is_none_or(|context| {
             context.ladder.is_none() && context.rounds == 0 && !context.adaptive
         })
+}
+
+fn ordinary_passage_context(session: &PracticeSession) -> bool {
+    session.context.as_ref().is_some_and(|context| {
+        context.routine.is_none() && context.ladder.is_none()
+            && context.rounds == 0 && !context.adaptive
+    })
 }
 
 /// A review interval is earned only by attempts whose saved task is complete
@@ -1854,6 +1910,45 @@ mod tests {
         let due = history.review_status(day * 10).unwrap();
         assert!(due.is_due);
         assert_eq!(due.days_until_due, 0);
+    }
+
+    #[test]
+    fn ordinary_passage_review_uses_saved_conditions_and_latest_result() {
+        let day = 86_400_000_u64;
+        let passage = |at| {
+            let mut item = review_session(at);
+            item.kind = PracticeSessionKind::Loop { start_measure: 8, end_measure: 12 };
+            item.context.as_mut().unwrap().rounds = 0;
+            item
+        };
+        let history = SongPracticeHistory {
+            sessions: vec![passage(day), passage(day * 2)],
+            ..Default::default()
+        };
+        assert!(history.due_passage_reviews(day * 4, 10).is_empty());
+        let due = history.due_passage_reviews(day * 5, 10);
+        assert_eq!(due.len(), 1);
+        assert_eq!((due[0].start_measure, due[0].end_measure), (8, 12));
+        assert_eq!(due[0].mastery_streak, 2);
+        assert_eq!(due[0].interval_days, 3);
+        assert_eq!(due[0].session_index, 1);
+
+        let mut failed = passage(day * 6);
+        failed.summary.overall.matched_notes = 5;
+        failed.summary.overall.missed_notes = 5;
+        let history = SongPracticeHistory {
+            sessions: vec![passage(day), passage(day * 2), failed],
+            ..Default::default()
+        };
+        assert!(history.due_passage_reviews(day * 20, 10).is_empty());
+
+        let mut special = passage(day * 7);
+        special.context.as_mut().unwrap().rounds = 2;
+        let history = SongPracticeHistory {
+            sessions: vec![passage(day), passage(day * 2), special],
+            ..Default::default()
+        };
+        assert_eq!(history.due_passage_reviews(day * 20, 10)[0].mastery_streak, 2);
     }
 
     #[test]

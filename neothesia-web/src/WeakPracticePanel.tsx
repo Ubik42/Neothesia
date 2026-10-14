@@ -9,7 +9,7 @@ interface Suggestion {
   title: string;
   measure: number;
   accuracy: number;
-  kind: "accuracy" | "rhythm" | "dynamics" | "pedal" | "review";
+  kind: "accuracy" | "rhythm" | "dynamics" | "pedal" | "review" | "passageReview";
   range: string | null;
   expression: {
     contourPercent: number | null;
@@ -226,8 +226,9 @@ export function WeakPracticePanel({
         ...(due?.suggestions ?? []),
       ];
       const balanced = [
-        ...(weak?.suggestions.slice(0, 3) ?? []),
-        ...(due?.suggestions.slice(0, 3) ?? []),
+        ...(weak?.suggestions.filter((row) => row.kind !== "passageReview").slice(0, 2) ?? []),
+        ...(weak?.suggestions.filter((row) => row.kind === "passageReview").slice(0, 2) ?? []),
+        ...(due?.suggestions.slice(0, 2) ?? []),
       ];
       const initial = [
         ...balanced,
@@ -378,6 +379,8 @@ export function WeakPracticePanel({
                       ? `选择 ${r.title} ${r.range} ${r.kind === "dynamics" ? "力度起伏" : "踏板时机"}`
                       : r.kind === "review"
                         ? `选择 ${r.title} 全曲到期复习`
+                      : r.kind === "passageReview"
+                        ? `选择 ${r.title} ${r.range} 到期选段复习`
                       : `选择 ${r.title} 第 ${r.measure} 小节`
                   }
                   disabled={locked || (!chosen.includes(r.id) && chosen.length >= 60)}
@@ -400,12 +403,13 @@ export function WeakPracticePanel({
                         dynamics: "力度起伏",
                         pedal: "踏板时机",
                         review: "到期复习",
+                        passageReview: "选段复习",
                       }[r.kind]
                     }
                   </strong>
                   <small>
-                    {r.kind === "review" ? "最近正确率" : "正确率"} {Math.round(r.accuracy * 100)}% ·{" "}
-                    {r.kind === "review"
+                    {r.kind === "review" || r.kind === "passageReview" ? "最近正确率" : "正确率"} {Math.round(r.accuracy * 100)}% ·{" "}
+                    {r.kind === "review" || r.kind === "passageReview"
                       ? `同条件连续达标 ${r.attempts} 次`
                       : `${r.attempts}${r.expression ? " 轮完整练习" : " 次完整小节"}`} ·{" "}
                     {r.judged} 次音符判断

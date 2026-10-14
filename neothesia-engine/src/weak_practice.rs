@@ -160,6 +160,78 @@ impl Player {
     fn due_review_rows(&self) -> Result<Vec<Suggestion>, String> {
         Ok(self.due_review_candidates()?.0)
     }
+    fn due_passage_review_rows(&self) -> Vec<Suggestion> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        let mut rows = Vec::new();
+        for (cid, history) in self.history.snapshot() {
+            for review in history.due_passage_reviews(now, 2) {
+                let last = &history.sessions[review.session_index];
+                let Some(context) = last.context.as_ref() else { continue; };
+                let Some(mode) = last.mode.as_deref().filter(|mode|
+                    matches!(*mode, "wait" | "flow" | "recital" | "memory")) else { continue; };
+                if !last.speed.is_finite() || !(0.25..=2.).contains(&last.speed) {
+                    continue;
+                }
+                let Some(scope) = last.scope.as_ref() else { continue; };
+                let expression = context.expression.as_ref().map(|condition|
+                    crate::expression_goal::ExpressionGoal {
+                        velocity_difference: condition.velocity_difference,
+                        note_velocity_difference: condition.note_velocity_difference,
+                        note_pedal_mismatch_count: condition.note_pedal_mismatch_count,
+                        contour_percent: condition.contour_percent,
+                        pedal_offset_ms: condition.pedal_offset_ms,
+                    });
+                let goal = RoutineGoal {
+                    expression, passes: 1, accuracy: 90,
+                    on_time: if mode == "wait" { None } else { Some(70) },
+                    consecutive: true, attempt_limit: 12,
+                };
+                if goal.validate(mode).is_err() { continue; }
+                let range = if review.start_measure == review.end_measure {
+                    format!("第 {} 小节", review.start_measure)
+                } else {
+                    format!("第 {}–{} 小节", review.start_measure, review.end_measure)
+                };
+                let item = RoutineItem {
+                    id: String::new(),
+                    title: format!("{} · {}复习",
+                        history.display_name.chars().take(70).collect::<String>(), range),
+                    notes: format!("此选段同条件连续达标 {} 次，距离最近一次已过 {} 天；最近正确率 {:.0}%。按原声部、模式、速度及小节范围复习，打开时重新核对曲目和音乐网格。",
+                        review.mastery_streak, review.interval_days,
+                        f64::from(review.latest_accuracy) * 100.),
+                    content_id: cid.clone(), song_title: history.display_name.clone(),
+                    path: context.source_path.clone().or_else(|| history.library.source_path.clone()),
+                    exercise: context.exercise_spec, grid: context.grid.clone(),
+                    scope: scope.clone(),
+                    settings: preferences::SessionSettings {
+                        tracks: context.tracks.clone(), parts: context.parts.clone(),
+                        mode: Some(mode.into()), hands: context.hands.clone(),
+                        count_in: context.count_in, metronome: context.metronome,
+                        latency: context.latency, rounds: 0, adaptive: false,
+                    },
+                    speed: f64::from(last.speed),
+                    target: RoutineTarget::Passage {
+                        start: review.start_measure, end: review.end_measure,
+                    },
+                    goal,
+                };
+                let Ok(bytes) = serde_json::to_vec(&(&item, last.recorded_at_unix_ms)) else { continue; };
+                rows.push(Suggestion {
+                    id: blake3::hash(&bytes).to_hex().to_string(),
+                    title: history.display_name.clone(), measure: review.start_measure,
+                    accuracy: f64::from(review.latest_accuracy), kind: "passageReview".into(),
+                    timing: None, expression: None, range: Some(range),
+                    attempts: review.mastery_streak, judged: context.judged_notes,
+                    source_at: last.recorded_at_unix_ms, source_speed: last.speed,
+                    source_mode: mode.into(), item,
+                });
+            }
+        }
+        rows.sort_by(|a, b| a.source_at.cmp(&b.source_at).then_with(|| a.id.cmp(&b.id)));
+        rows.truncate(10);
+        rows
+    }
     fn weak_practice_rows(&self) -> Vec<Suggestion> {
         let mut rows = vec![];
         for (cid, history) in self.history.snapshot() {
@@ -431,7 +503,8 @@ impl Player {
             *n += 1;
             *n <= 3
         });
-        rows.truncate(60);
+        rows.truncate(50);
+        rows.extend(self.due_passage_review_rows());
         rows
     }
     pub(super) fn due_review(&self, offset: usize, expected: Option<&str>) -> Result<Value, String> {
@@ -448,7 +521,7 @@ impl Player {
     }
     pub(super) fn weak_practice(&self) -> Result<Value, String> {
         Ok(
-            json!({"suggestions":self.weak_practice_rows(),"note":"每曲最近最多 16 组条件，分别取最近最多 8 次结果，至少 2 次完整小节、8 次音符判断；正确率低于 90% 提出音符复习；连续演奏至少两次、12 个节奏样本，准时率低于 80% 提出节奏复习。力度/踏板建议使用至少两轮完整范围、正确率至少 90% 的记录；力度每轮至少 8 个样本和 6 段变化，踏板参考至少 4 次转换且有演奏输入。建议沿用原整曲或选段，踏板扣除原输入校准后判断。等音不评价节奏或踏板时机，不推断姿势问题。打开时仍需核对文件、小节和分手条件。"}),
+            json!({"suggestions":self.weak_practice_rows(),"note":"每曲最近最多 16 组条件，分别取最近最多 8 次结果，至少 2 次完整小节、8 次音符判断；正确率低于 90% 提出音符复习；连续演奏至少两次、12 个节奏样本，准时率低于 80% 提出节奏复习。力度/踏板建议使用至少两轮完整范围、正确率至少 90% 的记录；力度每轮至少 8 个样本和 6 段变化，踏板参考至少 4 次转换且有演奏输入。普通选段练习在同条件完整达标后按 1、3、7、14 天安排巩固复习，最多显示 10 个到期选段；特殊阶梯和日期计划仍由各自流程管理。建议沿用原整曲或选段，踏板扣除原输入校准后判断。等音不评价节奏或踏板时机，不推断姿势问题。打开时仍需核对文件、小节和分手条件。"}),
         )
     }
     pub(super) fn accept_weak_practice(
@@ -662,6 +735,38 @@ mod tests {
         let saved = p.accept_weak_practice(&[id], None, Some("2026-10-13"), "到期复习").unwrap();
         assert_eq!(saved["added"], 1);
         assert!(p.preferences.routines.iter().any(|routine| Some(routine.id.as_str()) == saved["id"].as_str()));
+    }
+    #[test]
+    fn due_passage_keeps_original_range_when_added_to_a_plan() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/due-passage-unit")
+            .join(format!("{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut p = Player::new(data, PathBuf::new(), true);
+        p.command(Command::Generate { spec: ExerciseSpec::default() }).unwrap();
+        let cid = p.file.as_ref().unwrap().content_id.clone();
+        let mut summary = AttemptSummary::default();
+        summary.overall = neothesia_core::practice::PracticeBreakdown {
+            target_notes: 8, matched_notes: 8, ..Default::default()
+        };
+        let mut session = PracticeSession::new(
+            PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 },
+            neothesia_core::practice::PracticeHands::Both,
+            1., summary,
+        ).with_context(p.history_context()).with_scope(p.practice_scope()).with_mode("wait");
+        session.recorded_at_unix_ms = 1;
+        session.context.as_mut().unwrap().target_notes = 8;
+        session.context.as_mut().unwrap().judged_notes = 8;
+        p.history.record_session(&cid, &p.title.clone(), session).unwrap();
+        let suggestions = p.weak_practice().unwrap();
+        let row = suggestions["suggestions"].as_array().unwrap().iter()
+            .find(|row| row["kind"] == "passageReview").unwrap();
+        assert_eq!(row["item"]["target"]["kind"], "passage");
+        assert_eq!(row["item"]["target"]["start"], 1);
+        assert_eq!(row["item"]["target"]["end"], 1);
+        let id = row["id"].as_str().unwrap().to_owned();
+        let saved = p.accept_weak_practice(&[id], None, Some("2026-10-14"), "选段复习").unwrap();
+        assert_eq!(saved["added"], 1);
     }
     #[test]
     fn missing_midi_is_due_but_not_ready_for_a_plan() {
