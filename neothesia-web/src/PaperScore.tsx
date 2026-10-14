@@ -581,6 +581,8 @@ export function PaperReader({
   const [noteRegion, setNoteRegion] = useState<PaperRegion | null>(null);
   const [noteRegionPage, setNoteRegionPage] = useState(attachment.view.page);
   const [selectingNoteRegion, setSelectingNoteRegion] = useState(false);
+  const [noteSeekBusy, setNoteSeekBusy] = useState(false);
+  const [noteSeekNotice, setNoteSeekNotice] = useState("");
   const [practiceAnchor,setPracticeAnchor]=useState<number|null>(null);
   const followedRegion=useRef("");
   const pendingAnnotation=useRef<{page:number;region:PaperRegion}|null>(null);
@@ -609,6 +611,18 @@ export function PaperReader({
   const selectedNote: Note | undefined = notesForMeasure.find((note) => `${note.track}:${note.index}` === noteKey) ?? notesForMeasure[0];
   const savedNoteAnchor = selectedNote && attachment.noteAnchors?.find((anchor) =>
     anchor.track === selectedNote.track && anchor.index === selectedNote.index);
+  const seekSavedNote = async (anchor: PaperNoteAnchor) => {
+    setNoteSeekBusy(true);
+    setNoteSeekNotice("");
+    try {
+      await api.command({ type: "seekPaperNote", content_id: contentId, book: attachment.id, expected: anchor });
+      setNoteSeekNotice(`练习已定位到第 ${anchor.measure} 小节的 ${pitchName(anchor.pitch)}。`);
+    } catch (cause) {
+      setNoteSeekNotice(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNoteSeekBusy(false);
+    }
+  };
   const noteCoverage = useMemo(() => {
     if (!song || !practice || song.contentId !== contentId) return { notes: [], marked: new Set<string>() };
     const measureAt = (tick: number) => {
@@ -1405,6 +1419,13 @@ export function PaperReader({
             />
             自动翻页
           </label>
+          {noteKey && savedNoteAnchor && noteCoverage.marked.has(noteKey) && (
+            <button type="button" disabled={disabled || stale || noteSeekBusy || annotationEditing || selectingRegion || selectingNoteRegion}
+              onClick={() => void seekSavedNote(savedNoteAnchor)}>
+              {noteSeekBusy ? "正在定位…" : `从此音练习 · ${pitchName(savedNoteAnchor.pitch)}`}
+            </button>
+          )}
+          {noteSeekNotice && <span role="status">{noteSeekNotice}</span>}
           {playback && mapping?.enabled && !stale && (
             <span>
               {annotationEditing

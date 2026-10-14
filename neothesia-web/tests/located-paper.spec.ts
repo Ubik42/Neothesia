@@ -61,6 +61,22 @@ test("关联乐谱生成可定位纸谱并持久保存逐音位置", async ({ pa
   expect(book.mapping?.enabled).toBe(true);
   expect(book.mapping?.anchors.length).toBe(2);
   expect(book.noteAnchors.every((item: any) => item.page === 1 && item.region.width > 0)).toBe(true);
+  const target = song.notes[1];
+  const expectedAnchor = book.noteAnchors.find((item: any) => item.track === target.track && item.index === target.index);
+  const stale = await request.post("http://127.0.0.1:32124/api/command", {
+    headers: { "X-Neothesia-Client": "web" },
+    data: { type: "seekPaperNote", content_id: song.contentId, book: book.id,
+      expected: { ...expectedAnchor, pitch: 99 } },
+  });
+  expect(stale.ok()).toBe(false);
+  await dialog.getByRole("button", { name: "完成" }).click();
+  await page.getByRole("button", { name: "谱页", exact: true }).click();
+  await page.locator(".paper-note-editor summary").click();
+  await page.getByLabel("纸谱位置目标音").selectOption(`${target.track}:${target.index}`);
+  await page.getByRole("button", { name: /从此音练习/ }).click();
+  await expect(page.getByRole("status").filter({ hasText: "练习已定位到" })).toBeVisible();
+  const state = await (await request.get("http://127.0.0.1:32124/api/state")).json();
+  expect(state.position).toBeCloseTo(target.start, 3);
   const original = Buffer.from(await page.evaluate(async () => await (window as any).__locatedPaperUpload));
   const metaSize = original.readUInt32LE(4);
   const metadata = JSON.parse(original.toString("utf8", 8, 8 + metaSize));

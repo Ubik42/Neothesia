@@ -316,6 +316,7 @@ pub enum Command {
     PaperPracticeContext,
     EditPaperInk{content_id:String,book:String,asset_id:String,page:usize,expected:Vec<score_attachments::Annotation>,strokes:Vec<score_attachments::Annotation>},
     SeekPaperMeasure{content_id:String,id:String,measure:usize},
+    SeekPaperNote{content_id:String,book:String,expected:score_attachments::NoteAnchor},
     PreviewPaperPractice{content_id:String,book:String,measure:usize},
     SavePaperPractice{request:paper_practice::Request},
     EditPaperAnnotation{content_id:String,book:String,#[serde(default)] id:Option<String>,draft:Option<score_attachments::AnnotationDraft>,#[serde(default)] expected:Option<score_attachments::Annotation>},
@@ -2673,6 +2674,22 @@ impl Player {
                 let mapping:score_attachments::Mapping=serde_json::from_value(map.clone()).map_err(|_|"谱页小节对应不可用")?;
                 if mapping.grid!=self.grid_signature()||!mapping.anchors.iter().any(|a|a.measure==measure){return Err("小节对应已改变，请重新确认谱页位置".into());}
                 return self.command(Command::SeekMeasure{measure});
+            }
+            Command::SeekPaperNote{content_id,book,expected}=>{
+                let file=self.file.as_ref().filter(|f|f.content_id==content_id).ok_or("曲目已切换，请重新打开谱页")?;
+                let papers=score_attachments::list(&self.data,&content_id)?;
+                let attachment=papers["attachments"].as_array().and_then(|list|list.iter().find(|item|item["id"].as_str()==Some(&book))).ok_or("谱面版本已改变，请重新打开谱页")?;
+                let saved=attachment["noteAnchors"].as_array().and_then(|list|list.iter().find(|item|item["track"].as_u64()==Some(expected.track as u64)&&item["index"].as_u64()==Some(expected.index as u64))).ok_or("音符位置已改变，请重新打开谱页")?;
+                let saved:score_attachments::NoteAnchor=serde_json::from_value(saved.clone()).map_err(|_|"音符位置不可用")?;
+                if saved!=expected||saved.grid!=self.grid_signature(){return Err("音符位置或小节网格已改变，请重新打开谱页".into());}
+                let asset=if attachment["format"]=="pdf"{attachment["pages"].as_array().and_then(|pages|pages.first())}else{attachment["pages"].as_array().and_then(|pages|pages.get(saved.page.wrapping_sub(1)))}.ok_or("谱页已不存在")?;
+                if asset["id"].as_str()!=Some(saved.asset_id.as_str())||asset["available"]!=true{return Err("谱页文件已变化，请重新核对音符位置".into());}
+                let candidates:Vec<_>=self.notes.iter().filter(|note|note.track_id==saved.track&&note.index==saved.index).collect();
+                if candidates.len()!=1||candidates[0].note!=saved.pitch{return Err("演奏音符已改变，请重新核对位置".into());}
+                let start=candidates[0].start.as_secs_f64();
+                let measure=file.measures.partition_point(|time|time.as_secs_f64()<=start);
+                if measure==0||measure!=saved.measure{return Err("音符所在小节已改变，请重新核对位置".into());}
+                return self.command(Command::Seek{position:start});
             }
             Command::PaperTransferSources{content_id}=>{self.score_content_guard(&content_id)?;let mut result=score_attachments::cross_transfer::sources(&self.data,&content_id)?;for item in result["sources"].as_array_mut().unwrap(){if item["path"].is_null(){if let Some(h)=item["contentId"].as_str().and_then(|id|self.history.song(id)){if !h.display_name.trim().is_empty(){item["title"]=serde_json::json!(h.display_name);}item["path"]=serde_json::json!(h.library.source_path);}}}return Ok(result);},
             Command::PreviewCrossPaperTransfer{content_id,source_content_id,source,target}=>return self.preview_cross_paper(&content_id,&source_content_id,&source,&target),
