@@ -2,7 +2,7 @@
 use crate::{
     musicxml::*,
     practice::PracticePart,
-    score_ornament::{TrillStrike, expand_mordent, expand_trill},
+    score_ornament::{TrillStrike, expand_mordent, expand_trill, expand_turn},
     score_playback::{PlaybackLimits, build_playback_plan, grace_note_timing},
 };
 use midi_file::midly::{
@@ -339,7 +339,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                 if let Some(unsupported) = note.unsupported_ornaments.first() {
                     return Err(format!("第 {} 小节含暂不支持的装饰音：{unsupported}", measure.number));
                 }
-                if note.trill.is_none() && note.mordent.is_none() { continue; }
+                if note.trill.is_none() && note.mordent.is_none() && note.turn.is_none() { continue; }
                 if !note.ties.is_empty() {
                     return Err(format!(
                         "第 {} 小节的装饰音与连音线相交，暂不能可靠展开，请校对原谱",
@@ -357,6 +357,8 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                 };
                 let strikes = if let Some(mark) = &note.trill {
                     expand_trill(mark, pitch(written)?, note.onset, note.duration)
+                } else if let Some(mark) = &note.turn {
+                    expand_turn(mark, pitch(written)?, note.onset, note.duration)
                 } else {
                     expand_mordent(note.mordent.as_ref().unwrap(), pitch(written)?, note.onset, note.duration)
                 }
@@ -789,7 +791,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                                 let pitch = strike.pitch;
                                 let onset =
                                     start + tick(strike.onset.max(source).subtract(source))?;
-                                let end = if n.trill.is_none() && n.mordent.is_none() {
+                                let end = if n.trill.is_none() && n.mordent.is_none() && n.turn.is_none() {
                                     if let Some(tail) = visit.fine_tail.filter(|tail| {
                                         effective_onset.subtract(m.start) == tail.onset
                                             && n.duration == tail.written_duration
@@ -1243,13 +1245,25 @@ mod tests {
 
     #[test]
     fn conflicting_or_unknown_ornaments_stop_performance_generation() {
-        for marks in ["<mordent/><inverted-mordent/>", "<turn/>"] {
+        for marks in ["<mordent/><inverted-mordent/>", "<inverted-turn/>"] {
             let xml = format!(r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="3"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments>{marks}</ornaments></notations></note></measure></part></score-partwise>"#);
             let score = import_musicxml_document(xml.as_bytes()).unwrap();
             let error = generate(&score, 120).err().unwrap();
             assert!(error.contains("第 3 小节"), "{error}");
             assert!(error.contains("装饰音"), "{error}");
         }
+    }
+
+    #[test]
+    fn normal_turn_repeats_as_four_distinct_midi_attacks() {
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><turn/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(notes.iter().map(|note| note.pitch).collect::<Vec<_>>(), [62, 60, 58, 60, 62, 60, 58, 60]);
+        assert_eq!(notes.iter().map(|note| note.start).collect::<Vec<_>>(), [0, 1200, 2400, 3600, 4800, 6000, 7200, 8400]);
+        let midi = midi_file::MidiFile::from_smf("turn-repeat", &performance.smf).unwrap();
+        assert_eq!(midi.tracks.iter().flat_map(|track| track.notes.iter()).count(), 8);
     }
 
     #[test]

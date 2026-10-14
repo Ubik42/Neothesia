@@ -1134,27 +1134,30 @@ mod tests {
     }
 
     #[test]
-    fn trill_strikes_follow_one_written_element_without_losing_attack_times() {
+    fn four_ornament_strikes_follow_one_written_element_without_losing_attack_times() {
         let written = score_id(0, 0);
         let mut first = aligned(written.clone(), 0);
         first.strike_ordinal = 0;
+        first.principal = false;
         let mut second = aligned(written.clone(), 1);
         second.strike_ordinal = 1;
-        second.principal = false;
         let mut third = aligned(written.clone(), 2);
         third.strike_ordinal = 2;
         third.principal = false;
-        let alignment = ScoreMidiAlignment { matches: vec![first, second, third], ..Default::default() };
+        let mut fourth = aligned(written.clone(), 3);
+        fourth.strike_ordinal = 3;
+        fourth.principal = false;
+        let alignment = ScoreMidiAlignment { matches: vec![first, second, third, fourth], ..Default::default() };
         let timeline = ScoreHighlightTimeline::from_alignment(&alignment,
-            &[performed(0, 0, 100), performed(1, 100, 100), performed(2, 200, 600)]);
+            &[performed(0, 0, 100), performed(1, 100, 100), performed(2, 200, 100), performed(3, 300, 500)]);
         let index = ScoreRenderIndex::new(1, [RenderedScoreElement {
-            source_id: written.source_id.clone(), renderer_id: "trill-note".into(), page_index: 0,
+            source_id: written.source_id.clone(), renderer_id: "ornament-note".into(), page_index: 0,
         }]).unwrap();
-        for timestamp in [50, 150, 350] {
+        for timestamp in [50, 150, 250, 350] {
             let frame = timeline.frame_at(Duration::from_millis(timestamp), &index);
-            assert_eq!(frame.focus.unwrap().renderer_id, "trill-note");
+            assert_eq!(frame.focus.unwrap().renderer_id, "ornament-note");
             assert_eq!(frame.active.len(), 1);
-            assert_eq!(frame.active[0].renderer_id, "trill-note");
+            assert_eq!(frame.active[0].renderer_id, "ornament-note");
         }
     }
 

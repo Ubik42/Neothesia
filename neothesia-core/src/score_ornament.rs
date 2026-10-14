@@ -1,6 +1,6 @@
 //! Exact, shared playback expansion for supported MusicXML ornaments.
 
-use crate::musicxml::{MordentMark, ScoreTime, TrillMark};
+use crate::musicxml::{MordentMark, ScoreTime, TrillMark, TurnMark};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrillStrike {
@@ -193,6 +193,66 @@ pub fn expand_mordent(
     Ok(strikes)
 }
 
+/// Expand the unambiguous four-note normal turn. MusicXML describes the
+/// shape as up then down; unusual playback attributes remain diagnostic.
+pub fn expand_turn(
+    mark: &TurnMark,
+    pitch: u8,
+    onset: ScoreTime,
+    duration: ScoreTime,
+) -> Result<Vec<TrillStrike>, String> {
+    if let Some(feature) = mark.unsupported.first() {
+        return Err(format!("回音含暂不支持的标记：{feature}"));
+    }
+    if duration.numerator <= 0 {
+        return Err("回音主音必须有正时值".into());
+    }
+    if mark.beats.is_some() {
+        return Err("回音显式 beats 的演奏含义暂未核对，请先校对原谱".into());
+    }
+    if mark.start_note.as_deref().is_some_and(|value| value != "upper") {
+        return Err("回音 start-note 目前只支持从上邻音开始".into());
+    }
+    if mark.second_beat.as_deref().is_some_and(|value| value != "25")
+        || mark.last_beat.as_deref().is_some_and(|value| value != "75")
+    {
+        return Err("回音目前只支持第 25% 与 75% 的击键落点".into());
+    }
+    if mark.accelerate.as_deref().is_some_and(|value| value != "no") {
+        return Err("回音 accelerate 目前只支持 no".into());
+    }
+    if mark.two_note_turn.as_deref().is_some_and(|value| value != "none") {
+        return Err("回音结尾附加音暂不支持，请核对原谱".into());
+    }
+    if mark.slash.as_deref().is_some_and(|value| value != "no") {
+        return Err("带斜线的回音暂不支持，请核对原谱".into());
+    }
+    let step = match mark.trill_step.as_deref().unwrap_or("whole") {
+        "whole" => 2i16,
+        "half" => 1,
+        value => return Err(format!("回音 trill-step={value} 暂不支持")),
+    };
+    if i16::from(pitch) - step < 0 || i16::from(pitch) + step > 127 {
+        return Err("回音相邻音超出 MIDI 音高范围".into());
+    }
+    let starts = [
+        onset,
+        add(onset, offset(duration, 25, 1)?)?,
+        add(onset, offset(duration, 50, 1)?)?,
+        add(onset, offset(duration, 75, 1)?)?,
+        add(onset, duration)?,
+    ];
+    let pitches = [pitch + step as u8, pitch, pitch - step as u8, pitch];
+    Ok((0..4)
+        .map(|index| TrillStrike {
+            onset: starts[index],
+            duration: starts[index + 1].subtract(starts[index]),
+            pitch: pitches[index],
+            ordinal: index as u16,
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +335,27 @@ mod tests {
         let strikes = expand_mordent(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap();
         assert_eq!(strikes.iter().map(|s| s.pitch).collect::<Vec<_>>(), [59, 60, 59, 60]);
         assert_eq!(strikes.iter().map(|s| s.onset).collect::<Vec<_>>(), [ScoreTime::default(), ScoreTime::new(1, 4), ScoreTime::new(1, 2), ScoreTime::new(3, 4)]);
+    }
+
+    #[test]
+    fn normal_turn_has_upper_main_lower_main_and_exact_quarters() {
+        let strikes = expand_turn(&TurnMark::default(), 60, ScoreTime::new(2, 1), ScoreTime::new(1, 1)).unwrap();
+        assert_eq!(strikes.iter().map(|strike| strike.pitch).collect::<Vec<_>>(), [62, 60, 58, 60]);
+        assert_eq!(strikes.iter().map(|strike| strike.onset).collect::<Vec<_>>(),
+            [ScoreTime::new(2, 1), ScoreTime::new(9, 4), ScoreTime::new(5, 2), ScoreTime::new(11, 4)]);
+        assert!(strikes.iter().all(|strike| strike.duration == ScoreTime::new(1, 4)));
+    }
+
+    #[test]
+    fn normal_turn_rejects_ambiguous_attributes_and_out_of_range_neighbor() {
+        let mut mark = TurnMark { trill_step: Some("half".into()), ..Default::default() };
+        assert_eq!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap()[0].pitch, 61);
+        mark.beats = Some("4".into());
+        assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("beats"));
+        mark.beats = None;
+        mark.slash = Some("yes".into());
+        assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("斜线"));
+        mark.slash = None;
+        assert!(expand_turn(&mark, 0, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("MIDI"));
     }
 }
