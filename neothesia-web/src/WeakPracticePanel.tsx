@@ -77,6 +77,7 @@ export function WeakPracticePanel({
   resumeRevision: number;
 }) {
   const lastResume = useRef(resumeRevision);
+  const requestRevision = useRef(0);
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
     [note, setNote] = useState(""),
@@ -94,6 +95,7 @@ export function WeakPracticePanel({
   useEffect(() => {
     if (lastResume.current === resumeRevision) return;
     lastResume.current = resumeRevision;
+    requestRevision.current++;
     setRows([]);
     setChosen([]);
     setNote("");
@@ -104,6 +106,7 @@ export function WeakPracticePanel({
   }, [resumeRevision, pendingAdded]);
   const generate = () =>
     void work(async () => {
+      const request = ++requestRevision.current;
       setRows([]);
       setChosen([]);
       setDuePage(null);
@@ -113,6 +116,7 @@ export function WeakPracticePanel({
         api.command<SuggestionResult>({ type: "dueReview" }),
         api.command<SuggestionResult>({ type: "weakPractice" }),
       ]);
+      if (request !== requestRevision.current) return;
       const due = dueResult.status === "fulfilled" ? dueResult.value : null;
       const weak = weakResult.status === "fulfilled" ? weakResult.value : null;
       const failure = [
@@ -156,23 +160,34 @@ export function WeakPracticePanel({
   const loadMoreDue = () =>
     void work(async () => {
       if (!duePage?.hasMore) return;
-      const data = await api.command<SuggestionResult>({
-        type: "dueReview",
-        offset: duePage.nextOffset,
-        expected: duePage.revision,
-      });
-      setRows((current) => [
-        ...current,
-        ...data.suggestions.filter((row) => !current.some((item) => item.id === row.id)),
-      ]);
-      setDuePage({
-        dueTotal: data.dueTotal ?? duePage.dueTotal,
-        eligibleTotal: data.eligibleTotal ?? duePage.eligibleTotal,
-        missingTotal: data.missingTotal ?? duePage.missingTotal,
-        revision: data.revision ?? duePage.revision,
-        nextOffset: data.nextOffset ?? duePage.nextOffset + data.suggestions.length,
-        hasMore: data.hasMore === true,
-      });
+      const request = ++requestRevision.current;
+      try {
+        const data = await api.command<SuggestionResult>({
+          type: "dueReview",
+          offset: duePage.nextOffset,
+          expected: duePage.revision,
+        });
+        if (request !== requestRevision.current) return;
+        setRows((current) => [
+          ...current,
+          ...data.suggestions.filter((row) => !current.some((item) => item.id === row.id)),
+        ]);
+        setDuePage({
+          dueTotal: data.dueTotal ?? duePage.dueTotal,
+          eligibleTotal: data.eligibleTotal ?? duePage.eligibleTotal,
+          missingTotal: data.missingTotal ?? duePage.missingTotal,
+          revision: data.revision ?? duePage.revision,
+          nextOffset: data.nextOffset ?? duePage.nextOffset + data.suggestions.length,
+          hasMore: data.hasMore === true,
+        });
+      } catch (cause) {
+        if (request !== requestRevision.current) return;
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        setRows((current) => current.filter((row) => row.kind !== "review"));
+        setChosen((current) => current.filter((id) => !rows.some((row) => row.id === id && row.kind === "review")));
+        setDuePage(null);
+        setMessage(`到期复习分页读取失败：${detail}。旧到期建议已清除，请重新生成。`);
+      }
     });
   const shownDue = rows.filter((row) => row.kind === "review").length;
   return (
