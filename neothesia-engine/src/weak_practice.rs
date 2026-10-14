@@ -53,7 +53,7 @@ fn median(values: &mut [f64]) -> f64 {
         values[n / 2]
     }
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeakPracticeEdit {
     pub(super) id: String,
@@ -458,7 +458,7 @@ impl Player {
         day: Option<&str>,
         name: &str,
     ) -> Result<Value, String> {
-        self.accept_weak_practice_with_edits(ids, &[], routine_id, day, name)
+        self.accept_weak_practice_with_edits(ids, &[], routine_id, day, name, None)
     }
     pub(super) fn accept_weak_practice_with_edits(
         &mut self,
@@ -467,6 +467,7 @@ impl Player {
         routine_id: Option<&str>,
         day: Option<&str>,
         name: &str,
+        request_id: Option<&str>,
     ) -> Result<Value, String> {
         if ids.is_empty()
             || ids.len() > 60
@@ -482,6 +483,23 @@ impl Player {
             || edits.iter().any(|edit| !ids.contains(&edit.id))
         {
             return Err("复习条件与所选建议不一致，请重新核对".into());
+        }
+        if routine_id.is_some() && request_id.is_some() {
+            return Err("加入已有计划不能携带新建请求编号".into());
+        }
+        let requested_plan_id = if let Some(request_id) = request_id {
+            if request_id.is_empty() || request_id.len() > 128
+                || !request_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+                return Err("复习计划请求编号无效".into());
+            }
+            let bytes = serde_json::to_vec(&(ids, edits, day, name.trim())).map_err(|e| e.to_string())?;
+            let digest = blake3::hash(&bytes).to_hex().to_string();
+            Some(format!("review-request-{request_id}-{}", &digest[..16]))
+        } else { None };
+        if let Some(requested_id) = requested_plan_id.as_ref() {
+            if self.preferences.routines.iter().any(|routine| &routine.id == requested_id) {
+                return Ok(json!({"id":requested_id,"added":0,"skipped":0,"existing":true}));
+            }
         }
         let mut rows = self.weak_practice_rows();
         rows.extend(self.due_review_rows()?);
@@ -523,13 +541,13 @@ impl Player {
             {
                 return Err("新计划名称需 1～80 字，常用计划最多 100 个".into());
             }
-            let id = format!(
+            let id = requested_plan_id.unwrap_or_else(|| format!(
                 "routine-{}",
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_nanos()
-            );
+            ));
             self.preferences.routines.push(PracticeRoutine {
                 schedule: None,
                 id: id.clone(),
@@ -768,11 +786,11 @@ mod tests {
         };
         assert!(p.accept_weak_practice_with_edits(
             &[rows[0].id.clone()], &[WeakPracticeEdit { speed: 0.1, ..edit.clone() }],
-            None, None, "无效速度",
+            None, None, "无效速度", None,
         ).is_err());
         assert_eq!(p.preferences.routines.len(), before);
         let id = p
-            .accept_weak_practice_with_edits(&[rows[0].id.clone()], &[edit], None, None, "节奏复习")
+            .accept_weak_practice_with_edits(&[rows[0].id.clone()], &[edit.clone()], None, None, "节奏复习", Some("same-draft"))
             .unwrap()["id"]
             .as_str()
             .unwrap()
@@ -783,11 +801,17 @@ mod tests {
         assert_eq!(saved.goal.passes, 3);
         assert_eq!(saved.goal.accuracy, 92);
         assert_eq!(saved.speed, 0.7);
-        let reopened = Player::new(data, PathBuf::new(), true);
+        let mut reopened = Player::new(data, PathBuf::new(), true);
         let persisted = &reopened.preferences.routines.iter().find(|r| r.id == id).unwrap().items[0];
         assert_eq!(persisted.goal.on_time, Some(90));
         assert_eq!(persisted.goal.passes, 3);
         assert_eq!(persisted.speed, 0.7);
+        let retry = reopened.accept_weak_practice_with_edits(
+            &[rows[0].id.clone()], &[edit], None, None, "节奏复习", Some("same-draft"),
+        ).unwrap();
+        assert_eq!(retry["id"], id);
+        assert_eq!(retry["existing"], true);
+        assert_eq!(reopened.preferences.routines.len(), before + 1);
     }
     #[test]
     fn repeated_complete_evidence_conditions_preview_and_plan_snapshots() {

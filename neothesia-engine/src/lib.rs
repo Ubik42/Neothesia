@@ -576,7 +576,7 @@ pub enum Command {
     StopLadder,
     WeakPractice,
     DueReview{#[serde(default)] offset:usize,#[serde(default)] expected:Option<String>},
-    AcceptWeakPractice {ids:Vec<String>,#[serde(default)] edits:Vec<weak_practice::WeakPracticeEdit>,routine_id:Option<String>,day:Option<String>,name:String},
+    AcceptWeakPractice {ids:Vec<String>,#[serde(default)] edits:Vec<weak_practice::WeakPracticeEdit>,routine_id:Option<String>,day:Option<String>,name:String,#[serde(default)] request_id:Option<String>},
     History,
     HistoryQuery {
         #[serde(default)] query: String,
@@ -2135,7 +2135,7 @@ impl Player {
         match &command {
             Command::WeakPractice=>return self.weak_practice(),
             Command::DueReview{offset,expected}=>return self.due_review(*offset,expected.as_deref()),
-            Command::AcceptWeakPractice{ids,edits,routine_id,day,name}=>return self.accept_weak_practice_with_edits(ids,edits,routine_id.as_deref(),day.as_deref(),name),
+            Command::AcceptWeakPractice{ids,edits,routine_id,day,name,request_id}=>return self.accept_weak_practice_with_edits(ids,edits,routine_id.as_deref(),day.as_deref(),name,request_id.as_deref()),
             Command::HistoryQuery { query, mode, hands, range, days, offset, limit,from,to } => {
                 return self.history_query_window(query, mode, hands, range, *days, *offset, *limit,*from,*to);
             }

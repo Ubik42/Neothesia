@@ -56,7 +56,7 @@ type SuggestionResult = {
   nextOffset?: number;
   hasMore?: boolean;
 };
-type AddedResult = { id: string; added: number; skipped: number };
+type AddedResult = { id: string; added: number; skipped: number; existing?: boolean };
 type ReviewEdit = { speedPercent: number; passes: number; accuracy: number; onTime: number | null };
 const suggestedEdit = (row: Suggestion): ReviewEdit => ({
   speedPercent: Math.round(row.item.speed * 100),
@@ -65,7 +65,9 @@ const suggestedEdit = (row: Suggestion): ReviewEdit => ({
   onTime: row.item.goal.onTime,
 });
 const addedMessage = (result: AddedResult) =>
-  `已加入 ${result.added} 项，跳过相同条件项目 ${result.skipped} 项。`;
+  result.existing
+    ? "计划已保存；本次重试没有重复创建。"
+    : `已加入 ${result.added} 项，跳过相同条件项目 ${result.skipped} 项。`;
 export function WeakPracticePanel({
   routineId,
   day,
@@ -85,6 +87,7 @@ export function WeakPracticePanel({
 }) {
   const lastResume = useRef(resumeRevision);
   const requestRevision = useRef(0);
+  const draftRequestId = useRef<string | null>(null);
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
     [edits, setEdits] = useState<Record<string, ReviewEdit>>({}),
@@ -104,6 +107,7 @@ export function WeakPracticePanel({
     if (lastResume.current === resumeRevision) return;
     lastResume.current = resumeRevision;
     requestRevision.current++;
+    draftRequestId.current = null;
     setRows([]);
     setChosen([]);
     setEdits({});
@@ -116,6 +120,7 @@ export function WeakPracticePanel({
   const generate = () =>
     void work(async () => {
       const request = ++requestRevision.current;
+      draftRequestId.current = null;
       setRows([]);
       setChosen([]);
       setEdits({});
@@ -447,14 +452,22 @@ export function WeakPracticePanel({
                   return { id, speed: edit.speedPercent / 100, passes: edit.passes,
                     accuracy: edit.accuracy, onTime: edit.onTime };
                 });
-                const result = await api.command<AddedResult>({
-                  type: "acceptWeakPractice",
-                  ids: chosen,
-                  edits: selectedEdits,
-                  routine_id: routineId,
-                  day,
-                  name,
-                });
+                let result: AddedResult;
+                try {
+                  result = await api.command<AddedResult>({
+                    type: "acceptWeakPractice",
+                    ids: chosen,
+                    edits: selectedEdits,
+                    routine_id: routineId,
+                    day,
+                    name,
+                    request_id: routineId ? null : (draftRequestId.current ??= crypto.randomUUID()),
+                  });
+                } catch (cause) {
+                  setMessage("保存结果尚未确认。保留当前选择再次加入时，同一份新计划不会重复创建。");
+                  throw cause;
+                }
+                draftRequestId.current = null;
                 setPendingAdded(result);
                 try {
                   await added(result.id);
