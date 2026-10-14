@@ -145,7 +145,10 @@ impl Player {
             due_total += 1;
             if let Some(row) = due_review_suggestion(&cid, &history, now) {
                 if row.item.exercise.is_some()
-                    || crate::library::available_path(&index, &cid, row.item.path.as_deref()).is_some()
+                    || (crate::library::available_path(&index, &cid, row.item.path.as_deref()).is_some()
+                        && crate::library::verified_file_in_workspace(
+                            &index, &cid, row.item.path.clone().into_iter(),
+                        ).is_ok())
                 {
                     rows.push(row);
                 } else {
@@ -230,8 +233,8 @@ impl Player {
                     .entry(cid.clone())
                     .or_insert_with(|| {
                         crate::library::available_path(&index, &cid, item.path.as_deref())
-                            .and_then(|_| crate::library::verified_file(
-                                &self.data, &cid, item.path.clone().into_iter(),
+                            .and_then(|_| crate::library::verified_file_in_workspace(
+                                &index, &cid, item.path.clone().into_iter(),
                             ).ok())
                     }).is_some();
                 if !source_ready {
@@ -895,6 +898,11 @@ mod tests {
         std::fs::write(source_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
         assert!(p.accept_weak_practice(&[suggestion], None, None, "到期复习").is_err());
         assert!(p.preferences.routines.is_empty());
+        let changed = p.due_review(0, None).unwrap();
+        assert_eq!(changed["dueTotal"], 1);
+        assert_eq!(changed["eligibleTotal"], 0);
+        assert_eq!(changed["missingTotal"], 1);
+        assert!(changed["suggestions"].as_array().unwrap().is_empty());
         std::fs::remove_file(source_path).unwrap();
         let due = p.due_review(0, None).unwrap();
         assert_eq!(due["dueTotal"], 1);

@@ -410,7 +410,10 @@ pub fn available_path(index:&crate::library_workspace::Workspace,content_id:&str
 }
 pub fn verified_file(data:&Path,content_id:&str,preferred:impl IntoIterator<Item=PathBuf>)->Result<midi_file::MidiFile,String>{
  let index=crate::library_workspace::Workspace::load(data)?;
- let mut paths=available_path(&index,content_id,None).into_iter().chain(preferred).collect::<Vec<_>>();
+ verified_file_in_workspace(&index,content_id,preferred)
+}
+pub fn verified_file_in_workspace(index:&crate::library_workspace::Workspace,content_id:&str,preferred:impl IntoIterator<Item=PathBuf>)->Result<midi_file::MidiFile,String>{
+ let mut paths=available_path(index,content_id,None).into_iter().chain(preferred).collect::<Vec<_>>();
  paths.extend(index.entries.values().filter(|e|e.content_id.as_deref()==Some(content_id)).map(|e|e.path.clone()));
  let mut seen=std::collections::HashSet::new();
  for path in paths {if seen.insert(crate::library_workspace::key(&path)){if let Ok(file)=midi_file::MidiFile::new(&path){if file.content_id==content_id{return Ok(file);}}}}
