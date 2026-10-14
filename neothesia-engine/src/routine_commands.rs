@@ -802,18 +802,14 @@ impl Player {
         }
         item.goal
             .validate(item.settings.mode.as_deref().unwrap_or("wait"))?;
-        self.stop_routine()?;
-        if self.ladder.as_ref().is_some_and(|l| l.active) {
-            self.stop_ladder()?;
-        }
-        self.ladder = None;
-        if let Some(spec) = item.exercise {
+        let source_file = if let Some(spec) = item.exercise {
             let plan = ExercisePlan::generate(spec, &KeyboardRange::new(21..=108))
                 .map_err(|e| e.to_string())?;
             if plan.practice_id() != item.content_id {
                 return Err("生成练习身份不匹配".into());
             }
-            self.command(Command::Generate { spec })?;
+            plan.to_midi_file()?;
+            None
         } else {
             let record = self.history.song(&item.content_id);
             let paths = [
@@ -826,7 +822,22 @@ impl Player {
                 &item.content_id,
                 paths.into_iter().flatten(),
             )?;
-            self.install(file, item.song_title.clone(), None)?;
+            if !file.tracks.iter().any(|track|
+                (!track.has_drums || track.has_other_than_drums) && !track.notes.is_empty()
+            ) {
+                return Err("这首 MIDI 没有可练习的钢琴音符".into());
+            }
+            Some(file)
+        };
+        self.stop_routine()?;
+        if self.ladder.as_ref().is_some_and(|l| l.active) {
+            self.stop_ladder()?;
+        }
+        self.ladder = None;
+        if let Some(spec) = item.exercise {
+            self.command(Command::Generate { spec })?;
+        } else {
+            self.install(source_file.expect("已核对项目文件"), item.song_title.clone(), None)?;
         }
         if self.grid_signature() != item.grid {
             return Err("项目的小节网格已改变，请重新捕获当前条件")?;
@@ -1098,6 +1109,28 @@ impl Player {
 #[cfg(test)]
 mod routine_write_tests {
     use super::*;
+
+    #[test]
+    fn missing_next_item_keeps_the_current_routine_open() {
+        let data = std::env::temp_dir().join(new_id("neothesia-routine-missing-next"));
+        let mut p = Player::new(data, PathBuf::new(), true);
+        p.command(Command::Generate { spec: ExerciseSpec::default() }).unwrap();
+        let plan = p.save_routine(None, None, "两项练习".into(), String::new(), None).unwrap()["id"].as_str().unwrap().to_owned();
+        let goal = RoutineGoal { expression: None, passes: 1, accuracy: 90, on_time: None, consecutive: false, attempt_limit: 20 };
+        let first = p.save_routine_item(&plan, None, None, Some("current"), None, "第一项".into(), String::new(), goal.clone()).unwrap()["id"].as_str().unwrap().to_owned();
+        let next = p.save_routine_item(&plan, None, None, Some("current"), None, "第二项".into(), String::new(), goal).unwrap()["id"].as_str().unwrap().to_owned();
+        let day = "2026-10-13";
+        p.open_routine_item(&plan, day, &first, true).unwrap();
+        let current_song = p.file.as_ref().unwrap().content_id.clone();
+        let run = p.preferences.routine_runs.get_mut(&run_key(&plan, day)).unwrap();
+        let broken = run.routine.items.iter_mut().find(|item| item.id == next).unwrap();
+        broken.content_id = "missing-midi-content".into();
+        broken.exercise = None;
+        broken.path = None;
+        assert!(p.open_routine_item(&plan, day, &next, true).is_err());
+        assert_eq!(p.routine.as_ref().unwrap().item.id, first);
+        assert_eq!(p.file.as_ref().unwrap().content_id, current_song);
+    }
 
     #[test]
     fn repeated_plan_creation_returns_the_saved_plan_without_writing_again() {
