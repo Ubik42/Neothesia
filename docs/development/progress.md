@@ -1,6 +1,11 @@
 # Development progress
 
-已推送的功能分支为 `feature/pianoteq-vst3`。[最近一次已核对的 GitHub 自动检查](https://github.com/Ubik42/Neothesia/actions/runs/38503789937)没有启动任何步骤；GitHub 注释说明账户因计费问题被锁定。本机按用户要求没有运行构建、测试或桌面程序。Cycle 239–340 仍是源码开发状态，不能当作已验收功能。
+已推送的功能分支为 `feature/pianoteq-vst3`。[最近一次已核对的 GitHub 自动检查](https://github.com/Ubik42/Neothesia/actions/runs/38503789937)没有启动任何步骤；GitHub 注释说明账户因计费问题被锁定。本机按用户要求没有运行构建、测试或桌面程序。Cycle 239–341 仍是源码开发状态，不能当作已验收功能。
+
+### Cycle 341 — 按小节组织的谱面校验声部时间，源码开发中（2026-10-14）
+
+- `score-timewise` 转换后，引擎逐小节比较各声部的实际开始与时长。缺失或不等长的小节明确报错，避免左右手在后续小节逐渐错位。个人标记导出也只接受通过此检查的转换副本。
+- 针对性测试加入声部时长不一致的拒绝断言。Rust 源码语法与补丁检查通过；测试和真实谱面仍待验收。
 
 ### Cycle 340 — 导入按小节组织的 MusicXML，源码开发中（2026-10-14）
 

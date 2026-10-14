@@ -522,7 +522,9 @@ pub fn partwise_musicxml_source(source: &[u8]) -> Result<Vec<u8>, ImportError> {
     };
     drop(reader);
     if timewise {
-        timewise_to_partwise(&xml)
+        let converted = timewise_to_partwise(&xml)?;
+        validate_timewise_alignment(&import_musicxml(&converted)?)?;
+        Ok(converted)
     } else {
         Ok(xml)
     }
@@ -947,6 +949,25 @@ fn timewise_to_partwise(source: &[u8]) -> Result<Vec<u8>, ImportError> {
     Ok(writer.into_inner())
 }
 
+fn validate_timewise_alignment(score: &Score) -> Result<(), ImportError> {
+    let first = score.parts.first().ok_or_else(||
+        ImportError::InvalidTimewise("转换后没有可读的声部".into()))?;
+    for part in score.parts.iter().skip(1) {
+        if part.measures.len() != first.measures.len() {
+            return Err(ImportError::InvalidTimewise("各声部的小节数量不一致".into()));
+        }
+        for (reference, current) in first.measures.iter().zip(&part.measures) {
+            if reference.start != current.start || reference.duration != current.duration {
+                return Err(ImportError::InvalidTimewise(format!(
+                    "第 {} 小节在声部 {} 与 {} 中时长不同，请先校对原谱",
+                    reference.number, first.id, part.id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Imports uncompressed partwise or timewise MusicXML (`.musicxml` or `.xml`).
 pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
     let mut reader = Reader::from_reader(source);
@@ -992,7 +1013,9 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     root_seen = true;
                     let root = str::from_utf8(&name)?.to_owned();
                     if root == "score-timewise" {
-                        return import_musicxml(&timewise_to_partwise(source)?);
+                        let score = import_musicxml(&timewise_to_partwise(source)?)?;
+                        validate_timewise_alignment(&score)?;
+                        return Ok(score);
                     }
                     if root != "score-partwise" {
                         return Err(ImportError::UnsupportedRoot(root));
@@ -2207,6 +2230,21 @@ mod tests {
           <score-part id="P2"><part-name>Two</part-name></score-part>
           </part-list><measure number="1"><part id="P1"/></measure></score-timewise>"#;
         assert!(matches!(import_musicxml_document(source), Err(ImportError::InvalidTimewise(_))));
+    }
+
+    #[test]
+    fn rejects_timewise_parts_that_end_a_measure_at_different_times() {
+        let source = br#"<score-timewise><part-list>
+          <score-part id="P1"><part-name>Right</part-name></score-part>
+          <score-part id="P2"><part-name>Left</part-name></score-part>
+          </part-list><measure number="1">
+          <part id="P1"><attributes><divisions>4</divisions></attributes>
+            <note><rest/><duration>4</duration></note></part>
+          <part id="P2"><attributes><divisions>4</divisions></attributes>
+            <note><rest/><duration>2</duration></note></part>
+          </measure></score-timewise>"#;
+        assert!(matches!(import_musicxml_document(source), Err(ImportError::InvalidTimewise(_))));
+        assert!(matches!(partwise_musicxml_source(source), Err(ImportError::InvalidTimewise(_))));
     }
 
     #[test]
