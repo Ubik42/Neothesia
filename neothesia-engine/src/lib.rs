@@ -412,6 +412,8 @@ pub enum Command {
         content_id: String,
         hints: Vec<neothesia_core::library::NoteHandHint>,
         #[serde(default)]
+        clear: Vec<(usize, usize)>,
+        #[serde(default)]
         proof: Option<String>,
     },
     NoteHand {
@@ -2441,7 +2443,7 @@ impl Player {
                     serde_json::json!({"contentId":file.content_id,"proposals":proposals,"proof":proof,"undoAvailable":!self.hand_undo.is_empty()}),
                 );
             }
-            Command::ApplyHands { content_id, hints, proof } => {
+            Command::ApplyHands { content_id, hints, clear, proof } => {
                 if self
                     .file
                     .as_ref()
@@ -2454,10 +2456,22 @@ impl Player {
                         return Err("分手标注、跨度或音乐网格已改变，请重新生成分手建议".into());
                     }
                 }
-                if hints.len() > 4096 {
+                if hints.len() + clear.len() > 4096 {
                     return Err("一次最多接受 4096 个分手标注".into());
                 }
+                let file = self.file.as_ref().ok_or("请先选择曲目")?;
+                for &(track, index) in &clear {
+                    if file.tracks.iter().find(|item| item.track_id == track)
+                        .and_then(|item| item.notes.get(index)).is_none() {
+                        return Err("音符不存在，分手信息未保存".into());
+                    }
+                }
+                let clear: std::collections::HashSet<_> = clear.into_iter().collect();
+                if hints.iter().any(|hint| clear.contains(&(hint.track_id, hint.note_index))) {
+                    return Err("同一音符不能同时设置和清除逐音分手".into());
+                }
                 let mut merged = hands::hints(&self.note_hands);
+                merged.retain(|hint| !clear.contains(&(hint.track_id, hint.note_index)));
                 for h in hints {
                     merged.retain(|v| v.track_id != h.track_id || v.note_index != h.note_index);
                     merged.push(h);
@@ -4848,6 +4862,7 @@ mod tests {
             p.command(Command::ApplyHands {
                 content_id: "stale".into(),
                 hints: vec![hint],
+                clear: vec![],
                 proof: None,
             })
             .is_err()
@@ -4855,6 +4870,7 @@ mod tests {
         p.command(Command::ApplyHands {
             content_id: id.clone(),
             hints: vec![hint],
+            clear: vec![],
             proof: None,
         })
         .unwrap();
@@ -4923,17 +4939,27 @@ mod tests {
         let before = hands::hints(&p.note_hands);
         assert!(
             p.command(Command::ApplyHands {
-                content_id: id,
+                content_id: id.clone(),
                 hints: vec![neothesia_core::library::NoteHandHint {
                     track_id: track,
                     note_index: usize::MAX,
                     part: PracticePart::LeftHand
                 }],
+                clear: vec![],
                 proof: None,
             })
             .is_err()
         );
         assert_eq!(hands::hints(&p.note_hands), before);
+        p.command(Command::ApplyHands {
+            content_id: id,
+            hints: vec![],
+            clear: vec![(track, n.index)],
+            proof: None,
+        }).unwrap();
+        assert!(!p.note_hands.contains_key(&(track, n.index)));
+        p.command(Command::UndoHands).unwrap();
+        assert_eq!(p.note_hands.get(&(track, n.index)), Some(&PracticePart::LeftHand));
     }
     #[test]
     fn hand_span_override_rejects_stale_song_and_survives_restore() {
@@ -4960,6 +4986,7 @@ mod tests {
         assert!(p.command(Command::ApplyHands {
             content_id: content_id.clone(),
             hints: vec![],
+            clear: vec![],
             proof: Some(old_proof),
         }).is_err());
         let data = p.data.clone();

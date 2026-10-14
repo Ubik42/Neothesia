@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { api, pitchName, type LoadedSong } from "./api";
 type Part = "LeftHand" | "RightHand" | "Other";
+type Choice = Part | "Inherit";
 type Side = "left" | "right";
 type SpanProfile = "Compact" | "Standard" | "Large";
 const spanName: Record<SpanProfile, string> = {
@@ -41,7 +42,7 @@ export function HandsDialog({
     [reference, setReference] = useState(60);
   const [proposals, setProposals] = useState<Proposal[] | null>(null),
     [proof, setProof] = useState<string | null>(null),
-    [values, setValues] = useState<Record<number, Part>>({});
+    [values, setValues] = useState<Record<number, Choice>>({});
   const [accepted, setAccepted] = useState<Set<number>>(new Set()),
     [selectionTouched, setSelectionTouched] = useState<Set<number>>(new Set()),
     [page, setPage] = useState(0),
@@ -120,6 +121,15 @@ export function HandsDialog({
           reason: n.manualHand ? "已保存的逐音分手" : "沿用音轨声部",
         })),
     [song, track, first, last, proposals],
+  );
+  const manualNotes = useMemo(
+    () =>
+      new Set(
+        song.notes
+          .filter((note) => note.manualHand)
+          .map((note) => `${note.track}:${note.index}`),
+      ),
+    [song],
   );
   const perform = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -298,7 +308,7 @@ export function HandsDialog({
                       ? [[item.index, values[item.index]]]
                       : [],
                   ),
-                ) as Record<number, Part>;
+                ) as Record<number, Choice>;
                 const nextAccepted = new Set(
                   data.proposals
                     .filter(
@@ -330,7 +340,7 @@ export function HandsDialog({
           </button>
         </div>
         <p className="parameter-help">
-          当前音轨的左右手跨度会影响建议；修改后请重新生成。建议还会结合持续音和前后声部走向。生成后只预选需要改动且信心较高的建议；伸展、交叉和未判断的音请核对后勾选。保存后用于分手练习、伴奏和指法推荐。
+          当前音轨的左右手跨度会影响建议；修改后请重新生成。建议还会结合持续音和前后声部走向。生成后只预选需要改动且信心较高的建议；伸展、交叉和未判断的音请核对后勾选。“沿用音轨手别”会清除逐音指定，“未分手”会保存明确的未分配状态。保存后用于分手练习、伴奏和指法推荐。
         </p>
         <div className="fingering-options">
           <button
@@ -351,7 +361,7 @@ export function HandsDialog({
           >
             取消选择
           </button>
-          {(["LeftHand", "RightHand", "Other"] as Part[]).map((part) => (
+          {(["LeftHand", "RightHand", "Other", "Inherit"] as Choice[]).map((part) => (
             <button
               disabled={busy || !accepted.size}
               key={part}
@@ -370,7 +380,9 @@ export function HandsDialog({
                 ? "所选设为左手"
                 : part === "RightHand"
                   ? "所选设为右手"
-                  : "所选设为未分手"}
+                  : part === "Other"
+                    ? "所选设为未分手"
+                    : "所选沿用音轨手别"}
             </button>
           ))}
         </div>
@@ -426,6 +438,11 @@ export function HandsDialog({
                       : p.saved === "RightHand"
                         ? "右手"
                         : "未分手"}
+                    <span className="parameter-help">
+                      {manualNotes.has(`${p.track}:${p.index}`)
+                        ? " · 逐音指定"
+                        : " · 沿用音轨"}
+                    </span>
                   </td>
                   <td>
                     <select
@@ -435,7 +452,7 @@ export function HandsDialog({
                       onChange={(e) => {
                         setValues((v) => ({
                           ...v,
-                          [p.index]: e.target.value as Part,
+                          [p.index]: e.target.value as Choice,
                         }));
                         setAccepted((v) => new Set(v).add(p.index));
                         setSelectionTouched((v) => new Set(v).add(p.index));
@@ -444,6 +461,7 @@ export function HandsDialog({
                       <option value="LeftHand">左手</option>
                       <option value="RightHand">右手</option>
                       <option value="Other">未分手</option>
+                      <option value="Inherit">沿用音轨手别</option>
                     </select>
                   </td>
                   <td>
@@ -500,12 +518,22 @@ export function HandsDialog({
                   content_id: song.contentId,
                   proof,
                   hints: rows
-                    .filter((p) => accepted.has(p.index))
+                    .filter(
+                      (p) =>
+                        accepted.has(p.index) &&
+                        (values[p.index] ?? p.part) !== "Inherit",
+                    )
                     .map((p) => ({
                       track_id: p.track,
                       note_index: p.index,
                       part: values[p.index] ?? p.part,
                     })),
+                  clear: rows
+                    .filter(
+                      (p) =>
+                        accepted.has(p.index) && values[p.index] === "Inherit",
+                    )
+                    .map((p) => [p.track, p.index]),
                 });
                 await changed();
                 reset();
