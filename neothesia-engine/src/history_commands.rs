@@ -3,6 +3,33 @@ use neothesia_core::practice_history::{PracticePassageBounds, PracticeSessionCon
 use serde_json::{Value, json};
 
 fn session_id(session: &PracticeSession) -> String {session.stable_id()}
+fn passage_beat_label(file: &midi_file::MidiFile, tick: u64) -> Option<String> {
+    let measures = &file.musical_time.measures;
+    let index = measures.partition_point(|m| m.start_tick <= tick).checked_sub(1)?;
+    let measure = measures.get(index)?;
+    if tick > measure.end_tick { return None; }
+    if tick == measure.end_tick && index + 1 == measures.len() {
+        return Some(format!("第 {} 小节结束", index + 1));
+    }
+    let denominator = u128::from(file.musical_time.ppq) * 4
+        * if measure.denominator == 8 && measure.numerator >= 6 && measure.numerator % 3 == 0 { 3 } else { 1 };
+    let numerator = u128::from(tick - measure.start_tick) * u128::from(measure.denominator);
+    if denominator == 0 { return None; }
+    let whole = numerator / denominator;
+    let remainder = numerator % denominator;
+    let beat = whole + 1;
+    if remainder == 0 { return Some(format!("第 {} 小节第 {} 拍", index + 1, beat)); }
+    let mut a = remainder;
+    let mut b = denominator;
+    while b != 0 { (a, b) = (b, a % b); }
+    Some(format!("第 {} 小节第 {} 拍后 {}/{} 拍", index + 1, beat, remainder / a, denominator / a))
+}
+fn passage_location(file: &midi_file::MidiFile, bounds: PracticePassageBounds) -> Option<String> {
+    if bounds.start_tick >= bounds.end_tick { return None; }
+    Some(format!("{} → {}",
+        passage_beat_label(file, bounds.start_tick)?,
+        passage_beat_label(file, bounds.end_tick)?))
+}
 fn entry(
     content_id: &str,
     title: &str,
@@ -259,7 +286,21 @@ impl Player {
             row["expressionGoalResult"]=json!(g.result_with_note_evidence(session.summary.expression,note_velocity,note_pedal));
         }
         row["context"] = json!(session.context);
-        let conditions=condition_summary(session);
+        let mut conditions=condition_summary(session);
+        if let Some(context) = session.context.as_ref() {
+            if let Some(bounds) = context.passage_bounds {
+                let current = self.file.as_ref().filter(|file| file.content_id == content_id
+                    && practice_conditions::grid(file) == context.grid);
+                let source = if current.is_none() {
+                    let paths = [context.source_path.clone(), history.library.source_path.clone()];
+                    crate::library::verified_file(&self.data, content_id, paths.into_iter().flatten())
+                        .ok().filter(|file| practice_conditions::grid(file) == context.grid)
+                } else { None };
+                if let Some(file) = current.or(source.as_ref()) {
+                    conditions["passageLocation"] = json!(passage_location(file, bounds));
+                }
+            }
+        }
         let (reason_code,reason)=if !peers.is_empty(){(None,None)}
             else if !conditions["complete"].as_bool().unwrap_or(false){
                 (Some("incomplete-conditions"),Some("这条记录缺少完整的演奏条件或有效音符判断，无法证明与旧记录同条件。"))
@@ -448,5 +489,25 @@ mod tests {
         let tolerance = player.file.as_ref().unwrap().tempo_track.pulses_to_duration(1).as_secs_f64();
         assert!((restored.start - start).abs() <= tolerance);
         assert!((restored.end - end).abs() <= tolerance);
+    }
+
+    #[test]
+    fn passage_location_names_fractional_beats_and_next_measure_boundary() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/history-beat-label-unit")
+            .join(format!("{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut player = Player::new(data, PathBuf::new(), true);
+        player.command(Command::Generate { spec: ExerciseSpec::default() }).unwrap();
+        let file = player.file.as_ref().unwrap();
+        let first = &file.musical_time.measures[0];
+        let ppq = u64::from(file.musical_time.ppq);
+        assert_eq!(ppq % 2, 0);
+        assert_eq!(passage_beat_label(file, first.start_tick + ppq / 2).as_deref(),
+            Some("第 1 小节第 1 拍后 1/2 拍"));
+        if file.musical_time.measures.len() > 1 {
+            assert_eq!(passage_beat_label(file, file.musical_time.measures[1].start_tick).as_deref(),
+                Some("第 2 小节第 1 拍"));
+        }
     }
 }
