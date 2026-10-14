@@ -183,6 +183,10 @@ export function HistoryProblemPlan({
   const openedRevisions = useRef(Object.fromEntries(draftSources.map((source) => [draftSourceKey(source), source.revision])));
   const savedRevisions = cached.current.sourceRevisions && typeof cached.current.sourceRevisions === "object"
     ? cached.current.sourceRevisions as Record<string, unknown> : {};
+  for (const source of draftSources) {
+    const key = draftSourceKey(source);
+    if (!openedRevisions.current[key] && source.revision) openedRevisions.current[key] = source.revision;
+  }
   const unverifiedSources = multi ? draftSources.filter((source) => {
     const key = draftSourceKey(source);
     const selected = chosen.filter((reference) => Math.floor(reference / 1_000_000) === source.slot);
@@ -194,7 +198,7 @@ export function HistoryProblemPlan({
   const revisionsForStorage = Object.fromEntries(draftSources.map((source) => {
     const key = draftSourceKey(source);
     const unverified = unverifiedSources.some((item) => draftSourceKey(item) === key);
-    return [key, unverified ? savedRevisions[key] ?? null : source.revision ?? null];
+    return [key, unverified || !source.revision ? savedRevisions[key] ?? null : source.revision];
   }));
   const alive = useRef(true),
     working = useRef(false),

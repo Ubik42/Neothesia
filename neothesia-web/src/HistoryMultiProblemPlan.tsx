@@ -43,6 +43,7 @@ export function HistoryMultiProblemPlan({
     const version = ++epoch.current;
     let alive = true;
     setRestoreMessage("");
+    setLoaded({});
     setBusy(true);
     void Promise.all(
       sources.map(async (s) => {
@@ -215,7 +216,9 @@ export function HistoryMultiProblemPlan({
           {loaded[sourceKey(s)]?.error && <p role="alert">{loaded[sourceKey(s)].error}</p>}
           {loaded[sourceKey(s)]?.error && (
             <button disabled={busy} onClick={() => void more(s)}>
-              重试读取这条记录的问题音
+              {loaded[sourceKey(s)].error === changedSource
+                ? "重新读取已变化的记录"
+                : "重试读取这条记录的问题音"}
             </button>
           )}
           {loaded[sourceKey(s)] && !loaded[sourceKey(s)].error &&
