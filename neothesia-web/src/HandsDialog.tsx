@@ -39,6 +39,7 @@ export function HandsDialog({
     [last, setLast] = useState(end),
     [reference, setReference] = useState(60);
   const [proposals, setProposals] = useState<Proposal[] | null>(null),
+    [proof, setProof] = useState<string | null>(null),
     [values, setValues] = useState<Record<number, Part>>({});
   const [accepted, setAccepted] = useState<Set<number>>(new Set()),
     [page, setPage] = useState(0),
@@ -130,6 +131,7 @@ export function HandsDialog({
   };
   const reset = () => {
     setProposals(null);
+    setProof(null);
     setValues({});
     setAccepted(new Set());
     setPage(0);
@@ -268,6 +270,7 @@ export function HandsDialog({
                 const data = await api.command<{
                   contentId: string;
                   proposals: Proposal[];
+                  proof: string;
                 }>({
                   type: "suggestHands",
                   track,
@@ -277,6 +280,7 @@ export function HandsDialog({
                 if (data.contentId !== song.contentId)
                   throw new Error("曲目已切换");
                 setProposals(data.proposals);
+                setProof(data.proof);
                 setValues({});
                 setAccepted(
                   new Set(
@@ -442,9 +446,12 @@ export function HandsDialog({
             disabled={busy || !accepted.size || accepted.size > 4096}
             onClick={() =>
               void perform(async () => {
+                if (proposals && !proof)
+                  throw new Error("分手建议缺少当前状态核对值，请重新生成");
                 await api.command({
                   type: "applyHands",
                   content_id: song.contentId,
+                  proof,
                   hints: rows
                     .filter((p) => accepted.has(p.index))
                     .map((p) => ({

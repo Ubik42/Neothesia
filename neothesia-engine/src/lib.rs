@@ -411,6 +411,8 @@ pub enum Command {
     ApplyHands {
         content_id: String,
         hints: Vec<neothesia_core::library::NoteHandHint>,
+        #[serde(default)]
+        proof: Option<String>,
     },
     NoteHand {
         track: usize,
@@ -1631,6 +1633,22 @@ impl Player {
         )
     }
     fn grid_signature(&self)->String {self.file.as_ref().map(practice_conditions::grid).unwrap_or_else(||"grid-v1-cbf29ce484222325".into())}
+    fn hand_suggestion_proof(&self) -> Result<String, String> {
+        let file = self.file.as_ref().ok_or("请先选择曲目")?;
+        let mut parts: Vec<_> = self.config.tracks.iter().map(|track| (track.track_id, track.practice_part)).collect();
+        parts.sort_by_key(|(track, _)| *track);
+        let context = serde_json::json!({
+            "contentId": &file.content_id,
+            "grid": self.grid_signature(),
+            "parts": parts,
+            "hands": hands::hints(&self.note_hands),
+            "profiles": self.preferences.hand_span_profiles.get(&file.content_id),
+            "defaults": &self.preferences.hand_span_defaults,
+            "legacyProfiles": self.preferences.fingering_profiles.get(&file.content_id),
+        });
+        let bytes = serde_json::to_vec(&context).map_err(|error| error.to_string())?;
+        Ok(blake3::hash(&bytes).to_hex().to_string())
+    }
     fn practice_scope(&self)->String {practice_conditions::scope(self.file.as_ref(),&self.notes,&self.config,&self.note_hands,&self.state.hands)}
     fn note_player(&self, track: usize, index: usize) -> PlayerConfig {
         let base = self
@@ -2418,17 +2436,23 @@ impl Player {
                     reference,
                     profiles,
                 )?;
+                let proof = self.hand_suggestion_proof()?;
                 return Ok(
-                    serde_json::json!({"contentId":file.content_id,"proposals":proposals,"undoAvailable":!self.hand_undo.is_empty()}),
+                    serde_json::json!({"contentId":file.content_id,"proposals":proposals,"proof":proof,"undoAvailable":!self.hand_undo.is_empty()}),
                 );
             }
-            Command::ApplyHands { content_id, hints } => {
+            Command::ApplyHands { content_id, hints, proof } => {
                 if self
                     .file
                     .as_ref()
                     .is_none_or(|f| f.content_id != content_id)
                 {
                     return Err("曲目已切换，请重新审阅分手建议".into());
+                }
+                if let Some(proof) = proof {
+                    if self.hand_suggestion_proof()? != proof {
+                        return Err("分手标注、跨度或音乐网格已改变，请重新生成分手建议".into());
+                    }
                 }
                 if hints.len() > 4096 {
                     return Err("一次最多接受 4096 个分手标注".into());
@@ -4823,13 +4847,15 @@ mod tests {
         assert!(
             p.command(Command::ApplyHands {
                 content_id: "stale".into(),
-                hints: vec![hint]
+                hints: vec![hint],
+                proof: None,
             })
             .is_err()
         );
         p.command(Command::ApplyHands {
             content_id: id.clone(),
             hints: vec![hint],
+            proof: None,
         })
         .unwrap();
         p.command(Command::Hands {
@@ -4902,7 +4928,8 @@ mod tests {
                     track_id: track,
                     note_index: usize::MAX,
                     part: PracticePart::LeftHand
-                }]
+                }],
+                proof: None,
             })
             .is_err()
         );
@@ -4915,6 +4942,12 @@ mod tests {
         let mut p = player();
         let content_id = p.file.as_ref().unwrap().content_id.clone();
         let track = p.notes[0].track_id;
+        let proposal = p.command(Command::SuggestHands {
+            track,
+            range: (1, 1),
+            reference: 60,
+        }).unwrap();
+        let old_proof = proposal["proof"].as_str().unwrap().to_owned();
         let command = |content_id: String, profile| Command::HandSpanFor {
             content_id,
             track,
@@ -4924,6 +4957,11 @@ mod tests {
         assert!(p.command(command("stale".into(), Some(HandSpanProfile::Compact))).is_err());
         p.command(command(content_id.clone(), Some(HandSpanProfile::Large)))
             .unwrap();
+        assert!(p.command(Command::ApplyHands {
+            content_id: content_id.clone(),
+            hints: vec![],
+            proof: Some(old_proof),
+        }).is_err());
         let data = p.data.clone();
         drop(p);
         let mut restored = Player::new(data, PathBuf::new(), true);
