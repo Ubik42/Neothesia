@@ -32,20 +32,32 @@ impl Player {
             latency:self.state.latency,rounds:1,hands:crate::hands::label(request.hand).into(),adaptive:false,
         };
         let mut preferences=self.preferences.clone();
-        let passages=preferences.passages.entry(request.content_id).or_default();
-        if passages.len()+ranges.len()>200 {return Err("每首曲目最多保存 200 个练习段".into());}
-        let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+        let content_id=request.content_id;
+        let passages=preferences.passages.entry(content_id.clone()).or_default();
         let grid=self.grid_signature();
         let mut ids=Vec::new();
-        for (i,range) in ranges.into_iter().enumerate() {
-            let id=format!("finger-practice-{stamp}-{i}");
+        let mut existing=0;
+        for range in ranges {
+            let identity=serde_json::to_vec(&serde_json::json!([&content_id,&fingerprint,&range])).map_err(|e|e.to_string())?;
+            let id=format!("finger-practice-{}",blake3::hash(&identity).to_hex());
             let mut settings=settings.clone();settings.rounds=range.rounds;
-            passages.push(preferences::PassagePreset {id:id.clone(),name:range.name.trim().into(),start:range.start,end:range.end,
-                notes:range.notes,speed:range.speed,settings,grid:Some(grid.clone()),score_range:None,precise_range:None});
-            ids.push(id);
+            let preset=preferences::PassagePreset {id:id.clone(),name:range.name.trim().into(),start:range.start,end:range.end,
+                notes:range.notes,speed:range.speed,settings,grid:Some(grid.clone()),score_range:None,precise_range:None};
+            if let Some(saved)=passages.iter().find(|saved|saved.id==id) {
+                if serde_json::to_value(saved).map_err(|e|e.to_string())? != serde_json::to_value(&preset).map_err(|e|e.to_string())? {
+                    return Err("练习条件或已保存练习段发生变化，请重新核对后保存".into());
+                }
+                existing+=1;
+            } else {
+                if passages.len()>=200 {return Err("每首曲目最多保存 200 个练习段，整批未保存".into());}
+                passages.push(preset);
+                ids.push(id);
+            }
         }
-        preferences.save(&self.preferences_path)?;
-        self.preferences=preferences;
-        Ok(serde_json::json!({"saved":ids.len(),"ids":ids}))
+        if !ids.is_empty() {
+            preferences.save(&self.preferences_path)?;
+            self.preferences=preferences;
+        }
+        Ok(serde_json::json!({"saved":ids.len(),"ids":ids,"existing":existing}))
     }
 }
