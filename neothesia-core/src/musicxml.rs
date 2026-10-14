@@ -162,10 +162,11 @@ pub struct MordentMark {
     pub unsupported: Vec<String>,
 }
 
-/// A normal turn goes above the written note, through it, below it, and back.
-/// Playback attributes stay raw so unsupported combinations produce diagnostics.
+/// Normal and inverted turn signs share playback attributes. The inverted sign
+/// needs an explicit lower starting note before performance is inferred.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TurnMark {
+    pub inverted: bool,
     pub beats: Option<String>,
     pub start_note: Option<String>,
     pub trill_step: Option<String>,
@@ -914,7 +915,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             built.mordent = Some(parse_mordent_mark(&start)?);
                         }
                     }
-                    b"turn" if note.is_some() && parent_is(&path, 2, b"ornaments") => {
+                    b"turn" | b"inverted-turn" if note.is_some() && parent_is(&path, 2, b"ornaments") => {
                         let built = note.as_mut().unwrap();
                         if built.trill.is_some() || built.mordent.is_some() || built.turn.is_some() {
                             built.unsupported_ornaments.push("同一音符有多个装饰音标记".into());
@@ -928,7 +929,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .unsupported_ornaments
                             .push(format!("ornaments/{}", str::from_utf8(name)?));
                     }
-                    name if note.is_some() && matches!(path.get(path.len().saturating_sub(2)).map(Vec::as_slice), Some(b"trill-mark" | b"mordent" | b"inverted-mordent" | b"turn")) => {
+                    name if note.is_some() && matches!(path.get(path.len().saturating_sub(2)).map(Vec::as_slice), Some(b"trill-mark" | b"mordent" | b"inverted-mordent" | b"turn" | b"inverted-turn")) => {
                         note.as_mut()
                             .unwrap()
                             .unsupported_ornaments
@@ -1065,7 +1066,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             } else {
                                 built.mordent = Some(parse_mordent_mark(&start)?);
                             }
-                        } else if name.as_ref() == b"turn" {
+                        } else if matches!(name.as_ref(), b"turn" | b"inverted-turn") {
                             let built = note.as_mut().unwrap();
                             if built.trill.is_some() || built.mordent.is_some() || built.turn.is_some() {
                                 built.unsupported_ornaments.push("同一音符有多个装饰音标记".into());
@@ -1078,7 +1079,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 .unsupported_ornaments
                                 .push(format!("ornaments/{}", str::from_utf8(name.as_ref())?));
                         }
-                    } else if note.is_some() && matches!(path.last().map(Vec::as_slice), Some(b"trill-mark" | b"mordent" | b"inverted-mordent" | b"turn")) {
+                    } else if note.is_some() && matches!(path.last().map(Vec::as_slice), Some(b"trill-mark" | b"mordent" | b"inverted-mordent" | b"turn" | b"inverted-turn")) {
                         note.as_mut()
                             .unwrap()
                             .unsupported_ornaments
@@ -1636,7 +1637,10 @@ fn parse_mordent_mark(start: &BytesStart<'_>) -> Result<MordentMark, ImportError
 }
 
 fn parse_turn_mark(start: &BytesStart<'_>) -> Result<TurnMark, ImportError> {
-    let mut mark = TurnMark::default();
+    let mut mark = TurnMark {
+        inverted: start.name().as_ref() == b"inverted-turn",
+        ..Default::default()
+    };
     for attr in start.attributes().with_checks(false) {
         let attr = attr.map_err(quick_xml::Error::InvalidAttr)?;
         let name = str::from_utf8(attr.key.as_ref())?;

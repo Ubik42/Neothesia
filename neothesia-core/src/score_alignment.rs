@@ -956,7 +956,7 @@ mod tests {
         let score = import_musicxml(xml).unwrap();
         let alignment = align_score_to_midi(&score, &file);
         assert!(!alignment.navigation_complete);
-        assert!(alignment.navigation_diagnostics.iter().any(|value| value.contains("inverted-turn")));
+        assert!(alignment.navigation_diagnostics.iter().any(|value| value.contains("start-note=below")));
         assert_eq!(summarize_alignment(&alignment).readiness, AlignmentReadiness::Blocked);
     }
 
@@ -978,6 +978,21 @@ mod tests {
         let partial = align_score_occurrences(&score, &file.tempo_track, &candidates, PlaybackLimits::default());
         assert_eq!(partial.unmatched_strikes.len(), 1);
         assert_eq!(partial.unmatched_strikes[0].strike_ordinal, 2);
+    }
+
+    #[test]
+    fn explicit_inverted_turn_aligns_each_repeat_and_lower_start() {
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><inverted-turn start-note="below"/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let source = import_musicxml(xml).unwrap();
+        let score = crate::score_performance::normalized(&source).unwrap();
+        let generated = crate::score_performance::generate(&source, 120).unwrap();
+        assert_eq!(generated.tracks[0].notes.iter().map(|note| note.pitch).collect::<Vec<_>>(), [58, 60, 62, 60, 58, 60, 62, 60]);
+        let file = MidiFile::from_smf("inverted-turn-repeat", &generated.smf).unwrap();
+        let alignment = align_score_to_midi(&score, &file);
+        assert_eq!(alignment.matches.len(), 8);
+        assert_eq!(alignment.coverage_percent, 100);
+        assert_eq!(alignment.matches.iter().filter(|item| item.principal).count(), 2);
+        assert!(alignment.unmatched_strikes.is_empty());
     }
 
     #[test]

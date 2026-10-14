@@ -1250,7 +1250,7 @@ mod tests {
             let score = import_musicxml_document(xml.as_bytes()).unwrap();
             let error = generate(&score, 120).err().unwrap();
             assert!(error.contains("第 3 小节"), "{error}");
-            assert!(error.contains("装饰音"), "{error}");
+            assert!(error.contains(if marks.contains("inverted-turn") { "start-note=below" } else { "装饰音" }), "{error}");
         }
     }
 

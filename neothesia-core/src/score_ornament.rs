@@ -215,7 +215,11 @@ pub fn expand_turn(
     }) {
         return Err("回音 beats 目前只支持四次击键，请先校对原谱".into());
     }
-    if mark.start_note.as_deref().is_some_and(|value| value != "upper") {
+    if mark.inverted {
+        if mark.start_note.as_deref() != Some("below") {
+            return Err("倒回音必须明确写出 start-note=below，才能按下邻音开始演奏".into());
+        }
+    } else if mark.start_note.as_deref().is_some_and(|value| value != "upper") {
         return Err("回音 start-note 目前只支持从上邻音开始".into());
     }
     let parse_percent = |value: Option<&str>, default: u32, name: &str| -> Result<u32, String> {
@@ -270,7 +274,11 @@ pub fn expand_turn(
         add(onset, offset(duration, last, 10_000)?)?,
         add(onset, duration)?,
     ];
-    let pitches = [pitch + step as u8, pitch, pitch - step as u8, pitch];
+    let pitches = if mark.inverted {
+        [pitch - step as u8, pitch, pitch + step as u8, pitch]
+    } else {
+        [pitch + step as u8, pitch, pitch - step as u8, pitch]
+    };
     Ok((0..4)
         .map(|index| TrillStrike {
             onset: starts[index],
@@ -408,5 +416,16 @@ mod tests {
         assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("落点"));
         mark.second_beat = Some("20.12345".into());
         assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("second-beat"));
+    }
+
+    #[test]
+    fn inverted_turn_requires_explicit_lower_start_and_reverses_neighbors() {
+        let mut mark = TurnMark { inverted: true, ..Default::default() };
+        assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("start-note=below"));
+        mark.start_note = Some("below".into());
+        let strikes = expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap();
+        assert_eq!(strikes.iter().map(|strike| strike.pitch).collect::<Vec<_>>(), [58, 60, 62, 60]);
+        assert_eq!(strikes.iter().map(|strike| strike.onset).collect::<Vec<_>>(),
+            [ScoreTime::default(), ScoreTime::new(1, 4), ScoreTime::new(1, 2), ScoreTime::new(3, 4)]);
     }
 }
