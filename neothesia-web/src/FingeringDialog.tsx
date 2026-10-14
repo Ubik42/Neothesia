@@ -17,6 +17,8 @@ type Proposal = {
   confidence: number;
   reason: string;
 };
+const suggestedForAcceptance = (proposal: Proposal) =>
+  proposal.confidence >= 60 && proposal.saved !== proposal.finger;
 type CrossHandReview = {
   contextIndex: number;
   track: number;
@@ -377,7 +379,7 @@ export function FingeringDialog({
       setValues({});
       setPage(0);
       const previouslyAccepted =
-        result && Object.keys(values).length > 0
+        result
           ? new Set(
               result.proposals
                 .filter((_, i) => accepted.has(i))
@@ -387,7 +389,9 @@ export function FingeringDialog({
       setAccepted(
         new Set(
           data.proposals.flatMap((p, i) =>
-            !previouslyAccepted || previouslyAccepted.has(positionKey(p))
+            (previouslyAccepted
+              ? previouslyAccepted.has(positionKey(p)) && suggestedForAcceptance(p)
+              : suggestedForAcceptance(p))
               ? [i]
               : [],
           ),
@@ -707,7 +711,7 @@ export function FingeringDialog({
           </div>
         )}
         <p className="fingering-help">
-          综合旋律走向、黑白键、手型、穿指、和弦连接、持音与演奏速度。推荐使用速度影响换指代价，不改变当前练习速度。选段外已有指法始终保留。规则评分用于比较建议，不代表正确率；接受后才保存。
+          综合旋律走向、黑白键、手型、穿指、和弦连接、持音与演奏速度。推荐使用速度影响换指代价，不改变当前练习速度。选段外已有指法始终保留。规则评分用于比较建议，不代表正确率。宽和弦或大幅移手等评分低于 60 的位置，以及与已存指法相同的位置，默认不勾选；你仍可逐音采用，接受后才保存。
         </p>
         {error && (
           <p role="alert" className="dialog-error">
@@ -745,7 +749,9 @@ export function FingeringDialog({
                   onClick={() => {
                     setPlanIndex(i);
                     setResult({ ...result, proposals: plan.proposals });
-                    setAccepted(new Set(plan.proposals.map((_, j) => j)));
+                    setAccepted(new Set(plan.proposals.flatMap((p, j) =>
+                      suggestedForAcceptance(p) ? [j] : [],
+                    )));
                     setPage(0);
                     setReviewPage(0);
                   }}
@@ -1003,6 +1009,11 @@ export function FingeringDialog({
                 已选择 {accepted.size} 个 ·
                 只保存勾选音符，未勾选的位置保留已有标记
               </span>
+              {result.proposals.some((proposal) => proposal.confidence < 60 && proposal.saved !== proposal.finger) && (
+                <span role="status">
+                  {result.proposals.filter((proposal) => proposal.confidence < 60 && proposal.saved !== proposal.finger).length} 个宽和弦或移手等低评分位置需要逐音复核。
+                </span>
+              )}
             </div>
             <section
               className="finger-review finger-acceptance"
