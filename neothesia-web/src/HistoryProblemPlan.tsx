@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, pitchName } from "./api";
 import { historyGradeName, historyProblemName, type HistoryReviewNote, type HistoryScoreReview } from "./historyScoreFocus";
 import type { RoutineGoal } from "./RoutineDialog";
+import { choicesForStorage, draftKeyFor, readMultiProblemDraft, type DraftSource } from "./multiProblemDraft";
 type ProblemPlanReview = Pick<HistoryScoreReview, "contentId" | "historyId" | "scoreRevision" | "recordedAt" | "title" | "exact"> & {
   notes: (Pick<HistoryReviewNote, "reference" | "measure" | "pitch" | "kind"> & Pick<HistoryReviewNote, "sourceTitle" | "sourceContentId" | "sourceHistoryId" | "sourceReference" | "velocityDifference" | "velocityLimit" | "timingKind">)[];
 };
@@ -48,6 +49,7 @@ export function HistoryProblemPlan({
   dirtyChanged,
   multi = false,
   draftScope,
+  draftSources = [],
   onRestoreMissing,
   restoreMessage,
   launchImmediately = false,
@@ -55,6 +57,7 @@ export function HistoryProblemPlan({
 }: {
   multi?: boolean;
   draftScope?: string;
+  draftSources?: DraftSource[];
   onRestoreMissing?: (references: number[]) => Promise<void>;
   restoreMessage?: string;
   review: ProblemPlanReview;
@@ -64,22 +67,16 @@ export function HistoryProblemPlan({
   launchImmediately?: boolean;
   onClose?: () => void;
 }) {
-  const draftStorageKey = multi ? `neothesia-multi-plan-draft:${draftScope ?? ""}` : "";
+  const draftStorageKey = multi ? draftKeyFor(draftScope ?? "") : "";
   const cached = useRef<Record<string, any>>(
     (() => {
       if (!multi) return {};
+      let legacyDraft = null;
       try {
         const old = JSON.parse(localStorage.getItem("neothesia-multi-plan-draft") || "null");
-        const legacyDraft = old && typeof old === "object" && !Array.isArray(old) ? old : null;
-        const saved = localStorage.getItem(draftStorageKey);
-        if (saved) {
-          const v = JSON.parse(saved);
-          return v && typeof v === "object" && !Array.isArray(v) ? { ...v, legacyDraft } : { legacyDraft };
-        }
-        return { legacyDraft };
-      } catch {
-        return {};
-      }
+        legacyDraft = old && typeof old === "object" && !Array.isArray(old) ? old : null;
+      } catch {}
+      return { ...readMultiProblemDraft(draftSources), legacyDraft };
     })(),
   );
   const initialProblems = review.notes.filter((n) => ["early", "late", "missed", "velocityHigh"].includes(n.kind));
@@ -272,7 +269,7 @@ export function HistoryProblemPlan({
       localStorage.setItem(
         draftStorageKey,
         JSON.stringify({
-          chosen,
+          chosenRefs: choicesForStorage(chosen, draftSources),
           before,
           after,
           mode,
@@ -291,6 +288,7 @@ export function HistoryProblemPlan({
   }, [
     multi,
     draftStorageKey,
+    draftSources,
     chosen,
     before,
     after,

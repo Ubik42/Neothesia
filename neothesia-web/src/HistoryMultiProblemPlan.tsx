@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { HistoryProblemPlan } from "./HistoryProblemPlan";
 import type { HistoryScoreReview } from "./historyScoreFocus";
+import { draftScopeFor } from "./multiProblemDraft";
 export type ReviewSource = {
   contentId: string;
   id: string;
@@ -93,7 +94,7 @@ export function HistoryMultiProblemPlan({
       })),
     ),
   };
-  const draftScope = JSON.stringify(sources.map((source) => [source.contentId, source.id, source.slot]));
+  const draftScope = draftScopeFor(sources);
   const more = async (s: ReviewSource) => {
     const version = epoch.current;
     setBusy(true);
@@ -193,6 +194,7 @@ export function HistoryMultiProblemPlan({
         key={draftScope}
         multi
         draftScope={draftScope}
+        draftSources={sources}
         onRestoreMissing={restoreMissing}
         restoreMessage={restoreMessage}
         review={review}
