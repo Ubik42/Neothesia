@@ -38,27 +38,25 @@ export function LocatedScorePaperDialog({
       const current = await api.command<{ sourceFingerprint: string; readiness: string } | null>({ type: "score" });
       if (current?.sourceFingerprint !== sourceFingerprint || current.readiness !== "Ready")
         throw new Error("关联乐谱已改变，请重新打开后核对定位");
-      const rendered: number[][] = [];
+      const rendered: Blob[] = [];
       let payloadBytes = 0;
       for (let i = 0; i < pages.length; i++) {
         setProgress(`正在生成第 ${i + 1} / ${pages.length} 页…`);
         const png = await svgPagePng(pages[i]);
-        payloadBytes += png.length;
-        if (payloadBytes > 2_500_000)
-          throw new Error("这份谱的图片数据超过当前一次保存容量。关联乐谱仍可逐音定位；现有 PDF 和图片谱可继续在纸谱管理中使用。");
+        payloadBytes += png.size;
+        if (payloadBytes > 48_000_000)
+          throw new Error("这份谱的图片数据超过 48 MB，请降低谱页分辨率或分段生成。");
         rendered.push(png);
       }
       setProgress("正在保存谱页和逐音位置…");
-      await api.command({
-        type: "createLocatedScorePaper",
+      await api.createLocatedScorePaper({
         content_id: song.contentId,
         score_revision: song.scoreRevision,
         source_fingerprint: sourceFingerprint,
         mapping_token: mappingToken,
         name: name.trim(),
-        pages: rendered,
         anchors: plan.notes,
-      });
+      }, rendered);
       setSaved(true);
       setProgress("已保存。纸谱管理中可以查看这份谱，历史问题可定位到已核对的音符。");
     } catch (cause) {

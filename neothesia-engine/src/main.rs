@@ -40,6 +40,24 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         let origin_header = allowed_origin.map(str::to_owned);
         let url = request.url().to_owned();
+        if request.method()==&Method::Post && url=="/api/located-paper/create" {
+            let result=(||->Result<serde_json::Value,String>{
+                if !request.headers().iter().any(|h|h.field.equiv("X-Neothesia-Client")&&h.value.as_str()=="web") {return Err("缺少本地客户端标识".into());}
+                let mut bytes=Vec::new();
+                request.as_reader().take(50_100_001).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
+                let (meta,pages)=neothesia_engine::score_attachments::decode_located_paper_upload(&bytes)?;
+                engine.command(Command::CreateLocatedScorePaper{
+                    content_id:meta.content_id,score_revision:meta.score_revision,
+                    source_fingerprint:meta.source_fingerprint,mapping_token:meta.mapping_token,
+                    name:meta.name,pages,anchors:meta.anchors,
+                })
+            })();
+            let (status,value)=match result{Ok(v)=>(200,v),Err(e)=>(400,serde_json::json!({"error":e}))};
+            let mut response=Response::from_string(value.to_string()).with_status_code(status)
+                .with_header(Header::from_bytes("Content-Type","application/json; charset=utf-8").unwrap());
+            if let Some(origin)=origin_header {response.add_header(Header::from_bytes("Access-Control-Allow-Origin",origin).unwrap());}
+            let _=request.respond(response);continue;
+        }
         if request.method()==&Method::Post && ["/api/practice-backup/stage","/api/practice-backup/export"].contains(&url.as_str()) {
           let result=(||->Result<(Vec<u8>,String),String>{if !request.headers().iter().any(|h|h.field.equiv("X-Neothesia-Client")&&h.value.as_str()=="web"){return Err("缺少本地客户端标识".into());}
            if url.ends_with("/stage"){let mut bytes=vec![];request.as_reader().take(256_000_001).read_to_end(&mut bytes).map_err(|e|e.to_string())?;let v=engine.stage_practice_backup(bytes)?;Ok((serde_json::to_vec(&v).unwrap(),"application/json".into()))}

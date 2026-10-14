@@ -270,6 +270,48 @@ pub struct LocatedNoteDraft {
     pub renderer_id:String,
     pub region:PageRegion,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocatedPaperUpload {
+    pub content_id:String,
+    pub score_revision:u64,
+    pub source_fingerprint:String,
+    pub mapping_token:String,
+    pub name:String,
+    pub page_count:usize,
+    pub anchors:Vec<LocatedNoteDraft>,
+}
+/// Binary upload: NLP1, little-endian metadata length, JSON metadata,
+/// then one little-endian length and the PNG bytes for each declared page.
+/// Parse the complete frame before forwarding it to the song-bound command.
+pub fn decode_located_paper_upload(bytes:&[u8])->Result<(LocatedPaperUpload,Vec<Vec<u8>>),String>{
+    if bytes.len()>50_100_000||bytes.len()<8||&bytes[..4]!=b"NLP1" {return Err("可定位纸谱数据格式或容量无效".into());}
+    let mut offset=4usize;
+    fn read_len(bytes:&[u8],offset:&mut usize)->Result<usize,String>{
+        let end=offset.checked_add(4).ok_or("谱页长度无效")?;
+        let part=bytes.get(*offset..end).ok_or("谱页数据不完整")?;
+        *offset=end;
+        Ok(u32::from_le_bytes(part.try_into().unwrap()) as usize)
+    }
+    let meta_len=read_len(bytes,&mut offset)?;
+    if meta_len==0||meta_len>2_000_000{return Err("纸谱说明超过容量上限".into());}
+    let end=offset.checked_add(meta_len).ok_or("纸谱说明长度无效")?;
+    let meta:LocatedPaperUpload=serde_json::from_slice(bytes.get(offset..end).ok_or("纸谱说明不完整")?).map_err(|e|format!("纸谱说明无效：{e}"))?;
+    offset=end;
+    if meta.page_count==0||meta.page_count>80||meta.anchors.is_empty()||meta.anchors.len()>10000{return Err("纸谱页数或音符数量无效".into());}
+    let mut pages=Vec::with_capacity(meta.page_count);
+    let mut total=0usize;
+    for _ in 0..meta.page_count {
+        let len=read_len(bytes,&mut offset)?;
+        total=total.checked_add(len).ok_or("谱页容量无效")?;
+        if len==0||total>48_000_000{return Err("生成谱页超过 48 MB 容量上限".into());}
+        let end=offset.checked_add(len).ok_or("谱页长度无效")?;
+        pages.push(bytes.get(offset..end).ok_or("谱页数据不完整")?.to_vec());
+        offset=end;
+    }
+    if offset!=bytes.len(){return Err("谱页数据末尾存在多余内容".into());}
+    Ok((meta,pages))
+}
 pub fn validate_note_anchors(anchors:&[NoteAnchor],format:&str,pages:&[PageAsset])->Result<(),String>{
     if anchors.len()>10000{return Err("一份谱面最多标记 10000 个音符位置".into());}
     let mut identities=std::collections::BTreeSet::new();
@@ -320,9 +362,7 @@ pub fn batch_note_anchors(data:&Path,cid:&str,book:&str,edits:Vec<NoteAnchorEdit
 pub fn create_located_paper(data:&Path,cid:&str,name:&str,pages:Vec<Vec<u8>>,anchors:Vec<LocatedNoteDraft>,grid:&str,source_fingerprint:&str)->Result<Value,String>{
     if pages.is_empty()||pages.len()>80{return Err("图片谱面需有 1 至 80 页".into());}
     if anchors.is_empty()||anchors.len()>10000{return Err("自动定位需有 1 至 10000 个音符".into());}
-    // The command HTTP endpoint accepts at most 16 MB of JSON. A byte array
-    // expands to roughly four decimal characters per byte in that transport.
-    if pages.iter().map(Vec::len).sum::<usize>()>3_000_000{return Err("生成谱页超过本次传输容量，请降低图片分辨率或分段生成".into());}
+    if pages.iter().map(Vec::len).sum::<usize>()>48_000_000{return Err("生成谱页超过 48 MB 容量上限".into());}
     let name=title(name)?;
     let mut assets=Vec::with_capacity(pages.len());
     let mut page_ids=std::collections::BTreeSet::new();
@@ -886,6 +926,23 @@ pub fn summaries(data: &Path) -> std::collections::BTreeMap<String, (usize, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn located_paper_binary_upload_accepts_large_page_and_rejects_partial_frame(){
+        let metadata=serde_json::to_vec(&serde_json::json!({
+            "content_id":"piece","score_revision":3,"source_fingerprint":"source",
+            "mapping_token":"map","name":"长谱","page_count":1,
+            "anchors":[{"track":0,"index":0,"pitch":60,"measure":1,"page":1,
+                "rendererId":"n1","region":{"x":0.1,"y":0.2,"width":0.03,"height":0.02}}]
+        })).unwrap();
+        let mut page=vec![0u8;3_100_000];page[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        let mut frame=b"NLP1".to_vec();
+        frame.extend_from_slice(&(metadata.len() as u32).to_le_bytes());frame.extend_from_slice(&metadata);
+        frame.extend_from_slice(&(page.len() as u32).to_le_bytes());frame.extend_from_slice(&page);
+        let (meta,pages)=decode_located_paper_upload(&frame).unwrap();
+        assert_eq!(meta.page_count,1);assert_eq!(pages[0].len(),3_100_000);
+        assert!(decode_located_paper_upload(&frame[..frame.len()-1]).is_err());
+        frame.push(0);assert!(decode_located_paper_upload(&frame).is_err());
+    }
     #[test]
     fn batch_note_anchors_is_atomic_and_preserves_unmentioned_marks(){
         let root=std::env::temp_dir().join(format!("paper-note-batch-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));

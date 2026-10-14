@@ -372,6 +372,50 @@ export const api = {
     isTauri()
       ? invoke<T>("engine_command", { command })
       : http<T>("/api/command", command),
+  createLocatedScorePaper: async (metadata: {
+    content_id: string;
+    score_revision: number;
+    source_fingerprint: string;
+    mapping_token: string;
+    name: string;
+    anchors: unknown[];
+  }, pages: Blob[]) => {
+    if (!pages.length || pages.length > 80) throw new Error("纸谱需有 1 至 80 页");
+    const total = pages.reduce((sum, page) => sum + page.size, 0);
+    if (total > 48_000_000) throw new Error("生成谱页超过 48 MB 容量上限");
+    const meta = new TextEncoder().encode(JSON.stringify({ ...metadata, page_count: pages.length }));
+    if (!meta.length || meta.length > 2_000_000) throw new Error("纸谱音符位置超过容量上限");
+    const length = (value: number) => {
+      const bytes = new Uint8Array(4);
+      new DataView(bytes.buffer).setUint32(0, value, true);
+      return bytes;
+    };
+    const parts: BlobPart[] = [new Uint8Array([78, 76, 80, 49]), length(meta.length), new Uint8Array(meta)];
+    for (const page of pages) parts.push(length(page.size), page);
+    const body = new Blob(parts, { type: "application/x-neothesia-located-paper" });
+    if (isTauri()) {
+      const session = await invoke<string>("begin_located_paper_upload", { size: body.size });
+      try {
+        for (let offset = 0; offset < body.size; offset += 1_048_576) {
+          const bytes = Array.from(new Uint8Array(await body.slice(offset, offset + 1_048_576).arrayBuffer()));
+          await invoke("write_located_paper_chunk", { session, offset, bytes });
+        }
+        return await invoke<{ active: string }>("finish_located_paper_upload", { session });
+      } catch (error) {
+        await invoke("cancel_located_paper_upload", { session }).catch(() => {});
+        throw error;
+      }
+    }
+    const response = await fetch(service + "/api/located-paper/create", {
+      method: "POST",
+      headers: { "X-Neothesia-Client": "web", "Content-Type": body.type },
+      body,
+      signal: AbortSignal.timeout(120000),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "可定位纸谱保存失败");
+    return result as { active: string };
+  },
   cancelLibraryScoreImport: (batchId: string) =>
     invoke("cancel_library_score_import", { batchId }),
   importLibraryScores: (

@@ -1,5 +1,27 @@
 import { test, expect } from "@playwright/test";
 
+function largeValidPng(png: Buffer): Buffer {
+  let offset = 8;
+  while (offset + 12 <= png.length) {
+    const size = png.readUInt32BE(offset);
+    if (png.toString("ascii", offset + 4, offset + 8) === "IEND") break;
+    offset += size + 12;
+  }
+  if (offset + 12 !== png.length) throw new Error("谱页 PNG 结束块无效");
+  const chunkData = Buffer.concat([Buffer.from("Comment\0"), Buffer.alloc(3_100_000, 88)]);
+  const nameAndData = Buffer.concat([Buffer.from("tEXt"), chunkData]);
+  let crc = 0xffffffff;
+  for (const byte of nameAndData) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  const chunk = Buffer.allocUnsafe(nameAndData.length + 8);
+  chunk.writeUInt32BE(chunkData.length, 0);
+  nameAndData.copy(chunk, 4);
+  chunk.writeUInt32BE((crc ^ 0xffffffff) >>> 0, chunk.length - 4);
+  return Buffer.concat([png.subarray(0, offset), chunk, png.subarray(offset)]);
+}
+
 test("关联乐谱生成可定位纸谱并持久保存逐音位置", async ({ page, request }) => {
   test.setTimeout(120_000);
   const command = async (data: unknown) => {
@@ -13,6 +35,14 @@ test("关联乐谱生成可定位纸谱并持久保存逐音位置", async ({ pa
   await command({ type: "importScore", bytes: [...Buffer.from(xml)], name: "纸谱逐音定位验收.musicxml", default_bpm: 120 });
   const song = await command({ type: "currentSong" });
   await command({ type: "pairScore", content_id: song.contentId, name: "纸谱逐音定位验收.musicxml", bytes: [...Buffer.from(xml)] });
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (String(input).includes("/api/located-paper/create") && init?.body instanceof Blob)
+        (window as any).__locatedPaperUpload = init.body.arrayBuffer().then(bytes => Array.from(new Uint8Array(bytes)));
+      return originalFetch(input, init);
+    };
+  });
   await page.goto("/");
   await expect(page.getByText("本地引擎已连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "乐谱", exact: true }).click();
@@ -31,6 +61,27 @@ test("关联乐谱生成可定位纸谱并持久保存逐音位置", async ({ pa
   expect(book.mapping?.enabled).toBe(true);
   expect(book.mapping?.anchors.length).toBe(2);
   expect(book.noteAnchors.every((item: any) => item.page === 1 && item.region.width > 0)).toBe(true);
+  const original = Buffer.from(await page.evaluate(async () => await (window as any).__locatedPaperUpload));
+  const metaSize = original.readUInt32LE(4);
+  const metadata = JSON.parse(original.toString("utf8", 8, 8 + metaSize));
+  metadata.name = "大谱二进制传输验收";
+  const pageSizeAt = 8 + metaSize;
+  const pageSize = original.readUInt32LE(pageSizeAt);
+  const png = largeValidPng(original.subarray(pageSizeAt + 4, pageSizeAt + 4 + pageSize));
+  expect(png.length).toBeGreaterThan(3_000_000);
+  const meta = Buffer.from(JSON.stringify(metadata));
+  const prefix = Buffer.alloc(8);
+  prefix.write("NLP1", 0);
+  prefix.writeUInt32LE(meta.length, 4);
+  const pageLength = Buffer.alloc(4);
+  pageLength.writeUInt32LE(png.length);
+  const response = await request.post("http://127.0.0.1:32124/api/located-paper/create", {
+    headers: { "X-Neothesia-Client": "web", "Content-Type": "application/x-neothesia-located-paper" },
+    data: Buffer.concat([prefix, meta, pageLength, png]),
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const large = await command({ type: "scoreAttachments", content_id: song.contentId });
+  expect(large.attachments.find((item: any) => item.name === metadata.name)?.pages[0].size).toBe(png.length);
   await page.reload();
   const persisted = await command({ type: "scoreAttachments", content_id: song.contentId });
   expect(persisted.attachments.find((item: any) => item.id === book.id)?.noteAnchors).toHaveLength(8);

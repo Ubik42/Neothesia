@@ -102,7 +102,7 @@ export function buildLocatedPaperPlan(
   };
 }
 
-export async function svgPagePng(source: string): Promise<number[]> {
+export async function svgPagePng(source: string): Promise<Blob> {
   const svg = new DOMParser().parseFromString(source, "image/svg+xml").documentElement as unknown as SVGSVGElement;
   const box = svg.viewBox.baseVal;
   if (box.width <= 0 || box.height <= 0) throw new Error("谱页尺寸无效");
@@ -125,7 +125,7 @@ export async function svgPagePng(source: string): Promise<number[]> {
     context.drawImage(image, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("谱页图片生成失败");
-    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }

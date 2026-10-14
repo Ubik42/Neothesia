@@ -16,8 +16,10 @@ struct State {
     soundfont_change: std::sync::Arc<std::sync::Mutex<()>>,
     score_imports: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::sync::atomic::AtomicBool>>>>,
     generated_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,GeneratedScorePreview>>>,
+    located_paper_transfer: std::sync::Mutex<Option<LocatedPaperTransfer>>,
     _data_lock: std::fs::File,
 }
+struct LocatedPaperTransfer { id:String, size:usize, bytes:Vec<u8> }
 
 #[derive(Clone,serde::Serialize)]
 #[serde(rename_all="camelCase")]
@@ -505,6 +507,41 @@ fn installed_musescore() -> Option<PathBuf> {
     }
     std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join("MuseScore4.exe")).find(|path|path.is_file())
 }
+#[tauri::command]
+fn begin_located_paper_upload(state:tauri::State<'_,State>,size:usize)->Result<String,String>{
+    if size<8||size>50_100_000{return Err("可定位纸谱数据容量无效".into());}
+    let seed=format!("{}:{size}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos());
+    let id=blake3::hash(seed.as_bytes()).to_hex().to_string();
+    *state.located_paper_transfer.lock().map_err(|_|"谱页传输正忙")?=Some(LocatedPaperTransfer{id:id.clone(),size,bytes:Vec::with_capacity(size)});
+    Ok(id)
+}
+#[tauri::command]
+fn write_located_paper_chunk(state:tauri::State<'_,State>,session:String,offset:usize,bytes:Vec<u8>)->Result<(),String>{
+    let mut guard=state.located_paper_transfer.lock().map_err(|_|"谱页传输正忙")?;
+    let transfer=guard.as_mut().filter(|t|t.id==session).ok_or("谱页传输已失效")?;
+    if bytes.is_empty()||bytes.len()>1_048_576||offset!=transfer.bytes.len()||offset.checked_add(bytes.len()).is_none_or(|n|n>transfer.size){return Err("谱页分块次序或容量无效".into());}
+    transfer.bytes.extend_from_slice(&bytes);Ok(())
+}
+#[tauri::command]
+async fn finish_located_paper_upload(state:tauri::State<'_,State>,session:String)->Result<serde_json::Value,String>{
+    let transfer={
+        let mut guard=state.located_paper_transfer.lock().map_err(|_|"谱页传输正忙")?;
+        if guard.as_ref().is_none_or(|t|t.id!=session){return Err("谱页传输已失效".into());}
+        guard.take().unwrap()
+    };
+    if transfer.bytes.len()!=transfer.size{return Err("谱页传输不完整".into());}
+    let (meta,pages)=neothesia_engine::score_attachments::decode_located_paper_upload(&transfer.bytes)?;
+    let engine=state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move ||engine.command(Command::CreateLocatedScorePaper{
+        content_id:meta.content_id,score_revision:meta.score_revision,
+        source_fingerprint:meta.source_fingerprint,mapping_token:meta.mapping_token,
+        name:meta.name,pages,anchors:meta.anchors,
+    })).await.map_err(|e|e.to_string())?
+}
+#[tauri::command]
+fn cancel_located_paper_upload(state:tauri::State<'_,State>,session:String){
+    if let Ok(mut guard)=state.located_paper_transfer.lock(){if guard.as_ref().is_some_and(|t|t.id==session){guard.take();}}
+}
 
 async fn musescore_executable(data:&std::path::Path)->Result<PathBuf,String>{
     #[cfg(target_os="windows")]
@@ -929,7 +966,7 @@ fn main() {
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
             app.manage(practice_backup_bridge::Sessions::default());
-            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), _data_lock: data_lock });
+            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), located_paper_transfer:Default::default(), _data_lock: data_lock });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
@@ -953,6 +990,7 @@ fn main() {
             engine_song,
             midi_devices,
             engine_command,
+            begin_located_paper_upload,write_located_paper_chunk,finish_located_paper_upload,cancel_located_paper_upload,
             import_midi,
             link_score_source,
             export_midi,
