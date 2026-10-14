@@ -217,7 +217,8 @@ export function RoutineDialog({
   const [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [openedItem, setOpenedItem] = useState<string | null>(null);
+    [openedItem, setOpenedItem] = useState<string | null>(null),
+    [pendingListRefresh, setPendingListRefresh] = useState<string | null>(null);
   const working = useRef(false);
   const run = runs.find((r) => r.routine.id === selected),
     plan = template
@@ -230,7 +231,8 @@ export function RoutineDialog({
       state.routine.day === day &&
       !template,
     ),
-    locked = busy || active || !!openedItem;
+    locked = busy || active || !!openedItem || !!pendingListRefresh,
+    contextPending = !!openedItem || !!pendingListRefresh;
   const progress = (id: string) =>
     state.routine?.routineId === selected &&
     state.routine.day === day &&
@@ -313,8 +315,20 @@ export function RoutineDialog({
     if (wasSuspended.current && !suspended) dialogRef.current?.focus();
     wasSuspended.current = suspended;
   }, [suspended]);
-  const work = async (job: () => Promise<void>, recoverOnError = true) => {
+  const work = async (
+    job: () => Promise<void>,
+    recoverOnError = true,
+    allowPending = false,
+  ) => {
     if (working.current) return;
+    if (contextPending && !allowPending) {
+      setError(
+        pendingListRefresh
+          ? "计划列表尚未刷新，请先重试读取已保存的计划。"
+          : "练习项目已打开，请先重试读取当前练习。",
+      );
+      return;
+    }
     working.current = true;
     setBusy(true);
     setError("");
@@ -340,6 +354,21 @@ export function RoutineDialog({
       setBusy(false);
     }
   };
+  const refreshSavedList = async (label: string) => {
+    setPendingListRefresh(label);
+    try {
+      await reload();
+      setPendingListRefresh(null);
+    } catch (e) {
+      throw new Error(`${label}已写入，计划列表读取失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const retrySavedList = () =>
+    void work(async () => {
+      await changed();
+      await reload();
+      setPendingListRefresh(null);
+    }, false, true);
   const choosePlan = (p: Plan) => {
     setSelected(p.id);
     setName(p.name);
@@ -411,7 +440,7 @@ export function RoutineDialog({
     void work(async () => {
       await changed();
       close();
-    }, false);
+    }, false, true);
   const allPlans = template
     ? plans
     : [
@@ -460,7 +489,7 @@ export function RoutineDialog({
         <div className="dialog-heading">
           <h2 id="routine-title">练习计划</h2>
           <span className="menu-spacer" />
-          <button disabled={busy} onClick={backup}>
+          <button disabled={busy || contextPending} onClick={backup}>
             练习资料备份
           </button>
           <button
@@ -475,6 +504,7 @@ export function RoutineDialog({
         <div className="routine-toolbar">
           <button
             aria-pressed={!template}
+            disabled={busy || contextPending}
             onClick={() => {
               setTemplate(false);
               setItemId(null);
@@ -492,6 +522,7 @@ export function RoutineDialog({
           </button>
           <button
             aria-pressed={template}
+            disabled={busy || contextPending}
             onClick={() => {
               setTemplate(true);
               setItemId(null);
@@ -511,7 +542,7 @@ export function RoutineDialog({
             aria-label="练习计划日期"
             type="date"
             value={day}
-            disabled={busy || template}
+            disabled={busy || contextPending || template}
             onChange={(e) => {
               setDay(e.target.value);
               setItemId(null);
@@ -531,6 +562,12 @@ export function RoutineDialog({
             {error}
           </p>
         )}
+        {pendingListRefresh && (
+          <p role="status">
+            {pendingListRefresh}已写入。计划列表尚未刷新，重试不会再次执行修改。
+            <button disabled={busy} onClick={retrySavedList}>重试读取已保存的计划</button>
+          </p>
+        )}
         {openedItem && (
           <p role="status">
             “{openedItem}”已打开。重试只读取当前练习状态，不会再次打开项目。
@@ -540,7 +577,7 @@ export function RoutineDialog({
         <div className="routine-layout">
           <aside className="routine-plans">
             <button
-              disabled={busy}
+              disabled={busy || contextPending}
               onClick={() => {
                 setSelected(null);
                 setName("");
@@ -554,7 +591,7 @@ export function RoutineDialog({
               <button
                 className={`routine-plan ${selected === p.id ? "selected" : ""}`}
                 key={p.id}
-                disabled={busy}
+                disabled={busy || contextPending}
                 onClick={() => choosePlan(p)}
               >
                 <strong>{p.name}</strong>
@@ -633,7 +670,7 @@ export function RoutineDialog({
                         copy_of: null,
                       });
                       setSelected(data.id);
-                      await reload();
+                      await refreshSavedList(selected ? "计划信息" : "新计划");
                     })
                   }
                 >
@@ -642,7 +679,7 @@ export function RoutineDialog({
                 {selected && (
                   <>
                     <button
-                      disabled={busy || !name.trim()}
+                      disabled={busy || contextPending || !name.trim()}
                       onClick={() =>
                         void work(async () => {
                           const data = await api.command<{ id: string }>({
@@ -657,7 +694,7 @@ export function RoutineDialog({
                           setTemplate(true);
                           setName(name + "（副本）");
                           setItemId(null);
-                          await reload();
+                          await refreshSavedList("计划副本");
                         })
                       }
                     >
@@ -674,7 +711,7 @@ export function RoutineDialog({
                             });
                             setSelected(null);
                             setName("");
-                            await reload();
+                            await refreshSavedList("常用计划移除操作");
                           })
                         }
                       >
@@ -689,7 +726,7 @@ export function RoutineDialog({
               <RoutineScheduleEditor
                 value={plan.schedule}
                 day={day}
-                disabled={busy}
+                disabled={busy || contextPending}
                 save={async (schedule) => {
                   await work(async () => {
                     await api.command({
@@ -697,7 +734,7 @@ export function RoutineDialog({
                       id: plan.id,
                       schedule,
                     });
-                    await reload();
+                    await refreshSavedList("周期安排");
                   });
                 }}
               />
@@ -732,8 +769,9 @@ export function RoutineDialog({
                       onClick={() =>
                         void work(async () => {
                           await api.command({ type: "stopRoutine" });
+                          setPendingListRefresh("结束本项操作");
                           await changed();
-                          await reload();
+                          await refreshSavedList("结束本项操作");
                         })
                       }
                     >
@@ -986,7 +1024,7 @@ export function RoutineDialog({
                             });
                             setItemId(data.id);
                             setSource("");
-                            await reload();
+                            await refreshSavedList("练习项目");
                           })
                         }
                       >
@@ -1015,7 +1053,7 @@ export function RoutineDialog({
                                     direction: -1,
                                   }),
                                 );
-                                await reload();
+                                await refreshSavedList("项目上移操作");
                               })
                             }
                           >
@@ -1030,7 +1068,7 @@ export function RoutineDialog({
                                     direction: 1,
                                   }),
                                 );
-                                await reload();
+                                await refreshSavedList("项目下移操作");
                               })
                             }
                           >
@@ -1045,7 +1083,7 @@ export function RoutineDialog({
                                 );
                                 setItemId(null);
                                 setTitle("");
-                                await reload();
+                                await refreshSavedList("项目移除操作");
                               })
                             }
                           >
@@ -1062,8 +1100,9 @@ export function RoutineDialog({
                                         reason: skipReason || "本次跳过",
                                       }),
                                     );
+                                    setPendingListRefresh("跳过项目操作");
                                     await changed();
-                                    await reload();
+                                    await refreshSavedList("跳过项目操作");
                                   })
                                 }
                               >
@@ -1076,7 +1115,7 @@ export function RoutineDialog({
                                     await api.command(
                                       itemCommand("resetRoutineItem"),
                                     );
-                                    await reload();
+                                    await refreshSavedList("项目进度重置操作");
                                   })
                                 }
                               >
