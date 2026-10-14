@@ -654,14 +654,11 @@ impl Player {
         rows.sort_by(|a,b|a["songTitle"].as_str().cmp(&b["songTitle"].as_str()).then_with(||a["name"].as_str().cmp(&b["name"].as_str())).then_with(||a["id"].as_str().cmp(&b["id"].as_str())));
         Ok(json!({"total":rows.len(),"offset":offset,"rows":rows.into_iter().skip(offset).take(50).collect::<Vec<_>>()}))
     }
-    fn sequence_source(&self,cid:&str)->Result<Player,String>{
-        let history=self.history.song(cid);
-        let current=self.file.as_ref().is_some_and(|f|f.content_id==cid);
-        let spec=if current {self.exercise} else {history.and_then(|h|h.setup.as_ref()).and_then(|s|s.exercise_spec)};
-        let title=if current {self.title.clone()} else {history.map(|h|h.display_name.clone()).unwrap_or_else(||"练习曲目".into())};
+    fn detached_source_worker(&self,cid:&str)->Player {
         // A silent detached reader has no MIDI connection or main-session state. Its temporary root never receives writes.
         let mut worker=Player::new(self.data.join(new_id("readonly-sequence")),PathBuf::new(),true);
         worker.restoring=true;worker.data=self.data.clone();
+        worker.preferences.exercise=self.preferences.exercise;
         // Only this song's data is required; large date archives are not copied for every source.
         if let Some(v)=self.preferences.passages.get(cid){worker.preferences.passages.insert(cid.into(),v.clone());}
         if let Some(v)=self.preferences.songs.get(cid){worker.preferences.songs.insert(cid.into(),v.clone());}
@@ -669,6 +666,22 @@ impl Player {
         if let Some(v)=self.preferences.exercise_layouts.get(cid){worker.preferences.exercise_layouts.insert(cid.into(),*v);}
         if let Some(v)=self.preferences.track_sounds.get(cid){worker.preferences.track_sounds.insert(cid.into(),v.clone());}
         if let Some(v)=self.preferences.track_appearances.get(cid){worker.preferences.track_appearances.insert(cid.into(),v.clone());}
+        if let Some(history)=self.history.song(cid){
+            worker.history.replace_snapshot(BTreeMap::from([(cid.into(), neothesia_core::practice_history::SongPracticeHistory {
+                display_name: history.display_name.clone(),
+                setup: history.setup.clone(),
+                library: history.library.clone(),
+                sessions: Vec::new(),
+            })]));
+        }
+        worker
+    }
+    fn sequence_source(&self,cid:&str)->Result<Player,String>{
+        let history=self.history.song(cid);
+        let current=self.file.as_ref().is_some_and(|f|f.content_id==cid);
+        let spec=if current {self.exercise} else {history.and_then(|h|h.setup.as_ref()).and_then(|s|s.exercise_spec)};
+        let title=if current {self.title.clone()} else {history.map(|h|h.display_name.clone()).unwrap_or_else(||"练习曲目".into())};
+        let mut worker=self.detached_source_worker(cid);
         let (file,plan)=if let Some(spec)=spec {
             let plan=ExercisePlan::generate(spec,&KeyboardRange::new(21..=108)).map_err(|e|e.to_string())?;
             if plan.practice_id()!=cid {return Err("生成练习身份已改变，请重新打开核对".into());}
@@ -773,6 +786,47 @@ impl Player {
         if result.is_err(){self.preferences=previous;}
         result
     }
+    fn preflight_routine_item(&self, item: &RoutineItem, file: &MidiFile, plan: Option<&ExercisePlan>) -> Result<(), String> {
+        let mut worker = self.detached_source_worker(&item.content_id);
+        worker.install(file.clone(), item.song_title.clone(), plan.cloned())?;
+        if let Some(error) = &worker.state.error {
+            return Err(format!("曲目资料无法核对：{error}"));
+        }
+        if worker.grid_signature() != item.grid {
+            return Err("项目的小节网格已改变，请重新捕获当前条件".into());
+        }
+        match &item.target {
+            RoutineTarget::ScorePassage { range } => { worker.validate_score_range(range)?; }
+            RoutineTarget::PrecisePassage { range } => { worker.validate_tick_range(range)?; }
+            RoutineTarget::Passage { start, end } => {
+                if *start == 0 || start > end || *end > worker.file.as_ref().unwrap().musical_time.measures.len() {
+                    return Err("项目小节范围无效，请重新捕获当前条件".into());
+                }
+            }
+            RoutineTarget::Ladder { preset } => {
+                preset.plan.validate()?;
+                if preset.start == 0 || preset.start > preset.end || preset.end > worker.file.as_ref().unwrap().musical_time.measures.len() {
+                    return Err("阶梯小节范围无效，请重新捕获当前条件".into());
+                }
+            }
+            RoutineTarget::Whole => {}
+        }
+        worker.config.apply_practice_setup(&SongPracticeSetup {
+            tracks: item.settings.tracks.clone(),
+            ..Default::default()
+        });
+        for track in &mut worker.config.tracks {
+            if let Some(part) = item.settings.parts.get(&track.track_id) {
+                track.practice_part = *part;
+            }
+        }
+        worker.state.hands = item.settings.hands.clone();
+        if worker.practice_scope() != item.scope {
+            return Err("逐音分手或评分范围已改变，请重新捕获当前条件".into());
+        }
+        worker.validate_expression_source(item)?;
+        Ok(())
+    }
     pub(super) fn open_routine_item(
         &mut self,
         id: &str,
@@ -802,14 +856,15 @@ impl Player {
         }
         item.goal
             .validate(item.settings.mode.as_deref().unwrap_or("wait"))?;
-        let source_file = if let Some(spec) = item.exercise {
+        let (source_file, source_plan) = if let Some(spec) = item.exercise {
             let plan = ExercisePlan::generate(spec, &KeyboardRange::new(21..=108))
                 .map_err(|e| e.to_string())?;
             if plan.practice_id() != item.content_id {
                 return Err("生成练习身份不匹配".into());
             }
-            plan.to_midi_file()?;
-            None
+            let mut file = plan.to_midi_file()?;
+            file.content_id = plan.practice_id();
+            (file, Some(plan))
         } else {
             let record = self.history.song(&item.content_id);
             let paths = [
@@ -827,8 +882,12 @@ impl Player {
             ) {
                 return Err("这首 MIDI 没有可练习的钢琴音符".into());
             }
-            Some(file)
+            (file, None)
         };
+        if let Some(spec) = item.exercise {
+            legacy_exercise_tracks::capture_before_install(self, &source_file, spec)?;
+        }
+        self.preflight_routine_item(&item, &source_file, source_plan.as_ref())?;
         self.stop_routine()?;
         if self.ladder.as_ref().is_some_and(|l| l.active) {
             self.stop_ladder()?;
@@ -837,7 +896,7 @@ impl Player {
         if let Some(spec) = item.exercise {
             self.command(Command::Generate { spec })?;
         } else {
-            self.install(source_file.expect("已核对项目文件"), item.song_title.clone(), None)?;
+            self.install(source_file, item.song_title.clone(), None)?;
         }
         if self.grid_signature() != item.grid {
             return Err("项目的小节网格已改变，请重新捕获当前条件")?;
@@ -1127,6 +1186,14 @@ mod routine_write_tests {
         broken.content_id = "missing-midi-content".into();
         broken.exercise = None;
         broken.path = None;
+        assert!(p.open_routine_item(&plan, day, &next, true).is_err());
+        assert_eq!(p.routine.as_ref().unwrap().item.id, first);
+        assert_eq!(p.file.as_ref().unwrap().content_id, current_song);
+        let broken = p.preferences.routine_runs.get_mut(&run_key(&plan, day)).unwrap()
+            .routine.items.iter_mut().find(|item| item.id == next).unwrap();
+        broken.content_id = current_song.clone();
+        broken.exercise = Some(ExerciseSpec::default());
+        broken.grid = "stale-grid".into();
         assert!(p.open_routine_item(&plan, day, &next, true).is_err());
         assert_eq!(p.routine.as_ref().unwrap().item.id, first);
         assert_eq!(p.file.as_ref().unwrap().content_id, current_song);
