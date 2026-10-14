@@ -431,6 +431,7 @@ impl Player {
                         && old.end == l.end
                         && serde_json::to_value(&old.plan).ok()
                             == serde_json::to_value(&l.plan).ok()
+                        && old.expression == l.expression
                         && {
                             let mut settings = old.settings.clone();
                             settings.latency = 0;
@@ -712,6 +713,7 @@ mod tests {
                 start: 1,
                 end: 2,
                 plan,
+                expression: None,
             })
             .unwrap();
         let bytes = exported(&mut source);
@@ -938,6 +940,7 @@ mod tests {
                 failures_before_step_back: 2,
                 attempt_limit: 20,
             },
+            expression: None,
         })
         .unwrap();
         let expected_notes = p.notes.len();

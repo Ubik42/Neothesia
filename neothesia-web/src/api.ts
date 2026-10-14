@@ -159,6 +159,7 @@ export interface LadderPreset {
   start: number;
   end: number;
   plan: SpeedLadderPlan;
+  expression?: import("./ExpressionGoalControl").ExpressionGoal | null;
   settings: {
     mode: string;
     hands: string;

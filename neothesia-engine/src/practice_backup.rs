@@ -116,6 +116,7 @@ fn ladder(p: &LadderPreset) -> Result<(), String> {
     if p.settings.mode.as_deref() == Some("wait") && p.plan.on_time_percent.is_some() {
         return Err("等音阶梯不能要求准时率".into());
     }
+    if let Some(goal)=&p.expression { goal.validate(p.settings.mode.as_deref().unwrap_or("wait"))?; }
     Ok(())
 }
 fn routine(r: &PracticeRoutine) -> Result<(), String> {

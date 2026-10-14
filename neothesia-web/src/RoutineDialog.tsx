@@ -770,6 +770,9 @@ export function RoutineDialog({
                         value={source}
                         onChange={(e) => {
                           setSource(e.target.value);
+                          if (e.target.value.startsWith("ladder:")) {
+                            patch({ expression: ladders.find((p) => p.id === e.target.value.slice(7))?.expression ?? null });
+                          }
                         }}
                       >
                         {itemId && (

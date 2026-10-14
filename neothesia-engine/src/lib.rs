@@ -556,7 +556,7 @@ pub enum Command {
     SkipRoutineItem{routine_id:String,day:String,item_id:String,reason:String},
     ResetRoutineItem{routine_id:String,day:String,item_id:String},
     LadderPresets,
-    SaveLadder {id:Option<String>,name:String,start:usize,end:usize,plan:neothesia_core::speed_ladder::SpeedLadderPlan},
+    SaveLadder {id:Option<String>,name:String,start:usize,end:usize,plan:neothesia_core::speed_ladder::SpeedLadderPlan,#[serde(default)]expression:Option<expression_goal::ExpressionGoal>},
     RemoveLadder {id:String},
     StartLadder {id:String,resume:bool},
     StopLadder,
@@ -1977,7 +1977,7 @@ impl Player {
         }
         match &command {
             Command::LadderPresets=>return self.ladder_presets(),
-            Command::SaveLadder{id,name,start,end,plan}=>return self.save_ladder(id.clone(),name,*start,*end,plan.clone()),
+            Command::SaveLadder{id,name,start,end,plan,expression}=>return self.save_ladder(id.clone(),name,*start,*end,plan.clone(),expression.clone()),
             Command::RemoveLadder{id}=>return self.remove_ladder(id),
             Command::StartLadder{id,resume}=>return self.start_ladder(id,*resume),
             Command::StopLadder=>return self.stop_ladder(),
@@ -4120,13 +4120,7 @@ impl Player {
             let ladder_round=self.ladder.as_ref().is_some_and(|r|r.active);
             if self.state.error.is_none() && ladder_round {
                         let target_notes=self.history_context().target_notes;
-                        let expression_failure = self.active_expression_goal.as_ref().and_then(|goal| {
-                            goal.assess_with_note_evidence(
-                                self.matcher.summary().expression,
-                                goal.note_velocity_difference.and_then(|_| self.performance_capture.note_velocity_evidence(self.matcher.results(), target_notes)),
-                                goal.note_pedal_mismatch_count.and_then(|_| self.performance_capture.note_pedal_evidence(self.matcher.results(), target_notes)),
-                            ).err()
-                        });
+                        let expression_failure = self.active_expression_failure(target_notes);
                         if let Some(run)=&mut self.ladder {
                             run.progress.evaluate_with_expression(&run.preset.plan,&self.matcher.summary(),target_notes,expression_failure.as_deref());
                             self.state.speed=f64::from(run.progress.speed(&run.preset.plan))/100.;
@@ -5224,7 +5218,7 @@ mod tests {
     fn ladder_advances_from_real_wait_rounds_records_stages_and_checkpoints_restart() {
         let mut p=player();
         let plan=neothesia_core::speed_ladder::SpeedLadderPlan {start_percent:50,target_percent:60,step_percent:10,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:10};
-        let saved=p.command(Command::SaveLadder {id:None,name:"左手速度阶梯".into(),start:1,end:1,plan}).unwrap();
+        let saved=p.command(Command::SaveLadder {id:None,name:"左手速度阶梯".into(),start:1,end:1,plan,expression:None}).unwrap();
         let id=saved["id"].as_str().unwrap().to_string();
         p.command(Command::StartLadder {id:id.clone(),resume:false}).unwrap();
         assert_eq!(p.state.speed,0.5);assert_eq!(p.state.status,"ready");
@@ -5247,7 +5241,7 @@ mod tests {
         let content_id=p.file.as_ref().unwrap().content_id.clone();
         assert_eq!(p.history.song(&content_id).unwrap().review_status(u64::MAX).unwrap().mastery_streak,0);
         let plan=p.ladder.as_ref().unwrap().preset.plan.clone();
-        p.command(Command::SaveLadder{id:Some(id.clone()),name:"仅改名保留进度".into(),start:1,end:1,plan}).unwrap();
+        p.command(Command::SaveLadder{id:Some(id.clone()),name:"仅改名保留进度".into(),start:1,end:1,plan,expression:None}).unwrap();
         assert_eq!(p.ladder.as_ref().unwrap().progress.stage,1);
         let data=p.data.clone();let content_id=p.file.as_ref().unwrap().content_id.clone();drop(p);
         let mut p=Player::new(data,PathBuf::new(),true);p.restore();
@@ -5272,6 +5266,67 @@ mod tests {
         assert!(p.command(Command::StartLadder{id:id.clone(),resume:true}).is_err());
         p.command(Command::Meter{value:Some(neothesia_core::library::MeterCorrection{numerator:3,denominator:4,pickup_ticks:0})}).unwrap();
         assert!(p.command(Command::StartLadder{id,resume:false}).is_err());
+    }
+    #[test]
+    fn standalone_ladder_expression_grades_resumes_and_exports_with_its_goal() {
+        let mut p=player();
+        let content_id=p.file.as_ref().unwrap().content_id.clone();
+        let plan=neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:70,target_percent:70,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5};
+        let goal=expression_goal::ExpressionGoal{velocity_difference:Some(50),..Default::default()};
+        let id=p.command(Command::SaveLadder{id:None,name:"独立力度阶梯".into(),start:1,end:1,plan:plan.clone(),expression:Some(goal.clone())}).unwrap()["id"].as_str().unwrap().to_string();
+        let routine=p.command(Command::SaveRoutine{id:None,day:None,name:"继承阶梯".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
+        let item=p.command(Command::SaveRoutineItem{routine_id:routine.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(id.clone()),title:"同条件日课".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        assert_eq!(p.preferences.routines.iter().find(|r|r.id==routine).unwrap().items.iter().find(|i|i.id==item).unwrap().goal.expression,Some(goal.clone()));
+        p.command(Command::StartLadder{id:id.clone(),resume:false}).unwrap();
+        p.command(Command::Play).unwrap();
+        for _ in 0..2500 {
+            p.tick(Duration::from_millis(10));
+            for pitch in p.snapshot().required {
+                p.command(Command::Note{pitch,velocity:1,active:true}).unwrap();
+                p.command(Command::Note{pitch,velocity:0,active:false}).unwrap();
+            }
+            if p.ladder.as_ref().unwrap().progress.total_rounds>=1 {break;}
+        }
+        let run=p.ladder.as_ref().unwrap();
+        assert_eq!(run.progress.total_rounds,1);
+        assert!(!run.progress.completed);
+        assert!(run.progress.last_result.contains("力度平均差"));
+        assert_eq!(p.history.song(&content_id).unwrap().sessions[0].context.as_ref().unwrap().ladder.as_ref().unwrap().round_passed,Some(false));
+        assert_eq!(p.history.song(&content_id).unwrap().review_status(u64::MAX).unwrap().mastery_streak,0);
+        let root=p.data.clone();
+        p.command(Command::StopLadder).unwrap();drop(p);
+        let mut p=Player::new(root,PathBuf::new(),true);p.restore();
+        assert_eq!(p.preferences.ladder_presets[&content_id][0].expression,Some(goal.clone()));
+        p.command(Command::StartLadder{id:id.clone(),resume:true}).unwrap();
+        assert_eq!(p.ladder.as_ref().unwrap().progress.total_rounds,1);
+        p.command(Command::Play).unwrap();
+        for _ in 0..2500 {
+            p.tick(Duration::from_millis(10));
+            for pitch in p.snapshot().required {
+                p.command(Command::Note{pitch,velocity:90,active:true}).unwrap();
+                p.command(Command::Note{pitch,velocity:0,active:false}).unwrap();
+            }
+            if p.ladder.as_ref().unwrap().progress.completed {break;}
+        }
+        assert!(p.ladder.as_ref().unwrap().progress.completed);
+        let sessions=&p.history.song(&content_id).unwrap().sessions;
+        assert_eq!(sessions.len(),2);
+        assert_eq!(sessions[1].context.as_ref().unwrap().expression.as_ref().unwrap().velocity_difference,Some(50));
+        assert_eq!(sessions[1].context.as_ref().unwrap().ladder.as_ref().unwrap().round_passed,Some(true));
+        assert_eq!(p.history.song(&content_id).unwrap().review_status(u64::MAX).unwrap().mastery_streak,1);
+        let backup:practice_backup::Backup=serde_json::from_value(p.practice_backup_snapshot(&Default::default()).unwrap()).unwrap();
+        let backup=practice_backup::Backup::decode(&backup.encode().unwrap()).unwrap();
+        assert_eq!(backup.ladders[&content_id][0].expression,Some(goal.clone()));
+        let bytes:Vec<u8>=serde_json::from_value(p.command(Command::ExportPackage).unwrap()["bytes"].clone()).unwrap();
+        let package=piece_package::Package::decode(&bytes).unwrap();
+        assert_eq!(package.manifest.ladders[0].expression,Some(goal.clone()));
+        let mut imported=Player::new(p.data.join("isolated-package-target"),PathBuf::new(),true);
+        imported.command(Command::ImportPackage{bytes,policy:"merge".into()}).unwrap();
+        assert_eq!(imported.preferences.ladder_presets[&content_id][0].expression,Some(goal.clone()));
+        p.command(Command::SaveLadder{id:Some(id.clone()),name:"改名".into(),start:1,end:1,plan:plan.clone(),expression:Some(goal.clone())}).unwrap();
+        assert_eq!(p.preferences.ladder_runs[&format!("{content_id}:{id}")].progress.total_rounds,2);
+        p.command(Command::SaveLadder{id:Some(id.clone()),name:"取消专项".into(),start:1,end:1,plan,expression:None}).unwrap();
+        assert!(!p.preferences.ladder_runs.contains_key(&format!("{content_id}:{id}")));
     }
     fn finish_routine_rounds(p:&mut Player,attempts:u64) {
         p.command(Command::Play).unwrap();
@@ -5315,7 +5370,7 @@ mod tests {
     #[test]
     fn routine_ladder_snapshot_survives_removal_of_original_and_completes_from_actual_grading() {
         let mut p=player();
-        let ladder=p.command(Command::SaveLadder{id:None,name:"单级阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let ladder=p.command(Command::SaveLadder{id:None,name:"单级阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5},expression:None}).unwrap()["id"].as_str().unwrap().to_string();
         let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"阶梯日课".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
         let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder.clone()),title:"阶梯项目".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
         p.command(Command::RemoveLadder{id:ladder}).unwrap();
@@ -5327,7 +5382,7 @@ mod tests {
     fn daily_ladder_expression_failure_blocks_promotion_and_survives_resume() {
         let mut p=player();
         let content_id=p.file.as_ref().unwrap().content_id.clone();
-        let ladder=p.command(Command::SaveLadder{id:None,name:"力度阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let ladder=p.command(Command::SaveLadder{id:None,name:"力度阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5},expression:None}).unwrap()["id"].as_str().unwrap().to_string();
         let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"力度阶梯日课".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
         let expression=expression_goal::ExpressionGoal{velocity_difference:Some(50),..Default::default()};
         let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder),title:"力度进阶".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:Some(expression.clone()),passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();

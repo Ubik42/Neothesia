@@ -79,6 +79,9 @@ impl Player {
     }
 
     pub(super) fn history_context(&self) -> PracticeSessionContext {
+        let target_notes=self.notes.iter().filter(|n|self.note_player(n.track_id,n.index)==PlayerConfig::Human
+            && self.state.passage.as_ref().is_none_or(|p|n.start.as_secs_f64()>=p.start&&n.start.as_secs_f64()<p.end)).count();
+        let expression_failure=self.ladder.as_ref().filter(|run|run.active).and_then(|_|self.active_expression_failure(target_notes));
         PracticeSessionContext {
             expression:self.active_expression_goal.as_ref().map(|e|neothesia_core::practice_history::PracticeExpressionCondition{velocity_difference:e.velocity_difference,note_velocity_difference:e.note_velocity_difference,note_pedal_mismatch_count:e.note_pedal_mismatch_count,contour_percent:e.contour_percent,pedal_offset_ms:e.pedal_offset_ms}),
             routine: self.routine.as_ref().map(|a| {
@@ -107,18 +110,13 @@ impl Player {
                     stage: r.progress.stage + 1,
                     speed_percent: r.progress.speed(&r.preset.plan),
                     target_percent: r.preset.plan.target_percent,
+                    accuracy_percent:Some(r.preset.plan.accuracy_percent),
+                    on_time_percent:r.preset.plan.on_time_percent,
+                    passes_required:Some(r.preset.plan.passes_required),
+                    round_passed:Some(neothesia_core::speed_ladder::SpeedLadderProgress::round_passes(&r.preset.plan,&self.matcher.summary(),target_notes,expression_failure.as_deref())),
                 }
             }),
-            target_notes: self
-                .notes
-                .iter()
-                .filter(|n| {
-                    self.note_player(n.track_id, n.index) == PlayerConfig::Human
-                        && self.state.passage.as_ref().is_none_or(|p| {
-                            n.start.as_secs_f64() >= p.start && n.start.as_secs_f64() < p.end
-                        })
-                })
-                .count(),
+            target_notes,
             judged_notes: self.matcher.snapshot().matched_notes
                 + self.matcher.snapshot().missed_notes,
             tracks: self.config.practice_track_setup(),

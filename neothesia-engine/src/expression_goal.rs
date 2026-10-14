@@ -166,8 +166,25 @@ impl crate::Player {
     }
     pub(crate) fn effective_expression_goal(&self) -> Option<ExpressionGoal> {
         if let Some(active) = &self.routine { return active.item.goal.expression.clone(); }
-        if self.ladder.as_ref().is_some_and(|ladder| ladder.active) { return None; }
+        if let Some(ladder) = self.ladder.as_ref().filter(|ladder| ladder.active) { return ladder.preset.expression.clone(); }
         self.current_song_expression_goal()
+    }
+    pub(crate) fn active_expression_failure(&self, target_notes:usize)->Option<String>{
+        self.active_expression_goal.as_ref().and_then(|goal| {
+            goal.assess_with_note_evidence(
+                self.matcher.summary().expression,
+                goal.note_velocity_difference.and_then(|_| self.performance_capture.note_velocity_evidence(self.matcher.results(),target_notes)),
+                goal.note_pedal_mismatch_count.and_then(|_| self.performance_capture.note_pedal_evidence(self.matcher.results(),target_notes)),
+            ).err()
+        })
+    }
+    pub(crate) fn validate_ladder_expression_source(&self, goal:&ExpressionGoal, start:usize, end:usize, mode:&str)->Result<(),String>{
+        goal.validate(mode)?;
+        let file=self.file.as_ref().ok_or("请先选择曲目")?;
+        let a=file.musical_time.measures.get(start.saturating_sub(1)).ok_or("阶梯小节范围无效")?;
+        let b=file.musical_time.measures.get(end.saturating_sub(1)).ok_or("阶梯小节范围无效")?;
+        if start>end{return Err("阶梯小节范围无效".into())}
+        self.inspect_expression_reference(goal,file.tempo_track.pulses_to_duration(a.start_tick),file.tempo_track.pulses_to_duration(b.end_tick))
     }
     pub(crate) fn set_song_expression_goal(&mut self, goal: Option<ExpressionGoal>) -> Result<serde_json::Value, String> {
         let content_id = self.file.as_ref().ok_or("请先选择曲目")?.content_id.clone();

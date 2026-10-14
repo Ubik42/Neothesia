@@ -59,6 +59,24 @@ pub struct SpeedLadderProgress {
     pub last_on_time: Option<f32>,
 }
 impl SpeedLadderProgress {
+    pub fn round_passes(
+        plan: &SpeedLadderPlan,
+        summary: &AttemptSummary,
+        target_notes: usize,
+        expression_failure: Option<&str>,
+    ) -> bool {
+        let score = summary.overall;
+        let accuracy = score.accuracy();
+        let on_time = (score.matched_notes > 0)
+            .then(|| score.on_time_notes as f32 / score.matched_notes as f32);
+        target_notes > 0
+            && score.matched_notes + score.missed_notes >= target_notes
+            && accuracy.is_some_and(|v| v + 0.00001 >= f32::from(plan.accuracy_percent) / 100.)
+            && plan.on_time_percent.is_none_or(|threshold| {
+                on_time.is_some_and(|v| v + 0.00001 >= f32::from(threshold) / 100.)
+            })
+            && expression_failure.is_none()
+    }
     pub fn speed(&self, plan: &SpeedLadderPlan) -> u16 {
         plan.speeds()[self.stage.min(plan.speeds().len() - 1)]
     }
@@ -91,12 +109,7 @@ impl SpeedLadderProgress {
         let on_time = (score.matched_notes > 0)
             .then(|| score.on_time_notes as f32 / score.matched_notes as f32);
         let complete = target_notes > 0 && score.matched_notes + score.missed_notes >= target_notes;
-        let passed = complete
-            && accuracy.is_some_and(|v| v + 0.00001 >= f32::from(plan.accuracy_percent) / 100.)
-            && plan.on_time_percent.is_none_or(|threshold| {
-                on_time.is_some_and(|v| v + 0.00001 >= f32::from(threshold) / 100.)
-            })
-            && expression_failure.is_none();
+        let passed = Self::round_passes(plan, summary, target_notes, expression_failure);
         self.total_rounds += 1;
         self.batch_rounds += 1;
         self.last_accuracy = accuracy;

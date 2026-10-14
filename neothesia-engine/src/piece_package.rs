@@ -307,6 +307,7 @@ impl Package {
         let mut ladder_ids = BTreeSet::new();
         for l in &manifest.ladders {
             l.plan.validate()?;
+            if let Some(goal)=&l.expression { goal.validate(l.settings.mode.as_deref().unwrap_or("wait"))?; }
             if l.id.is_empty()
                 || l.id.len() > 160
                 || !ladder_ids.insert(&l.id)

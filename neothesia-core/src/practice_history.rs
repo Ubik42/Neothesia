@@ -75,6 +75,14 @@ pub struct PracticeLadderCondition {
     pub stage:usize,
     pub speed_percent:u16,
     pub target_percent:u16,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub accuracy_percent:Option<u8>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub on_time_percent:Option<u8>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub passes_required:Option<u8>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub round_passed:Option<bool>,
 }
 
 #[derive(Debug,Clone,Default,Deserialize,PartialEq,Serialize)]
@@ -620,6 +628,7 @@ fn review_conditions_complete(session: &PracticeSession) -> bool {
         && !context.hands.is_empty()
         && context.target_notes > 0
         && context.judged_notes > 0
+        && context.ladder.as_ref().is_none_or(|ladder| ladder.accuracy_percent.is_some() && ladder.passes_required.is_some() && ladder.round_passed.is_some())
 }
 
 fn same_review_conditions(a: &PracticeSession, b: &PracticeSession) -> bool {
@@ -630,6 +639,8 @@ fn same_review_conditions(a: &PracticeSession, b: &PracticeSession) -> bool {
     { return false; }
     let (a, b) = (a.context.as_ref().unwrap(), b.context.as_ref().unwrap());
     a.grid == b.grid
+        && a.ladder.as_ref().map(|ladder| (ladder.target_percent,ladder.accuracy_percent,ladder.on_time_percent,ladder.passes_required))
+            == b.ladder.as_ref().map(|ladder| (ladder.target_percent,ladder.accuracy_percent,ladder.on_time_percent,ladder.passes_required))
         && a.tracks == b.tracks
         && a.parts == b.parts
         && a.hands == b.hands
@@ -651,6 +662,9 @@ fn is_reliable_weakness(measure: &WeakMeasure) -> bool {
 }
 
 fn session_is_mastered(session: &PracticeSession) -> bool {
+    if session.context.as_ref().and_then(|c|c.ladder.as_ref()).and_then(|l|l.round_passed)==Some(false) {
+        return false;
+    }
     if session.context.as_ref().and_then(|c|c.ladder.as_ref()).is_some_and(|l|l.speed_percent<l.target_percent) {
         return false;
     }

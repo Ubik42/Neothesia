@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ExpressionGoalControl, expressionGoalText, type ExpressionGoal } from "./ExpressionGoalControl";
 import {
   api,
   type LoadedSong,
@@ -32,6 +33,7 @@ export function LadderStatus({
   const run = state.ladder;
   if (!run) return null;
   const speeds = ladderSpeeds(run.preset.plan);
+  const roundExpression = state.routine ? state.routine.goal.expression : run.preset.expression;
   return (
     <div className="ladder-status" aria-live="polite">
       <div>
@@ -47,16 +49,11 @@ export function LadderStatus({
           {run.preset.plan.onTimePercent !== null &&
             ` · 准时率 ≥${run.preset.plan.onTimePercent}%`}
         </span>
+        {roundExpression && <span>力度/踏板：{expressionGoalText(roundExpression)}</span>}
       </div>
       <span className="ladder-outcome">
-        {run.progress.completed
-          ? "目标速度已达标"
-          : run.progress.limited
-            ? "本次轮数已到上限"
-            : run.progress.lastResult ||
-              (state.status === "ready"
-                ? "已应用，按开始练习"
-                : "等待本轮结果")}
+        {run.progress.lastResult ||
+          (state.status === "ready" ? "已应用，按开始练习" : "等待本轮结果")}
       </span>
       <button onClick={manage}>查看方案</button>
       {run.active && (
@@ -98,6 +95,7 @@ export function LadderDialog({
     failuresBeforeStepBack: 0,
     attemptLimit: 50,
   });
+  const [expression, setExpression] = useState<ExpressionGoal | null>(null);
   const active = Boolean(state.ladder?.active),
     speeds = ladderSpeeds(plan),
     locked = busy || active;
@@ -138,6 +136,7 @@ export function LadderDialog({
     setFirst(p.start);
     setLast(p.end);
     setPlan(p.plan);
+    setExpression(p.expression ?? null);
     setError("");
   };
   const apply = (presetId: string, resume: boolean) =>
@@ -192,6 +191,7 @@ export function LadderDialog({
                   setName("");
                   setFirst(start);
                   setLast(end);
+                  setExpression(null);
                 }}
               >
                 新建
@@ -223,6 +223,7 @@ export function LadderDialog({
                           : `已练 ${run.progress.totalRounds} 轮 · 停在第 ${run.progress.stage + 1} 级`
                         : "尚未练习"}
                     </small>
+                    {p.expression && <small>力度/踏板：{expressionGoalText(p.expression)}</small>}
                   </button>
                 );
               })
@@ -408,6 +409,7 @@ export function LadderDialog({
                 ))}
               </select>
             </label>
+            <ExpressionGoalControl value={expression} wait={state.mode === "wait"} disabled={locked} change={setExpression} labelPrefix="阶梯" />
             <div className="ladder-levels" aria-label="阶梯速度级别">
               {speeds.map((speed, i) => (
                 <span key={speed}>
@@ -419,7 +421,7 @@ export function LadderDialog({
               保存采用当前{state.mode === "wait" ? "等音" : "连续"}
               模式、声部、左右手、预备和节拍器设置。每一级连续达标{" "}
               {plan.passesRequired}{" "}
-              轮才晋级，目标级也需要达标；错漏音都会降低正确率。提前保存不计入晋级。
+              轮才晋级，目标级也需要达标；错漏音和未达标的力度/踏板要求都会阻止晋级。提前保存不计入晋级。
             </p>
             {saved && (
               <p className="parameter-help">
@@ -432,7 +434,7 @@ export function LadderDialog({
                       ? "自定义声部"
                       : "双手"}{" "}
                 · 预备 {saved.settings.countIn}{" "}
-                小节。更改范围、声部或晋级规则会清除进度；仅改名保留进度。
+                小节。更改范围、声部、力度/踏板要求或晋级规则会清除进度；仅改名保留进度。
               </p>
             )}
             {checkpoint && (
@@ -456,6 +458,7 @@ export function LadderDialog({
                       start: first,
                       end: last,
                       plan,
+                      expression,
                     });
                     setId(data.id);
                     await reload();

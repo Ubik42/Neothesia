@@ -31,6 +31,7 @@ impl Player {
         start: usize,
         end: usize,
         plan: SpeedLadderPlan,
+        expression: Option<crate::expression_goal::ExpressionGoal>,
     ) -> Result<Value, String> {
         if self.recorder.is_recording() || self.ladder.as_ref().is_some_and(|r| r.active) {
             return Err("请先停止录音或结束速度阶梯，再保存方案".into());
@@ -64,6 +65,7 @@ impl Player {
         }) {
             return Err("选段没有自己弹的目标音符，请确认声部和小节范围".into());
         }
+        if let Some(goal)=&expression { self.validate_ladder_expression_source(goal,start,end,&self.state.mode)?; }
         let content_id = file.content_id.clone();
         let id = id.unwrap_or_else(|| {
             format!(
@@ -99,6 +101,7 @@ impl Player {
                 adaptive: false,
             },
             plan,
+            expression,
         };
         let rows = self
             .preferences
@@ -113,6 +116,7 @@ impl Player {
                 && old.scope == preset.scope
                 && old.exercise_spec == preset.exercise_spec
                 && old.plan == preset.plan
+                && old.expression == preset.expression
                 && serde_json::to_value(&old.settings).ok()
                     == serde_json::to_value(&preset.settings).ok();
             *old = preset.clone();
@@ -222,6 +226,13 @@ impl Player {
             self.config = previous;
             self.state.hands = previous_hands;
             return Err("评分范围或逐音分手已改变，请确认声部并重新保存方案".into());
+        }
+        if let Some(goal)=&preset.expression {
+            if let Err(error)=self.validate_ladder_expression_source(goal,preset.start,preset.end,preset.settings.mode.as_deref().unwrap_or("wait")) {
+                self.config=previous;
+                self.state.hands=previous_hands;
+                return Err(error);
+            }
         }
         self.state.mode = preset
             .settings

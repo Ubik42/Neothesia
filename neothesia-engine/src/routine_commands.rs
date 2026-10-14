@@ -533,7 +533,7 @@ impl Player {
             old.clone().ok_or("更新项目需要已有项目或当前曲目来源")?
         };
         let goal = if let RoutineTarget::Ladder { preset } = &item.target {
-            RoutineGoal { expression:goal.expression.clone(),
+            RoutineGoal { expression:goal.expression.clone().or_else(|| if source==Some("ladder"){preset.expression.clone()}else{None}),
                     passes: 1,
                 accuracy: preset.plan.accuracy_percent,
                 on_time: preset.plan.on_time_percent,

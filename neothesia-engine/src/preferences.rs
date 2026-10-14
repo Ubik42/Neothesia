@@ -142,6 +142,8 @@ pub struct LadderPreset {
     pub exercise_spec:Option<neothesia_core::exercise::ExerciseSpec>,
     pub settings:SessionSettings,
     pub plan:neothesia_core::speed_ladder::SpeedLadderPlan,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub expression:Option<crate::expression_goal::ExpressionGoal>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all="camelCase")]
