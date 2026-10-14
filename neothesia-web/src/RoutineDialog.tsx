@@ -213,7 +213,8 @@ export function RoutineDialog({
     [ladders, setLadders] = useState<LadderPreset[]>([]),
     [generated, setGenerated] = useState<CollectionSong[]>([]),
     [sourceLoading, setSourceLoading] = useState(!!song),
-    [sourceSongId, setSourceSongId] = useState<string | null>(null);
+    [sourceSongId, setSourceSongId] = useState<string | null>(null),
+    [sourceReloadRevision, setSourceReloadRevision] = useState(0);
   const [compose, setCompose] = useState(false);
   const [skipReason, setSkipReason] = useState("");
   const [search, setSearch] = useState(""),
@@ -245,7 +246,15 @@ export function RoutineDialog({
     ),
     locked = busy || active || !!openedItem || !!pendingListRefresh,
     contextPending = !!openedItem || !!pendingListRefresh,
-    sourceBusy = !!song && (sourceLoading || sourceSongId !== song.contentId);
+    sourceBusy = !!song && (sourceLoading || sourceSongId !== song.contentId),
+    sourceAvailable = source === "" || source === "current" || (
+      sourceSongId === song?.contentId && (
+        source.startsWith("passage:")
+          ? passages.some((item) => item.id === source.slice(8))
+          : source.startsWith("ladder:") &&
+            ladders.some((item) => item.id === source.slice(7))
+      )
+    );
   const progress = (id: string) =>
     state.routine?.routineId === selected &&
     state.routine.day === day &&
@@ -342,7 +351,7 @@ export function RoutineDialog({
     return () => {
       cancelled = true;
     };
-  }, [song?.contentId]);
+  }, [song?.contentId, resumeRevision, sourceReloadRevision]);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !suspended && !e.defaultPrevented && !busy && !compose)
@@ -917,6 +926,9 @@ export function RoutineDialog({
                           <option value="">保留已保存的曲目与条件</option>
                         )}
                         <option value="current">当前曲目及当前练习条件</option>
+                        {!sourceBusy && !sourceAvailable && (
+                          <option value={source}>原来源暂不可用或已移除，请重新选择</option>
+                        )}
                         {(sourceSongId === song?.contentId ? passages : []).map((p) => (
                           <option key={p.id} value={`passage:${p.id}`}>
                             命名选段：{p.name}
@@ -929,7 +941,16 @@ export function RoutineDialog({
                         ))}
                       </select>
                     </label>
+                    <button
+                      disabled={busy || contextPending || sourceBusy}
+                      onClick={() => setSourceReloadRevision((revision) => revision + 1)}
+                    >
+                      重新读取练习来源
+                    </button>
                     {sourceBusy && <p role="status">正在读取当前曲目的命名选段和速度阶梯…</p>}
+                    {!sourceBusy && !sourceAvailable && (
+                      <p role="alert">所选来源暂不可用或已移除。请重新读取，或改选当前曲目的练习条件。</p>
+                    )}
                     <div className="routine-goal-grid">
                       <label>
                         达标次数
@@ -1047,7 +1068,7 @@ export function RoutineDialog({
                     <div className="routine-item-actions">
                       <button
                         disabled={
-                          locked || sourceBusy || !title.trim() || (!song && source !== "")
+                          locked || sourceBusy || !sourceAvailable || !title.trim() || (!song && source !== "")
                         }
                         onClick={() =>
                           void work(async () => {
