@@ -12,6 +12,7 @@ export type ReviewSource = {
 };
 const sourceKey = (source: ReviewSource) =>
   JSON.stringify([source.contentId, source.id, source.slot]);
+const changedSource = "演奏记录内容已变化。请重新读取，并核对草稿中选中的问题音。";
 type Notes = {
   reference: number;
   measure: number;
@@ -33,7 +34,7 @@ export function HistoryMultiProblemPlan({
   dirtyChanged: (dirty: boolean) => void;
 }) {
   const [loaded, setLoaded] = useState<
-      Record<string, { notes: Notes[]; total: number; error: string }>
+      Record<string, { notes: Notes[]; total: number; revision: string; error: string }>
     >({}),
     [busy, setBusy] = useState(false),
     [restoreMessage, setRestoreMessage] = useState("");
@@ -46,7 +47,7 @@ export function HistoryMultiProblemPlan({
     void Promise.all(
       sources.map(async (s) => {
         try {
-          const data = await api.command<{ notes: Notes[]; total: number }>({
+          const data = await api.command<{ notes: Notes[]; total: number; revision: string }>({
             type: "historyProblemNotes",
             content_id: s.contentId,
             id: s.id,
@@ -54,7 +55,7 @@ export function HistoryMultiProblemPlan({
           });
           return [sourceKey(s), { ...data, error: "" }] as const;
         } catch (e) {
-          return [sourceKey(s), { notes: [], total: 0, error: String(e) }] as const;
+          return [sourceKey(s), { notes: [], total: 0, revision: "", error: String(e) }] as const;
         }
       }),
     ).then((rows) => {
@@ -111,19 +112,25 @@ export function HistoryMultiProblemPlan({
     setBusy(true);
     try {
       const old = loaded[key];
-      const data = await api.command<{ notes: Notes[]; total: number }>({
+      const reset = old.error === changedSource;
+      const data = await api.command<{ notes: Notes[]; total: number; revision: string }>({
         type: "historyProblemNotes",
         content_id: s.contentId,
         id: s.id,
-        offset: old.notes.length,
+        offset: reset ? 0 : old.notes.length,
       });
       if (version !== epoch.current) return;
+      if (!reset && old.revision && data.revision !== old.revision) {
+        setLoaded((current) => ({ ...current, [key]: { ...old, error: changedSource } }));
+        return;
+      }
       setLoaded((v) => ({
         ...v,
         [key]: {
-          notes: [...old.notes, ...data.notes],
+          notes: reset ? data.notes : [...old.notes, ...data.notes],
           total: data.total,
-          error: !data.notes.length && old.notes.length < data.total
+          revision: data.revision,
+          error: !data.notes.length && (reset ? 0 : old.notes.length) < data.total
             ? "来源记录没有返回后续问题音，请重试读取。" : "",
         },
       }));
@@ -153,13 +160,18 @@ export function HistoryMultiProblemPlan({
         const hasMissing = () => [...remaining].some((reference) =>
           Math.floor(reference / 1_000_000) === source.slot);
         while (hasMissing() && row.notes.length < row.total && batches < 20) {
-          const data = await api.command<{ notes: Notes[]; total: number }>({
+          const data = await api.command<{ notes: Notes[]; total: number; revision: string }>({
             type: "historyProblemNotes",
             content_id: source.contentId,
             id: source.id,
             offset: row.notes.length,
           });
           if (version !== epoch.current) return;
+          if (data.revision !== row.revision) {
+            setLoaded((current) => ({ ...current, [key]: { ...row, error: changedSource } }));
+            setRestoreMessage(changedSource);
+            return;
+          }
           if (!data.notes.length) {
             row = { ...row, total: data.total, error: row.notes.length < data.total
               ? "来源记录没有返回后续问题音，请重试读取。" : "" };
@@ -168,7 +180,7 @@ export function HistoryMultiProblemPlan({
             break;
           }
           batches++;
-          row = { notes: [...row.notes, ...data.notes], total: data.total, error: "" };
+          row = { notes: [...row.notes, ...data.notes], total: data.total, revision: row.revision, error: "" };
           const updated = row;
           setLoaded((current) => ({ ...current, [key]: updated }));
           for (const note of data.notes) remaining.delete(source.slot * 1_000_000 + note.reference);
@@ -214,19 +226,19 @@ export function HistoryMultiProblemPlan({
             )}
         </div>
       ))}
-      <HistoryProblemPlan
+      {sources.length > 0 && sources.every((source) => loaded[sourceKey(source)]) && <HistoryProblemPlan
         key={JSON.stringify(sources.map(sourceKey))}
         multi
         draftScope={draftScope}
-        draftSources={sources}
+        draftSources={sources.map((source) => ({ ...source, revision: loaded[sourceKey(source)].revision }))}
         onRestoreMissing={restoreMissing}
         missingStatus={missingStatus}
         restoreMessage={restoreMessage}
         review={review}
-        disabled={busy || !sources.length || sources.some((source) => !loaded[sourceKey(source)])}
+        disabled={busy || sources.some((source) => !!loaded[sourceKey(source)].error)}
         openPlan={openPlan}
         dirtyChanged={dirtyChanged}
-      />
+      />}
     </details>
   );
 }

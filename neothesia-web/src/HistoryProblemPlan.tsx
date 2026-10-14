@@ -43,6 +43,8 @@ const tomorrow = () => {
   d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+const draftSourceKey = (source: Pick<DraftSource, "contentId" | "id">) =>
+  JSON.stringify([source.contentId, source.id]);
 export function HistoryProblemPlan({
   review,
   disabled,
@@ -174,6 +176,26 @@ export function HistoryProblemPlan({
     [search, setSearch] = useState(""),
     [limit, setLimit] = useState(30),
     [dirty, setDirty] = useState(cached.current.dirty === true);
+  const [confirmedRevisions, setConfirmedRevisions] = useState<Record<string, string>>({});
+  const initialDraftReferences = useRef(new Set(
+    Array.isArray(cached.current.chosen) ? cached.current.chosen.filter((value: unknown) => Number.isSafeInteger(value)) : [],
+  ));
+  const openedRevisions = useRef(Object.fromEntries(draftSources.map((source) => [draftSourceKey(source), source.revision])));
+  const savedRevisions = cached.current.sourceRevisions && typeof cached.current.sourceRevisions === "object"
+    ? cached.current.sourceRevisions as Record<string, unknown> : {};
+  const unverifiedSources = multi ? draftSources.filter((source) => {
+    const key = draftSourceKey(source);
+    const selected = chosen.filter((reference) => Math.floor(reference / 1_000_000) === source.slot);
+    const saved = selected.some((reference) => initialDraftReferences.current.has(reference));
+    const previous = saved ? savedRevisions[key] : openedRevisions.current[key];
+    return source.revision && selected.length > 0
+      && previous !== source.revision && confirmedRevisions[key] !== source.revision;
+  }) : [];
+  const revisionsForStorage = Object.fromEntries(draftSources.map((source) => {
+    const key = draftSourceKey(source);
+    const unverified = unverifiedSources.some((item) => draftSourceKey(item) === key);
+    return [key, unverified ? savedRevisions[key] ?? null : source.revision ?? null];
+  }));
   const alive = useRef(true),
     working = useRef(false),
     epoch = useRef(0),
@@ -273,6 +295,7 @@ export function HistoryProblemPlan({
         draftStorageKey,
         JSON.stringify({
           chosenRefs: choicesForStorage(chosen, draftSources),
+          sourceRevisions: revisionsForStorage,
           before,
           after,
           mode,
@@ -292,6 +315,7 @@ export function HistoryProblemPlan({
     multi,
     draftStorageKey,
     draftSources,
+    confirmedRevisions,
     chosen,
     before,
     after,
@@ -325,7 +349,8 @@ export function HistoryProblemPlan({
   });
   const spec = () => {
     if (!multi) return singleSpec();
-    const sources: { contentId: string; id: string; references: number[] }[] =
+    if (unverifiedSources.length) throw new Error("草稿所选问题音的来源版本已变化，请先核对并确认。");
+    const sources: { contentId: string; id: string; references: number[]; expectedRevision: string }[] =
       [];
     const order = chosen.map((ref) => {
       const n = review.notes.find((n) => n.reference === ref);
@@ -343,7 +368,9 @@ export function HistoryProblemPlan({
           contentId: n.sourceContentId,
           id: n.sourceHistoryId,
           references: [],
+          expectedRevision: draftSources.find((item) => item.contentId === n.sourceContentId && item.id === n.sourceHistoryId)?.revision ?? "",
         };
+        if (!source.expectedRevision) throw new Error("来源记录尚未读取完成，请重新读取问题音");
         sources.push(source);
       }
       source.references.push(n.sourceReference);
@@ -351,6 +378,7 @@ export function HistoryProblemPlan({
         contentId: n.sourceContentId,
         id: n.sourceHistoryId,
         references: [n.sourceReference],
+        expectedRevision: source.expectedRevision,
       };
     });
     return {
@@ -569,6 +597,19 @@ export function HistoryProblemPlan({
                   invalidate();
                 }}>复制旧草稿的计划名称和备注</button>
               </details>
+            )}
+            {unverifiedSources.length > 0 && (
+              <p role="alert">
+                草稿中的已选问题音来自尚未核对的记录版本。请检查下方每个已选音的小节、音高和判定，再确认当前记录。
+                <button disabled={busy || missingChosen.length > 0} onClick={() => {
+                  invalidate();
+                  setConfirmedRevisions((current) => ({ ...current, ...Object.fromEntries(
+                    unverifiedSources.map((source) => [draftSourceKey(source), source.revision ?? ""]),
+                  ) }));
+                }}>
+                  确认这些问题音仍对应当前记录
+                </button>
+              </p>
             )}
             <div className="history-problem-layout">
               <div className="history-problem-source">
@@ -943,7 +984,7 @@ export function HistoryProblemPlan({
                   )}
                 </div>
                 <button
-                  disabled={busy || disabled || !chosen.length || missingChosen.length > 0}
+                  disabled={busy || disabled || !chosen.length || missingChosen.length > 0 || unverifiedSources.length > 0}
                   onClick={() => void generate()}
                 >
                   预览练习编排
@@ -1032,6 +1073,7 @@ export function HistoryProblemPlan({
                         busy ||
                         disabled ||
                         !cutsChecked ||
+                        unverifiedSources.length > 0 ||
                         edits.some((e) => !e.title.trim()) ||
                         (!target && !name.trim())
                       }

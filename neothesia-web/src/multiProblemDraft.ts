@@ -1,4 +1,4 @@
-export type DraftSource = { contentId: string; id: string; slot: number };
+export type DraftSource = { contentId: string; id: string; slot: number; revision?: string };
 
 const prefix = "neothesia-multi-plan-draft:";
 const unit = 1_000_000;

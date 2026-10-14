@@ -237,6 +237,7 @@ mod tests {
             content_id: cid,
             id,
             references: vec![2, 3],
+            expected_revision: None,
         }
     }
     fn goal() -> RoutineGoal {

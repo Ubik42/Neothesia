@@ -8,6 +8,8 @@ pub struct HistoryProblemSelection {
     pub content_id: String,
     pub id: String,
     pub references: Vec<usize>,
+    #[serde(default)]
+    pub expected_revision: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -21,6 +23,19 @@ pub struct MultiProblemSpec {
     pub speed: f64,
     pub routine_id: Option<String>,
     pub day: Option<String>,
+}
+fn problem_source_revision(
+    archive: &crate::performance_archive::Archive,
+    session: &PracticeSession,
+) -> Result<String, String> {
+    let content = blake3::hash(&archive.bytes()?).to_hex().to_string();
+    let proof = serde_json::to_vec(&(
+        content,
+        crate::performance_archive::frozen_note_velocity_limit(session),
+        session.scope.as_deref(),
+        session.context.as_ref().map(|context| context.grid.as_str()),
+    )).map_err(|error| error.to_string())?;
+    Ok(blake3::hash(&proof).to_hex().to_string())
 }
 impl Player {
     pub(super) fn history_problem_notes(
@@ -39,6 +54,7 @@ impl Player {
             return Err("旧记录缺少原条件，不能编排".into());
         }
         let a = crate::performance_archive::read(&self.data, cid, id)?;
+        let revision = problem_source_revision(&a, session)?;
         let judgments = a
             .judgments
             .as_ref()
@@ -46,7 +62,7 @@ impl Player {
         let limit=crate::performance_archive::frozen_note_velocity_limit(session);
         let problems=judgments.iter().filter_map(|d|d.reference.and_then(|reference|crate::performance_archive::historical_problem(&a,d,reference,limit))).collect::<Vec<_>>();
         Ok(
-            json!({"contentId":cid,"id":id,"title":history.display_name,"recordedAt":session.recorded_at_unix_ms,"total":problems.len(),"offset":offset,"notes":problems.into_iter().skip(offset).take(200).collect::<Vec<_>>()}),
+            json!({"contentId":cid,"id":id,"title":history.display_name,"recordedAt":session.recorded_at_unix_ms,"revision":revision,"total":problems.len(),"offset":offset,"notes":problems.into_iter().skip(offset).take(200).collect::<Vec<_>>()}),
         )
     }
     fn readonly_problem_file(
@@ -164,6 +180,14 @@ impl Player {
                 .history
                 .song(&source.content_id)
                 .ok_or("历史曲目不存在")?;
+            if let Some(expected) = &source.expected_revision {
+                let session = history.sessions.iter().find(|item| item.stable_id() == source.id)
+                    .ok_or("演奏记录已不存在")?;
+                let archive = crate::performance_archive::read(&self.data, &source.content_id, &source.id)?;
+                if problem_source_revision(&archive, session)?.as_str() != expected {
+                    return Err(format!("{}：演奏证据已变化，请重新读取问题音", history.display_name));
+                }
+            }
             let (file, notes, grid, scope, proof) = self
                 .readonly_problem_file(&source.content_id, &source.id)
                 .map_err(|e| format!("{}：{}", history.display_name, e))?;
@@ -286,11 +310,23 @@ mod tests {
  fn record(p:&mut Player,step:&str,hand:&str)->HistoryProblemSelection {
   if p.file.is_some(){p.command(Command::Restart).unwrap();}
   let bars=(0..3).map(|i|format!("<measure number=\"{}\">{}<note><pitch><step>{step}</step><octave>4</octave></pitch><duration>1</duration></note></measure>",i+1,if i==0{"<attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>"}else{""})).collect::<String>();let xml=format!("<score-partwise><part-list><score-part id=\"P1\"><part-name>Piano</part-name></score-part></part-list><part id=\"P1\">{bars}</part></score-partwise>");
-  p.command(Command::ImportScore{bytes:xml.into_bytes(),name:format!("{step}.musicxml"),default_bpm:120}).unwrap();p.command(Command::Restart).unwrap();let cid=p.file.as_ref().unwrap().content_id.clone();let track=p.notes[0].track_id;p.command(Command::Track{id:track,mode:"human".into(),part:hand.into(),visible:true}).unwrap();p.command(Command::Mode{value:"recital".into()}).unwrap();p.command(Command::CountIn{bars:0}).unwrap();p.command(Command::Play).unwrap();for _ in 0..50{p.tick(Duration::from_millis(50));}assert_eq!(p.state.status,"finished");let id=p.history.song(&cid).unwrap().sessions.last().unwrap().stable_id();HistoryProblemSelection{content_id:cid,id,references:vec![0]}
+  p.command(Command::ImportScore{bytes:xml.into_bytes(),name:format!("{step}.musicxml"),default_bpm:120}).unwrap();p.command(Command::Restart).unwrap();let cid=p.file.as_ref().unwrap().content_id.clone();let track=p.notes[0].track_id;p.command(Command::Track{id:track,mode:"human".into(),part:hand.into(),visible:true}).unwrap();p.command(Command::Mode{value:"recital".into()}).unwrap();p.command(Command::CountIn{bars:0}).unwrap();p.command(Command::Play).unwrap();for _ in 0..50{p.tick(Duration::from_millis(50));}assert_eq!(p.state.status,"finished");let id=p.history.song(&cid).unwrap().sessions.last().unwrap().stable_id();HistoryProblemSelection{content_id:cid,id,references:vec![0],expected_revision:None}
  }
  fn goal()->RoutineGoal{RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:3}}
  fn edits(b:&Built)->Vec<ProblemPlanEdit>{b.rows.iter().map(|r|ProblemPlanEdit{cut:None,key:r["key"].as_str().unwrap().into(),title:r["title"].as_str().unwrap().into(),notes:"各曲重点".into()}).collect()}
  fn player()->Player {Player::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../work").join(format!("cycle180-unit-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())),PathBuf::new(),true)}
+ #[test]
+ fn problem_pages_bind_preview_to_the_archive_version(){
+  let mut p=player();let mut source=record(&mut p,"C","right");
+  let page=p.history_problem_notes(&source.content_id,&source.id,0).unwrap();
+  let revision=page["revision"].as_str().unwrap().to_string();
+  assert_eq!(revision.len(),64);
+  source.expected_revision=Some(revision);
+  let mut spec=MultiProblemSpec{sources:vec![source],order:vec![],before:0,after:0,mode:"wait".into(),speed:0.7,routine_id:None,day:None};
+  assert!(p.build_multi_problem_plan(&spec).is_ok());
+  spec.sources[0].expected_revision=Some("old-version".into());
+  assert!(p.build_multi_problem_plan(&spec).is_err());
+ }
  #[test]
  fn cross_song_preview_is_readonly_ordered_and_daily_plan_restores_each_scope(){
   let mut p=player();let mut a=record(&mut p,"C","right");let b=record(&mut p,"D","left");a.references=vec![0,2];let spec=MultiProblemSpec{sources:vec![a.clone(),b.clone()],order:vec![HistoryProblemSelection{references:vec![0],..a.clone()},b.clone(),HistoryProblemSelection{references:vec![2],..a.clone()}],before:0,after:0,mode:"wait".into(),speed:0.7,routine_id:None,day:Some("2026-10-02".into())};
