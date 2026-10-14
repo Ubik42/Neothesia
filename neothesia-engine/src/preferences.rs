@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 #[serde(default, rename_all = "camelCase")]
 pub struct SessionSettings {
     pub tracks: Vec<PracticeTrackSetup>,
+    #[serde(deserialize_with = "deserialize_parts")]
     pub parts: BTreeMap<usize, neothesia_core::practice::PracticePart>,
     pub mode: Option<String>,
     pub count_in: u8,
@@ -14,6 +15,14 @@ pub struct SessionSettings {
     pub rounds: usize,
     pub hands: String,
     pub adaptive: bool,
+}
+fn deserialize_parts<'de, D>(deserializer: D) -> Result<BTreeMap<usize, neothesia_core::practice::PracticePart>, D::Error>
+where D: serde::Deserializer<'de> {
+    use serde::de::Error;
+    let parts = BTreeMap::<String, neothesia_core::practice::PracticePart>::deserialize(deserializer)?;
+    parts.into_iter().map(|(id, part)| {
+        id.parse::<usize>().map(|id| (id, part)).map_err(|_| D::Error::custom(format!("音轨编号无效：{id}")))
+    }).collect()
 }
 use std::{
     io::Write,

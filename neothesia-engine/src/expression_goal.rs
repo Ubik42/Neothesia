@@ -209,12 +209,6 @@ impl crate::Player {
         let Some(goal) = &item.goal.expression else {
             return Ok(());
         };
-        if matches!(
-            item.target,
-            crate::routine_commands::RoutineTarget::Ladder { .. }
-        ) {
-            return Err("阶梯项目暂不支持力度或踏板达标要求".into());
-        }
         let Some(file) = self
             .file
             .as_ref()
@@ -238,6 +232,11 @@ impl crate::Player {
                     file.tempo_track.pulses_to_duration(a.start_tick),
                     file.tempo_track.pulses_to_duration(b.end_tick),
                 )
+            }
+            crate::routine_commands::RoutineTarget::Ladder { preset } => {
+                let a = file.musical_time.measures.get(preset.start.saturating_sub(1)).ok_or("阶梯小节范围无效")?;
+                let b = file.musical_time.measures.get(preset.end.saturating_sub(1)).ok_or("阶梯小节范围无效")?;
+                (file.tempo_track.pulses_to_duration(a.start_tick), file.tempo_track.pulses_to_duration(b.end_tick))
             }
             crate::routine_commands::RoutineTarget::PrecisePassage {range} => (file.tempo_track.pulses_to_duration(range.start_tick),file.tempo_track.pulses_to_duration(range.end_tick)),
             crate::routine_commands::RoutineTarget::ScorePassage {range} => (file.tempo_track.pulses_to_duration(range.start_tick),file.tempo_track.pulses_to_duration(range.end_tick)),

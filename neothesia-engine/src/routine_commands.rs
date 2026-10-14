@@ -532,9 +532,8 @@ impl Player {
         } else {
             old.clone().ok_or("更新项目需要已有项目或当前曲目来源")?
         };
-        if matches!(item.target,RoutineTarget::Ladder{..})&&goal.expression.is_some(){return Err("阶梯项目暂不支持力度或踏板达标要求".into())}
         let goal = if let RoutineTarget::Ladder { preset } = &item.target {
-            RoutineGoal { expression:None,
+            RoutineGoal { expression:goal.expression.clone(),
                     passes: 1,
                 accuracy: preset.plan.accuracy_percent,
                 on_time: preset.plan.on_time_percent,
@@ -746,7 +745,6 @@ impl Player {
         }
         item.goal
             .validate(item.settings.mode.as_deref().unwrap_or("wait"))?;
-        if matches!(item.target,RoutineTarget::Ladder{..})&&item.goal.expression.is_some(){return Err("阶梯项目暂不支持力度或踏板达标要求".into())}
         self.stop_routine()?;
         if self.ladder.as_ref().is_some_and(|l| l.active) {
             self.stop_ladder()?;

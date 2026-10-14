@@ -17,6 +17,7 @@ import {
   type LoadedSong,
   type SongRow,
   type LadderPreset,
+  type LadderRun,
   type CollectionSong,
 } from "./api";
 export interface RoutineGoal {
@@ -60,6 +61,7 @@ interface Progress {
   limited: boolean;
   lastResult: string;
   bestAccuracy: number | null;
+  ladder?: LadderRun["progress"] | null;
 }
 interface Run {
   day: string;
@@ -127,7 +129,9 @@ export function RoutineStatus({
               ? "本项已跳过"
               : r.progress.limited
                 ? "本次轮数到上限"
-                : `达标 ${r.goal.consecutive ? r.progress.streak : r.progress.passed}/${r.goal.passes} 次 · 已练 ${r.progress.attempts} 轮`}
+                : r.kind === "ladder" && state.ladder
+                  ? `当前速度 ${Math.round(state.speed * 100)}% · 本级 ${state.ladder.progress.successStreak}/${state.ladder.preset.plan.passesRequired} 轮 · 已练 ${r.progress.attempts} 轮`
+                  : `达标 ${r.goal.consecutive ? r.progress.streak : r.progress.passed}/${r.goal.passes} 次 · 已练 ${r.progress.attempts} 轮`}
         </span>
         {r.goal.expression && (
           <span className="routine-expression-target">
@@ -711,7 +715,9 @@ export function RoutineDialog({
                                   ? "已跳过"
                                   : p?.limited
                                     ? "本次到上限"
-                                    : `${(item.goal.consecutive ? p?.streak : p?.passed) ?? 0}/${item.goal.passes}`}
+                                    : item.target.kind === "ladder" && item.target.preset
+                                      ? `第 ${(p?.ladder?.stage ?? 0) + 1} 级 · 已练 ${p?.attempts ?? 0} 轮`
+                                      : `${(item.goal.consecutive ? p?.streak : p?.passed) ?? 0}/${item.goal.passes}`}
                           </b>
                         </button>
                         <button
@@ -764,8 +770,6 @@ export function RoutineDialog({
                         value={source}
                         onChange={(e) => {
                           setSource(e.target.value);
-                          if (e.target.value.startsWith("ladder:"))
-                            patch({ expression: null });
                         }}
                       >
                         {itemId && (
@@ -867,23 +871,23 @@ export function RoutineDialog({
                         />
                       )}
                     </div>
-                    {!ladderItem && (
-                      <ExpressionGoalControl
+                    <ExpressionGoalControl
                         value={goal.expression}
                         wait={
                           source === "current"
                             ? state.mode === "wait"
                             : source === ""
                               ? currentItem?.settings.mode === "wait"
-                              : false
+                              : source.startsWith("ladder:")
+                                ? ladders.find((p) => p.id === source.slice(7))?.settings.mode === "wait"
+                                : false
                         }
                         disabled={locked}
                         change={(expression) => patch({ expression })}
-                      />
-                    )}
+                    />
                     <p className="parameter-help">
                       {ladderItem
-                        ? "阶梯项目使用所选方案的完整晋级规则，达到目标级才完成。"
+                        ? "阶梯项目逐级检查正确率、准时率和已选力度/踏板要求，达到目标速度才完成。"
                         : "完整练完目标音符后，按正确率、准时率和已选力度/踏板要求计达标；等音不支持准时率门槛。"}{" "}
                       改变目标或重新捕获条件会重置当天本项进度；历史结果保留。
                     </p>

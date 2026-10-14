@@ -4120,8 +4120,15 @@ impl Player {
             let ladder_round=self.ladder.as_ref().is_some_and(|r|r.active);
             if self.state.error.is_none() && ladder_round {
                         let target_notes=self.history_context().target_notes;
+                        let expression_failure = self.active_expression_goal.as_ref().and_then(|goal| {
+                            goal.assess_with_note_evidence(
+                                self.matcher.summary().expression,
+                                goal.note_velocity_difference.and_then(|_| self.performance_capture.note_velocity_evidence(self.matcher.results(), target_notes)),
+                                goal.note_pedal_mismatch_count.and_then(|_| self.performance_capture.note_pedal_evidence(self.matcher.results(), target_notes)),
+                            ).err()
+                        });
                         if let Some(run)=&mut self.ladder {
-                            run.progress.evaluate(&run.preset.plan,&self.matcher.summary(),target_notes);
+                            run.progress.evaluate_with_expression(&run.preset.plan,&self.matcher.summary(),target_notes,expression_failure.as_deref());
                             self.state.speed=f64::from(run.progress.speed(&run.preset.plan))/100.;
                             if run.progress.completed||run.progress.limited{run.active=false;}
                         }
@@ -5315,6 +5322,46 @@ mod tests {
         p.command(Command::OpenRoutineItem{routine_id:rid,day:"2026-10-02".into(),item_id:item,resume:true}).unwrap();
         finish_routine_rounds(&mut p,1);assert_eq!(p.routine_status().unwrap()["progress"]["completed"],true);
         assert!(p.ladder.as_ref().unwrap().progress.completed);assert_eq!(p.state.status,"finished");
+    }
+    #[test]
+    fn daily_ladder_expression_failure_blocks_promotion_and_survives_resume() {
+        let mut p=player();
+        let content_id=p.file.as_ref().unwrap().content_id.clone();
+        let ladder=p.command(Command::SaveLadder{id:None,name:"力度阶梯".into(),start:1,end:1,plan:neothesia_core::speed_ladder::SpeedLadderPlan{start_percent:80,target_percent:80,step_percent:5,passes_required:1,accuracy_percent:90,on_time_percent:None,failures_before_step_back:0,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        let rid=p.command(Command::SaveRoutine{id:None,day:None,name:"力度阶梯日课".into(),notes:"".into(),copy_of:None}).unwrap()["id"].as_str().unwrap().to_string();
+        let expression=expression_goal::ExpressionGoal{velocity_difference:Some(50),..Default::default()};
+        let item=p.command(Command::SaveRoutineItem{routine_id:rid.clone(),day:None,id:None,source:Some("ladder".into()),source_id:Some(ladder),title:"力度进阶".into(),notes:"".into(),goal:routine_commands::RoutineGoal{expression:Some(expression.clone()),passes:1,accuracy:90,on_time:None,consecutive:true,attempt_limit:5}}).unwrap()["id"].as_str().unwrap().to_string();
+        assert_eq!(p.preferences.routines[0].items[0].goal.expression,Some(expression.clone()));
+        p.command(Command::OpenRoutineItem{routine_id:rid.clone(),day:"2026-10-02".into(),item_id:item.clone(),resume:true}).unwrap();
+        p.command(Command::Play).unwrap();
+        for _ in 0..2500 {
+            p.tick(Duration::from_millis(10));
+            for pitch in p.snapshot().required {
+                p.command(Command::Note{pitch,velocity:1,active:true}).unwrap();
+                p.command(Command::Note{pitch,velocity:0,active:false}).unwrap();
+            }
+            if p.routine_status().unwrap()["progress"]["attempts"]==1 {break;}
+        }
+        let status=p.routine_status().unwrap();
+        assert_eq!(status["progress"]["attempts"],1);
+        assert_eq!(status["progress"]["completed"],false);
+        assert!(status["progress"]["lastResult"].as_str().unwrap().contains("力度平均差"));
+        assert_eq!(p.ladder.as_ref().unwrap().progress.success_streak,0);
+        let root=p.data.clone();
+        p.command(Command::StopRoutine).unwrap();drop(p);
+        let mut p=Player::new(root,PathBuf::new(),true);p.restore();
+        assert!(!p.preferences.routines.is_empty(), "routines lost after reopening; error={:?}", p.state.error);
+        p.command(Command::OpenRoutineItem{routine_id:rid.clone(),day:"2026-10-02".into(),item_id:item.clone(),resume:true}).unwrap();
+        assert_eq!(p.routine_status().unwrap()["progress"]["attempts"],1);
+        assert_eq!(p.routine_status().unwrap()["goal"]["expression"]["velocityDifference"],50);
+        finish_routine_rounds(&mut p,2);
+        assert_eq!(p.routine_status().unwrap()["progress"]["completed"],true);
+        let sessions=&p.history.song(&content_id).unwrap().sessions;
+        assert_eq!(sessions.len(),2);
+        assert_eq!(sessions[1].context.as_ref().unwrap().routine.as_ref().unwrap().expression.as_ref().unwrap().velocity_difference,Some(50));
+        let backup:practice_backup::Backup=serde_json::from_value(p.practice_backup_snapshot(&Default::default()).unwrap()).unwrap();
+        let restored=practice_backup::Backup::decode(&backup.encode().unwrap()).unwrap();
+        assert_eq!(restored.routines.iter().find(|r|r.id==rid).unwrap().items[0].goal.expression,Some(expression));
     }
     #[test]
     fn beat_navigation_uses_pickup_and_real_tempo_and_rejects_invalid_beats() {

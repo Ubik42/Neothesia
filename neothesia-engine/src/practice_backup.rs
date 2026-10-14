@@ -155,9 +155,6 @@ fn routine(r: &PracticeRoutine) -> Result<(), String> {
             RoutineTarget::ScorePassage { range } => range.validate()?,
             RoutineTarget::Passage { start, end } => range(*start, *end)?,
             RoutineTarget::Ladder { preset } => {
-                if i.goal.expression.is_some() {
-                    return Err("阶梯项目不支持力度/踏板要求".into());
-                }
                 ladder(preset)?;
             }
         };

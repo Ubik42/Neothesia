@@ -73,6 +73,16 @@ impl SpeedLadderProgress {
         summary: &AttemptSummary,
         target_notes: usize,
     ) {
+        self.evaluate_with_expression(plan, summary, target_notes, None);
+    }
+    /// An expression failure belongs to the same round as note and timing grading.
+    pub fn evaluate_with_expression(
+        &mut self,
+        plan: &SpeedLadderPlan,
+        summary: &AttemptSummary,
+        target_notes: usize,
+        expression_failure: Option<&str>,
+    ) {
         if self.completed || self.limited {
             return;
         }
@@ -85,7 +95,8 @@ impl SpeedLadderProgress {
             && accuracy.is_some_and(|v| v + 0.00001 >= f32::from(plan.accuracy_percent) / 100.)
             && plan.on_time_percent.is_none_or(|threshold| {
                 on_time.is_some_and(|v| v + 0.00001 >= f32::from(threshold) / 100.)
-            });
+            })
+            && expression_failure.is_none();
         self.total_rounds += 1;
         self.batch_rounds += 1;
         self.last_accuracy = accuracy;
@@ -113,8 +124,12 @@ impl SpeedLadderProgress {
                 .is_some_and(|v| v + 0.00001 >= f32::from(plan.accuracy_percent) / 100.)
             {
                 "正确率未达标"
-            } else {
+            } else if !plan.on_time_percent.is_none_or(|threshold| {
+                on_time.is_some_and(|v| v + 0.00001 >= f32::from(threshold) / 100.)
+            }) {
                 "准时率未达标"
+            } else {
+                expression_failure.unwrap_or("本轮未达标")
             }
             .into();
             if plan.failures_before_step_back > 0
@@ -122,14 +137,14 @@ impl SpeedLadderProgress {
             {
                 if self.stage > 0 {
                     self.stage -= 1;
-                    self.last_result = "连续未达标，回退一级".into();
+                    self.last_result = format!("连续未达标，回退一级：{}", self.last_result);
                 }
                 self.failure_streak = 0;
             }
         }
         if !self.completed && self.batch_rounds >= plan.attempt_limit {
             self.limited = true;
-            self.last_result = "本次轮数已到上限".into();
+            self.last_result = format!("本次轮数已到上限：{}", self.last_result);
         }
     }
 }
@@ -179,5 +194,26 @@ mod tests {
         assert!(!p.limited);
         assert_eq!(p.batch_rounds, 0);
         assert_eq!(p.total_rounds, 1);
+    }
+    #[test]
+    fn expression_failure_prevents_promotion_and_explains_backoff() {
+        let plan = SpeedLadderPlan {
+            start_percent: 60, target_percent: 70, step_percent: 10,
+            passes_required: 1, accuracy_percent: 90, on_time_percent: None,
+            failures_before_step_back: 1, attempt_limit: 3,
+        };
+        let mut good = AttemptSummary::default();
+        good.overall.matched_notes = 4;
+        good.overall.on_time_notes = 4;
+        let mut progress = SpeedLadderProgress::default();
+        progress.evaluate(&plan, &good, 4);
+        assert_eq!(progress.speed(&plan), 70);
+        progress.evaluate_with_expression(&plan, &good, 4, Some("力度平均差未达标"));
+        assert_eq!(progress.speed(&plan), 60);
+        assert!(!progress.completed);
+        assert!(progress.last_result.contains("力度平均差未达标"));
+        progress.evaluate_with_expression(&plan, &good, 4, Some("力度平均差未达标"));
+        assert!(progress.limited);
+        assert!(progress.last_result.contains("力度平均差未达标"));
     }
 }
