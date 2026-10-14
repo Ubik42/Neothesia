@@ -35,6 +35,7 @@ mod tests {
         let sidecar = neothesia_core::library::SongSidecar {
             meter_map: Some(neothesia_core::library::MeterMap {
                 pickup_ticks: u64::from(file.musical_time.ppq) / 2,
+                measure_lengths: vec![],
                 segments: vec![
                     neothesia_core::library::MeterSegment { measure: 1, numerator: 4, denominator: 4, display_start: Some(0) },
                     neothesia_core::library::MeterSegment { measure: 2, numerator: 3, denominator: 4, display_start: Some(20) },

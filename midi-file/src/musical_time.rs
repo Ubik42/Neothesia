@@ -27,6 +27,18 @@ impl MusicalTime {
         pickup_ticks: u64,
         segments: &[(usize, u8, u16, Option<i32>)],
     ) -> Result<Self, String> {
+        Self::segmented_with_lengths(ppq, last_tick, pickup_ticks, segments, &[])
+    }
+
+    /// Length overrides use resulting 1-based measure ordinals. The following
+    /// measure starts at the end of the overridden measure.
+    pub fn segmented_with_lengths(
+        ppq: u16,
+        last_tick: u64,
+        pickup_ticks: u64,
+        segments: &[(usize, u8, u16, Option<i32>)],
+        measure_lengths: &[(usize, u64)],
+    ) -> Result<Self, String> {
         if segments.is_empty()
             || segments.len() > 1024
             || segments[0].0 != 1
@@ -43,6 +55,18 @@ impl MusicalTime {
                 || label.is_some_and(|x| !(-9999..=999999).contains(&x))
             {
                 return Err("拍号或书面小节编号无效，当前 MIDI 精度必须能表达每一拍".into());
+            }
+        }
+        if measure_lengths.len() > 1024 {
+            return Err("不完整小节数量过多".into());
+        }
+        let mut lengths = BTreeMap::new();
+        for &(measure, ticks) in measure_lengths {
+            if measure < 2 || measure > 1_000_000 || ticks == 0 {
+                return Err("不完整小节必须从第 2 小节起设置，且长度必须为正整数 MIDI tick".into());
+            }
+            if lengths.insert(measure, ticks).is_some() {
+                return Err("同一小节不能重复指定长度".into());
             }
         }
         let mut measures = Vec::new();
@@ -67,6 +91,11 @@ impl MusicalTime {
             }
             let size = if number == 1 && pickup_ticks > 0 {
                 pickup_ticks
+            } else if let Some(&short) = lengths.get(&number) {
+                if short >= length {
+                    return Err("不完整小节长度必须短于该处拍号规定的完整小节".into());
+                }
+                short
             } else {
                 length
             };
@@ -86,6 +115,9 @@ impl MusicalTime {
         }
         if segment + 1 != segments.len() {
             return Err("拍号变化点超出曲目结尾，请先调整前面的拍号".into());
+        }
+        if lengths.last_key_value().is_some_and(|(&measure, _)| measure > measures.len()) {
+            return Err("不完整小节位置超出曲目结尾，请先调整前面的小节".into());
         }
         Ok(Self { ppq, measures })
     }
@@ -251,5 +283,42 @@ mod tests {
         assert!(!grid.measures[0].explicit_meter);
         assert!(grid.measures[0].partial);
         assert_eq!(grid.measures[1].start_tick, 720);
+    }
+    #[test]
+    fn fourth_measure_shortens_and_fifth_resumes_normal_meter() {
+        let grid = MusicalTime::segmented_with_lengths(
+            480, 9000, 0,
+            &[(1, 4, 4, Some(1)), (6, 3, 4, Some(10))],
+            &[(4, 480)],
+        ).unwrap();
+        assert_eq!(grid.measures.iter().take(7).map(|m| (m.start_tick, m.end_tick)).collect::<Vec<_>>(),
+            vec![(0, 1920), (1920, 3840), (3840, 5760), (5760, 6240),
+                 (6240, 8160), (8160, 9600)]);
+        assert!(grid.measures[3].partial);
+        assert!(!grid.measures[4].partial);
+        assert_eq!(grid.measures[5].display_number, 10);
+        assert_eq!(grid.measures[5].numerator, 3);
+        assert_eq!(grid.measure_at(6239.).unwrap().number, 4);
+        assert_eq!(grid.measure_at(6240.).unwrap().number, 5);
+        assert_eq!(grid.measure_at(8160.).unwrap().number, 6);
+        assert_eq!(grid.beat_at(6240.), 1.);
+        assert_eq!(grid.beat_at(6720.), 2.);
+    }
+    #[test]
+    fn length_overrides_reject_conflicts_and_out_of_range_measures() {
+        let segments = [(1, 4, 4, None)];
+        let build = |lengths: &[(usize, u64)]| MusicalTime::segmented_with_lengths(
+            480, 7000, 240, &segments, lengths,
+        );
+        assert!(build(&[(1, 120)]).is_err());
+        assert!(build(&[(2, 0)]).is_err());
+        assert!(build(&[(2, 1920)]).is_err());
+        assert!(build(&[(2, 1921)]).is_err());
+        assert!(build(&[(2, 480), (2, 240)]).is_err());
+        assert!(build(&[(99, 480)]).is_err());
+        let grid = build(&[(4, 480)]).unwrap();
+        assert_eq!(grid.measures[0].end_tick, 240);
+        assert_eq!(grid.measures[3].end_tick, 4560);
+        assert_eq!(grid.measures[4].start_tick, 4560);
     }
 }

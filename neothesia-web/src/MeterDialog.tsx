@@ -10,10 +10,18 @@ import {
 import "./meter.css";
 
 function fromSong(song: LoadedSong): MeterMap {
-  if (song.meterMap) return structuredClone(song.meterMap);
+  if (song.meterMap)
+    return {
+      ...structuredClone(song.meterMap),
+      measure_lengths: song.meterMap.measure_lengths ?? [],
+    };
+  const measure_lengths = song.measures
+    .filter((m, i) => i > 0 && i < song.measures.length - 1 && m.partial)
+    .map((m) => ({ measure: m.number, ticks: m.endTick - m.startTick }));
   if (song.meterCorrection)
     return {
       pickup_ticks: song.meterCorrection.pickup_ticks,
+      measure_lengths,
       segments: [
         {
           measure: 1,
@@ -38,6 +46,7 @@ function fromSong(song: LoadedSong): MeterMap {
       display_start: null,
     }));
   return {
+    measure_lengths,
     pickup_ticks:
       first?.partial &&
       first.endTick - first.startTick <
@@ -61,7 +70,11 @@ export function MeterDialog({
   changed: () => Promise<void>;
 }) {
   const initial = useRef(
-    song.meterMap ?? (song.meterCorrection ? fromSong(song) : null),
+    song.meterMap
+      ? fromSong(song)
+      : song.meterCorrection
+        ? fromSong(song)
+        : null,
   );
   const [draft, setDraft] = useState<MeterMap | null>(initial.current);
   const [form, setForm] = useState(() => fromSong(song));
@@ -97,6 +110,12 @@ export function MeterDialog({
         i === index ? { ...s, ...changes } : s,
       ),
     });
+  const unitTicksAt = (measure: number) => {
+    const active =
+      [...form.segments].reverse().find((s) => s.measure <= measure) ??
+      form.segments[0];
+    return (song.ppq * 4) / active.denominator;
+  };
   const exit = () => {
     if (
       !saving.current &&
@@ -154,6 +173,13 @@ export function MeterDialog({
       if (
         value &&
         (!Number.isFinite(value.pickup_ticks) ||
+          value.measure_lengths.some(
+            (m) =>
+              !Number.isInteger(m.measure) ||
+              !Number.isInteger(m.ticks) ||
+              m.measure < 2 ||
+              m.ticks < 1,
+          ) ||
           value.segments.some(
             (s) =>
               !Number.isInteger(s.measure) ||
@@ -403,6 +429,131 @@ export function MeterDialog({
           <p className="parameter-help">
             弱起拍数使用首段的单位音符。0
             表示完整首小节。各段起始小节必须从小到大排列；上方拍号变化会影响后续小节的时间位置。
+          </p>
+        </fieldset>
+        <fieldset disabled={busy} className="meter-map-editor">
+          <legend>中途不完整的小节</legend>
+          <p className="parameter-help">
+            MIDI
+            文件可能在一个小节尚未结束时切换拍号。这里填写该小节实际有多少拍，下一小节会从实际结束位置开始；其后恢复当前拍号的正常长度。
+          </p>
+          <div className="meter-table-wrap">
+            <table className="meter-map-table">
+              <thead>
+                <tr>
+                  <th>导航小节</th>
+                  <th>实际拍数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {form.measure_lengths.map((item, i) => (
+                  <tr key={i}>
+                    <td>
+                      <input
+                        aria-label={`第 ${i + 1} 个短小节位置`}
+                        type="number"
+                        min={2}
+                        step={1}
+                        value={item.measure || ""}
+                        onChange={(e) =>
+                          edit({
+                            ...form,
+                            measure_lengths: form.measure_lengths.map((m, j) =>
+                              j === i
+                                ? { ...m, measure: Number(e.target.value) }
+                                : m,
+                            ),
+                          })
+                        }
+                      />
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`第 ${i + 1} 个短小节实际拍数`}
+                        type="number"
+                        min={0.001}
+                        step="any"
+                        value={Number(
+                          (item.ticks / unitTicksAt(item.measure)).toFixed(6),
+                        )}
+                        onChange={(e) =>
+                          edit({
+                            ...form,
+                            measure_lengths: form.measure_lengths.map((m, j) =>
+                              j === i
+                                ? {
+                                    ...m,
+                                    ticks: Math.round(
+                                      Number(e.target.value) *
+                                        unitTicksAt(m.measure),
+                                    ),
+                                  }
+                                : m,
+                            ),
+                          })
+                        }
+                      />
+                    </td>
+                    <td>
+                      <button
+                        aria-label={`移除第 ${i + 1} 个短小节`}
+                        onClick={() =>
+                          edit({
+                            ...form,
+                            measure_lengths: form.measure_lengths.filter(
+                              (_, j) => j !== i,
+                            ),
+                          })
+                        }
+                      >
+                        <Trash2 size={15} />
+                        移除
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="meter-map-toolbar">
+            <button
+              onClick={() => {
+                const next = Math.max(
+                  2,
+                  ...form.measure_lengths.map((m) => m.measure + 1),
+                );
+                const active =
+                  [...form.segments].reverse().find((s) => s.measure <= next) ??
+                  form.segments[0];
+                const fullTicks = active.numerator * unitTicksAt(next);
+                edit({
+                  ...form,
+                  measure_lengths: [
+                    ...form.measure_lengths,
+                    {
+                      measure: next,
+                      ticks: Math.max(
+                        1,
+                        Math.round(
+                          fullTicks -
+                            (active.numerator > 1
+                              ? unitTicksAt(next)
+                              : unitTicksAt(next) / 2),
+                        ),
+                      ),
+                    },
+                  ],
+                });
+              }}
+            >
+              <Plus size={16} />
+              添加不完整小节
+            </button>
+          </div>
+          <p className="parameter-help">
+            实际拍数使用该小节拍号的单位音符。例如 4/4 小节提前一拍结束时，请填
+            3。
           </p>
         </fieldset>
         <div className="meter-map-toolbar">

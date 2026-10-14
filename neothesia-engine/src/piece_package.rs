@@ -155,8 +155,11 @@ impl Package {
                 .as_slice(),
         )
         .map_err(|e| format!("曲目包清单无效：{e}"))?;
-        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&manifest.version) {
+        if manifest.format != "neothesia-piece" || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].contains(&manifest.version) {
             return Err("曲目包版本暂不支持".into());
+        }
+        if manifest.version < 12 && manifest.meter_map.as_ref().is_some_and(|m| !m.measure_lengths.is_empty()) {
+            return Err("不完整小节需要第 12 版曲目包，请使用新版软件重新导出".into());
         }
         if manifest.version<10 && manifest.meter_map.is_some(){return Err("分段拍号需要第 10 版曲目包，请使用新版软件重新导出".into());}
         if manifest.version<11 && manifest.papers.iter().any(|p|!p.note_anchors.is_empty()){return Err("逐音纸谱位置需要第 11 版曲目包，请使用新版软件重新导出".into());}

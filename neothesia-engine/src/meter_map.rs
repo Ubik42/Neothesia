@@ -19,7 +19,8 @@ impl Player {
             .iter()
             .map(|s| (s.measure, s.numerator, s.denominator, s.display_start))
             .collect();
-        MusicalTime::segmented(file.musical_time.ppq, end, map.pickup_ticks, &segments)
+        let lengths: Vec<_> = map.measure_lengths.iter().map(|s| (s.measure, s.ticks)).collect();
+        MusicalTime::segmented_with_lengths(file.musical_time.ppq, end, map.pickup_ticks, &segments, &lengths)
     }
     pub(crate) fn sidecar_grid(file: &MidiFile, s: &SongSidecar) -> Result<MusicalTime, String> {
         if let Some(m) = &s.meter_map {
@@ -34,6 +35,7 @@ impl Player {
         self.meter_map.clone().or_else(|| {
             self.meter_correction.map(|m| MeterMap {
                 pickup_ticks: m.pickup_ticks,
+                measure_lengths: vec![],
                 segments: vec![MeterSegment {
                     measure: 1,
                     numerator: m.numerator,

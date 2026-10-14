@@ -42,6 +42,9 @@ test("分段拍号、弱起与显示编号预览后保存，并恢复原文件�
   await d.getByLabel("第 2 段起始小节").fill("3");
   await d.getByLabel("第 2 段每小节拍数").fill("3");
   await d.getByLabel("第 2 段显示起始编号").fill("20");
+  await d.getByRole("button", { name: "添加不完整小节" }).click();
+  await d.getByLabel("第 1 个短小节位置").fill("2");
+  await d.getByLabel("第 1 个短小节实际拍数").fill("2");
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.keyboard.press("Escape");
   await expect(d).toBeVisible();
@@ -51,6 +54,7 @@ test("分段拍号、弱起与显示编号预览后保存，并恢复原文件�
   await expect(rows.first()).toContainText("0:00.250");
   await expect(rows.nth(2).locator("td").nth(1)).toHaveText("20");
   await expect(rows.nth(2).locator("td").nth(2)).toHaveText("3/4");
+  await expect(rows.nth(2).locator("td").nth(3)).toContainText("0:01.250");
   await d.getByRole("button", { name: "定位导航小节 3", exact: true }).click();
   await expect(d.getByRole("status")).toContainText("已定位到导航小节 3");
   expect((await cmd({ type: "currentSong" })).meterMap).toEqual(
@@ -66,6 +70,8 @@ test("分段拍号、弱起与显示编号预览后保存，并恢复原文件�
     { measure: 1, numerator: 4, denominator: 4, display_start: 0 },
     { measure: 3, numerator: 3, denominator: 4, display_start: 20 },
   ]);
+  expect(saved.meterMap.measure_lengths).toEqual([{ measure: 2, ticks: 960 }]);
+  expect(saved.measures[2].startTick).toBe(1200);
   expect(saved.measures[0].displayNumber).toBe(0);
   expect(saved.measures[2].displayNumber).toBe(20);
   expect(saved.notes).toEqual(original.notes);
@@ -73,6 +79,7 @@ test("分段拍号、弱起与显示编号预览后保存，并恢复原文件�
   await page.reload();
   await page.getByRole("button", { name: "修正小节网格", exact: true }).click();
   await expect(d.getByLabel("第 2 段显示起始编号")).toHaveValue("20");
+  await expect(d.getByLabel("第 1 个短小节实际拍数")).toHaveValue("2");
   await d
     .getByRole("button", { name: "恢复文件原始网格", exact: true })
     .click();

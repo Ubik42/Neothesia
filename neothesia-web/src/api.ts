@@ -77,6 +77,7 @@ export interface MeterMapSegment {
 export interface MeterMap {
   pickup_ticks: number;
   segments: MeterMapSegment[];
+  measure_lengths: { measure: number; ticks: number }[];
 }
 export interface MeterMapPreview {
   proof: string;

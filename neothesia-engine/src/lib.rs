@@ -4917,13 +4917,19 @@ mod tests {
     }
     #[test]
     fn segmented_meter_preview_save_reopen_and_stale_guard(){
-        use neothesia_core::library::{MeterMap,MeterSegment};
+        use neothesia_core::library::{MeasureLength,MeterMap,MeterSegment};
         let mut p=player();let file=p.file.as_ref().unwrap();let id=file.content_id.clone();let path=file.source_path.clone().unwrap();let ppq=u64::from(file.musical_time.ppq);let original=p.grid_signature();let notes:Vec<_>=p.notes.iter().map(|n|(n.start,n.end)).collect();
-        let value=Some(MeterMap{pickup_ticks:ppq,segments:vec![MeterSegment{measure:1,numerator:3,denominator:4,display_start:Some(0)},MeterSegment{measure:3,numerator:6,denominator:8,display_start:Some(20)}]});
-        let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:value.clone()}).unwrap();assert_eq!(preview["measures"][0]["displayNumber"],0);assert_eq!(preview["measures"][2]["displayNumber"],20);assert_eq!(preview["measures"][2]["startTick"],ppq*4);assert_eq!(p.grid_signature(),original);
+        let value=Some(MeterMap{pickup_ticks:ppq,segments:vec![MeterSegment{measure:1,numerator:3,denominator:4,display_start:Some(0)},MeterSegment{measure:3,numerator:6,denominator:8,display_start:Some(20)}],measure_lengths:vec![MeasureLength{measure:2,ticks:ppq}]});
+        let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:value.clone()}).unwrap();assert_eq!(preview["measures"][0]["displayNumber"],0);assert_eq!(preview["measures"][1]["partial"],true);assert_eq!(preview["measures"][2]["displayNumber"],20);assert_eq!(preview["measures"][2]["startTick"],ppq*2);assert_eq!(p.grid_signature(),original);
         let proof=preview["proof"].as_str().unwrap().to_string();p.command(Command::SaveMeterMap{content_id:id.clone(),value:value.clone(),proof:proof.clone()}).unwrap();assert!(p.command(Command::SaveMeterMap{content_id:id.clone(),value:value.clone(),proof}).is_err());
+        p.command(Command::MeasureLoop{start:2,end:2,enabled:true}).unwrap();
+        let expected_start=p.file.as_ref().unwrap().tempo_track.pulses_to_duration(ppq).as_secs_f64();
+        let expected_end=p.file.as_ref().unwrap().tempo_track.pulses_to_duration(ppq*2).as_secs_f64();
+        let passage=p.state.passage.as_ref().unwrap();assert_eq!((passage.start,passage.end),(expected_start,expected_end));
+        assert!(p.command(Command::Seek{position:expected_end}).is_err());
+        p.command(Command::Seek{position:expected_start}).unwrap();
         p.command(Command::Load{path:path.clone(),title:"reopened".into()}).unwrap();assert_eq!(p.meter_map,value);assert_eq!(p.file.as_ref().unwrap().musical_time.measures[2].display_number,20);assert_eq!(notes,p.notes.iter().map(|n|(n.start,n.end)).collect::<Vec<_>>());
-        let exported=p.command(Command::ExportPackage).unwrap();let bytes:Vec<u8>=serde_json::from_value(exported["bytes"].clone()).unwrap();let package=piece_package::Package::decode(&bytes).unwrap();assert_eq!(package.manifest.meter_map,value);assert_eq!(package.manifest.version,10);
+        let exported=p.command(Command::ExportPackage).unwrap();let bytes:Vec<u8>=serde_json::from_value(exported["bytes"].clone()).unwrap();let mut package=piece_package::Package::decode(&bytes).unwrap();assert_eq!(package.manifest.meter_map,value);assert_eq!(package.manifest.version,12);package.manifest.version=11;assert!(package.encode().is_err());
         let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:None}).unwrap();p.command(Command::SaveMeterMap{content_id:id.clone(),value:None,proof:preview["proof"].as_str().unwrap().into()}).unwrap();assert_eq!(p.grid_signature(),original);
         let preview=p.command(Command::PreviewMeterMap{content_id:id.clone(),value:value.clone()}).unwrap();std::fs::write(path,include_bytes!("../assets/basic-chords.mid")).unwrap();assert!(p.command(Command::SaveMeterMap{content_id:id,value,proof:preview["proof"].as_str().unwrap().into()}).is_err());
     }

@@ -77,7 +77,14 @@ pub struct MeterCorrection {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MeterSegment { pub measure:usize,pub numerator:u8,pub denominator:u16,#[serde(default)] pub display_start:Option<i32> }
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub struct MeterMap { pub pickup_ticks:u64,pub segments:Vec<MeterSegment> }
+pub struct MeasureLength { pub measure: usize, pub ticks: u64 }
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MeterMap {
+    pub pickup_ticks: u64,
+    pub segments: Vec<MeterSegment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub measure_lengths: Vec<MeasureLength>,
+}
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScoreAssociation {
