@@ -351,8 +351,10 @@ pub fn suggest_fingering_plans_with_expression(
             .collect();
     }
     beam.sort_by_key(|p| p.cost);
-    let mut plans = vec![];
+    let mut candidates = vec![];
     let mut seen = BTreeSet::new();
+    // A few extra valid terminal states reveal a cheaper no-swap path without
+    // expanding every beam entry across a long passage.
     for state in beam {
         let mut fingers = vec![0; notes.len()];
         let mut substitutions=Vec::new();
@@ -364,9 +366,22 @@ pub fn suggest_fingering_plans_with_expression(
             node = n.parent;
         }
         substitutions.sort_by_key(|s|(s.at,s.note));
+        if allow && validate_substitution_plan(notes,&fingers,&substitutions,hand,focus,rate).is_err(){continue;}
         if !seen.insert((focus.iter().map(|i|fingers[*i]).collect::<Vec<_>>(),substitutions.clone())) {
             continue;
         }
+        candidates.push((fingers,substitutions,state.cost));
+        if candidates.len() == count.saturating_mul(2) { break; }
+    }
+    let mut plain_costs = BTreeMap::<Vec<u8>, i64>::new();
+    for (fingers,_,cost) in candidates.iter().filter(|(_,substitutions,_)|substitutions.is_empty()) {
+        plain_costs.entry(fingers.to_vec()).and_modify(|best|*best=(*best).min(*cost)).or_insert(*cost);
+    }
+    candidates.retain(|(fingers,substitutions,cost)|substitutions.is_empty() ||
+        plain_costs.get(fingers.as_slice()).is_none_or(|plain|*cost<*plain));
+    candidates.truncate(count);
+    let mut plans = Vec::with_capacity(candidates.len());
+    for (fingers,substitutions,cost) in candidates {
         let mut suggestions = Vec::with_capacity(notes.len());
         for (g, &(start, end)) in groups.iter().enumerate() {
             let held = (0..start).any(|i| notes[i].end > notes[start].onset);
@@ -417,15 +432,11 @@ pub fn suggest_fingering_plans_with_expression(
                 });
             }
         }
-        if allow && validate_substitution_plan(notes,&fingers,&substitutions,hand,focus,rate).is_err(){continue;}
         plans.push(FingeringPlan {
             suggestions,
             substitutions,
-            cost: state.cost,
+            cost,
         });
-        if plans.len() == count {
-            break;
-        }
     }
     if plans.is_empty(){return Err(error(0,"substitution"));}
     Ok(plans)
@@ -719,18 +730,23 @@ mod substitution_tests {
  }
  #[test]
  fn trusted_slur_can_offer_a_safe_optional_held_substitution(){
-  let notes=[note(60,0.,3.,3),note(64,1.,1.5,4)];
+  let notes=[note(60,0.,3.,3),note(72,1.,1.5,4)];
   let plain=suggest_fingering_plans_with_substitutions(&notes,FingeringHand::Right,
       HandSpanProfile::Standard,&[0,1],5,1.,true).unwrap();
   assert!(plain.iter().all(|plan|plan.substitutions.is_empty()));
   let expression=[FingeringExpression::default(),FingeringExpression{slur_from:Some(0),..Default::default()}];
   let connected=suggest_fingering_plans_with_expression(&notes,FingeringHand::Right,
       HandSpanProfile::Standard,&[0,1],5,1.,true,&expression).unwrap();
-  assert!(connected.iter().any(|plan|!plan.substitutions.is_empty()));
+  assert!(connected[0].cost<plain[0].cost);
+  assert_eq!((connected[0].substitutions[0].note,connected[0].substitutions[0].from,connected[0].substitutions[0].to),(0,3,1));
   for plan in connected {
    validate_substitution_plan(&notes,&plan.suggestions.iter().map(|s|s.finger).collect::<Vec<_>>(),
        &plan.substitutions,FingeringHand::Right,&[0,1],1.).unwrap();
   }
+  let nearby=[note(60,0.,3.,3),note(64,1.,1.5,4)];
+  let nearby_plans=suggest_fingering_plans_with_expression(&nearby,FingeringHand::Right,
+      HandSpanProfile::Standard,&[0,1],5,1.,true,&expression).unwrap();
+  assert!(nearby_plans.iter().all(|plan|plan.substitutions.is_empty()));
  }
  #[test]
  fn slur_scoring_remembers_a_substitution_after_the_held_note_ends(){
