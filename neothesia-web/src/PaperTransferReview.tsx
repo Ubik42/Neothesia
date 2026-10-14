@@ -162,6 +162,8 @@ export function PaperTransferReview({
       source,
       target: target.id,
     });
+    if (v.source.id !== source || v.target.id !== target.id)
+      throw new Error("迁移预览与当前选择的来源或目标谱面不一致，请重新审阅");
     setPreview(v);
     setReplace(false);
     setFocus(0);
@@ -671,11 +673,17 @@ export function PaperTransferReview({
                       ...(!cross ? { replaceAnchors: replace } : {}),
                     },
                   });
-                  await changed();
                   setPreview(null);
+                  setNotes([]);
+                  setAnchors([]);
                   setNotice(
                     `已迁移 ${result.added} 条批注、${result.anchors} 项小节对应。请核对后再启用自动翻页。`,
                   );
+                  try {
+                    await changed();
+                  } catch (cause) {
+                    setError(`迁移已保存，但谱页状态暂未读到新结果：${String(cause)}。请重新打开谱页核对。`);
+                  }
                 })
               }
             >
