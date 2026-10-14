@@ -41,6 +41,7 @@ interface Entry {
   mode: string | null;
   coverage: { target: number; judged: number } | null;
   range: [number, number] | null;
+  exactPassage?: boolean;
   score: Snapshot["score"];
   restorable: boolean;
   tempo: number | null;
@@ -164,7 +165,7 @@ const coverageName = (e: Entry) =>
     ? `${e.coverage.judged >= e.coverage.target ? "已完成" : "部分结果"} · ${e.coverage.judged}/${e.coverage.target} 个目标音符`
     : "完成范围未记录";
 const rangeName = (e: Entry) =>
-  e.range ? `第 ${e.range[0]}–${e.range[1]} 小节` : "全曲";
+  e.range ? `第 ${e.range[0]}–${e.range[1]} 小节${e.exactPassage ? " · 原位置" : ""}` : "全曲";
 const date = (n: number) =>
   new Date(n).toLocaleString("zh-CN", {
     year: "numeric",
@@ -211,6 +212,8 @@ function ComparisonConditions({ detail }: { detail: Detail }) {
         <div><dt>重复与自适应</dt><dd>{c.rounds == null ? "轮数未记录" : c.rounds === 0 ? "不限轮数" : `${c.rounds} 轮`}；自适应 {c.adaptive == null ? "未记录" : c.adaptive ? "开" : "关"}</dd></div>
         <div><dt>力度与踏板目标</dt><dd>{c.expressionGoal == null ? "无专项要求" : expressionGoalText({ velocityDifference: c.expressionGoal.velocity_difference, noteVelocityDifference: c.expressionGoal.note_velocity_difference, notePedalMismatchCount: c.expressionGoal.note_pedal_mismatch_count, contourPercent: c.expressionGoal.contour_percent, pedalOffsetMs: c.expressionGoal.pedal_offset_ms })}</dd></div>
       </dl>
+      {c.range && !c.passageBounds &&
+        <p className="parameter-help">这条旧记录只保存了起止小节。软件无法确认两次练习的拍内起止位置是否相同；同小节的历史比较只可按小节参考。</p>}
       {!c.complete && <p className="parameter-help">这条记录缺少可确认的完整条件或有效判断，因此软件不会把它当作同条件比较的依据。</p>}
     </details>
   );

@@ -146,6 +146,15 @@ pub(super) fn attempt_difference_reasons(
     } else if a.grid != b.grid {
         reasons.push("音乐小节网格不同");
     }
+    if matches!(current.kind, PracticeSessionKind::Loop { .. }) && current.kind == older.kind
+        && a.passage_bounds != b.passage_bounds
+    {
+        if a.passage_bounds.is_none() || b.passage_bounds.is_none() {
+            reasons.push("有一轮缺少原选段起止拍位");
+        } else {
+            reasons.push("原选段起止拍位不同");
+        }
+    }
     if a.hands.is_empty() || b.hands.is_empty() {
         reasons.push("逐音分手条件缺少记录");
     } else if a.hands != b.hands {
@@ -356,6 +365,18 @@ mod tests {
             ["练习速度不同", "音乐小节网格不同", "踏板延迟校准不同"]
         );
         assert!(attempt_difference_reasons(&current, &current).is_empty());
+        let mut exact = current.clone();
+        exact.context.as_mut().unwrap().passage_bounds = Some(
+            neothesia_core::practice_history::PracticePassageBounds {
+                start_tick: 120, end_tick: 360,
+            },
+        );
+        assert_eq!(attempt_difference_reasons(&exact, &current),
+            ["有一轮缺少原选段起止拍位"]);
+        let mut other = exact.clone();
+        other.context.as_mut().unwrap().passage_bounds.as_mut().unwrap().end_tick = 480;
+        assert_eq!(attempt_difference_reasons(&exact, &other),
+            ["原选段起止拍位不同"]);
         older = current.clone();
         older.context = None;
         assert_eq!(

@@ -20,6 +20,7 @@ fn entry(
         "path":session.context.as_ref().and_then(|c|c.source_path.as_ref()).or(path),
         "recordedAt":session.recorded_at_unix_ms,"playingMs":session.playing_ms,"speed":session.speed,"hands":session.hands,
         "annotation":session.annotation,"mode":session.mode,"scope":session.scope,"range":range,"loop":range.is_some(),
+        "exactPassage":session.context.as_ref().and_then(|c|c.passage_bounds).is_some(),
         "score":session.summary.overall,"tempo":session.effective_tempo_bpm,
         "restorable":session.context.is_some(),"coverage":session.context.as_ref().map(|c|json!({"target":c.target_notes,"judged":c.judged_notes}))})
 }
@@ -410,6 +411,12 @@ mod tests {
         assert_eq!(summary["adaptive"],true);
         assert_eq!(summary["effectiveTempoBpm"],90);
         assert_eq!(summary["complete"],true);
+        assert_eq!(entry("content", "曲目", None, &session)["exactPassage"], false);
+        let mut exact = session.clone();
+        exact.context.as_mut().unwrap().passage_bounds = Some(PracticePassageBounds {
+            start_tick: 120, end_tick: 360,
+        });
+        assert_eq!(entry("content", "曲目", None, &exact)["exactPassage"], true);
     }
 
     #[test]
