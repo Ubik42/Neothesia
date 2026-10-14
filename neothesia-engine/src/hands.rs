@@ -333,21 +333,38 @@ pub fn propose(
         }
         if next.is_empty() {
             for previous in &mut beams {
+                let fallback: Vec<_> = group
+                    .iter()
+                    .map(|&index| {
+                        (
+                            index,
+                            part(config, assigned, track, index),
+                            35,
+                            "同键重叠、交错声部或复杂和弦，请逐音指定手",
+                        )
+                    })
+                    .collect();
                 previous.chain = Some(Arc::new(Chain {
                     previous: previous.chain.clone(),
-                    assignments: group
-                        .iter()
-                        .map(|&i| {
-                            (
-                                i,
-                                part(config, assigned, track, i),
-                                35,
-                                "同键重叠、交错声部或复杂和弦，请逐音指定手",
-                            )
-                        })
-                        .collect(),
+                    assignments: fallback.clone(),
                 }));
                 previous.held.retain(|(_, end, _)| *end > onset);
+                let mut centers = [Vec::<f64>::new(), Vec::<f64>::new()];
+                for (index, hand, _, _) in fallback {
+                    let note = &t.notes[index];
+                    previous.held.push((note.note, note.end, hand));
+                    if hand == PracticePart::LeftHand {
+                        centers[0].push(f64::from(note.note));
+                    } else if hand == PracticePart::RightHand {
+                        centers[1].push(f64::from(note.note));
+                    }
+                }
+                if !centers[0].is_empty() {
+                    previous.left = centers[0].iter().sum::<f64>() / centers[0].len() as f64;
+                }
+                if !centers[1].is_empty() {
+                    previous.right = centers[1].iter().sum::<f64>() / centers[1].len() as f64;
+                }
             }
         } else {
             next.sort_by(|a, b| a.cost.total_cmp(&b.cost));
