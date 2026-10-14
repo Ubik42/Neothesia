@@ -9,6 +9,8 @@ use std::{
 };
 
 const MAX_SCORE_BYTES: u64 = 4_000_000;
+const MAX_RECOGNITION_INPUT_BYTES: usize = 32_000_000;
+const MAX_SINGLE_PAGE_BYTES: usize = 48_000_000;
 const MAX_RECOGNITION_TIME: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -30,7 +32,7 @@ pub(super) struct RecognizedScorePreview {
 
 struct PaperSnapshot {
     name: String,
-    page: PageIdentity,
+    pages: Vec<PageIdentity>,
 }
 
 fn current_source(engine: &Engine, content_id: &str) -> Result<PathBuf, String> {
@@ -85,16 +87,12 @@ fn snapshot(
     if pages.iter().any(|page| page["status"] != "ready") {
         return Err("纸谱副本缺失或内容已改变，请先修复谱页".into());
     }
-    if pages.len() != 1 {
-        return Err(
-            "Audiveris 暂时只能识别整份 PDF 或单页图片；多张独立图片无法保证同属一份乐谱".into(),
-        );
-    }
-    let page = actual[0].clone();
-    if !["pdf", "png", "jpeg"].contains(&page.kind.as_str()) {
-        return Err("Audiveris 当前接收 PDF、PNG 或 JPEG 纸谱；请先转换这张图片".into());
-    }
-    if (book["format"] == "pdf") != (page.kind == "pdf") {
+    let valid = match book["format"].as_str() {
+        Some("pdf") => actual.len() == 1 && actual[0].kind == "pdf",
+        Some("images") => actual.iter().all(|page| matches!(page.kind.as_str(), "png" | "jpeg")),
+        _ => false,
+    };
+    if !valid {
         return Err("纸谱格式与谱页内容不一致，请重新打开谱面管理".into());
     }
     let name = book["name"]
@@ -103,7 +101,25 @@ fn snapshot(
         .chars()
         .take(80)
         .collect();
-    Ok(PaperSnapshot { name, page })
+    Ok(PaperSnapshot { name, pages: actual })
+}
+
+fn read_snapshot_pages(data: &Path, content_id: &str, book_id: &str, pages: &[PageIdentity]) -> Result<Vec<Vec<u8>>, String> {
+    let mut total = 0usize;
+    let mut sources = Vec::with_capacity(pages.len());
+    for (index, page) in pages.iter().enumerate() {
+        let (bytes, kind) = score_attachments::read(data, content_id, book_id, index)?;
+        if kind != page.kind || blake3::hash(&bytes).to_hex().as_str() != page.id {
+            return Err("纸谱内容或页序已改变，请重新打开谱面管理".into());
+        }
+        total = total.checked_add(bytes.len()).ok_or("纸谱图片过大，请分成较小的谱本")?;
+        let limit = if pages.len() == 1 { MAX_SINGLE_PAGE_BYTES } else { MAX_RECOGNITION_INPUT_BYTES };
+        if total > limit {
+            return Err(format!("这份纸谱的文件总量超过 {} MB，请分成较小的谱本再识别", limit / 1_000_000));
+        }
+        sources.push(bytes);
+    }
+    Ok(sources)
 }
 
 fn valid_program(path: &Path) -> Option<PathBuf> {
@@ -430,6 +446,7 @@ pub async fn recognize_paper_with_audiveris(
     content_id: String,
     book_id: String,
     expected_pages: Vec<PageIdentity>,
+    prepared_pdf: Option<Vec<u8>>,
 ) -> Result<Value, String> {
     let engine = state.engine.clone();
     let data = state.data.clone();
@@ -437,19 +454,27 @@ pub async fn recognize_paper_with_audiveris(
     tauri::async_runtime::spawn_blocking(move || {
         let midi_source = current_source(&engine, &content_id)?;
         let before = snapshot(&data, &content_id, &book_id, &expected_pages)?;
-        let (source, kind) = score_attachments::read(&data, &content_id, &book_id, 0)?;
-        if kind != before.page.kind || blake3::hash(&source).to_hex().as_str() != before.page.id {
-            return Err("纸谱内容已改变，请重新打开谱面管理".into());
-        }
+        let source_pages = read_snapshot_pages(&data, &content_id, &book_id, &before.pages)?;
+        let (source, kind) = if before.pages.len() == 1 {
+            if prepared_pdf.is_some() {
+                return Err("单页纸谱不需要合成 PDF，请重新识别".into());
+            }
+            (source_pages[0].clone(), before.pages[0].kind.as_str())
+        } else {
+            let pdf = prepared_pdf.ok_or("多页图片尚未组成 PDF，请重新识别")?;
+            if !(100..=MAX_RECOGNITION_INPUT_BYTES).contains(&pdf.len()) || !pdf.starts_with(b"%PDF-") {
+                return Err("多页图片生成的 PDF 无效或超过 32 MB，请分成较小的谱本".into());
+            }
+            (pdf, "pdf")
+        };
         let (program, _) = resolve_program(&data)?;
         let scratch = Scratch::create(&data)?;
-        let bytes = convert(&program, &scratch, &source, &kind)?;
+        let bytes = convert(&program, &scratch, &source, kind)?;
         if current_source(&engine, &content_id)? != midi_source {
             return Err("曲目文件位置已改变，请重新识别纸谱".into());
         }
         snapshot(&data, &content_id, &book_id, &expected_pages)?;
-        let (latest, _) = score_attachments::read(&data, &content_id, &book_id, 0)?;
-        if latest != source {
+        if read_snapshot_pages(&data, &content_id, &book_id, &before.pages)? != source_pages {
             return Err("纸谱内容在识别期间改变，请重新识别".into());
         }
         let name = format!("{} · Audiveris 识谱初稿.mxl", before.name);
@@ -508,10 +533,7 @@ fn verify_recognized_preview(
         return Err("曲目文件位置已改变，请重新识别纸谱".into());
     }
     let paper = snapshot(data, content_id, &preview.book_id, &preview.pages)?;
-    let (source, kind) = score_attachments::read(data, content_id, &preview.book_id, 0)?;
-    if kind != paper.page.kind || blake3::hash(&source).to_hex().as_str() != paper.page.id {
-        return Err("纸谱副本已改变，请重新识别".into());
-    }
+    read_snapshot_pages(data, content_id, &preview.book_id, &paper.pages)?;
     Ok(())
 }
 
@@ -811,6 +833,29 @@ mod tests {
             .join(format!("{}.pdf", pages[0].id));
         fs::write(asset_file, b"%PDF-evil").unwrap();
         assert!(snapshot(&temp.dir, cid, book, &pages).is_err());
+    }
+
+    #[test]
+    fn image_book_snapshot_keeps_order_and_verifies_every_source_page() {
+        let temp = Scratch::create(&std::env::temp_dir().join(format!(
+            "neothesia-audiveris-image-book-test-{}", std::process::id()
+        )))
+        .unwrap();
+        let cid = "image-song";
+        let png = b"\x89PNG\r\n\x1a\nfirst".to_vec();
+        let jpeg = b"\xff\xd8\xffsecond".to_vec();
+        let first = score_attachments::add(&temp.dir, cid, "图片谱", png.clone(), None).unwrap();
+        let book = first["active"].as_str().unwrap().to_string();
+        let listed = score_attachments::add(&temp.dir, cid, "第二页", jpeg.clone(), Some(&book)).unwrap();
+        let pages = listed["attachments"][0]["pages"].as_array().unwrap().iter().map(|page| PageIdentity {
+            id: page["id"].as_str().unwrap().into(),
+            kind: page["kind"].as_str().unwrap().into(),
+        }).collect::<Vec<_>>();
+        let paper = snapshot(&temp.dir, cid, &book, &pages).unwrap();
+        assert_eq!(paper.pages, pages);
+        assert_eq!(read_snapshot_pages(&temp.dir, cid, &book, &pages).unwrap(), vec![png, jpeg]);
+        let reversed = pages.iter().rev().cloned().collect::<Vec<_>>();
+        assert!(snapshot(&temp.dir, cid, &book, &reversed).is_err());
     }
 
     #[cfg(target_os = "windows")]

@@ -581,8 +581,8 @@ export const api = {
     invoke<AudiverisProgramStatus>("select_audiveris_program"),
   resetAudiverisProgram: () =>
     invoke<AudiverisProgramStatus>("reset_audiveris_program"),
-  recognizePaperWithAudiveris: (contentId: string, bookId: string, expectedPages: { id: string; kind: string }[]) =>
-    invoke<{ name: string; bytes: number[]; previewToken: string }>("recognize_paper_with_audiveris", { contentId, bookId, expectedPages }),
+  recognizePaperWithAudiveris: (contentId: string, bookId: string, expectedPages: { id: string; kind: string }[], preparedPdf?: number[]) =>
+    invoke<{ name: string; bytes: number[]; previewToken: string }>("recognize_paper_with_audiveris", { contentId, bookId, expectedPages, preparedPdf: preparedPdf ?? null }),
   saveRecognizedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>
     invoke<{ versionId: string; path: string; linked: boolean; opened: boolean; warning?: string } | null>("save_recognized_score_for_edit", {
       contentId, name, bytes, previewToken,

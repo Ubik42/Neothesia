@@ -15,6 +15,34 @@ type Version = {
   available: boolean;
 };
 type OriginalSource = { versionId: string; status: string; path: string };
+
+async function recognitionPdf(contentId: string, attachment: PaperAttachment): Promise<number[] | undefined> {
+  if (attachment.format !== "images" || attachment.pages.length === 1) return undefined;
+  const total = attachment.pages.reduce((size, page) => size + page.size, 0);
+  if (total > 32_000_000)
+    throw new Error("这份图片谱超过 32 MB。请分成较小的谱本再识别。");
+  const { PDFDocument } = await import("pdf-lib");
+  const document = await PDFDocument.create();
+  document.setTitle(attachment.name);
+  for (const [index, page] of attachment.pages.entries()) {
+    const bytes = await api.readScoreAttachment(contentId, attachment.id, index, page.kind);
+    const image = page.kind === "png"
+      ? await document.embedPng(bytes)
+      : page.kind === "jpeg"
+        ? await document.embedJpg(bytes)
+        : null;
+    if (!image) throw new Error(`第 ${index + 1} 页不是 PNG 或 JPEG 图片。`);
+    const width = image.width * 72 / 300;
+    const height = image.height * 72 / 300;
+    const sheet = document.addPage([width, height]);
+    sheet.drawImage(image, { x: 0, y: 0, width, height });
+  }
+  const pdf = await document.save();
+  if (pdf.length > 32_000_000)
+    throw new Error("图片组页生成的 PDF 超过 32 MB。请分成较小的谱本再识别。");
+  return Array.from(pdf);
+}
+
 export function ScoresDialog({
   song,
   close,
@@ -147,10 +175,14 @@ export function ScoresDialog({
     setError("");
     setFilePreview(null);
     try {
+      const preparedPdf = await recognitionPdf(contentId, attachment);
+      if (currentContentId.current !== contentId)
+        throw new Error("当前曲目已经切换。请重新选择纸谱。");
       const draft = await api.recognizePaperWithAudiveris(
         contentId,
         attachment.id,
         attachment.pages.map((page) => ({ id: page.id, kind: page.kind })),
+        preparedPdf,
       );
       if (currentContentId.current !== contentId)
         throw new Error("当前曲目已经切换。请重新选择纸谱。");

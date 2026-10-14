@@ -455,14 +455,11 @@ export function PaperScore({
                   disabled={
                     busy || sourceBusy || transferBusy ||
                     !audiverisStatus?.available ||
-                    current.pages.length !== 1 ||
-                    current.pages.some((page) => !page.available)
+                    current.pages.some((page) => !page.available || !["pdf", "png", "jpeg"].includes(page.kind))
                   }
-                  title={
-                    current.format === "images" && current.pages.length !== 1
-                      ? "多页图片请先整理成 PDF，再进行识别"
-                      : "识别结果将先进入演奏乐谱预览"
-                  }
+                  title={current.pages.some((page) => page.kind === "webp")
+                    ? "Audiveris 识别需要 PDF、PNG 或 JPEG；请先转换 WebP 图片"
+                    : "按当前页序识别；结果将先进入演奏乐谱预览"}
                   onClick={() => void work(async () => {
                     setRecognizing(true);
                     try { await onRecognize(current); }
@@ -506,7 +503,7 @@ export function PaperScore({
           )}
           {onRecognize && current?.format === "images" && current.pages.length > 1 && (
             <p className="parameter-help">
-              这份纸谱由多张图片组成。识别前请先将它们合成一份按页排序的 PDF。
+              识别将按上方页序合成一份临时 PDF。原图片和页序继续保留；请在预览中逐小节核对识别结果。
             </p>
           )}
           {recognizing && (
