@@ -35,6 +35,7 @@ interface Suggestion {
   sourceSpeed: number;
   sourceMode: string;
   item: {
+    notes: string;
     speed: number;
     settings: { mode: string; hands: string };
     goal: {
@@ -117,7 +118,8 @@ export function WeakPracticePanel({
         <>
           <div className="weak-practice-rows">
             {rows.map((r) => (
-              <label key={r.id}>
+              <div className="weak-practice-row" key={r.id}>
+              <label>
                 <input
                   type="checkbox"
                   aria-label={
@@ -221,6 +223,12 @@ export function WeakPracticePanel({
                   </small>
                 </span>
               </label>
+              <details className="weak-practice-reason">
+                <summary>查看建议依据与练习要求</summary>
+                <p>{r.item.notes}</p>
+                <p>最近一轮相关成绩：{new Date(r.sourceAt).toLocaleString("zh-CN")}</p>
+              </details>
+              </div>
             ))}
           </div>
           <button

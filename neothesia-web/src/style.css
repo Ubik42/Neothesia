@@ -2303,9 +2303,13 @@ button.icon-button {
 .weak-practice-panel summary {cursor:pointer;margin-bottom:9px;}
 .weak-plan-name {display:flex;align-items:center;gap:10px;margin:9px 0;}
 .weak-practice-rows {max-height:250px;overflow:auto;margin:10px 0;}
-.weak-practice-rows label {display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.weak-practice-row {padding:9px 0;border-bottom:1px solid var(--line);}
+.weak-practice-rows label {display:flex;gap:9px;cursor:pointer;}
 .weak-practice-rows span {display:grid;gap:5px;}
 .weak-practice-rows small {color:var(--muted);font-size:11px;}
+.weak-practice-reason {margin:7px 0 0 25px;color:var(--muted);font-size:12px;line-height:1.5;}
+.weak-practice-reason summary {margin:0;color:#d4d8df;}
+.weak-practice-reason p {margin:5px 0;}
 
 .track-sound { grid-column:1/-1; width:100%; font-size:12px; }
 .track-sound summary {cursor:pointer;color:var(--text-muted,#b0b4bd);padding:5px 0;}
