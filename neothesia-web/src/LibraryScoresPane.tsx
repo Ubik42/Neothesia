@@ -229,8 +229,12 @@ export function LibraryScoresPane({
   const generation = useRef(0),
     working = useRef(false),
     alive = useRef(true);
+  const currentSelection = useRef({ path: row.path, contentId });
+  currentSelection.current = { path: row.path, contentId };
+  const sameSelection = (path: string, id: string) =>
+    currentSelection.current.path === path && currentSelection.current.contentId === id;
   const refresh = async () => {
-    if (!alive.current) return;
+    if (!alive.current) return false;
     const g = ++generation.current;
     const requestPath = row.path;
     const requestContentId = contentId;
@@ -243,18 +247,21 @@ export function LibraryScoresPane({
       });
       if (v.contentId !== requestContentId)
         throw new Error("谱面资料与当前曲目不一致，请重新读取");
-      if (g === generation.current) {
+      if (alive.current && g === generation.current && sameSelection(requestPath, requestContentId)) {
         setSnapshot({ requestPath, contentId: requestContentId, value: v });
         setError("");
+        return true;
       }
     } catch (e) {
-      if (g === generation.current) {
+      if (alive.current && g === generation.current && sameSelection(requestPath, requestContentId)) {
         setSnapshot(null);
         setError(e instanceof Error ? e.message : String(e));
       }
     } finally {
-      if (g === generation.current) setLoading(false);
+      if (alive.current && g === generation.current && sameSelection(requestPath, requestContentId))
+        setLoading(false);
     }
+    return false;
   };
   useEffect(() => {
     alive.current = true;
@@ -295,17 +302,29 @@ export function LibraryScoresPane({
   }, [preview]);
   const work = async (job: () => Promise<void>, leavesLibrary = false) => {
     if (working.current) return;
+    const operationPath = row.path;
+    const operationContentId = contentId;
     working.current = true;
     setBusy(true);
     setError("");
     try {
       await job();
-      if (leavesLibrary || !alive.current) return;
+      if (leavesLibrary || !alive.current || !sameSelection(operationPath, operationContentId)) return;
       setRoutePreview(null);
-      await refresh();
-      await changed();
+      const refreshed = await refresh();
+      if (!alive.current || !sameSelection(operationPath, operationContentId)) return;
+      if (!refreshed) {
+        setError((cause) => `这次操作已结束，但谱面列表读取失败：${cause}。请点击“重新检查谱面资料”核对结果；重读不会再次执行操作。`);
+        return;
+      }
+      try {
+        await changed();
+      } catch (cause) {
+        if (alive.current && sameSelection(operationPath, operationContentId))
+          setError(`谱面列表已更新，但曲库状态暂未同步：${String(cause)}。请重新读取曲库。`);
+      }
     } catch (e) {
-      if (alive.current)
+      if (alive.current && sameSelection(operationPath, operationContentId))
         setError(e instanceof Error ? e.message : String(e));
     } finally {
       working.current = false;
@@ -912,7 +931,7 @@ export function LibraryScoresPane({
             contentId={contentId}
             close={() => setSourcesOpen(false)}
             changed={async () => {
-              await refresh();
+              if (!await refresh()) throw new Error("谱面列表暂未读到新结果");
               await changed();
             }}
           />,
