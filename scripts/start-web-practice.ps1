@@ -21,7 +21,7 @@ if (-not (Test-Endpoint 'http://127.0.0.1:32124/api/state')) {
         }
         foreach ($relative in $serviceInputs) {
             $inputFile = Join-Path $repository $relative
-            if ((Test-Path -LiteralPath $inputFile -PathType Leaf) -and
+            if (-not (Test-Path -LiteralPath $inputFile -PathType Leaf) -or
                 (Get-Item -LiteralPath $inputFile).LastWriteTimeUtc -gt $builtAt) {
                 $buildService = $true
                 break
@@ -30,10 +30,16 @@ if (-not (Test-Endpoint 'http://127.0.0.1:32124/api/state')) {
         if (-not $buildService) {
             foreach ($relative in @('wgpu-jumpstart/src', 'neothesia-image/src', 'piano-layout/src', 'midi-file/src', 'midi-io/src', 'neothesia-core/src', 'neothesia-engine/src', 'neothesia-engine/assets')) {
                 $sourceDirectory = Join-Path $repository $relative
-                if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) { continue }
-                $newer = Get-ChildItem -LiteralPath $sourceDirectory -Recurse -File |
-                    Where-Object { $_.LastWriteTimeUtc -gt $builtAt } |
-                    Select-Object -First 1
+                if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) {
+                    $buildService = $true
+                    break
+                }
+                $newer = Get-Item -LiteralPath $sourceDirectory
+                if ($newer.LastWriteTimeUtc -le $builtAt) {
+                    $newer = Get-ChildItem -LiteralPath $sourceDirectory -Recurse -Force |
+                        Where-Object { $_.LastWriteTimeUtc -gt $builtAt } |
+                        Select-Object -First 1
+                }
                 if ($newer) {
                     $buildService = $true
                     break

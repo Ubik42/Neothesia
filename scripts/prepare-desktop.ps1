@@ -18,7 +18,7 @@ $sourceFiles = @(
     'Cargo.toml', 'Cargo.lock', 'default.sf2',
     'neothesia-web\package.json', 'neothesia-web\package-lock.json',
     'neothesia-web\index.html', 'neothesia-web\vite.config.ts',
-    'neothesia-web\tsconfig.json', 'neothesia-web\tsconfig.app.json',
+    'neothesia-web\tsconfig.json',
     'neothesia-web\src-tauri\Cargo.toml',
     'neothesia-web\src-tauri\build.rs',
     'neothesia-web\src-tauri\tauri.conf.json'
@@ -37,7 +37,7 @@ try {
         $builtAt = (Get-Item -LiteralPath $stamp).LastWriteTimeUtc
         foreach ($relative in $sourceFiles) {
             $path = Join-Path $root $relative
-            if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
                 (Get-Item -LiteralPath $path).LastWriteTimeUtc -gt $builtAt) {
                 $needsBuild = $true
                 break
@@ -46,10 +46,16 @@ try {
         if (-not $needsBuild) {
             foreach ($relative in $sourceDirectories) {
                 $path = Join-Path $root $relative
-                if (-not (Test-Path -LiteralPath $path -PathType Container)) { continue }
-                $newer = Get-ChildItem -LiteralPath $path -Recurse -File |
+                if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+                    $needsBuild = $true
+                    break
+                }
+                $newer = Get-Item -LiteralPath $path
+                if ($newer.LastWriteTimeUtc -le $builtAt) {
+                    $newer = Get-ChildItem -LiteralPath $path -Recurse -Force |
                     Where-Object { $_.LastWriteTimeUtc -gt $builtAt } |
                     Select-Object -First 1
+                }
                 if ($newer) {
                     $needsBuild = $true
                     break
