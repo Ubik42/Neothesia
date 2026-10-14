@@ -60,6 +60,7 @@ impl ScoreAsset {
         let mut seen_midi = HashSet::new();
         let mut duplicate_midi = HashSet::new();
         for matched in &self.alignment.matches {
+            if !matched.principal { continue; }
             let midi = (matched.midi_id.track_id, matched.midi_id.note_index);
             if !seen_scores.insert(matched.score_id.clone()) {
                 duplicate_scores.insert(matched.score_id.clone());
@@ -136,6 +137,10 @@ impl ScoreAsset {
     }
     pub fn payload(&self, file: Option<&MidiFile>) -> serde_json::Value {
         let a = summarize_alignment(&self.alignment);
+        let trill_count = self.score.parts.iter().flat_map(|part| &part.measures)
+            .flat_map(|measure| &measure.events)
+            .filter(|event| matches!(event, neothesia_core::musicxml::ScoreEvent::Note(note) if note.trill.is_some()))
+            .count();
         let route = file.and_then(|file| self.score.parts.first().map(|part| {
             use neothesia_core::score_playback::{build_playback_plan, PlaybackLimits};
             let plan = build_playback_plan(part, PlaybackLimits { max_visits: 20_000, max_repeat_passes: 16 });
@@ -164,7 +169,7 @@ impl ScoreAsset {
             }).collect();
             serde_json::json!({"complete":plan.complete && a.readiness == neothesia_core::score_alignment::AlignmentReadiness::Ready,"visits":visits})
         }));
-        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"sourceFingerprint":self.source_fingerprint,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>()})
+        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"sourceFingerprint":self.source_fingerprint,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>(),"trillCount":trill_count})
     }
     pub fn map(
         &self,
@@ -246,8 +251,9 @@ impl ScoreAsset {
                         .find(|t| t.track_id == m.midi_id.track_id)
                         .and_then(|t| t.notes.get(m.midi_id.note_index))
                     {
-                        let score_finger =
-                            score_fingers.get(&m.score_id.source_id).copied().flatten();
+                        let score_finger = if m.principal {
+                            score_fingers.get(&m.score_id.source_id).copied().flatten()
+                        } else { None };
                         mapping.push(serde_json::json!({"id":e.renderer_id,"page":e.page_index,"start":n.start.as_secs_f64(),"end":n.end.as_secs_f64(),"pitch":n.note,"track":m.midi_id.track_id,"index":m.midi_id.note_index,"scoreFinger":score_finger}));
                     }
                 }
@@ -293,6 +299,25 @@ pub struct RenderNote {
 #[cfg(test)]
 mod fingering_expression_tests {
     use super::*;
+    #[test]
+    fn trill_uses_only_its_written_pitch_attack_for_score_fingering_links() {
+        let xml = br#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><notations><slur type="start" number="1"/><ornaments><trill-mark beats="3" start-note="upper" trill-step="whole"/></ornaments></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><voice>1</voice><notations><slur type="stop" number="1"/></notations></note></measure></part></score-partwise>"#;
+        let score = neothesia_core::musicxml::import_musicxml_document(xml).unwrap();
+        let generated = neothesia_core::score_performance::generate(&score, 120).unwrap();
+        let file = MidiFile::from_smf("trill", &generated.smf).unwrap();
+        let asset = ScoreAsset::new(xml.to_vec(), "trill.xml".into(), &file).unwrap();
+        let notes: Vec<_> = file.tracks.iter().flat_map(|track| track.notes.iter().enumerate()
+            .map(move |(index, note)| ((track.track_id, index), note.note))).collect();
+        assert_eq!(notes.iter().map(|(_, pitch)| *pitch).collect::<Vec<_>>(), vec![62, 60, 62, 64]);
+        assert_eq!(asset.alignment.matches.len(), 4);
+        assert!(asset.alignment.unmatched_score.is_empty());
+        let principal = asset.alignment.matches.iter().find(|matched| matched.score_id.source_id.ordinal == 0 && matched.principal).unwrap();
+        assert_eq!(principal.strike_ordinal, 1);
+        let marks = asset.fingering_marks(&file);
+        assert_eq!(marks.get(&notes[3].0).unwrap().slur_from, Some(notes[1].0));
+        assert!(!marks.contains_key(&notes[0].0));
+        assert!(!marks.contains_key(&notes[2].0));
+    }
     #[test]
     fn score_marks_use_exact_occurrences_and_reject_stale_pairing() {
         let xml = br#"<?xml version="1.0"?><score-partwise version="4.0">

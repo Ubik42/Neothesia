@@ -2,6 +2,7 @@
 use crate::{
     musicxml::*,
     practice::PracticePart,
+    score_ornament::{TrillStrike, expand_trill},
     score_playback::{PlaybackLimits, build_playback_plan, grace_note_timing},
 };
 use midi_file::midly::{
@@ -328,6 +329,35 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
         .iter()
         .map(grace_note_timing)
         .collect::<Result<_, _>>()?;
+    let mut trill_strikes: HashMap<ScoreEventId, Vec<TrillStrike>> = HashMap::new();
+    for (part, timings) in score.parts.iter().zip(&grace_timings) {
+        for measure in &part.measures {
+            for event in &measure.events {
+                let ScoreEvent::Note(note) = event else {
+                    continue;
+                };
+                let Some(mark) = &note.trill else { continue };
+                if !note.ties.is_empty() {
+                    return Err(format!(
+                        "第 {} 小节的颤音与连音线相交，暂不能可靠展开，请校对原谱",
+                        measure.number
+                    ));
+                }
+                if note.grace || timings.contains_key(&note.id) {
+                    return Err(format!(
+                        "第 {} 小节的颤音与倚音借时值相交，暂不能可靠展开，请校对原谱",
+                        measure.number
+                    ));
+                }
+                let Some(written) = &note.pitch else {
+                    return Err(format!("第 {} 小节的休止符不能标颤音", measure.number));
+                };
+                let strikes = expand_trill(mark, pitch(written)?, note.onset, note.duration)
+                    .map_err(|error| format!("第 {} 小节：{error}", measure.number))?;
+                trill_strikes.insert(note.id.clone(), strikes);
+            }
+        }
+    }
     for (part, timings) in score.parts.iter().zip(&grace_timings) {
         for visit in &plan.visits {
             let Some(tail) = visit.fine_tail else {
@@ -390,6 +420,12 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
         for span in spans.values() {
             include(span.onset)?;
             include(span.duration)?;
+        }
+    }
+    for strikes in trill_strikes.values() {
+        for strike in strikes {
+            include(strike.onset)?;
+            include(strike.duration)?;
         }
     }
     for visit in &plan.visits {
@@ -610,6 +646,28 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                         ));
                     }
                 }
+                for event in &m.events {
+                    let ScoreEvent::Note(note) = event else {
+                        continue;
+                    };
+                    let Some(strikes) = trill_strikes.get(&note.id) else {
+                        continue;
+                    };
+                    let first = strikes.first().unwrap().onset;
+                    let last = strikes.last().unwrap();
+                    let end = last.onset.add(last.duration);
+                    if (first < source && source < end)
+                        || (first < source_end && source_end < end)
+                        || visit
+                            .fine_tail
+                            .is_some_and(|tail| note.onset.subtract(m.start) == tail.onset)
+                    {
+                        return Err(format!(
+                            "第 {} 小节的跳转或 Fine 切开颤音，请校对演奏范围",
+                            index + 1
+                        ));
+                    }
+                }
                 total = total.max(visit_end);
                 let mut velocity = bases[index].0;
                 if previous_end != Some(source) {
@@ -701,54 +759,78 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                             if effective_duration.numerator <= 0 {
                                 continue;
                             }
-                            generated_count += 1;
-                            if generated_count > 200_000 {
-                                return Err("演奏音符超过 20 万，请分段导入".into());
-                            }
-                            let pitch = pitch(written)?;
-                            let onset = start + tick(effective_onset.max(source).subtract(source))?;
-                            let end = if let Some(tail) = visit.fine_tail.filter(|tail| {
-                                effective_onset.subtract(m.start) == tail.onset
-                                    && n.duration == tail.written_duration
-                            }) {
-                                onset + tick(tail.actual_duration)?
-                            } else {
-                                start
-                                    + tick(
-                                        effective_onset
-                                            .add(effective_duration)
-                                            .min(source_end)
-                                            .subtract(source),
-                                    )?
+                            let plain_pitch = pitch(written)?;
+                            let plain = TrillStrike {
+                                onset: effective_onset,
+                                duration: effective_duration,
+                                pitch: plain_pitch,
+                                ordinal: 0,
                             };
-                            let key = (pitch, n.voice.clone());
-                            let stop = n.ties.contains(&SpanType::Stop);
-                            let begin = n.ties.contains(&SpanType::Start);
-                            let tied = if stop {
-                                ties.remove(&key).filter(|&i| notes[i].end == onset)
-                            } else {
-                                None
-                            };
-                            let i = if let Some(i) = tied {
-                                notes[i].end = end;
-                                i
-                            } else {
-                                let i = notes.len();
-                                notes.push(PerformedNote {
-                                    start: onset,
-                                    end,
-                                    pitch,
-                                    velocity,
-                                    finger: n
-                                        .fingering
-                                        .as_ref()
-                                        .and_then(|s| s.trim().parse::<u8>().ok())
-                                        .filter(|f| (1..=5).contains(f)),
-                                });
-                                i
-                            };
-                            if begin {
-                                ties.insert(key, i);
+                            let strikes = trill_strikes.get(&n.id).map_or_else(
+                                || std::slice::from_ref(&plain),
+                                |strikes| strikes.as_slice(),
+                            );
+                            let first_main = strikes
+                                .iter()
+                                .find(|strike| strike.pitch == plain_pitch)
+                                .map(|strike| strike.ordinal);
+                            for strike in strikes {
+                                generated_count += 1;
+                                if generated_count > 200_000 {
+                                    return Err("演奏音符超过 20 万，请分段导入".into());
+                                }
+                                let pitch = strike.pitch;
+                                let onset =
+                                    start + tick(strike.onset.max(source).subtract(source))?;
+                                let end = if n.trill.is_none() {
+                                    if let Some(tail) = visit.fine_tail.filter(|tail| {
+                                        effective_onset.subtract(m.start) == tail.onset
+                                            && n.duration == tail.written_duration
+                                    }) {
+                                        onset + tick(tail.actual_duration)?
+                                    } else {
+                                        start
+                                            + tick(
+                                                strike
+                                                    .onset
+                                                    .add(strike.duration)
+                                                    .min(source_end)
+                                                    .subtract(source),
+                                            )?
+                                    }
+                                } else {
+                                    start
+                                        + tick(strike.onset.add(strike.duration).subtract(source))?
+                                };
+                                let key = (pitch, n.voice.clone());
+                                let stop = n.ties.contains(&SpanType::Stop);
+                                let begin = n.ties.contains(&SpanType::Start);
+                                let tied = if stop {
+                                    ties.remove(&key).filter(|&i| notes[i].end == onset)
+                                } else {
+                                    None
+                                };
+                                let i = if let Some(i) = tied {
+                                    notes[i].end = end;
+                                    i
+                                } else {
+                                    let i = notes.len();
+                                    notes.push(PerformedNote {
+                                        start: onset,
+                                        end,
+                                        pitch,
+                                        velocity,
+                                        finger: (Some(strike.ordinal) == first_main)
+                                            .then(|| n.fingering.as_ref())
+                                            .flatten()
+                                            .and_then(|s| s.trim().parse::<u8>().ok())
+                                            .filter(|f| (1..=5).contains(f)),
+                                    });
+                                    i
+                                };
+                                if begin {
+                                    ties.insert(key, i);
+                                }
                             }
                         }
                     }
@@ -1040,11 +1122,21 @@ mod tests {
         </part></score-partwise>"#;
         let score = import_musicxml_document(xml.as_bytes()).unwrap();
         let performance = generate(&score, 120).unwrap();
-        let pitches: Vec<_> = performance.tracks[0].notes.iter().map(|note| note.pitch).collect();
+        let pitches: Vec<_> = performance.tracks[0]
+            .notes
+            .iter()
+            .map(|note| note.pitch)
+            .collect();
         assert_eq!(pitches, [60, 62, 64, 65, 62, 64, 65]);
         assert_eq!(performance.tracks[0].notes.last().unwrap().end, 6720);
         let file = midi_file::MidiFile::from_smf("printed-ds", &performance.smf).unwrap();
-        assert_eq!(file.tracks.iter().flat_map(|track| track.notes.iter()).count(), 7);
+        assert_eq!(
+            file.tracks
+                .iter()
+                .flat_map(|track| track.notes.iter())
+                .count(),
+            7
+        );
         assert!((file.duration.as_secs_f64() - 3.5).abs() < 0.00001);
     }
     #[test]
@@ -1089,6 +1181,54 @@ mod tests {
         );
         assert!((file.duration.as_secs_f64() - 3.5).abs() < 0.00001);
     }
+    #[test]
+    fn trill_repeats_as_separate_key_strikes_and_preserves_midi_precision() {
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><trill-mark beats="4" start-note="upper" trill-step="half" second-beat="25" last-beat="75"/></ornaments><technical><fingering>3</fingering></technical></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let performance = generate(&score, 120).unwrap();
+        let notes = &performance.tracks[0].notes;
+        assert_eq!(notes.len(), 8);
+        assert_eq!(
+            notes.iter().map(|n| n.pitch).collect::<Vec<_>>(),
+            [61, 60, 61, 60, 61, 60, 61, 60]
+        );
+        assert_eq!(
+            notes.iter().map(|n| n.finger).collect::<Vec<_>>(),
+            [None, Some(3), None, None, None, Some(3), None, None]
+        );
+        assert_eq!(
+            notes.iter().map(|n| n.start).collect::<Vec<_>>(),
+            [0, 240, 480, 720, 960, 1200, 1440, 1680]
+        );
+        assert_eq!(notes.last().unwrap().end, 1920);
+        let midi = midi_file::MidiFile::from_smf("trill-repeat", &performance.smf).unwrap();
+        assert_eq!(
+            midi.tracks
+                .iter()
+                .flat_map(|track| track.notes.iter())
+                .count(),
+            8
+        );
+    }
+
+    #[test]
+    fn unsupported_trill_hint_reports_its_written_measure() {
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="7"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><trill-mark accelerate="yes"/></ornaments></notations></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let error = generate(&score, 120).err().unwrap();
+        assert!(error.contains("第 7 小节"), "{error}");
+        assert!(error.contains("accelerate"), "{error}");
+    }
+
+    #[test]
+    fn timed_grace_and_trill_cannot_create_conflicting_alignment() {
+        let xml = r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><grace slash="yes" steal-time-following="25"/><pitch><step>B</step><octave>3</octave></pitch></note><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><trill-mark/></ornaments></notations></note></measure></part></score-partwise>"#;
+        let score = import_musicxml_document(xml.as_bytes()).unwrap();
+        let error = generate(&score, 120).err().unwrap();
+        assert!(error.contains("第 1 小节"), "{error}");
+        assert!(error.contains("倚音借时值"), "{error}");
+    }
+
     #[test]
     fn timed_grace_notes_borrow_from_following_notes_on_every_repeat() {
         for (slash, share, grace_ticks) in [("yes", "25", 240_u64), ("no", "50", 480_u64)] {

@@ -108,6 +108,7 @@ pub struct Note {
     pub chord: bool,
     pub grace: bool,
     pub grace_timing: Option<GraceTiming>,
+    pub trill: Option<TrillMark>,
     pub ties: Vec<SpanType>,
     pub slurs: Vec<NumberedSpan>,
     pub time_modification: Option<TupletRatio>,
@@ -124,6 +125,20 @@ pub struct GraceTiming {
     pub make_time: Option<String>,
     /// Divisions per quarter note at this grace element, before later changes.
     pub divisions: u32,
+}
+
+/// MusicXML trill playback hints. Raw values stay available for precise
+/// validation by the shared notation/performance expander.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TrillMark {
+    pub beats: Option<String>,
+    pub start_note: Option<String>,
+    pub trill_step: Option<String>,
+    pub second_beat: Option<String>,
+    pub last_beat: Option<String>,
+    pub accelerate: Option<String>,
+    pub two_note_turn: Option<String>,
+    pub unsupported: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -559,6 +574,9 @@ struct NoteBuilder {
     chord: bool,
     grace: bool,
     grace_timing: Option<GraceTiming>,
+    trill: Option<TrillMark>,
+    saw_ornaments: bool,
+    unsupported_ornaments: Vec<String>,
     ties: Vec<SpanType>,
     slurs: Vec<NumberedSpan>,
     tuplet_actual: Option<u16>,
@@ -841,6 +859,27 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         built.grace = true;
                         built.grace_timing = Some(grace_timing(&start, divisions)?);
                     }
+                    b"ornaments" if note.is_some() => note.as_mut().unwrap().saw_ornaments = true,
+                    b"trill-mark" if note.is_some() && parent_is(&path, 2, b"ornaments") => {
+                        let built = note.as_mut().unwrap();
+                        if built.trill.is_some() {
+                            built.unsupported_ornaments.push("重复的 trill-mark".into());
+                        } else {
+                            built.trill = Some(parse_trill_mark(&start)?);
+                        }
+                    }
+                    name if note.is_some() && parent_is(&path, 2, b"ornaments") => {
+                        note.as_mut()
+                            .unwrap()
+                            .unsupported_ornaments
+                            .push(format!("ornaments/{}", str::from_utf8(name)?));
+                    }
+                    name if note.is_some() && parent_is(&path, 2, b"trill-mark") => {
+                        note.as_mut()
+                            .unwrap()
+                            .unsupported_ornaments
+                            .push(format!("trill-mark/{}", str::from_utf8(name)?));
+                    }
                     b"tie" | b"tied" if note.is_some() => {
                         push_span(&start, &mut note.as_mut().unwrap().ties)?
                     }
@@ -909,7 +948,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                             .dynamics
                             .push(str::from_utf8(name)?.to_owned());
                     }
-                    b"transpose" | b"ornaments" | b"wedge" => {
+                    b"transpose" | b"wedge" => {
                         warn_deferred(
                             &mut score.warnings,
                             current_part.as_ref(),
@@ -931,7 +970,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                     score.version = attribute(&start, b"version")?;
                 }
                 let name = start.name();
-                if matches!(name.as_ref(), b"transpose" | b"ornaments" | b"wedge") {
+                if matches!(name.as_ref(), b"transpose" | b"wedge") {
                     warn_deferred(
                         &mut score.warnings,
                         current_part.as_ref(),
@@ -955,6 +994,28 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         divisions,
                     );
                 } else {
+                    if note.is_some() && name.as_ref() == b"ornaments" {
+                        note.as_mut().unwrap().saw_ornaments = true;
+                    } else if note.is_some() && parent_is(&path, 1, b"ornaments") {
+                        if name.as_ref() == b"trill-mark" {
+                            let built = note.as_mut().unwrap();
+                            if built.trill.is_some() {
+                                built.unsupported_ornaments.push("重复的 trill-mark".into());
+                            } else {
+                                built.trill = Some(parse_trill_mark(&start)?);
+                            }
+                        } else {
+                            note.as_mut()
+                                .unwrap()
+                                .unsupported_ornaments
+                                .push(format!("ornaments/{}", str::from_utf8(name.as_ref())?));
+                        }
+                    } else if note.is_some() && parent_is(&path, 1, b"trill-mark") {
+                        note.as_mut()
+                            .unwrap()
+                            .unsupported_ornaments
+                            .push(format!("trill-mark/{}", str::from_utf8(name.as_ref())?));
+                    }
                     handle_empty(
                         &start,
                         &path,
@@ -1137,7 +1198,18 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                         );
                     }
                     b"note" => {
-                        let built = note.take().unwrap();
+                        let mut built = note.take().unwrap();
+                        if built.saw_ornaments && built.trill.is_none() {
+                            warn_deferred(
+                                &mut score.warnings,
+                                current_part.as_ref(),
+                                current_measure.as_ref(),
+                                "ornaments",
+                            );
+                        }
+                        if let Some(trill) = &mut built.trill {
+                            trill.unsupported.append(&mut built.unsupported_ornaments);
+                        }
                         let id = ScoreEventId {
                             part_id: current_part
                                 .as_ref()
@@ -1204,6 +1276,7 @@ pub fn import_musicxml(source: &[u8]) -> Result<Score, ImportError> {
                                 chord: built.chord,
                                 grace: built.grace,
                                 grace_timing: built.grace_timing,
+                                trill: built.trill,
                                 ties: built.ties,
                                 slurs: built.slurs,
                                 time_modification,
@@ -1439,6 +1512,31 @@ fn grace_timing(start: &BytesStart<'_>, divisions: u32) -> Result<GraceTiming, I
         make_time: attribute(start, b"make-time")?,
         divisions,
     })
+}
+
+fn parse_trill_mark(start: &BytesStart<'_>) -> Result<TrillMark, ImportError> {
+    let mut mark = TrillMark::default();
+    for attr in start.attributes().with_checks(false) {
+        let attr = attr.map_err(quick_xml::Error::InvalidAttr)?;
+        let name = str::from_utf8(attr.key.as_ref())?;
+        let value = str::from_utf8(attr.value.as_ref())?.to_owned();
+        match name {
+            "beats" => mark.beats = Some(value),
+            "start-note" => mark.start_note = Some(value),
+            "trill-step" => mark.trill_step = Some(value),
+            "second-beat" => mark.second_beat = Some(value),
+            "last-beat" => mark.last_beat = Some(value),
+            "accelerate" => mark.accelerate = Some(value),
+            "two-note-turn" => mark.two_note_turn = Some(value),
+            // Engraving-only attributes have no effect on performed notes.
+            "color" | "default-x" | "default-y" | "font-family" | "font-size" | "font-style"
+            | "font-weight" | "placement" | "relative-x" | "relative-y" => {}
+            _ => mark
+                .unsupported
+                .push(format!("trill-mark 属性 {name}={value}")),
+        }
+    }
+    Ok(mark)
 }
 
 fn sound_navigation(start: &BytesStart<'_>) -> Result<SoundBuilder, ImportError> {
@@ -1682,10 +1780,16 @@ mod tests {
         assert_eq!(score.composer.as_deref(), Some("Neothesia"));
         assert_eq!(score.parts[0].name, "Piano");
         assert!(
-            score
+            !score
                 .warnings
                 .iter()
                 .any(|warning| { warning.message.starts_with("ornament notation") })
+        );
+        assert!(
+            score.parts[0].measures[0]
+                .events
+                .iter()
+                .any(|event| { matches!(event, ScoreEvent::Note(note) if note.trill.is_some()) })
         );
 
         let measure = &score.parts[0].measures[0];

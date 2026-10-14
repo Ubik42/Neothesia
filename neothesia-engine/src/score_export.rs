@@ -79,7 +79,7 @@ pub(crate) fn export(
         0
     };
     for m in &asset.alignment.matches {
-        if m.confidence_percent < 85 {
+        if m.confidence_percent < 85 || !m.principal {
             continue;
         }
         let Some(note) = file
@@ -583,6 +583,27 @@ fn rewrite(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trill_auxiliary_finger_does_not_conflict_with_written_note_export() {
+        let xml = br#"<score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><trill-mark beats="3"/></ornaments></notations></note></measure></part></score-partwise>"#;
+        let score = neothesia_core::musicxml::import_musicxml_document(xml).unwrap();
+        let generated = neothesia_core::score_performance::generate(&score, 120).unwrap();
+        let file = MidiFile::from_smf("trill-export", &generated.smf).unwrap();
+        let asset = ScoreAsset::new(xml.to_vec(), "trill.musicxml".into(), &file).unwrap();
+        let track = file.tracks.iter().find(|track| track.notes.len() >= 3).unwrap();
+        let main = &track.notes[0];
+        let auxiliary = &track.notes[1];
+        let fingers = HashMap::from([
+            ((track.track_id, main.start, main.note), 2),
+            ((track.track_id, auxiliary.start, auxiliary.note), 3),
+        ]);
+        let result = export(&asset, &file, &fingers, &HashMap::new(), &[],
+            &Options { fingers: true, hands: false, substitutions: false, repeat_policy: RepeatPolicy::Consistent },
+            false, None).unwrap();
+        assert_eq!(result["fingerNotes"], 1);
+        assert_eq!(result["unmappedNotes"], 1);
+        assert_eq!(result["conflicts"].as_array().unwrap().len(), 0);
+    }
     #[test]
     fn preserve_original_notation_and_replace_only_personal_marks() {
         let source=br#"<?xml version="1.0"?><score-partwise version="4.0"><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes><note default-x="42"><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><notations><slur type="start" number="1"/><technical><fingering substitution="yes">3</fingering><hammer-on type="start">H</hammer-on></technical></notations><lyric><text>keep &amp; sing</text></lyric></note><note><rest/><duration>1</duration></note></measure></part></score-partwise>"#;

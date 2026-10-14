@@ -16,6 +16,7 @@ pub mod speed_ladder;
 pub mod render;
 pub mod score_alignment;
 pub mod score_playback;
+pub mod score_ornament;
 pub mod score_performance;
 pub mod score_view;
 pub mod song_config;
