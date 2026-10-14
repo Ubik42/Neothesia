@@ -671,6 +671,9 @@ mod tests {
         assert_ne!(initial_copy, original);
         let mut scanner = Scanner::default();
         assert_eq!(scanner.scan(&data).unwrap().0, 0);
+        let original_key = std::fs::canonicalize(&original).unwrap();
+        scanner.cache.get_mut(&original_key).unwrap().1 = None;
+        assert_eq!(scanner.scan(&data).unwrap().1, 0);
         std::fs::write(&original, xml("C", "<!-- engraving changed -->")).unwrap();
         assert_eq!(scanner.scan(&data).unwrap().0, 1);
         let changed = inspect(&data, Some(&cid)).unwrap()["entries"][0].clone();
@@ -824,7 +827,7 @@ impl Scanner {
                 if self
                     .cache
                     .get(&source.path)
-                    .is_none_or(|(old, _)| *old != stamp)
+                    .is_none_or(|(old, hash)| *old != stamp || hash.is_none())
                 {
                     self.cache.insert(
                         source.path.clone(),
