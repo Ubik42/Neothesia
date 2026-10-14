@@ -127,6 +127,7 @@ export function PaperScore({
   manage = false,
   revision = 0,
   onBusy,
+  onRecognize,
   libraryPath,
   previewBook,
   onViewSaved,
@@ -141,12 +142,14 @@ export function PaperScore({
   manage?: boolean;
   revision?: number;
   onBusy?: (busy: boolean) => void;
+  onRecognize?: (attachment: PaperAttachment) => Promise<void>;
   playback?: { measure: number };
   contextKey?: string;
   historyFocus?: HistoryPaperFocus | null;
 }) {
   const [sourceBusy,setSourceBusy]=useState(false);
   const [transferBusy,setTransferBusy]=useState(false);
+  const [recognizing, setRecognizing] = useState(false);
   const [practice, setPractice] = useState<PracticeContext | null>(null);
   const [song, setSong] = useState<LoadedSong | null>(null);
   const [practiceLoaded, setPracticeLoaded] = useState(false);
@@ -431,8 +434,39 @@ export function PaperScore({
               >
                 移除登记
               </button>
+              {onRecognize && (
+                <button
+                  disabled={
+                    busy || sourceBusy || transferBusy ||
+                    current.pages.length !== 1 ||
+                    current.pages.some((page) => !page.available)
+                  }
+                  title={
+                    current.format === "images" && current.pages.length !== 1
+                      ? "多页图片请先整理成 PDF，再进行识别"
+                      : "识别结果将先进入演奏乐谱预览"
+                  }
+                  onClick={() => void work(async () => {
+                    setRecognizing(true);
+                    try { await onRecognize(current); }
+                    finally { setRecognizing(false); }
+                  })}
+                >
+                  {recognizing ? "正在识别纸谱…" : "识别为演奏乐谱"}
+                </button>
+              )}
               <span>保留导入副本和原文件</span>
             </div>
+          )}
+          {onRecognize && current?.format === "images" && current.pages.length > 1 && (
+            <p className="parameter-help">
+              这份纸谱由多张图片组成。识别前请先将它们合成一份按页排序的 PDF。
+            </p>
+          )}
+          {recognizing && (
+            <p role="status" className="parameter-help">
+              Audiveris 正在读取纸谱。识别完成后，请逐小节核对结果。
+            </p>
           )}
           {current && <PaperSources key={`source:${contentId}:${current.id}`} contentId={contentId} attachment={current} disabled={busy || sourceBusy || transferBusy} changed={refresh} onBusy={setSourceBusy}/>}
           {current && data && <PaperTransferReview key={`transfer:${contentId}:${current.id}`} contentId={contentId} target={current} books={data.attachments}

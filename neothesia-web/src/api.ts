@@ -568,6 +568,12 @@ export const api = {
     invoke<{ active: string }>("add_musescore_pdf", { contentId, versionId }),
   generateMuseScoreScore: (contentId: string) =>
     invoke<{ name: string; bytes: number[]; previewToken: string }>("generate_musescore_score", { contentId }),
+  recognizePaperWithAudiveris: (contentId: string, bookId: string, expectedPages: { id: string; kind: string }[]) =>
+    invoke<{ name: string; bytes: number[]; previewToken: string }>("recognize_paper_with_audiveris", { contentId, bookId, expectedPages }),
+  saveRecognizedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>
+    invoke<{ versionId: string; path: string; linked: boolean; opened: boolean; warning?: string } | null>("save_recognized_score_for_edit", {
+      contentId, name, bytes, previewToken,
+    }),
   saveGeneratedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>
     invoke<{ versionId: string; path: string; linked: boolean; opened: boolean; warning?: string } | null>("save_generated_score_for_edit", {
       contentId,

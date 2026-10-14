@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod score_batch_export;
 mod practice_backup_bridge;
+mod audiveris_paper;
 use neothesia_engine::{Command, Engine, data_root_lock::DataRootLock, library};
 use std::path::PathBuf;
 use tauri::{Manager,Emitter};
@@ -16,6 +17,7 @@ struct State {
     soundfont_change: std::sync::Arc<std::sync::Mutex<()>>,
     score_imports: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::sync::atomic::AtomicBool>>>>,
     generated_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,GeneratedScorePreview>>>,
+    recognized_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,audiveris_paper::RecognizedScorePreview>>>,
     located_paper_transfer: std::sync::Mutex<Option<LocatedPaperTransfer>>,
 }
 struct LocatedPaperTransfer { id:String, size:usize, bytes:Vec<u8> }
@@ -964,7 +966,7 @@ fn main() {
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
             app.manage(practice_backup_bridge::Sessions::default());
-            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), located_paper_transfer:Default::default() });
+            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), recognized_scores:Default::default(), located_paper_transfer:Default::default() });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
@@ -982,6 +984,8 @@ fn main() {
             open_score_in_musescore,
             add_musescore_pdf,
             generate_musescore_score,
+            audiveris_paper::recognize_paper_with_audiveris,
+            audiveris_paper::save_recognized_score_for_edit,
             save_generated_score_for_edit,
             library_list,
             engine_state,

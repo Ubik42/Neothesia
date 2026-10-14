@@ -2,7 +2,7 @@ import { ScoreSourcesDialog } from "./ScoreSourcesDialog";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api, type LoadedSong } from "./api";
-import { PaperScore } from "./PaperScore";
+import { PaperScore, type PaperAttachment } from "./PaperScore";
 import {
   ScoreRoutePreview,
   type ScoreRouteEvidence,
@@ -33,6 +33,8 @@ export function ScoresDialog({
   const [tab, setTab] = useState("notation"),
     [paperBusy, setPaperBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const currentContentId = useRef(song.contentId);
+  currentContentId.current = song.contentId;
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [sourceFocusVersionId, setSourceFocusVersionId] = useState<string>();
   const canGenerateMuseScorePdf = api.desktop && /Windows/i.test(navigator.userAgent);
@@ -47,6 +49,7 @@ export function ScoresDialog({
     bytes: number[];
     evidence: ScoreRouteEvidence;
     generated?: boolean;
+    recognizedFrom?: string;
     previewToken?: string;
   } | null>(null);
   const refresh = async () => {
@@ -138,6 +141,35 @@ export function ScoresDialog({
       setBusy(false);
     }
   };
+  const recognizePaper = async (attachment: PaperAttachment) => {
+    const contentId = song.contentId;
+    setBusy(true);
+    setError("");
+    setFilePreview(null);
+    try {
+      const draft = await api.recognizePaperWithAudiveris(
+        contentId,
+        attachment.id,
+        attachment.pages.map((page) => ({ id: page.id, kind: page.kind })),
+      );
+      if (currentContentId.current !== contentId)
+        throw new Error("当前曲目已经切换。请重新选择纸谱。");
+      if (draft.bytes.length > 4_000_000)
+        throw new Error("识别结果超过 4 MB，无法加入谱面版本。请在 MuseScore 中分段整理后导入。");
+      const evidence = await api.command<ScoreRouteEvidence>({
+        type: "previewScoreBytesRoute",
+        bytes: draft.bytes,
+        name: draft.name,
+        content_id: contentId,
+      });
+      if (currentContentId.current !== contentId)
+        throw new Error("当前曲目已经切换。请重新选择纸谱。");
+      setFilePreview({ ...draft, evidence, recognizedFrom: attachment.name });
+      setTab("notation");
+    } finally {
+      setBusy(false);
+    }
+  };
   const saveFile = (mode: "use" | "save") =>
     void perform(async () => {
       if (!filePreview) return;
@@ -169,8 +201,9 @@ export function ScoresDialog({
       setFilePreview(null);
       setVersionPreview(null);
     });
-  const saveGeneratedForEdit = async () => {
-    if (!filePreview?.generated || !filePreview.previewToken) return;
+  const saveDraftForEdit = async () => {
+    if (!filePreview?.previewToken || (!filePreview.generated && !filePreview.recognizedFrom)) return;
+    const recognized = !!filePreview.recognizedFrom;
     setBusy(true);
     setError("");
     setEditMessage("");
@@ -187,9 +220,9 @@ export function ScoresDialog({
         JSON.stringify(fresh.route) !== JSON.stringify(filePreview.evidence.route)
       ) {
         setFilePreview(null);
-        throw new Error("谱面初稿或演奏顺序已变化。请重新生成并核对预览。");
+        throw new Error("谱面初稿或演奏顺序已变化。请重新识别或生成，并核对预览。");
       }
-      const saved = await api.saveGeneratedScoreForEdit(
+      const saved = await (recognized ? api.saveRecognizedScoreForEdit : api.saveGeneratedScoreForEdit)(
         song.contentId,
         filePreview.name,
         filePreview.bytes,
@@ -198,11 +231,9 @@ export function ScoresDialog({
       if (!saved) return;
       setFilePreview(null);
       setVersionPreview(null);
-      setEditMessage(
-        saved.opened
-          ? "可编辑原谱已保存并在 MuseScore Studio 中打开。修改并保存后，请返回这里检查原谱更新。"
-          : `可编辑原谱已保存：${saved.path}。${saved.warning ?? "请手动在 MuseScore Studio 中打开该文件。"} 修改并保存后，请返回这里检查原谱更新。`,
-      );
+      setEditMessage(saved.opened
+        ? "可编辑原谱已保存并在 MuseScore Studio 中打开。修改并保存后，请返回这里检查原谱更新。"
+        : `可编辑原谱已保存：${saved.path}。${saved.warning ?? "请手动在 MuseScore Studio 中打开该文件。"} 修改并保存后，请返回这里检查原谱更新。`);
       setSourceFocusVersionId(saved.versionId);
       setSourcesOpen(saved.opened);
       await refresh();
@@ -271,7 +302,7 @@ export function ScoresDialog({
           </button>
         </div>
         {tab === "paper" ? (
-          <PaperScore contentId={song.contentId} manage onBusy={setPaperBusy} />
+          <PaperScore contentId={song.contentId} manage onBusy={setPaperBusy} onRecognize={api.desktop ? recognizePaper : undefined} />
         ) : (
           <>
             <p className="parameter-help">
@@ -338,13 +369,18 @@ export function ScoresDialog({
                     这是 MuseScore Studio 根据当前 MIDI 推出的谱面初稿。请检查谱号、左右手、时值和小节；MIDI 通常没有完整的记谱信息。
                   </p>
                 )}
+                {filePreview.recognizedFrom && (
+                  <p className="parameter-help">
+                    这份乐谱由 Audiveris 从“{filePreview.recognizedFrom}”识别。请逐小节核对音高、时值、拍号和反复记号；原纸谱仍保留在 PDF / 图片谱面中。
+                  </p>
+                )}
                 <ScoreRoutePreview
                   evidence={filePreview.evidence}
                   title="这份谱面的演奏顺序"
                 />
                 <p className="parameter-help">
                   “添加并使用”会立即切换当前谱面。“仅保存谱面版本”会保留当前谱面和练习；以后可以在版本列表核对并启用。
-                  {filePreview.generated && "“保存可编辑原谱”会让你选一个新文件，随后在 MuseScore Studio 中打开。"}
+                  {(filePreview.generated || filePreview.recognizedFrom) && "“保存可编辑原谱”会让你选一个新文件，随后在 MuseScore Studio 中打开。"}
                 </p>
                 <div className="dialog-actions">
                   <button
@@ -359,8 +395,8 @@ export function ScoresDialog({
                   <button disabled={busy} onClick={() => saveFile("save")}>
                     仅保存谱面版本
                   </button>
-                  {filePreview.generated && filePreview.previewToken && (
-                    <button disabled={busy} onClick={() => void saveGeneratedForEdit()}>
+                  {(filePreview.generated || filePreview.recognizedFrom) && filePreview.previewToken && (
+                    <button disabled={busy} onClick={() => void saveDraftForEdit()}>
                       保存可编辑原谱并打开 MuseScore
                     </button>
                   )}
