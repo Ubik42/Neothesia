@@ -27,6 +27,7 @@ interface Preview {
   notes: number;
   rows: WrittenVisit[];
 }
+const beatText = (value: number) => String(Number(value.toFixed(9)));
 export function ScoreRangeDialog({
   song,
   first: initialFirst,
@@ -165,18 +166,14 @@ export function ScoreRangeDialog({
             a: v.firstLimits,
             b: v.lastLimits,
           };
-          setStartText(
-            String(
-              v.firstLimits.minBeat +
-                (v.range.startTrim ?? 0) / v.firstLimits.ticksPerBeat,
-            ),
-          );
-          setEndText(
-            String(
-              v.lastLimits.maxBeat -
-                (v.range.endTrim ?? 0) / v.lastLimits.ticksPerBeat,
-            ),
-          );
+          setStartText(beatText(
+            v.firstLimits.minBeat +
+              (v.range.startTrim ?? 0) / v.firstLimits.ticksPerBeat,
+          ));
+          setEndText(beatText(
+            v.lastLimits.maxBeat -
+              (v.range.endTrim ?? 0) / v.lastLimits.ticksPerBeat,
+          ));
           setBeatDirty(false);
         }
       })
@@ -314,6 +311,10 @@ export function ScoreRangeDialog({
     }
     const x = Math.round((a - limits.a.minBeat) * limits.a.ticksPerBeat),
       y = Math.round((limits.b.maxBeat - b) * limits.b.ticksPerBeat);
+    const actualStart = limits.a.minBeat + x / limits.a.ticksPerBeat;
+    const actualEnd = limits.b.maxBeat - y / limits.b.ticksPerBeat;
+    setStartText(beatText(actualStart));
+    setEndText(beatText(actualEnd));
     setStartTrim(x);
     setEndTrim(y);
     setBeatDirty(false);
@@ -449,7 +450,7 @@ export function ScoreRangeDialog({
         </div>
         <p>
           拍位按原谱拍号的分母计拍，可用小数；6/8
-          的一拍为八分音符。端点限定于所选演奏次数，终点的起音不计入。
+          的一拍为八分音符。端点限定于所选演奏次数，终点的起音不计入。审阅后输入框显示对齐到实际演奏 tick 的拍位。
         </p>
         <div className="file-actions">
           <button
