@@ -52,6 +52,8 @@ type SuggestionResult = {
   dueTotal?: number;
   eligibleTotal?: number;
   missingTotal?: number;
+  passageDueTotal?: number;
+  passageUnavailableTotal?: number;
   revision?: string;
   nextOffset?: number;
   hasMore?: boolean;
@@ -130,6 +132,7 @@ export function WeakPracticePanel({
       nextOffset: number;
       hasMore: boolean;
     } | null>(null),
+    [passageAvailability, setPassageAvailability] = useState<{ due: number; missing: number } | null>(null),
     [name, setName] = useState("专项复习"),
     [message, setMessage] = useState("");
   const [pendingAdded, setPendingAdded] = useState<AddedResult | null>(null);
@@ -190,6 +193,7 @@ export function WeakPracticePanel({
     setEdits({});
     setNote("");
     setDuePage(null);
+    setPassageAvailability(null);
     setMessage(pendingSubmission
       ? "上次加入结果尚未确认，请按原条件核对。"
       : pendingAdded
@@ -205,6 +209,7 @@ export function WeakPracticePanel({
       setChosen([]);
       setEdits({});
       setDuePage(null);
+      setPassageAvailability(null);
       setNote("");
       setMessage("");
       const [dueResult, weakResult] = await Promise.allSettled([
@@ -245,11 +250,17 @@ export function WeakPracticePanel({
         nextOffset: due.nextOffset ?? due.suggestions.length,
         hasMore: due.hasMore === true,
       } : null);
+      setPassageAvailability(weak ? {
+        due: weak.passageDueTotal ?? 0,
+        missing: weak.passageUnavailableTotal ?? 0,
+      } : null);
       const resultMessage =
         suggestions.length
           ? ""
           : due?.dueTotal
             ? "待复习曲目的原条件或文件位置暂不能自动编排。请在曲库核对曲目，缺失文件先重新关联。"
+            : weak?.passageDueTotal
+              ? "到期选段的曲目文件暂不可用。请在曲库核对文件并重新关联原曲。"
             : "暂无足够的重复薄弱证据；完成几轮后再生成。";
       setMessage([resultMessage, ...failure].filter(Boolean).join(" "));
     });
@@ -324,7 +335,7 @@ export function WeakPracticePanel({
           : day
             ? "新计划与当前日期安排"
             : "新的常用计划"}
-        ，不自动演奏。有两类建议时，系统默认各选最多三项；你可以逐项修改。
+        ，不自动演奏。音符等薄弱项、到期选段和到期整曲各默认选择最多两项；你可以逐项修改。
       </p>
       {duePage && duePage.dueTotal > 0 && (
         <div className="parameter-help">
@@ -346,6 +357,14 @@ export function WeakPracticePanel({
           )}
           {duePage.dueTotal > duePage.eligibleTotal &&
             <small>关闭曲库后会返回当前计划，保留已输入的内容；复习建议需要重新生成。</small>}
+        </div>
+      )}
+      {passageAvailability && passageAvailability.missing > 0 && (
+        <div className="parameter-help">
+          <p>{passageAvailability.due} 个选段达到复习日期，其中 {passageAvailability.missing} 个选段的曲目文件缺失或内容已变，已从建议中排除。曲库中没有列出该曲目时，请按曲名搜索并重新关联原文件。</p>
+          <button type="button" disabled={locked} onClick={() => openLibrary("missing")}>
+            打开曲库核对文件
+          </button>
         </div>
       )}
       {note && (

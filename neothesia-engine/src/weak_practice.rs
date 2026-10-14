@@ -160,12 +160,17 @@ impl Player {
     fn due_review_rows(&self) -> Result<Vec<Suggestion>, String> {
         Ok(self.due_review_candidates()?.0)
     }
-    fn due_passage_review_rows(&self) -> Vec<Suggestion> {
+    fn due_passage_review_rows(&self) -> Result<(Vec<Suggestion>, usize, usize), String> {
+        let index = crate::library_workspace::Workspace::load(&self.data)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
         let mut rows = Vec::new();
+        let mut due_total = 0;
+        let mut missing_total = 0;
+        let mut verified_content = std::collections::HashMap::new();
         for (cid, history) in self.history.snapshot() {
-            for review in history.due_passage_reviews(now, 2) {
+            let mut offered_for_song = 0;
+            for review in history.due_passage_reviews(now, usize::MAX) {
                 let last = &history.sessions[review.session_index];
                 let Some(context) = last.context.as_ref() else { continue; };
                 let Some(mode) = last.mode.as_deref().filter(|mode|
@@ -216,6 +221,20 @@ impl Player {
                     },
                     goal,
                 };
+                due_total += 1;
+                let source_ready = item.exercise.is_some() || *verified_content
+                    .entry(cid.clone())
+                    .or_insert_with(|| {
+                        crate::library::available_path(&index, &cid, item.path.as_deref()).is_some()
+                            && crate::library::verified_file(
+                                &self.data, &cid, item.path.clone().into_iter(),
+                            ).is_ok()
+                    });
+                if !source_ready {
+                    missing_total += 1;
+                    continue;
+                }
+                if offered_for_song >= 2 { continue; }
                 let Ok(bytes) = serde_json::to_vec(&(&item, last.recorded_at_unix_ms)) else { continue; };
                 rows.push(Suggestion {
                     id: blake3::hash(&bytes).to_hex().to_string(),
@@ -226,11 +245,12 @@ impl Player {
                     source_at: last.recorded_at_unix_ms, source_speed: last.speed,
                     source_mode: mode.into(), item,
                 });
+                offered_for_song += 1;
             }
         }
         rows.sort_by(|a, b| a.source_at.cmp(&b.source_at).then_with(|| a.id.cmp(&b.id)));
         rows.truncate(10);
-        rows
+        Ok((rows, due_total, missing_total))
     }
     fn weak_practice_rows(&self) -> Vec<Suggestion> {
         let mut rows = vec![];
@@ -504,7 +524,6 @@ impl Player {
             *n <= 3
         });
         rows.truncate(50);
-        rows.extend(self.due_passage_review_rows());
         rows
     }
     pub(super) fn due_review(&self, offset: usize, expected: Option<&str>) -> Result<Value, String> {
@@ -520,8 +539,11 @@ impl Player {
         Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"missingTotal":missing_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习使用条件完整的最近普通整曲成绩，并检查曲库当前有可用文件路径；加入计划后打开时还会核对实际文件内容、声部、模式、速度及小节网格。文件缺失时请先在曲库重新关联。"}))
     }
     pub(super) fn weak_practice(&self) -> Result<Value, String> {
+        let mut suggestions = self.weak_practice_rows();
+        let (passages, passage_due_total, passage_missing_total) = self.due_passage_review_rows()?;
+        suggestions.extend(passages);
         Ok(
-            json!({"suggestions":self.weak_practice_rows(),"note":"每曲最近最多 16 组条件，分别取最近最多 8 次结果，至少 2 次完整小节、8 次音符判断；正确率低于 90% 提出音符复习；连续演奏至少两次、12 个节奏样本，准时率低于 80% 提出节奏复习。力度/踏板建议使用至少两轮完整范围、正确率至少 90% 的记录；力度每轮至少 8 个样本和 6 段变化，踏板参考至少 4 次转换且有演奏输入。普通选段练习在同条件完整达标后按 1、3、7、14 天安排巩固复习，最多显示 10 个到期选段；特殊阶梯和日期计划仍由各自流程管理。建议沿用原整曲或选段，踏板扣除原输入校准后判断。等音不评价节奏或踏板时机，不推断姿势问题。打开时仍需核对文件、小节和分手条件。"}),
+            json!({"suggestions":suggestions,"passageDueTotal":passage_due_total,"passageUnavailableTotal":passage_missing_total,"note":"每曲最近最多 16 组条件，分别取最近最多 8 次结果，至少 2 次完整小节、8 次音符判断；正确率低于 90% 提出音符复习；连续演奏至少两次、12 个节奏样本，准时率低于 80% 提出节奏复习。力度/踏板建议使用至少两轮完整范围、正确率至少 90% 的记录；力度每轮至少 8 个样本和 6 段变化，踏板参考至少 4 次转换且有演奏输入。普通选段练习在同条件完整达标后按 1、3、7、14 天安排巩固复习，最多显示 10 个到期选段；特殊阶梯和日期计划仍由各自流程管理。建议沿用原整曲或选段，踏板扣除原输入校准后判断。等音不评价节奏或踏板时机，不推断姿势问题。打开时仍需核对文件、小节和分手条件。"}),
         )
     }
     pub(super) fn accept_weak_practice(
@@ -575,7 +597,12 @@ impl Player {
             }
         }
         let mut rows = self.weak_practice_rows();
-        rows.extend(self.due_review_rows()?);
+        if ids.iter().any(|id| !rows.iter().any(|row| &row.id == id)) {
+            rows.extend(self.due_passage_review_rows()?.0);
+        }
+        if ids.iter().any(|id| !rows.iter().any(|row| &row.id == id)) {
+            rows.extend(self.due_review_rows()?);
+        }
         let mut selected = vec![];
         let mut verified_content = std::collections::HashSet::new();
         for id in ids {
@@ -767,6 +794,42 @@ mod tests {
         let id = row["id"].as_str().unwrap().to_owned();
         let saved = p.accept_weak_practice(&[id], None, Some("2026-10-14"), "选段复习").unwrap();
         assert_eq!(saved["added"], 1);
+    }
+    #[test]
+    fn due_passage_with_changed_source_is_reported_but_not_suggested() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/due-passage-missing-unit")
+            .join(format!("{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut p = Player::new(data, PathBuf::new(), true);
+        let imported = p.command(Command::ImportMidi {
+            bytes: include_bytes!("../assets/five-finger.mid").to_vec(),
+            name: "待复习选段.mid".into(),
+        }).unwrap();
+        let cid = p.file.as_ref().unwrap().content_id.clone();
+        let mut summary = AttemptSummary::default();
+        summary.overall = neothesia_core::practice::PracticeBreakdown {
+            target_notes: 8, matched_notes: 8, ..Default::default()
+        };
+        let mut session = PracticeSession::new(
+            PracticeSessionKind::Loop { start_measure: 1, end_measure: 1 },
+            neothesia_core::practice::PracticeHands::Both,
+            1., summary,
+        ).with_context(p.history_context()).with_scope(p.practice_scope()).with_mode("wait");
+        session.recorded_at_unix_ms = 1;
+        session.context.as_mut().unwrap().target_notes = 8;
+        session.context.as_mut().unwrap().judged_notes = 8;
+        p.history.record_session(&cid, &p.title.clone(), session).unwrap();
+        let before = p.weak_practice().unwrap();
+        assert_eq!(before["passageDueTotal"], 1);
+        assert_eq!(before["passageUnavailableTotal"], 0);
+        let source_path = imported["sourcePath"].as_str().unwrap();
+        std::fs::write(source_path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        let after = p.weak_practice().unwrap();
+        assert_eq!(after["passageDueTotal"], 1);
+        assert_eq!(after["passageUnavailableTotal"], 1);
+        assert!(after["suggestions"].as_array().unwrap().iter()
+            .all(|row| row["kind"] != "passageReview"));
     }
     #[test]
     fn missing_midi_is_due_but_not_ready_for_a_plan() {
