@@ -8,7 +8,7 @@ use neothesia_core::{
     song_config::SongConfig,
 };
 use serde::Serialize;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::{HashMap, HashSet}, time::Duration};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -582,16 +582,46 @@ pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Val
                 "kind":r.kind,"semitones":r.semitones,"comfortableSemitones":r.comfortable_semitones,"intervalMs":r.interval_ms})
         }).collect();
     let review_truncated=review.len()>100;review.truncate(100);
+    let mut expression_review=Vec::new();
+    let mut linked_unmarked=HashSet::new();
+    let trusted_expression=if p.score_fingerprint.is_some() {p.expression.as_slice()} else {&[]};
+    for (i,mark) in trusted_expression.iter().enumerate() {
+        let Some(from)=mark.slur_from else {continue};
+        if i>=p.positions.len() || from>=i {continue;}
+        let a=&p.positions[from];let b=&p.positions[i];
+        if !selected.contains_key(&(a.track,a.index)) && !selected.contains_key(&(b.track,b.index)) {continue;}
+        let (Some(af),Some(bf))=(context_fingers[from],context_fingers[i]) else {
+            if context_fingers[from].is_none() {linked_unmarked.insert(from);}
+            if context_fingers[i].is_none() {linked_unmarked.insert(i);}
+            continue;
+        };
+        let delta=i16::from(b.pitch)-i16::from(a.pitch);
+        let outward=if hand==FingeringHand::Right {delta>0} else {delta<0};
+        let crossing=if outward {bf==1 && af>=2} else {af==1 && bf>=2};
+        let position_shift=delta.unsigned_abs()>12 || (!crossing && if outward {bf<af} else {bf>af});
+        let reason=if a.pitch!=b.pitch && af==bf {
+            "连线两音使用同一手指，换音时可能断开"
+        } else if a.pitch!=b.pitch && position_shift {
+            "连线中需要移动手位，请放慢检查衔接"
+        } else {continue};
+        expression_review.push(serde_json::json!({"contextIndex":i,"fromContextIndex":from,
+            "track":b.track,"index":b.index,"measure":b.measure,"pitch":b.pitch,"finger":bf,
+            "fromTrack":a.track,"fromIndex":a.index,"fromMeasure":a.measure,"fromPitch":a.pitch,"fromFinger":af,
+            "reason":reason}));
+    }
+    let expression_review_truncated=expression_review.len()>100;expression_review.truncate(100);
     let first=p.positions.iter().filter(|n|n.target).map(|n|n.onset).fold(f64::INFINITY,f64::min);
     let last=p.positions.iter().filter(|n|n.target).map(|n|n.end).fold(0.0,f64::max);
-    let context_unmarked=p.positions.iter().filter(|n|!n.target && n.track!=p.request.track && n.saved.is_none() && n.onset<last && (n.end>first || n.onset==first)).count();
+    let context_unmarked=p.positions.iter().enumerate().filter(|(i,n)|!n.target && n.saved.is_none() &&
+        (linked_unmarked.contains(i) || (n.track!=p.request.track && n.onset<last && (n.end>first || n.onset==first)))).count();
     // Keep identities from the source notes. A recommendation is not a saved
     // mark until its exact (track, index) edit is selected.
     let marked=|i:usize|selected.get(&(p.positions[i].track,p.positions[i].index)).copied().or(p.positions[i].saved);
     let mut coverage=Vec::new();
     let mut coverage_total=0usize;
     for (i,n) in p.positions.iter().enumerate() {
-        let relevant_context=!n.target && n.track!=p.request.track && n.onset<last && (n.end>first || n.onset==first);
+        let relevant_context=linked_unmarked.contains(&i) ||
+            (!n.target && n.track!=p.request.track && n.onset<last && (n.end>first || n.onset==first));
         if !(n.target || relevant_context) || marked(i).is_some() {continue;}
         coverage_total+=1;
         if coverage.len()>=256 {continue;}
@@ -618,11 +648,13 @@ pub fn review_acceptance(p: &Prepared, edits: &[Edit]) -> Result<serde_json::Val
     let saved_opposite:Vec<_>=p.opposite_notes.iter().map(|n|n.anchored_finger).collect();
     let cross_hand_review=cross_hand_reviews(p,&context_fingers,&saved_opposite,true);
     let full_passage_validated=marked_subset_valid && coverage_total==0 && review.is_empty()
-        && cross_hand_review.is_empty() && !review_truncated && !truncated;
+        && expression_review.is_empty() && cross_hand_review.is_empty()
+        && !review_truncated && !expression_review_truncated && !truncated;
     Ok(serde_json::json!({"contextUnmarked":context_unmarked,"valid":marked_subset_valid,"markedSubsetValid":marked_subset_valid,
         "fullPassageValidated":full_passage_validated,"coverage":coverage,"coverageTotal":coverage_total,"coverageTruncated":coverage_total>256,
         "conflicts":conflicts,"truncated":truncated,
-        "review":review,"crossHandReview":cross_hand_review,"tracks":tracks,"contextFingers":context_fingers,"reviewTruncated":review_truncated,"selected":selected.len(),"retained":retained,"unmarked":unknown,
+        "review":review,"expressionReview":expression_review,"expressionReviewTruncated":expression_review_truncated,
+        "crossHandReview":cross_hand_review,"tracks":tracks,"contextFingers":context_fingers,"reviewTruncated":review_truncated,"selected":selected.len(),"retained":retained,"unmarked":unknown,
         "total":p.positions.iter().filter(|n|n.target).count()}))
 }
 
@@ -685,6 +717,33 @@ mod acceptance_tests {
         assert_eq!(r["tracks"][0]["track"],2);assert_eq!(r["tracks"][1]["track"],7);
         assert_eq!(r["tracks"][0]["selected"],1);assert_eq!(r["tracks"][1]["selected"],1);
         assert_eq!(r["contextFingers"][0],1);assert_eq!(r["contextFingers"][1],3);
+    }
+    #[test]
+    fn acceptance_reviews_trusted_slur_after_selecting_or_retaining_fingers() {
+        let mut p=fixture(PracticePart::RightHand,&[Some(1),Some(3),None]);
+        p.score_fingerprint=Some("paired-score".into());
+        p.expression=vec![FingeringExpression::default(),FingeringExpression::default(),
+            FingeringExpression{slur_from:Some(1),..Default::default()}];
+        let same=review_acceptance(&p,&[Edit{track_id:2,note_index:2,finger:Some(3)}]).unwrap();
+        assert_eq!(same["valid"],true);
+        assert_eq!(same["fullPassageValidated"],false);
+        assert_eq!(same["expressionReview"][0]["fromFinger"],3);
+        assert_eq!(same["expressionReview"][0]["finger"],3);
+        assert_eq!(same["expressionReview"][0]["contextIndex"],2);
+        let shift=review_acceptance(&p,&[Edit{track_id:2,note_index:2,finger:Some(2)}]).unwrap();
+        assert_eq!(shift["expressionReview"][0]["finger"],2);
+        let smooth=review_acceptance(&p,&[Edit{track_id:2,note_index:2,finger:Some(4)}]).unwrap();
+        assert!(smooth["expressionReview"].as_array().unwrap().is_empty());
+        p.positions[1].target=false;
+        p.positions[1].saved=None;
+        let missing=review_acceptance(&p,&[Edit{track_id:2,note_index:2,finger:Some(4)}]).unwrap();
+        assert_eq!(missing["coverageTotal"],1);
+        assert_eq!(missing["coverage"][0]["index"],1);
+        assert_eq!(missing["contextUnmarked"],1);
+        assert_eq!(missing["fullPassageValidated"],false);
+        p.score_fingerprint=None;
+        let unpaired=review_acceptance(&p,&[Edit{track_id:2,note_index:2,finger:Some(4)}]).unwrap();
+        assert!(unpaired["expressionReview"].as_array().unwrap().is_empty());
     }
     #[test]
     fn held_plan_reports_only_trusted_score_expression_and_keeps_empty_evidence_neutral() {

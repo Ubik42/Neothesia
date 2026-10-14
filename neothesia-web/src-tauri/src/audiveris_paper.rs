@@ -120,12 +120,26 @@ fn valid_program(path: &Path) -> Option<PathBuf> {
         .then_some(canonical)
 }
 
-fn audiveris_program() -> Result<PathBuf, String> {
-    if let Some(configured) = std::env::var_os("AUDIVERIS_EXECUTABLE") {
-        return valid_program(Path::new(&configured)).ok_or_else(|| {
-            "AUDIVERIS_EXECUTABLE 必须指向 Audiveris.bat 或 Audiveris.exe 文件".into()
-        });
+const PROGRAM_CONFIG: &str = "audiveris-program.json";
+
+fn saved_program(data: &Path) -> Result<Option<PathBuf>, String> {
+    let config = data.join(PROGRAM_CONFIG);
+    let bytes = match fs::read(config) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("已保存的 Audiveris 程序位置无法读取：{error}")),
+    };
+    if bytes.len() > 8192 {
+        return Err("已保存的 Audiveris 程序位置无效，请重新选择程序".into());
     }
+    let path: PathBuf = serde_json::from_slice(&bytes)
+        .map_err(|_| "已保存的 Audiveris 程序位置无效，请重新选择程序")?;
+    valid_program(&path)
+        .map(Some)
+        .ok_or_else(|| "已选择的 Audiveris 程序已移动或名称不对，请重新选择 Audiveris.exe 或 Audiveris.bat".into())
+}
+
+fn discovered_program() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     for key in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Some(root) = std::env::var_os(key) {
@@ -145,8 +159,71 @@ fn audiveris_program() -> Result<PathBuf, String> {
             candidates.push(folder.join("Audiveris.bat"));
         }
     }
-    candidates.into_iter().find_map(|path| valid_program(&path)).ok_or_else(||
-        "没有找到 Audiveris。请安装 Audiveris，并将 Audiveris.bat 所在目录加入 PATH，或设置 AUDIVERIS_EXECUTABLE".into())
+    candidates.into_iter().find_map(|path| valid_program(&path))
+}
+
+fn resolve_program(data: &Path) -> Result<(PathBuf, &'static str), String> {
+    if let Some(path) = saved_program(data)? {
+        return Ok((path, "selected"));
+    }
+    if let Some(configured) = std::env::var_os("AUDIVERIS_EXECUTABLE") {
+        return valid_program(Path::new(&configured)).map(|path| (path, "environment")).ok_or_else(|| {
+            "AUDIVERIS_EXECUTABLE 必须指向 Audiveris.bat 或 Audiveris.exe 文件".into()
+        });
+    }
+    discovered_program().map(|path| (path, "installed")).ok_or_else(||
+        "没有找到 Audiveris。请选择已安装或便携版的 Audiveris.exe 或 Audiveris.bat".into())
+}
+
+fn program_status(data: &Path) -> Value {
+    match resolve_program(data) {
+        Ok((path, source)) => json!({
+            "available": true,
+            "path": path.to_string_lossy(),
+            "source": source,
+            "message": if source == "selected" { "已选择 Audiveris 程序" } else { "已找到 Audiveris 程序" },
+        }),
+        Err(message) => json!({
+            "available": false,
+            "path": null,
+            "source": null,
+            "message": message,
+        }),
+    }
+}
+
+fn save_program(data: &Path, candidate: &Path) -> Result<Value, String> {
+    let path = valid_program(candidate)
+        .ok_or("请选择 Audiveris.exe 或 Audiveris.bat 程序文件")?;
+    fs::create_dir_all(data)
+        .map_err(|error| format!("Audiveris 程序位置无法保存：{error}"))?;
+    let bytes = serde_json::to_vec(&path)
+        .map_err(|error| format!("Audiveris 程序位置无法保存：{error}"))?;
+    fs::write(data.join(PROGRAM_CONFIG), bytes)
+        .map_err(|error| format!("Audiveris 程序位置无法保存：{error}"))?;
+    Ok(program_status(data))
+}
+
+#[tauri::command]
+pub fn audiveris_program_status(state: tauri::State<'_, super::State>) -> Value {
+    program_status(&state.data)
+}
+
+#[tauri::command]
+pub async fn select_audiveris_program(state: tauri::State<'_, super::State>) -> Result<Value, String> {
+    let selected = super::file_dialog(&state.data, "audiveris")
+        .set_title("选择 Audiveris 程序")
+        .add_filter("Audiveris 程序", &["exe", "bat"])
+        .pick_file()
+        .await;
+    let Some(selected) = selected else {
+        let mut status = program_status(&state.data);
+        status["cancelled"] = json!(true);
+        return Ok(status);
+    };
+    let status = save_program(&state.data, selected.path())?;
+    super::remember_location(&state.data, "audiveris", selected.path(), false);
+    Ok(status)
 }
 
 struct Scratch {
@@ -351,7 +428,7 @@ pub async fn recognize_paper_with_audiveris(
         if kind != before.page.kind || blake3::hash(&source).to_hex().as_str() != before.page.id {
             return Err("纸谱内容已改变，请重新打开谱面管理".into());
         }
-        let program = audiveris_program()?;
+        let (program, _) = resolve_program(&data)?;
         let scratch = Scratch::create(&data)?;
         let bytes = convert(&program, &scratch, &source, &kind)?;
         if current_source(&engine, &content_id)? != midi_source {
@@ -637,6 +714,28 @@ mod tests {
             valid_program(&executable),
             Some(fs::canonicalize(executable).unwrap())
         );
+    }
+
+    #[test]
+    fn chosen_program_persists_and_invalid_selection_keeps_the_previous_path() {
+        let temp = Scratch::create(&std::env::temp_dir().join(format!(
+            "neothesia-audiveris-choice-test-{}", std::process::id()
+        )))
+        .unwrap();
+        let program = temp.dir.join("Audiveris.bat");
+        fs::write(&program, b"@echo off\r\n").unwrap();
+        let status = save_program(&temp.dir, &program).unwrap();
+        let canonical = fs::canonicalize(&program).unwrap();
+        assert_eq!(status["available"], true);
+        assert_eq!(status["source"], "selected");
+        assert_eq!(saved_program(&temp.dir).unwrap(), Some(canonical.clone()));
+        assert_eq!(resolve_program(&temp.dir).unwrap(), (canonical, "selected"));
+        let other = temp.dir.join("other.bat");
+        fs::write(&other, b"@echo off\r\n").unwrap();
+        assert!(save_program(&temp.dir, &other).is_err());
+        assert_eq!(saved_program(&temp.dir).unwrap(), Some(fs::canonicalize(program).unwrap()));
+        fs::write(temp.dir.join(PROGRAM_CONFIG), b"not json").unwrap();
+        assert_eq!(program_status(&temp.dir)["available"], false);
     }
 
     #[test]

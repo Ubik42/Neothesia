@@ -1,0 +1,46 @@
+name: Desktop feature checks
+
+on:
+  push:
+    branches:
+      - "feature/**"
+    paths:
+      - ".github/workflows/desktop-feature.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "neothesia-core/**"
+      - "neothesia-engine/**"
+      - "neothesia-web/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-feature-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  targeted:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: neothesia-web/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Web interface
+        run: |
+          npm ci --prefix neothesia-web
+          npm run build --prefix neothesia-web
+      - name: Review saved fingering acceptance
+        run: cargo test --locked -p neothesia-engine --lib acceptance_tests -- --quiet
+      - name: Review Audiveris desktop commands
+        run: cargo test --locked -p neothesia-desktop --bin neothesia-desktop audiveris_paper::tests -- --quiet

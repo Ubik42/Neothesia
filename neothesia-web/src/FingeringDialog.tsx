@@ -126,6 +126,22 @@ type AcceptanceReview = {
     reason: string;
   }[];
   review: Plan["review"];
+  expressionReview: {
+    contextIndex: number;
+    fromContextIndex: number;
+    track: number;
+    index: number;
+    measure: number;
+    pitch: number;
+    finger: number;
+    fromTrack: number;
+    fromIndex: number;
+    fromMeasure: number;
+    fromPitch: number;
+    fromFinger: number;
+    reason: string;
+  }[];
+  expressionReviewTruncated: boolean;
   crossHandReview: CrossHandReview[];
   contextFingers: (number | null)[];
   tracks: {
@@ -203,6 +219,7 @@ export function FingeringDialog({
   const [acceptanceError, setAcceptanceError] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [acceptancePage, setAcceptancePage] = useState(0);
+  const [expressionPage, setExpressionPage] = useState(0);
   const [previewSaved, setPreviewSaved] = useState(false);
   const acceptanceEdits = useMemo(
     () =>
@@ -224,6 +241,7 @@ export function FingeringDialog({
     setAcceptance(null);
     setAcknowledged(false);
     setAcceptancePage(0);
+    setExpressionPage(0);
     setAcceptanceError("");
     setPreviewSaved(false);
     if (!result || !acceptanceEdits.length || hasChanges) return;
@@ -986,7 +1004,7 @@ export function FingeringDialog({
                       : "已标记部分存在同时按键冲突。"}{" "}
                     {currentAcceptance.fullPassageValidated
                       ? "整个选段的指法覆盖与衔接检查通过。"
-                      : "整个选段仍有未标记音、衔接难点或冲突，不能视为完整通过。"}
+                      : "整个选段仍有未标记音、连线衔接难点或冲突，不能视为完整通过。"}
                   </p>
                   {currentAcceptance.coverageTotal > 0 && (
                     <FingerCoverageReview
@@ -1132,8 +1150,8 @@ export function FingeringDialog({
                   {currentAcceptance.valid && (
                     <p>
                       勾选指法与已标记位置没有发现同时按键冲突。实际保存结果还有{" "}
-                      {currentAcceptance.review.length + (currentAcceptance.crossHandReview?.length ?? 0)}{" "}
-                      处跨度、快速换指或双手交叠需要复核；原方案的难点不代替局部保存结果。
+                      {currentAcceptance.review.length + currentAcceptance.expressionReview.length + (currentAcceptance.crossHandReview?.length ?? 0)}{" "}
+                      处跨度、连线衔接、快速换指或双手交叠需要复核；原方案的难点不代替局部保存结果。
                     </p>
                   )}
                   {currentAcceptance.valid &&
@@ -1202,6 +1220,43 @@ export function FingeringDialog({
                         </button>
                       </div>
                     )}
+                  {currentAcceptance.expressionReview.length > 0 && (
+                    <p>谱面连线复核：请检查保存后的两音是否能连贯弹奏。点击一处可定位到后一个音。</p>
+                  )}
+                  {currentAcceptance.expressionReview
+                    .slice(expressionPage * 8, (expressionPage + 1) * 8)
+                    .map((item) => (
+                      <button
+                        key={`${item.fromTrack}:${item.fromIndex}:${item.track}:${item.index}`}
+                        disabled={busy}
+                        onClick={() => {
+                          void api.command({ type: "stopFingerDemo" }).catch((e) => setError(String(e)));
+                          setPreview(item.contextIndex);
+                          setPreviewSaved(true);
+                          const row = result.proposals.findIndex((p) => p.track === item.track && p.index === item.index);
+                          if (row >= 0) setPage(Math.floor(row / 40));
+                        }}
+                      >
+                        <span>
+                          {trackName(item.fromTrack)}第 {item.fromMeasure} 小节 {pitchName(item.fromPitch)}（{item.fromFinger} 指）
+                          {" → "}{trackName(item.track)}第 {item.measure} 小节 {pitchName(item.pitch)}（{item.finger} 指）
+                        </span>
+                        <strong>{item.reason}</strong>
+                      </button>
+                    ))}
+                  {currentAcceptance.expressionReview.length > 8 && (
+                    <div className="fingering-pages">
+                      <button aria-label="上一页连线复核" disabled={!expressionPage}
+                        onClick={() => setExpressionPage(expressionPage - 1)}><ChevronLeft size={16} /></button>
+                      <span>{expressionPage + 1} / {Math.ceil(currentAcceptance.expressionReview.length / 8)}</span>
+                      <button aria-label="下一页连线复核"
+                        disabled={(expressionPage + 1) * 8 >= currentAcceptance.expressionReview.length}
+                        onClick={() => setExpressionPage(expressionPage + 1)}><ChevronRight size={16} /></button>
+                    </div>
+                  )}
+                  {currentAcceptance.expressionReviewTruncated && (
+                    <p>连线复核超过 100 处，目前列出前 100 处。请缩小小节范围继续核对。</p>
+                  )}
                   <CrossHandReviewList
                     items={currentAcceptance.crossHandReview ?? []}
                     title="保存后双手音区交叠"

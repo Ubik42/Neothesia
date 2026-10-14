@@ -984,6 +984,8 @@ fn main() {
             open_score_in_musescore,
             add_musescore_pdf,
             generate_musescore_score,
+            audiveris_paper::audiveris_program_status,
+            audiveris_paper::select_audiveris_program,
             audiveris_paper::recognize_paper_with_audiveris,
             audiveris_paper::save_recognized_score_for_edit,
             save_generated_score_for_edit,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, pitchName, type LoadedSong, type Note } from "./api";
+import { api, pitchName, type AudiverisProgramStatus, type LoadedSong, type Note } from "./api";
 import { annotatedPagePng } from "./PaperPageExport";
 import { annotatedBookPdf } from "./PaperBookExport";
 import { PaperPracticeBuilder } from "./PaperPracticeBuilder";
@@ -150,6 +150,7 @@ export function PaperScore({
   const [sourceBusy,setSourceBusy]=useState(false);
   const [transferBusy,setTransferBusy]=useState(false);
   const [recognizing, setRecognizing] = useState(false);
+  const [audiverisStatus, setAudiverisStatus] = useState<AudiverisProgramStatus | null>(null);
   const [practice, setPractice] = useState<PracticeContext | null>(null);
   const [song, setSong] = useState<LoadedSong | null>(null);
   const [practiceLoaded, setPracticeLoaded] = useState(false);
@@ -169,6 +170,21 @@ export function PaperScore({
     onBusy?.(busy || sourceBusy || transferBusy);
     return () => onBusy?.(false);
   }, [busy, sourceBusy, transferBusy, onBusy]);
+  useEffect(() => {
+    if (!manage || !onRecognize) return;
+    let active = true;
+    void api.audiverisProgramStatus()
+      .then((status) => { if (active) setAudiverisStatus(status); })
+      .catch((cause) => {
+        if (active) setAudiverisStatus({
+          available: false,
+          path: null,
+          source: null,
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+      });
+    return () => { active = false; };
+  }, [manage, !!onRecognize]);
   const focus = historyFocus?.contentId === contentId ? historyFocus : null;
   const eligible = focus && practice
     ? data?.attachments.filter((item) => !historyMappingIssue(item, practice, focus)) ?? []
@@ -438,6 +454,7 @@ export function PaperScore({
                 <button
                   disabled={
                     busy || sourceBusy || transferBusy ||
+                    !audiverisStatus?.available ||
                     current.pages.length !== 1 ||
                     current.pages.some((page) => !page.available)
                   }
@@ -456,6 +473,24 @@ export function PaperScore({
                 </button>
               )}
               <span>保留导入副本和原文件</span>
+            </div>
+          )}
+          {onRecognize && current && (
+            <div className="paper-version-actions">
+              <span role="status">
+                {audiverisStatus
+                  ? `${audiverisStatus.message}${audiverisStatus.path ? `：${audiverisStatus.path}` : ""}`
+                  : "正在检查 Audiveris 程序…"}
+              </span>
+              <button
+                disabled={busy || sourceBusy || transferBusy}
+                onClick={() => void work(async () => {
+                  const status = await api.selectAudiverisProgram();
+                  if (alive.current) setAudiverisStatus(status);
+                })}
+              >
+                选择 Audiveris 程序
+              </button>
             </div>
           )}
           {onRecognize && current?.format === "images" && current.pages.length > 1 && (

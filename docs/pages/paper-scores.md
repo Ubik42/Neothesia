@@ -4,7 +4,7 @@
 
 ## 从纸谱识别演奏乐谱
 
-桌面版在纸谱版本旁提供“识别为演奏乐谱”。当前入口接受一份 PDF 或单页 PNG/JPEG；多张独立图片和 WebP 暂不能直接识别。软件从已保存的副本读取内容，并在识别前后重新核对当前曲目、纸谱版本、页序和文件哈希。用户可在软件找不到 Audiveris 时安装程序，或用 `AUDIVERIS_EXECUTABLE` 指定其可执行文件。识别过程按 [Audiveris 批处理参数](https://github.com/Audiveris/audiveris/wiki/CLI-Arguments/8ff760079ef26b36e32def16930341791282da00) 在后台运行，不打开 Audiveris 窗口。
+桌面版在纸谱版本旁提供“识别为演奏乐谱”。当前入口接受一份 PDF 或单页 PNG/JPEG；多张独立图片和 WebP 暂不能直接识别。软件从已保存的副本读取内容，并在识别前后重新核对当前曲目、纸谱版本、页序和文件哈希。软件会显示本机 Audiveris 程序的检查结果。用户可以安装 Audiveris，再点击“选择 Audiveris 程序”指定 `Audiveris.exe` 或 `Audiveris.bat`；软件会保存该位置供下次使用。设置 `AUDIVERIS_EXECUTABLE` 环境变量也可以指定程序，但软件优先使用用户已选择的位置。只有找到程序后，“识别为演奏乐谱”才可点击。识别过程按 [Audiveris 批处理参数](https://github.com/Audiveris/audiveris/wiki/CLI-Arguments/8ff760079ef26b36e32def16930341791282da00) 在后台运行，不打开 Audiveris 窗口。
 
 识别成功后，软件在“演奏乐谱”页显示 MusicXML 初稿和实际演奏顺序。用户应逐小节核对音高、时值、拍号和反复记号。“仅保存谱面版本”保留当前练习；只有演奏顺序检查通过，“添加并使用”才可切换当前谱面。“保存可编辑原谱并打开 MuseScore”会让用户选择一个新文件，保存外部 `.mxl` 原件和软件内版本，建立原谱关联，再打开 MuseScore Studio。用户修改并保存后可通过“检查原谱更新”审阅和采用。纸谱原件及原来的谱面版本继续保留。
 

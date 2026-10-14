@@ -68,6 +68,13 @@ export interface SoundFontStatus {
   isDefault: boolean;
   warning?: string | null;
 }
+export interface AudiverisProgramStatus {
+  available: boolean;
+  path: string | null;
+  source: "selected" | "environment" | "installed" | null;
+  message: string;
+  cancelled?: boolean;
+}
 export interface MeterMapSegment {
   measure: number;
   numerator: number;
@@ -568,6 +575,10 @@ export const api = {
     invoke<{ active: string }>("add_musescore_pdf", { contentId, versionId }),
   generateMuseScoreScore: (contentId: string) =>
     invoke<{ name: string; bytes: number[]; previewToken: string }>("generate_musescore_score", { contentId }),
+  audiverisProgramStatus: () =>
+    invoke<AudiverisProgramStatus>("audiveris_program_status"),
+  selectAudiverisProgram: () =>
+    invoke<AudiverisProgramStatus>("select_audiveris_program"),
   recognizePaperWithAudiveris: (contentId: string, bookId: string, expectedPages: { id: string; kind: string }[]) =>
     invoke<{ name: string; bytes: number[]; previewToken: string }>("recognize_paper_with_audiveris", { contentId, bookId, expectedPages }),
   saveRecognizedScoreForEdit: (contentId: string, name: string, bytes: number[], previewToken: string) =>

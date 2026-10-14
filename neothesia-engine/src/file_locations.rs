@@ -7,6 +7,7 @@ pub const KINDS: &[(&str, &str)] = &[
     ("music", "曲目与乐谱"),
     ("library", "曲库文件夹"),
     ("notation", "MusicXML 乐谱"),
+    ("audiveris", "Audiveris 程序"),
     ("paper", "PDF 与图片"),
     ("piece", "曲目包"),
     ("backup", "练习备份"),
