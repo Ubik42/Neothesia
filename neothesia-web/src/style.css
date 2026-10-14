@@ -2440,7 +2440,7 @@ fieldset.paper-controls {border:0;padding:0;margin:0;min-width:0;}
 @media(max-width:500px) {.song-learning-fields {grid-template-columns:1fr;}}
 
 .library-learning-summary {margin:14px 0;padding:12px 0;border-block:1px solid #3c4451;}
-.library-review-status {margin:10px 0;color:#bce483;font-size:12px;line-height:1.5;}
+.library-review-status {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0;color:#bce483;font-size:12px;line-height:1.5;}
 .library-learning-summary h4 {margin:0 0 8px;color:#bce483;}
 .library-learning-summary p {margin:6px 0;font-size:12px;}
 .learning-goal-text {white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;}

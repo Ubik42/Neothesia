@@ -1506,12 +1506,19 @@ export function LibraryDialog({
                     )}
                   </>
                 )}
-                {entry?.contentId && activeReview && (
-                  <p className="library-review-status">
-                    {activeReview.due ? "现在待复习" : "建议复习时间"}
-                    {activeReview.dueAt != null && ` · ${new Date(activeReview.dueAt).toLocaleString("zh-CN")}`}
-                    {` · ${reviewReason(activeReview)}`}
-                  </p>
+                {entry?.contentId && activeReview && current && (
+                  <div className="library-review-status">
+                    <span>
+                      {activeReview.due ? "现在待复习" : "建议复习时间"}
+                      {activeReview.dueAt != null && ` · ${new Date(activeReview.dueAt).toLocaleString("zh-CN")}`}
+                      {` · ${reviewReason(activeReview)}`}
+                    </span>
+                    {activeReview.due && (
+                      <button disabled={busy || !entry.available} onClick={() => void open(current)}>
+                        打开曲目开始复习
+                      </button>
+                    )}
+                  </div>
                 )}
                 {entry?.contentId && current && (
                   <LibraryScoresPane
