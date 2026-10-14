@@ -76,6 +76,7 @@ export function FingerPairDialog({
     [review, setReview] = useState<Review | null>(null),
     [ack, setAck] = useState(false),
     [busy, setBusy] = useState(false),
+    [pendingRefresh, setPendingRefresh] = useState(false),
     [error, setError] = useState("");
   const busyRef = useRef(false),
     root = useRef<HTMLElement>(null);
@@ -194,8 +195,8 @@ export function FingerPairDialog({
           finger: edits[i][key(p)] ?? p.finger,
         })),
     }));
-  const work = async (job: () => Promise<void>) => {
-    if (busyRef.current) return;
+  const work = async (job: () => Promise<void>, allowPending = false) => {
+    if (busyRef.current || (pendingRefresh && !allowPending)) return;
     busyRef.current = true;
     setBusy(true);
     setError("");
@@ -356,13 +357,26 @@ export function FingerPairDialog({
               </select>
             </label>
           ))}
-          <button disabled={busy} onClick={generate}>
+          <button disabled={busy || pendingRefresh} onClick={generate}>
             生成双手建议
           </button>
         </div>
         {error && (
           <p className="dialog-error" role="alert">
             {error}
+          </p>
+        )}
+        {pendingRefresh && (
+          <p role="status">
+            双手指法已保存。
+            <button disabled={busy} onClick={() => void work(async () => {
+              try {
+                await changed();
+                close();
+              } catch (cause) {
+                throw new Error(`双手指法已保存，但界面刷新失败：${String(cause)}。请只重试读取。`);
+              }
+            }, true)}>重试读取实际指法</button>
           </p>
         )}
         <div className="finger-pair-hands">
@@ -766,7 +780,7 @@ export function FingerPairDialog({
           </button>
           <button
             className="primary"
-            disabled={busy || !review?.valid || (review.needsAck && !ack)}
+            disabled={busy || pendingRefresh || !review?.valid || (review.needsAck && !ack)}
             onClick={() =>
               void work(async () => {
                 await api.command({
@@ -775,8 +789,15 @@ export function FingerPairDialog({
                   proof: review?.proof,
                   acknowledged: ack,
                 });
-                await changed();
-                close();
+                setPendingRefresh(true);
+                setReview(null);
+                setResults([]);
+                try {
+                  await changed();
+                  close();
+                } catch (cause) {
+                  setError(`双手指法已保存，但界面刷新失败：${String(cause)}。请只重试读取，不要再次保存。`);
+                }
               })
             }
           >
