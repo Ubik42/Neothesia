@@ -9,7 +9,7 @@ interface Suggestion {
   title: string;
   measure: number;
   accuracy: number;
-  kind: "accuracy" | "rhythm" | "dynamics" | "pedal";
+  kind: "accuracy" | "rhythm" | "dynamics" | "pedal" | "review";
   range: string | null;
   expression: {
     contourPercent: number | null;
@@ -37,7 +37,7 @@ interface Suggestion {
   item: {
     notes: string;
     speed: number;
-    settings: { mode: string; hands: string };
+    settings: { mode: string; hands: string; metronome: boolean };
     goal: {
       passes: number;
       accuracy: number;
@@ -66,15 +66,20 @@ export function WeakPracticePanel({
     [message, setMessage] = useState("");
   const generate = () =>
     void work(async () => {
-      const data = await api.command<{
+      type SuggestionResult = {
         suggestions: Suggestion[];
         note: string;
-      }>({ type: "weakPractice" });
-      setRows(data.suggestions);
-      setChosen(data.suggestions.slice(0, 6).map((r) => r.id));
-      setNote(data.note);
+      };
+      const [due, weak] = await Promise.all([
+        api.command<SuggestionResult>({ type: "dueReview" }),
+        api.command<SuggestionResult>({ type: "weakPractice" }),
+      ]);
+      const suggestions = [...due.suggestions, ...weak.suggestions].slice(0, 60);
+      setRows(suggestions);
+      setChosen(suggestions.slice(0, 6).map((r) => r.id));
+      setNote(`${due.note} ${weak.note}`);
       setMessage(
-        data.suggestions.length
+        suggestions.length
           ? ""
           : "暂无足够的重复薄弱证据；完成几轮后再生成。",
       );
@@ -125,6 +130,8 @@ export function WeakPracticePanel({
                   aria-label={
                     r.expression
                       ? `选择 ${r.title} ${r.range} ${r.kind === "dynamics" ? "力度起伏" : "踏板时机"}`
+                      : r.kind === "review"
+                        ? `选择 ${r.title} 全曲到期复习`
                       : `选择 ${r.title} 第 ${r.measure} 小节`
                   }
                   disabled={disabled}
@@ -146,13 +153,16 @@ export function WeakPracticePanel({
                         accuracy: "音符",
                         dynamics: "力度起伏",
                         pedal: "踏板时机",
+                        review: "到期复习",
                       }[r.kind]
                     }
                   </strong>
                   <small>
-                    正确率 {Math.round(r.accuracy * 100)}% · {r.attempts}
-                    {r.expression ? " 轮完整练习" : " 次完整小节"} · {r.judged}{" "}
-                    次音符判断
+                    {r.kind === "review" ? "最近正确率" : "正确率"} {Math.round(r.accuracy * 100)}% ·{" "}
+                    {r.kind === "review"
+                      ? `同条件连续达标 ${r.attempts} 次`
+                      : `${r.attempts}${r.expression ? " 轮完整练习" : " 次完整小节"}`} ·{" "}
+                    {r.judged} 次音符判断
                   </small>
                   {r.timing && (
                     <small>
@@ -210,15 +220,16 @@ export function WeakPracticePanel({
                     )[r.item.settings.hands] ?? r.item.settings.hands}
                   </small>
                   <small>
-                    {r.item.settings.mode === "wait" ? "等音" : "连续"} ·{" "}
+                    {({ wait: "等音", flow: "连续", recital: "完整演奏", memory: "背谱" } as Record<string, string>)[r.item.settings.mode] ?? r.item.settings.mode} ·{" "}
                     {Math.round(r.item.speed * 100)}% · 连续{" "}
                     {r.item.goal.passes} 轮达标，正确率 ≥ {r.item.goal.accuracy}%
                     {r.item.goal.expression &&
                       `、${expressionGoalText(r.item.goal.expression)}`}
                     {r.item.goal.onTime !== null &&
                     r.item.goal.onTime !== undefined
-                      ? `、准时率 ≥ ${r.item.goal.onTime}%、节拍器开启`
+                      ? `、准时率 ≥ ${r.item.goal.onTime}%`
                       : ""}
+                    {r.item.settings.metronome ? "、节拍器开启" : ""}
                     ；打开时检查曲目版本与练习范围
                   </small>
                 </span>
