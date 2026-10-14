@@ -318,57 +318,62 @@ impl Player {
         if name.trim().is_empty() || name.chars().count() > 80 || notes.len() > 8192 {
             return Err("计划名称需 1～80 个字，备注最长 8192 字节".into());
         }
-        if let Some(id) = id {
-            let r = self.routine_target_mut(&id, day.as_deref())?;
-            r.name = name.trim().into();
-            r.notes = notes;
-            self.persist()?;
-            return Ok(json!({"id":id}));
-        }
-        if self.preferences.routines.len() >= 100 {
-            return Err("最多保存 100 个常用计划".into());
-        }
-        let id = new_id("routine");
-        let mut routine = if let Some(source) = copy_of {
-            if let Some(day) = day.as_deref() {
-                self.preferences
-                    .routine_runs
-                    .get(&run_key(&source, day))
-                    .map(|r| r.routine.clone())
-                    .or_else(|| {
-                        self.preferences
-                            .routines
-                            .iter()
-                            .find(|r| r.id == source)
-                            .cloned()
-                    })
+        let previous=self.preferences.clone();
+        let result=(|| -> Result<Value,String> {
+            if let Some(id) = id {
+                let r = self.routine_target_mut(&id, day.as_deref())?;
+                r.name = name.trim().into();
+                r.notes = notes;
+                self.persist()?;
+                return Ok(json!({"id":id}));
+            }
+            if self.preferences.routines.len() >= 100 {
+                return Err("最多保存 100 个常用计划".into());
+            }
+            let id = new_id("routine");
+            let mut routine = if let Some(source) = copy_of {
+                if let Some(day) = day.as_deref() {
+                    self.preferences
+                        .routine_runs
+                        .get(&run_key(&source, day))
+                        .map(|r| r.routine.clone())
+                        .or_else(|| {
+                            self.preferences
+                                .routines
+                                .iter()
+                                .find(|r| r.id == source)
+                                .cloned()
+                        })
+                } else {
+                    self.preferences
+                        .routines
+                        .iter()
+                        .find(|r| r.id == source)
+                        .cloned()
+                }
+                .ok_or("要复制的计划不存在")?
             } else {
-                self.preferences
-                    .routines
-                    .iter()
-                    .find(|r| r.id == source)
-                    .cloned()
+                PracticeRoutine {
+                    schedule: None,
+                    id: id.clone(),
+                    name: String::new(),
+                    notes: String::new(),
+                    items: vec![],
+                }
+            };
+            routine.schedule = None;
+            routine.id = id.clone();
+            routine.name = name.trim().into();
+            routine.notes = notes;
+            for item in &mut routine.items {
+                item.id = new_id("item");
             }
-            .ok_or("要复制的计划不存在")?
-        } else {
-            PracticeRoutine {
-                schedule: None,
-                id: id.clone(),
-                name: String::new(),
-                notes: String::new(),
-                items: vec![],
-            }
-        };
-        routine.schedule = None;
-        routine.id = id.clone();
-        routine.name = name.trim().into();
-        routine.notes = notes;
-        for item in &mut routine.items {
-            item.id = new_id("item");
-        }
-        self.preferences.routines.push(routine);
-        self.persist()?;
-        Ok(json!({"id":id}))
+            self.preferences.routines.push(routine);
+            self.persist()?;
+            Ok(json!({"id":id}))
+        })();
+        if result.is_err(){self.preferences=previous;}
+        result
     }
     pub(super) fn save_routine_schedule(
         &mut self,
@@ -565,36 +570,41 @@ impl Player {
         if title.trim().is_empty() || title.chars().count() > 100 || notes.len() > 8192 {
             return Err("项目名称需 1～100 个字，要求最长 8192 字节".into());
         }
-        let old = self
-            .routine_target_mut(routine_id, day)?
-            .items
-            .iter()
-            .find(|i| Some(&i.id) == id.as_ref())
-            .cloned();
-        let item = self.build_routine_item(id, source, source_id, title, notes, goal, old.clone())?;
-        let changed = old.as_ref().is_some_and(|old| source.is_some() || old.goal != item.goal);
-        let item_id = item.id.clone();
-        let rows = &mut self.routine_target_mut(routine_id, day)?.items;
-        if let Some(old) = rows.iter_mut().find(|i| i.id == item_id) {
-            *old = item;
-        } else {
-            if rows.len() >= 200 {
-                return Err("每个计划最多 200 个项目".into());
+        let previous=self.preferences.clone();
+        let result=(|| -> Result<Value,String> {
+            let old = self
+                .routine_target_mut(routine_id, day)?
+                .items
+                .iter()
+                .find(|i| Some(&i.id) == id.as_ref())
+                .cloned();
+            let item = self.build_routine_item(id, source, source_id, title, notes, goal, old.clone())?;
+            let changed = old.as_ref().is_some_and(|old| source.is_some() || old.goal != item.goal);
+            let item_id = item.id.clone();
+            let rows = &mut self.routine_target_mut(routine_id, day)?.items;
+            if let Some(old) = rows.iter_mut().find(|i| i.id == item_id) {
+                *old = item;
+            } else {
+                if rows.len() >= 200 {
+                    return Err("每个计划最多 200 个项目".into());
+                }
+                rows.push(item);
             }
-            rows.push(item);
-        }
-        if changed {
-            if let Some(day) = day {
-                self.preferences
-                    .routine_runs
-                    .get_mut(&run_key(routine_id, day))
-                    .unwrap()
-                    .progress
-                    .remove(&item_id);
+            if changed {
+                if let Some(day) = day {
+                    self.preferences
+                        .routine_runs
+                        .get_mut(&run_key(routine_id, day))
+                        .unwrap()
+                        .progress
+                        .remove(&item_id);
+                }
             }
-        }
-        self.persist()?;
-        Ok(json!({"id":item_id}))
+            self.persist()?;
+            Ok(json!({"id":item_id}))
+        })();
+        if result.is_err(){self.preferences=previous;}
+        result
     }
     pub(super) fn passage_catalog(&self,content_id:Option<&str>,query:&str,offset:usize)->Result<Value,String>{
         if query.len()>512 {return Err("查询文字过长".into());}
@@ -1035,6 +1045,32 @@ impl Player {
         Some(
             json!({"routineId":a.routine_id,"day":a.day,"itemId":a.item.id,"title":run.routine.name,"itemTitle":a.item.title,"notes":a.item.notes,"index":index+1,"total":run.routine.items.len(),"kind":match a.item.target{RoutineTarget::Whole=>"whole",RoutineTarget::Passage{..}|RoutineTarget::ScorePassage{..}|RoutineTarget::PrecisePassage{..}=>"passage",RoutineTarget::Ladder{..}=>"ladder"},"goal":a.item.goal,"progress":progress,"nextItemId":next}),
         )
+    }
+}
+
+#[cfg(test)]
+mod routine_write_tests {
+    use super::*;
+
+    #[test]
+    fn failed_plan_and_item_writes_keep_preferences_unchanged() {
+        let data=std::env::temp_dir().join(new_id("neothesia-routine-write"));
+        let mut p=Player::new(data.clone(),PathBuf::new(),true);
+        p.command(Command::Generate{spec:ExerciseSpec::default()}).unwrap();
+        let path=p.preferences_path.clone();
+        let before=serde_json::to_value(&p.preferences).unwrap();
+        p.preferences_path=data.clone();
+        assert!(p.save_routine(None,None,"未保存计划".into(),String::new(),None).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        p.preferences_path=path;
+        let id=p.save_routine(None,None,"手位日课".into(),String::new(),None).unwrap()["id"].as_str().unwrap().to_owned();
+        let before=serde_json::to_value(&p.preferences).unwrap();
+        p.preferences_path=data;
+        let goal=RoutineGoal{expression:None,passes:1,accuracy:90,on_time:None,consecutive:false,attempt_limit:20};
+        assert!(p.save_routine_item(&id,None,None,Some("current"),None,"第一段".into(),String::new(),goal.clone()).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
+        assert!(p.save_routine_item(&id,Some("2026-10-02"),None,Some("current"),None,"第一段".into(),String::new(),goal).is_err());
+        assert_eq!(serde_json::to_value(&p.preferences).unwrap(),before);
     }
 }
 
