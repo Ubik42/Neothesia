@@ -74,9 +74,14 @@ export function WeakPracticePanel({
         api.command<SuggestionResult>({ type: "dueReview" }),
         api.command<SuggestionResult>({ type: "weakPractice" }),
       ]);
-      const suggestions = [...due.suggestions, ...weak.suggestions].slice(0, 60);
+      const dueRows = due.suggestions.slice(0, 30);
+      const suggestions = [
+        ...weak.suggestions.slice(0, 60 - dueRows.length),
+        ...dueRows,
+      ];
       setRows(suggestions);
-      setChosen(suggestions.slice(0, 6).map((r) => r.id));
+      setChosen((weak.suggestions.length ? weak.suggestions : due.suggestions)
+        .slice(0, 6).map((r) => r.id));
       setNote(`${due.note} ${weak.note}`);
       setMessage(
         suggestions.length
