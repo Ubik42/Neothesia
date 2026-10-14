@@ -12,6 +12,8 @@ pub struct SongRow {
     pub license: String,
     pub source_url: String,
     pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_id: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub difficulty: Option<String>,
@@ -59,6 +61,7 @@ pub fn read(root: &Path) -> Result<Vec<SongRow>, String> {
             license: row.license,
             source_url: row.source_url,
             path,
+            content_id: None,
             tags: vec![],
             difficulty: None,
             rating: 0,
@@ -83,6 +86,7 @@ pub fn load(root: &Path, data: &Path) -> Result<Vec<SongRow>, String> {
         license: "随项目许可发布".into(),
         source_url: String::new(),
         path,
+        content_id: None,
         tags: vec![],
         difficulty: None,
         rating: 0,
@@ -124,6 +128,7 @@ pub fn load(root: &Path, data: &Path) -> Result<Vec<SongRow>, String> {
             license: "随项目许可发布".into(),
             source_url: String::new(),
             path,
+            content_id: None,
             tags: vec![],
             difficulty: None,
             rating: 0,
@@ -269,6 +274,7 @@ pub fn scan_folder(root: &Path) -> Result<Vec<SongRow>, String> {
                 license: "本地文件，请确认使用权限".into(),
                 source_url: String::new(),
                 path,
+                content_id: None,
                 tags: vec![],
                 difficulty: None,
                 rating: 0,
@@ -303,6 +309,7 @@ pub fn enriched(rows: &[SongRow], data: &Path) -> Vec<SongRow> {
                     license: "本地文件，请确认使用权限".into(),
                     source_url: String::new(),
                     path: entry.path.clone(),
+                    content_id: entry.content_id.clone(),
                     tags: vec![],
                     difficulty: None,
                     rating: 0,
@@ -324,6 +331,7 @@ pub fn enriched(rows: &[SongRow], data: &Path) -> Vec<SongRow> {
                     row.composer = composer.clone();
                 }
                 row.tags = entry.metadata.tags.clone();
+                row.content_id = entry.content_id.clone();
                 row.difficulty = entry.metadata.difficulty.clone();
                 row.rating = entry.rating;
             }

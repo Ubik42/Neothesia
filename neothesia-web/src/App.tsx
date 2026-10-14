@@ -878,6 +878,7 @@ export default function App() {
           id: r.contentId,
           title: r.title,
           path: r.path || `exercise:${r.contentId}`,
+          contentId: r.contentId,
           composer: r.generated ? "技术练习" : "本地导入",
           source: r.generated ? "技术练习" : "本地导入",
           category: "",
@@ -1284,7 +1285,7 @@ export default function App() {
                     key={row.id}
                     className={`song-row ${normalize(row.path) === normalize(song?.sourcePath || (song?.generated ? `exercise:${song.contentId}` : "")) ? "active" : ""}`}
                     disabled={busy}
-                    onClick={() => void load(row)}
+                    onClick={() => void load(row, row.contentId ?? undefined)}
                     title={`${row.title}\n${row.composer}\n${row.source}`}
                   >
                     <span className="song-index">

@@ -10,6 +10,7 @@ export interface SongRow {
   license: string;
   sourceUrl: string;
   path: string;
+  contentId?: string | null;
   tags?: string[];
   difficulty?: string | null;
   rating?: number;
