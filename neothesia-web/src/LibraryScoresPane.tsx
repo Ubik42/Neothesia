@@ -62,7 +62,11 @@ export function LibraryScoresPane({
     selection?: LibraryScoreVisitSelection,
   ) => Promise<void>;
 }) {
-  const [data, setData] = useState<Data | null>(null),
+  const [snapshot, setSnapshot] = useState<{
+      requestPath: string;
+      contentId: string;
+      value: Data;
+    } | null>(null),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -95,6 +99,8 @@ export function LibraryScoresPane({
       page: 0,
     }),
     stopImport = useRef(false);
+  const data = snapshot?.requestPath === row.path && snapshot.contentId === contentId
+    ? snapshot.value : null;
   const importFiles = async (
     files: File[],
     ctx: { kind: string; target?: string; page: number },
@@ -226,20 +232,24 @@ export function LibraryScoresPane({
   const refresh = async () => {
     if (!alive.current) return;
     const g = ++generation.current;
+    const requestPath = row.path;
+    const requestContentId = contentId;
     setLoading(true);
     try {
       const v = await api.command<Data>({
         type: "libraryScores",
-        path: row.path,
-        content_id: contentId,
+        path: requestPath,
+        content_id: requestContentId,
       });
+      if (v.contentId !== requestContentId)
+        throw new Error("谱面资料与当前曲目不一致，请重新读取");
       if (g === generation.current) {
-        setData(v);
+        setSnapshot({ requestPath, contentId: requestContentId, value: v });
         setError("");
       }
     } catch (e) {
       if (g === generation.current) {
-        setData(null);
+        setSnapshot(null);
         setError(e instanceof Error ? e.message : String(e));
       }
     } finally {
@@ -248,9 +258,10 @@ export function LibraryScoresPane({
   };
   useEffect(() => {
     alive.current = true;
-    setData(null);
+    setSnapshot(null);
     setNames({});
     setPreview(null);
+    setSourcesOpen(false);
     setRoutePreview(null);
     setRouteOrdinal(null);
     setRouteEndOrdinal(null);
@@ -850,7 +861,7 @@ export function LibraryScoresPane({
           )}
         </>
       )}
-      {preview &&
+      {preview && data &&
         createPortal(
           <div
             className="modal-backdrop library-paper-backdrop"
@@ -895,7 +906,7 @@ export function LibraryScoresPane({
           </div>,
           document.body,
         )}
-      {sourcesOpen &&
+      {sourcesOpen && data &&
         createPortal(
           <ScoreSourcesDialog
             contentId={contentId}
