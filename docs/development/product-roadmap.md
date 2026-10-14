@@ -91,7 +91,7 @@
 - [x] 明确写有 `steal-time-previous` 的倚音按比例借用同声部前音；`make-time` 按当前 divisions 换算，仅在主音前已有足够空隙时安放。连续倚音、和弦、反复身份和曲长经过核对（Cycle 215）。
 - [x] MusicXML `trill-mark` 的常见明确播放提示进入演奏 MIDI；每次颤音击键有独立身份，反复经过分别对齐，同一谱面音符可对应多个按键和纸谱位置。谱面指法只交给第一次实际主音击键，辅助击键不会制造导出冲突。无法可靠处理的小数 beats、结尾回转、渐快、倚音/延音线/截断交叉等给出具体诊断；默认击键数及落点按 [MusicXML 4.0 颤音定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/trill-mark/)（Cycle 234）。
 - [x] MusicXML `mordent`（下邻音）及 `inverted-mordent`（上邻音）进入实际演奏、反复经过、逐击键对齐和纸谱定位。默认三次击键、第二次及最后一次分别在 12% 和 24% 处起音；明确的半音/全音、开始音和击键数经过校验。暂不支持的组合装饰音不会被当成普通音符静默生成；原谱跟随保留阻止导航的诊断。依据 [MusicXML mordent 定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/mordent/) 与 [inverted-mordent 定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/inverted-mordent/)（Cycle 235）。
-- [ ] MusicXML 普通 `turn` 的默认四音走向已写入源码，包含反复演奏、MIDI、逐击键对齐和谱面状态数量。显式 `beats`、斜线、附加音及不匹配的落点继续报诊断；尚需运行核心/引擎/Web 检查和保存重开验收。`inverted-turn` 的默认起音与其形状在官方说明中有歧义，当前继续阻止直接演奏（Cycle 240 开发中）。
+- [ ] MusicXML 普通 `turn` 的四音走向已写入源码，包含反复演奏、MIDI、逐击键对齐和谱面状态数量。明确的 `beats=4` 可按默认四音处理；整数 `second-beat` 和 `last-beat` 决定第二、四次击键时间，第三次取二者中点。其他击键数、斜线、附加音及无效落点继续报诊断；尚需运行核心/引擎/Web 检查和保存重开验收。`inverted-turn` 的默认起音与其形状在官方说明中有歧义，当前继续阻止直接演奏（Cycle 240 开发中）。
 - [ ] 其他文字跳转、`turn` 更多属性、`inverted-turn` 等其他装饰音、无明确播放时值的倚音与其余复杂演奏解释。
 - [x] 可移植 .neopiece 曲目包：MIDI、全部谱面版本、元数据、指法/分手、拍号修正、分组评级、教学备注、手型与练习段落一起导入/导出；预览、内容校验、保留/合并/使用包内内容和导入后恢复（Cycle 114）。
 - [x] 拖放与多文件导入、逐项进度/错误/警告、暂停继续、内容去重和导入后打开（Cycle 113）。
