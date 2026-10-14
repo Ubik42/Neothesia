@@ -48,7 +48,8 @@ export function LibraryMetadataBatchDialog({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
-    [progress, setProgress] = useState("");
+    [progress, setProgress] = useState(""),
+    [refreshPending, setRefreshPending] = useState(false);
   const previousFocus = useRef(document.activeElement as HTMLElement | null);
   useEffect(() => () => { if (previousFocus.current?.isConnected) previousFocus.current.focus(); }, []);
   const working = useRef(false),
@@ -73,6 +74,14 @@ export function LibraryMetadataBatchDialog({
   };
   const loadTemplates = async () =>
     setRegistry(await api.command<Registry>({ type: "metadataTemplates" }));
+  const refreshSavedRows = async () => {
+    try {
+      await changed();
+      setRefreshPending(false);
+    } catch (e) {
+      setError(`资料已保存，曲库刷新失败：${String(e)}`);
+    }
+  };
   useEffect(() => {
     void job(loadTemplates);
   }, []);
@@ -195,11 +204,8 @@ export function LibraryMetadataBatchDialog({
         `${stop.current ? "已停止；" : ""}已保存 ${written} 个文件，${processed - written} 个未完成。${ready.length - processed} 个仍待处理。`,
       );
       if (written) {
-        try {
-          await changed();
-        } catch (e) {
-          setError(`资料已保存，曲库刷新失败：${String(e)}`);
-        }
+        setRefreshPending(true);
+        await refreshSavedRows();
       }
     });
   const saveTemplate = () =>
@@ -370,6 +376,11 @@ export function LibraryMetadataBatchDialog({
           <button disabled={busy || !ready.length} onClick={apply}>
             保存所选修改 · {ready.length}
           </button>
+          {refreshPending && (
+            <button disabled={busy} onClick={() => void job(refreshSavedRows)}>
+              重试刷新已保存的曲库
+            </button>
+          )}
           {busy && progress && (
             <button
               onClick={() => {
@@ -382,6 +393,9 @@ export function LibraryMetadataBatchDialog({
           <span role="status">{progress || notice}</span>
         </div>
         {error && <p role="alert">{error}</p>}
+        {refreshPending && (
+          <p role="status">已有曲目资料保存成功。刷新重试只读取曲库，不会再次保存资料。</p>
+        )}
         <div className="metadata-batch-results" aria-busy={busy}>
           {rows.map((row) => (
             <article className="metadata-batch-row" key={row.path}>
