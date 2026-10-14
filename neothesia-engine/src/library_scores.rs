@@ -222,15 +222,19 @@ impl Player {
         }
         if let Some(v) = found {
             if v.path != path {
-                self.preferences
+                let row = self.preferences
                     .score_versions
                     .get_mut(cid)
                     .unwrap()
                     .iter_mut()
                     .find(|row| row.id == v.id)
-                    .unwrap()
-                    .path = path.clone();
-                self.preferences.save(&self.preferences_path)?;
+                    .unwrap();
+                row.path = path.clone();
+                if let Err(error) = self.preferences.save(&self.preferences_path) {
+                    self.preferences.score_versions.get_mut(cid).unwrap()
+                        .iter_mut().find(|row| row.id == v.id).unwrap().path = v.path;
+                    return Err(error);
+                }
             }
         }
         Ok(path)
@@ -244,15 +248,23 @@ impl Player {
        let (name,existing)=if let Some(id)=repair {let v=rows.iter().find(|v|v.id==id).ok_or("待修复版本不存在")?;if v.content_id!=hash{return Err("文件内容与原版本不符；请选择原文件修复，或添加为新版本".into());}old_path=Some(v.path.clone());(v.name.clone(),Some(v.id.clone()))}else{(name.to_owned(),rows.iter().find(|v|v.name==name&&v.content_id==hash).map(|v|v.id.clone()))};
        if old_path.is_none(){old_path=existing.as_ref().and_then(|id|rows.iter().find(|v|&v.id==id).map(|v|v.path.clone()));}
        if existing.is_none()&&rows.len()>=100{return Err("这首曲目已有 100 份演奏乐谱，请先整理版本".into());}
-       self.preferences.score_versions.insert(cid.clone(),rows.clone());
-       let stored=self.store_library_score_bytes(&bytes,&name,&cid)?;
-       // The helper can migrate an unavailable external version to an owned copy.
-       rows=self.preferences.score_versions.get(&cid).cloned().unwrap_or_default();
-       let id=existing.unwrap_or_else(||format!("library-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
-       if let Some(v)=rows.iter_mut().find(|v|v.id==id){v.path=stored.clone();}else{rows.push(ScoreVersion{id:id.clone(),name,path:stored.clone(),content_id:hash});}
-       if old_path.as_ref().is_some_and(|p|active.as_ref()==Some(p)) {metadata::save_score_association(&path,&cid,&stored).map_err(|e|e.to_string())?;}
-       self.preferences.score_versions.insert(cid,rows);self.preferences.save(&self.preferences_path)?;
-       Ok(json!({"id":id,"updated":true}))
+       let previous=self.preferences.score_versions.get(&cid).cloned();
+       let result=(|| -> Result<Value,String> {
+           self.preferences.score_versions.insert(cid.clone(),rows.clone());
+           let stored=self.store_library_score_bytes(&bytes,&name,&cid)?;
+           // The helper can migrate an unavailable external version to an owned copy.
+           rows=self.preferences.score_versions.get(&cid).cloned().unwrap_or_default();
+           let id=existing.unwrap_or_else(||format!("library-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
+           if let Some(v)=rows.iter_mut().find(|v|v.id==id){v.path=stored.clone();}else{rows.push(ScoreVersion{id:id.clone(),name,path:stored.clone(),content_id:hash});}
+           if old_path.as_ref().is_some_and(|p|active.as_ref()==Some(p)) {metadata::save_score_association(&path,&cid,&stored).map_err(|e|e.to_string())?;}
+           self.preferences.score_versions.insert(cid.clone(),rows);self.preferences.save(&self.preferences_path)?;
+           Ok(json!({"id":id,"updated":true}))
+       })();
+       if result.is_err(){
+           if let Some(previous)=previous{self.preferences.score_versions.insert(cid,previous);}
+           else{self.preferences.score_versions.remove(&cid);}
+       }
+       result
     }
     pub(super) fn manage_library_score(
         &mut self,
@@ -616,6 +628,11 @@ mod tests {
             p.file.as_ref().unwrap(),
         )
         .unwrap();
+        let original_preferences_path = p.preferences_path.clone();
+        p.preferences_path = data.clone();
+        assert!(p.store_score_version_file(&score, &cid).is_err());
+        assert_eq!(p.preferences.score_versions[&cid][0].path, external);
+        p.preferences_path = original_preferences_path;
         let stored = p.store_score_version_file(&score, &cid).unwrap();
         assert_eq!(std::fs::read(&external).unwrap(), b"personal file changed");
         assert_eq!(std::fs::read(stored).unwrap(), xml);
@@ -642,11 +659,17 @@ mod tests {
         let cid = p.file.as_ref().unwrap().content_id.clone();
         let path = p.file.as_ref().unwrap().source_path.clone().unwrap();
         p.command(Command::PairScore {
-            bytes: xml,
+            bytes: xml.clone(),
             name: "教师版.musicxml".into(),
             content_id: cid.clone(),
         })
         .unwrap();
+        let before_versions = serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap();
+        let original_preferences_path = p.preferences_path.clone();
+        p.preferences_path = data.clone();
+        assert!(p.add_library_notation(path.clone(), cid.clone(), "未保存的新版本".into(), xml.clone(), None).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
+        p.preferences_path = original_preferences_path;
         let books = score_attachments::add(
             &data,
             &cid,
