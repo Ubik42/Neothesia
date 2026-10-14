@@ -1402,6 +1402,12 @@ export function LibraryDialog({
             {current ? (
               <>
                 <h3>{entry?.metadata.title ?? current.title}</h3>
+                <p className="library-source-line">
+                  <strong>{current.source || "本地文件"}</strong>
+                  {current.category && ` · ${current.category}`}
+                  {current.source === "GiantMIDI-Piano" && <span>自动转录，拍号和声部需校对</span>}
+                  {current.license && <span>许可：{current.license}</span>}
+                </p>
                 <p className="file-path">{current.path}</p>
                 <div className="file-actions">
                   <button

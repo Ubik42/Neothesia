@@ -1847,6 +1847,22 @@ export default function App() {
                 <X size={14} />
               </button>
             </div>
+            {selectedRow?.source === "GiantMIDI-Piano" && song && (
+              <section className="inspector-section transcription-review" aria-label="自动转录核对">
+                <p>自动转录曲目 · 练习前核对小节、分手和谱面</p>
+                <div className="transcription-review-actions">
+                  <button disabled={busy || attemptLocked} onClick={() => setMeterDialog(true)}>
+                    修正小节
+                  </button>
+                  <button disabled={busy || attemptLocked || state.mode === "memory"} onClick={() => setHandsDialog(true)}>
+                    逐音分手
+                  </button>
+                  <button disabled={busy} onClick={() => setScoresDialog(true)}>
+                    谱面管理
+                  </button>
+                </div>
+              </section>
+            )}
             <section className="inspector-section">
               <h2>模式</h2>
               <div className="mode-buttons">

@@ -622,6 +622,29 @@ button.icon-button {
   width: 100%;
   font-size: 12px;
 }
+.transcription-review {
+  border-left: 2px solid #b9a26b;
+  background: #292b2a;
+}
+.transcription-review p {
+  margin: 0 0 10px;
+  color: #d7caa9;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.transcription-review-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.transcription-review-actions button {
+  min-width: 0;
+  padding: 6px 3px;
+  font-size: 11px;
+}
+.transcription-review-actions button:last-child {
+  grid-column: 1 / -1;
+}
 .mode-buttons {
   display: flex;
   gap: 0;
@@ -1683,6 +1706,19 @@ button.icon-button {
   font-size: 14px;
   line-height: 1.7;
   margin: 0 0 12px;
+}
+.library-source-line {
+  margin: 0 0 8px;
+  color: #c5d0dc;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.library-source-line strong {
+  color: #e3eaf2;
+}
+.library-source-line span {
+  display: block;
 }
 .file-path {
   overflow-wrap: anywhere;
