@@ -158,6 +158,7 @@ export function RoutineStatus({
 }
 export function RoutineDialog({
   initialPlan,
+  initialPassage,
   suspended,
   resumeRevision,
   song,
@@ -169,6 +170,7 @@ export function RoutineDialog({
   openLibrary,
 }: {
   initialPlan?: { id: string; day: string | null } | null;
+  initialPassage?: { contentId: string; id: string; name: string; notes: string } | null;
   suspended: boolean;
   resumeRevision: number;
   song: LoadedSong | null;
@@ -181,6 +183,7 @@ export function RoutineDialog({
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const wasSuspended = useRef(suspended);
+  const launchSource = initialPassage?.contentId === song?.contentId ? initialPassage : null;
   const [day, setDay] = useState(
       () => initialPlan?.day ?? state.routine?.day ?? localDay(),
     ),
@@ -195,13 +198,14 @@ export function RoutineDialog({
     [name, setName] = useState(state.routine?.title ?? ""),
     [notes, setNotes] = useState("");
   const [itemId, setItemId] = useState<string | null>(
-      state.routine?.itemId ?? null,
+      launchSource ? null : state.routine?.itemId ?? null,
     ),
-    [title, setTitle] = useState(state.routine?.itemTitle ?? ""),
-    [requirement, setRequirement] = useState(state.routine?.notes ?? ""),
-    [source, setSource] = useState(state.routine ? "" : "current");
+    [title, setTitle] = useState(launchSource?.name ?? state.routine?.itemTitle ?? ""),
+    [requirement, setRequirement] = useState(launchSource?.notes ?? state.routine?.notes ?? ""),
+    [source, setSource] = useState(launchSource ? `passage:${launchSource.id}` : state.routine ? "" : "current"),
+    [launchPending, setLaunchPending] = useState(!!launchSource);
   const [goal, setGoal] = useState<RoutineGoal>(
-    state.routine?.goal ?? {
+    (!launchSource ? state.routine?.goal : null) ?? {
       passes: 1,
       accuracy: 90,
       onTime: null,
@@ -267,6 +271,7 @@ export function RoutineDialog({
       ? state.routine.progress
       : run?.progress[id];
   const currentItem = plan?.items.find((i) => i.id === itemId),
+    launchPassage = launchPending ? launchSource : null,
     ladderItem =
       source.startsWith("ladder:") ||
       (source === "" && currentItem?.target.kind === "ladder");
@@ -322,6 +327,7 @@ export function RoutineDialog({
     if (previousSongId.current !== song?.contentId) {
       setItemId(null);
       setSource("current");
+      setLaunchPending(false);
       previousSongId.current = song?.contentId;
     }
     setPassages([]);
@@ -335,7 +341,7 @@ export function RoutineDialog({
     const songId = song.contentId;
     let cancelled = false;
     void Promise.allSettled([
-      api.command<{ passages: { id: string; name: string }[] }>({
+      api.command<{ contentId: string; passages: { id: string; name: string }[] }>({
         type: "passages",
       }),
       api.command<{ presets: LadderPreset[] }>({ type: "ladderPresets" }),
@@ -344,8 +350,9 @@ export function RoutineDialog({
       .then(([p, l, c]) => {
         if (!cancelled) {
           const errors: string[] = [];
-          if (p.status === "fulfilled") setPassages(p.value.passages);
-          else errors.push(`命名选段：${String(p.reason)}`);
+          if (p.status === "fulfilled" && p.value.contentId === songId)
+            setPassages(p.value.passages);
+          else errors.push(`命名选段：${p.status === "fulfilled" ? "曲目已切换，请重新读取" : String(p.reason)}`);
           if (l.status === "fulfilled") setLadders(l.value.presets);
           else errors.push(`速度阶梯：${String(l.reason)}`);
           if (c.status === "fulfilled")
@@ -438,12 +445,13 @@ export function RoutineDialog({
     setName(p.name);
     setNotes(p.notes);
     setItemId(null);
-    setTitle("");
-    setRequirement("");
-    setSource("current");
+    setTitle(launchPassage?.name ?? "");
+    setRequirement(launchPassage?.notes ?? "");
+    setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
     setError("");
   };
   const chooseItem = (item: Item) => {
+    setLaunchPending(false);
     setItemId(item.id);
     setTitle(item.title);
     setRequirement(item.notes);
@@ -453,6 +461,7 @@ export function RoutineDialog({
     setError("");
   };
   const newItem = () => {
+    setLaunchPending(false);
     setItemId(null);
     setTitle(song?.title ?? "");
     setRequirement("");
@@ -573,9 +582,9 @@ export function RoutineDialog({
               draftRevision.current++;
               setTemplate(false);
               setItemId(null);
-              setTitle("");
-              setRequirement("");
-              setSource("current");
+              setTitle(launchPassage?.name ?? "");
+              setRequirement(launchPassage?.notes ?? "");
+              setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
               const p = run?.routine ?? plans.find((p) => p.id === selected);
               if (p) {
                 setName(p.name);
@@ -592,9 +601,9 @@ export function RoutineDialog({
               draftRevision.current++;
               setTemplate(true);
               setItemId(null);
-              setTitle("");
-              setRequirement("");
-              setSource("current");
+              setTitle(launchPassage?.name ?? "");
+              setRequirement(launchPassage?.notes ?? "");
+              setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
               const p = plans.find((p) => p.id === selected);
               if (p) {
                 setName(p.name);
@@ -613,9 +622,9 @@ export function RoutineDialog({
               draftRevision.current++;
               setDay(e.target.value);
               setItemId(null);
-              setTitle("");
-              setRequirement("");
-              setSource("current");
+              setTitle(launchPassage?.name ?? "");
+              setRequirement(launchPassage?.notes ?? "");
+              setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
             }}
           />
           <span>
@@ -624,6 +633,11 @@ export function RoutineDialog({
               : "实际结果记录达标；跳过单独标记"}
           </span>
         </div>
+        {launchPassage && (
+          <p role="status" className="parameter-help">
+            已选择“{launchPassage.name}”。请选择或创建计划，核对达标目标后保存项目。
+          </p>
+        )}
         {error && (
           <p role="alert" className="routine-error">
             {error}
@@ -651,6 +665,9 @@ export function RoutineDialog({
                 setName("");
                 setNotes("");
                 setItemId(null);
+                setTitle(launchPassage?.name ?? "");
+                setRequirement(launchPassage?.notes ?? "");
+                setSource(launchPassage ? `passage:${launchPassage.id}` : "current");
               }}
             >
               新建常用计划
@@ -942,6 +959,7 @@ export function RoutineDialog({
                         value={source}
                         onChange={(e) => {
                           setSource(e.target.value);
+                          setLaunchPending(false);
                           if (e.target.value.startsWith("ladder:")) {
                             patch({ expression: ladders.find((p) => p.id === e.target.value.slice(7))?.expression ?? null });
                           }
@@ -1111,6 +1129,7 @@ export function RoutineDialog({
                             });
                             setItemId(data.id);
                             setSource("");
+                            setLaunchPending(false);
                             await refreshSavedList("练习项目");
                           })
                         }

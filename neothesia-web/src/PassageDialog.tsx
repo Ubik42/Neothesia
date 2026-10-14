@@ -22,6 +22,7 @@ export function PassageDialog({
   end,
   close,
   changed,
+  addToRoutine,
 }: {
   song: LoadedSong;
   state: Snapshot;
@@ -29,6 +30,7 @@ export function PassageDialog({
   end: number;
   close: () => void;
   changed: () => Promise<void>;
+  addToRoutine: (passage: { contentId: string; id: string; name: string; notes: string }) => void;
 }) {
   const [precise, setPrecise] = useState<Passage | "new" | null>(null);
   const [review, setReview] = useState<Passage | null>(null);
@@ -231,6 +233,12 @@ export function PassageDialog({
                     }
                   >
                     移除
+                  </button>
+                  <button
+                    disabled={busy || stale(p)}
+                    onClick={() => addToRoutine({ contentId: song.contentId, id: p.id, name: p.name, notes: p.notes })}
+                  >
+                    加入计划…
                   </button>
                 </div>
               </article>

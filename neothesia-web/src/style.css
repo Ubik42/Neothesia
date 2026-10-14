@@ -1861,6 +1861,7 @@ button.icon-button {
 .passage-list article > div {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   margin-top: 8px;
 }
 .passage-list article.active .passage-select {

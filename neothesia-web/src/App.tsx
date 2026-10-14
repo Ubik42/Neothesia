@@ -156,6 +156,12 @@ export default function App() {
       id: string;
       day: string | null;
     } | null>(null),
+    [routinePassage, setRoutinePassage] = useState<{
+      contentId: string;
+      id: string;
+      name: string;
+      notes: string;
+    } | null>(null),
     [practiceBackup, setPracticeBackup] = useState(false),
     [handsDialog, setHandsDialog] = useState(false),
     [meterDialog, setMeterDialog] = useState(false),
@@ -173,6 +179,9 @@ export default function App() {
   const [soundfontStatus, setSoundfontStatus] =
     useState<SoundFontStatus | null>(null);
   const [soundfontBusy, setSoundfontBusy] = useState(false);
+  useEffect(() => {
+    if (!routineDialog) setRoutinePassage(null);
+  }, [routineDialog]);
   useEffect(() => {
     if (!settings || !api.desktop) return;
     let cancelled = false;
@@ -2462,6 +2471,7 @@ export default function App() {
       {routineDialog && (
         <RoutineDialog
           initialPlan={routineLaunch}
+          initialPassage={routinePassage}
           suspended={routineSuspended}
           resumeRevision={routineResumeRevision}
           song={song}
@@ -2501,6 +2511,12 @@ export default function App() {
           start={loopStart}
           end={loopEnd}
           close={() => setPassageDialog(false)}
+          addToRoutine={(passage) => {
+            setPassageDialog(false);
+            setRoutineLaunch(null);
+            setRoutinePassage(passage);
+            setRoutineDialog(true);
+          }}
           changed={async () => {
             setSong(await api.song());
             setState(await api.state());
