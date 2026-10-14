@@ -159,6 +159,21 @@ pub fn check_import(data:&Path,path:&Path,cid:&str,bytes:&[u8],kind:&str,target:
 }
 
 impl Player {
+    fn persist_score_registry_with_restore(
+        &mut self,
+        cid: &str,
+        previous: &Option<Vec<ScoreVersion>>,
+    ) -> Result<(), String> {
+        if let Err(error) = self.preferences.save(&self.preferences_path) {
+            if let Some(rows) = previous {
+                self.preferences.score_versions.insert(cid.into(), rows.clone());
+            } else {
+                self.preferences.score_versions.remove(cid);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
     pub(super) fn store_score_version_file(
         &mut self,
         score: &notation::ScoreAsset,
@@ -297,6 +312,7 @@ impl Player {
             return Err("乐谱管理操作无效".into());
         }
         let (rows, active) = versions(&self.preferences, &path, &cid)?;
+        let previous_registration = self.preferences.score_versions.get(&cid).cloned();
         let v = rows
             .iter()
             .find(|v| v.id == id)
@@ -315,7 +331,7 @@ impl Player {
                 let mut rows = rows;
                 rows.iter_mut().find(|a| a.id == id).unwrap().name = n.into();
                 self.preferences.score_versions.insert(cid.clone(), rows);
-                self.preferences.save(&self.preferences_path)?;
+                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
             }
             "deduplicate" => {
                 let bytes = read_score(&v.path)?;
@@ -346,7 +362,7 @@ impl Player {
                 self.preferences
                     .score_versions
                     .insert(cid.clone(), remaining);
-                self.preferences.save(&self.preferences_path)?;
+                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
             }
             "remove" => {
                 if active.as_ref() == Some(&v.path) {
@@ -356,7 +372,7 @@ impl Player {
                     cid.clone(),
                     rows.into_iter().filter(|v| v.id != id).collect(),
                 );
-                self.preferences.save(&self.preferences_path)?;
+                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
             }
             "select" => {
                 if self.recorder.is_recording() {
@@ -372,7 +388,7 @@ impl Player {
                 metadata::save_score_association(&path, &cid, &v.path)
                     .map_err(|e| e.to_string())?;
                 self.preferences.score_versions.insert(cid.clone(), rows);
-                self.preferences.save(&self.preferences_path)?;
+                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
                 if current {
                     self.command(Command::ActivateScore {
                         id,
@@ -393,7 +409,7 @@ impl Player {
                         rows
                     },
                 );
-                self.preferences.save(&self.preferences_path)?;
+                self.persist_score_registry_with_restore(&cid, &previous_registration)?;
                 if current {
                     self.command(Command::DetachScore {
                         content_id: cid.clone(),
@@ -445,6 +461,7 @@ impl Player {
         file.musical_time = Self::sidecar_grid(&file, &sidecar(&path, &cid)?)?;
         if kind == "notation" {
             let (rows, _) = versions(&self.preferences, &path, &cid)?;
+            let previous_registration = self.preferences.score_versions.get(&cid).cloned();
             if rows.len() > 100 {
                 return Err("谱面超过 100 份，请先移除或合并重复登记".into());
             }
@@ -455,7 +472,7 @@ impl Player {
             }
             notation::ScoreAsset::new(bytes, v.name.clone(), &file)?;
             self.preferences.score_versions.insert(cid.clone(), rows);
-            self.preferences.save(&self.preferences_path)?;
+            self.persist_score_registry_with_restore(&cid, &previous_registration)?;
         } else if kind == "paper" {
             let papers = score_attachments::list(&self.data, &cid)?;
             let book = papers["attachments"]
@@ -667,6 +684,14 @@ mod tests {
         let before_versions = serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap();
         let original_preferences_path = p.preferences_path.clone();
         p.preferences_path = data.clone();
+        let inactive = p.preferences.score_versions[&cid].iter()
+            .find(|version| version.name == "原谱.musicxml").unwrap().id.clone();
+        assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),inactive.clone(),"rename".into(),Some("未写入名称".into())).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
+        assert!(p.manage_library_score(path.clone(),cid.clone(),"notation".into(),inactive.clone(),"remove".into(),None).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
+        assert!(p.open_library_score(path.clone(),cid.clone(),"notation".into(),inactive).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
         assert!(p.add_library_notation(path.clone(), cid.clone(), "未保存的新版本".into(), xml.clone(), None).is_err());
         assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&cid)).unwrap(), before_versions);
         p.preferences_path = original_preferences_path;
