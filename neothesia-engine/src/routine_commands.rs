@@ -837,20 +837,20 @@ impl Player {
         if self.recorder.is_recording() {
             return Err("请先停止录音".into());
         }
-        self.ensure_routine_day(id, day)?;
-        let run = self
-            .preferences
-            .routine_runs
-            .get(&run_key(id, day))
-            .unwrap();
-        let item = run
-            .routine
+        if !day_valid(day) {
+            return Err("日期无效".into());
+        }
+        let existing_run = self.preferences.routine_runs.get(&run_key(id, day));
+        let routine = existing_run.map(|run| &run.routine)
+            .or_else(|| self.preferences.routines.iter().find(|routine| routine.id == id))
+            .ok_or("常用计划已移除，无法创建当天安排")?;
+        let item = routine
             .items
             .iter()
             .find(|i| i.id == item_id)
             .cloned()
             .ok_or("当天项目不存在")?;
-        let previous = run.progress.get(item_id).cloned().unwrap_or_default();
+        let previous = existing_run.and_then(|run| run.progress.get(item_id)).cloned().unwrap_or_default();
         if resume && (previous.completed || previous.skipped) {
             return Err("该项目已达标或跳过，请明确重置后再练")?;
         }
@@ -888,6 +888,7 @@ impl Player {
             legacy_exercise_tracks::capture_before_install(self, &source_file, spec)?;
         }
         self.preflight_routine_item(&item, &source_file, source_plan.as_ref())?;
+        self.ensure_routine_day(id, day)?;
         self.stop_routine()?;
         if self.ladder.as_ref().is_some_and(|l| l.active) {
             self.stop_ladder()?;
@@ -1178,6 +1179,18 @@ mod routine_write_tests {
         let goal = RoutineGoal { expression: None, passes: 1, accuracy: 90, on_time: None, consecutive: false, attempt_limit: 20 };
         let first = p.save_routine_item(&plan, None, None, Some("current"), None, "第一项".into(), String::new(), goal.clone()).unwrap()["id"].as_str().unwrap().to_owned();
         let next = p.save_routine_item(&plan, None, None, Some("current"), None, "第二项".into(), String::new(), goal).unwrap()["id"].as_str().unwrap().to_owned();
+        let template_item = p.preferences.routines.iter().find(|routine| routine.id == plan).unwrap()
+            .items.iter().find(|item| item.id == next).unwrap().clone();
+        let broken_template = p.preferences.routines.iter_mut().find(|routine| routine.id == plan).unwrap()
+            .items.iter_mut().find(|item| item.id == next).unwrap();
+        broken_template.content_id = "missing-midi-content".into();
+        broken_template.exercise = None;
+        broken_template.path = None;
+        let unused_day = "2026-10-14";
+        assert!(p.open_routine_item(&plan, unused_day, &next, true).is_err());
+        assert!(!p.preferences.routine_runs.contains_key(&run_key(&plan, unused_day)));
+        *p.preferences.routines.iter_mut().find(|routine| routine.id == plan).unwrap()
+            .items.iter_mut().find(|item| item.id == next).unwrap() = template_item;
         let day = "2026-10-13";
         p.open_routine_item(&plan, day, &first, true).unwrap();
         let current_song = p.file.as_ref().unwrap().content_id.clone();
