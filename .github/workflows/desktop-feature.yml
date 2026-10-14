@@ -42,5 +42,7 @@ jobs:
           npm run build --prefix neothesia-web
       - name: Review saved fingering acceptance
         run: cargo test --locked -p neothesia-engine --lib acceptance_tests -- --quiet
+      - name: Review MusicXML turn playback and alignment
+        run: cargo test --locked -p neothesia-core turn -- --quiet
       - name: Review Audiveris desktop commands
         run: cargo test --locked -p neothesia-desktop --bin neothesia-desktop audiveris_paper::tests -- --quiet
