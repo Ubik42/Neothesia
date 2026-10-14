@@ -56,6 +56,9 @@ type SuggestionResult = {
   nextOffset?: number;
   hasMore?: boolean;
 };
+type AddedResult = { id: string; added: number; skipped: number };
+const addedMessage = (result: AddedResult) =>
+  `已加入 ${result.added} 项，跳过相同条件项目 ${result.skipped} 项。`;
 export function WeakPracticePanel({
   routineId,
   day,
@@ -87,6 +90,7 @@ export function WeakPracticePanel({
     } | null>(null),
     [name, setName] = useState("专项复习"),
     [message, setMessage] = useState("");
+  const [pendingAdded, setPendingAdded] = useState<AddedResult | null>(null);
   useEffect(() => {
     if (lastResume.current === resumeRevision) return;
     lastResume.current = resumeRevision;
@@ -94,8 +98,10 @@ export function WeakPracticePanel({
     setChosen([]);
     setNote("");
     setDuePage(null);
-    setMessage("曲库资料可能已变化，请重新生成复习建议。");
-  }, [resumeRevision]);
+    setMessage(pendingAdded
+      ? "计划已经保存。曲库核对完成后，请重试显示已保存计划。"
+      : "曲库资料可能已变化，请重新生成复习建议。");
+  }, [resumeRevision, pendingAdded]);
   const generate = () =>
     void work(async () => {
       setRows([]);
@@ -172,7 +178,7 @@ export function WeakPracticePanel({
   return (
     <details className="weak-practice-panel">
       <summary>从历史练习安排复习</summary>
-      <button disabled={disabled} onClick={generate}>
+      <button disabled={disabled || !!pendingAdded} onClick={generate}>
         生成复习建议
       </button>
       <p className="parameter-help">
@@ -350,37 +356,57 @@ export function WeakPracticePanel({
             ))}
           </div>
           {duePage?.hasMore && (
-            <button disabled={disabled} onClick={loadMoreDue}>
+            <button disabled={disabled || !!pendingAdded} onClick={loadMoreDue}>
               再读取 30 首到期曲目
             </button>
           )}
           <button
             disabled={
-              disabled || !chosen.length || (!routineId && !name.trim())
+              disabled || !!pendingAdded || !chosen.length || (!routineId && !name.trim())
             }
             onClick={() =>
               void work(async () => {
-                const result = await api.command<{
-                  id: string;
-                  added: number;
-                  skipped: number;
-                }>({
+                const result = await api.command<AddedResult>({
                   type: "acceptWeakPractice",
                   ids: chosen,
                   routine_id: routineId,
                   day,
                   name,
                 });
-                await added(result.id);
-                setMessage(
-                  `已加入 ${result.added} 项，跳过相同条件项目 ${result.skipped} 项。`,
-                );
+                setPendingAdded(result);
+                try {
+                  await added(result.id);
+                  setPendingAdded(null);
+                  setMessage(addedMessage(result));
+                } catch (cause) {
+                  const detail = cause instanceof Error ? cause.message : String(cause);
+                  setMessage(`${addedMessage(result)} 计划已保存，但界面读取失败：${detail}。请重试显示计划。`);
+                }
               })
             }
           >
             加入勾选的复习项目
           </button>
         </>
+      )}
+      {pendingAdded && (
+        <button
+          disabled={disabled}
+          onClick={() =>
+            void work(async () => {
+              try {
+                await added(pendingAdded.id);
+                setMessage(addedMessage(pendingAdded));
+                setPendingAdded(null);
+              } catch (cause) {
+                const detail = cause instanceof Error ? cause.message : String(cause);
+                setMessage(`计划已保存，但界面读取失败：${detail}。请重试显示计划。`);
+              }
+            })
+          }
+        >
+          重试显示已保存计划
+        </button>
       )}
       {message && <p role="status">{message}</p>}
     </details>
