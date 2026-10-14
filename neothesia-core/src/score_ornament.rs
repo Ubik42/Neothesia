@@ -1,6 +1,6 @@
 //! Exact, shared playback expansion for supported MusicXML ornaments.
 
-use crate::musicxml::{ScoreTime, TrillMark};
+use crate::musicxml::{MordentMark, ScoreTime, TrillMark};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrillStrike {
@@ -140,6 +140,59 @@ pub fn expand_trill(
     Ok(strikes)
 }
 
+/// Expand either MusicXML mordent sign into exact performed key strikes.
+/// MusicXML's lined `mordent` uses the lower neighbor; its unlined
+/// `inverted-mordent` uses the upper neighbor.
+pub fn expand_mordent(
+    mark: &MordentMark,
+    pitch: u8,
+    onset: ScoreTime,
+    duration: ScoreTime,
+) -> Result<Vec<TrillStrike>, String> {
+    if let Some(feature) = mark.unsupported.first() {
+        return Err(format!("波音含暂不支持的标记：{feature}"));
+    }
+    if mark.long.as_deref().is_some_and(|v| v != "no") {
+        return Err("波音 long 目前只支持 no".into());
+    }
+    if mark.approach.is_some() || mark.departure.is_some() {
+        return Err("波音 approach/departure 组合装饰音暂不支持".into());
+    }
+    let neighbor_name = if mark.inverted { "upper" } else { "below" };
+    let start = mark.start_note.as_deref().unwrap_or("main");
+    if start != "main" && start != neighbor_name {
+        return Err(format!("波音 start-note={start} 与此波音方向不符"));
+    }
+    let trill = TrillMark {
+        beats: mark.beats.clone(),
+        start_note: Some("main".into()),
+        trill_step: mark.trill_step.clone(),
+        second_beat: mark.second_beat.clone(),
+        last_beat: mark.last_beat.clone(),
+        accelerate: mark.accelerate.clone(),
+        two_note_turn: mark.two_note_turn.clone(),
+        unsupported: Vec::new(),
+    };
+    // A safe reference pitch lets the shared expander validate timing while
+    // the mordent's own direction selects the performed neighbor.
+    let mut strikes = expand_trill(&trill, 64, onset, duration)?;
+    let step = match mark.trill_step.as_deref().unwrap_or("whole") {
+        "whole" => 2i16,
+        "half" => 1,
+        "unison" => 0,
+        _ => unreachable!("expand_trill validated trill-step"),
+    };
+    let neighbor = i16::from(pitch) + if mark.inverted { step } else { -step };
+    if !(0..=127).contains(&neighbor) {
+        return Err("波音相邻音超出 MIDI 音高范围".into());
+    }
+    for strike in &mut strikes {
+        let neighbor_attack = (strike.ordinal % 2 == 1) == (start == "main");
+        strike.pitch = if neighbor_attack { neighbor as u8 } else { pitch };
+    }
+    Ok(strikes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +237,43 @@ mod tests {
                 .unwrap_err()
                 .contains("beats")
         );
+    }
+
+    #[test]
+    fn musicxml_mordent_directions_share_exact_landings() {
+        for (inverted, expected) in [(false, [60, 58, 60]), (true, [60, 62, 60])] {
+            let mark = MordentMark { inverted, ..Default::default() };
+            let strikes = expand_mordent(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap();
+            assert_eq!(strikes.iter().map(|s| s.pitch).collect::<Vec<_>>(), expected);
+            assert_eq!(strikes.iter().map(|s| s.onset).collect::<Vec<_>>(), [ScoreTime::default(), ScoreTime::new(3, 25), ScoreTime::new(6, 25)]);
+            assert_eq!(strikes.iter().map(|s| s.ordinal).collect::<Vec<_>>(), [0, 1, 2]);
+        }
+    }
+
+    #[test]
+    fn mordent_rejects_compound_playback_and_out_of_range_neighbor() {
+        let mut mark = MordentMark::default();
+        mark.long = Some("yes".into());
+        assert!(expand_mordent(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("long"));
+        mark.long = None;
+        mark.approach = Some("above".into());
+        assert!(expand_mordent(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("approach"));
+        mark.approach = None;
+        assert!(expand_mordent(&mark, 0, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("MIDI"));
+    }
+
+    #[test]
+    fn mordent_uses_written_playback_attributes() {
+        let mark = MordentMark {
+            beats: Some("4".into()),
+            start_note: Some("below".into()),
+            trill_step: Some("half".into()),
+            second_beat: Some("25".into()),
+            last_beat: Some("75".into()),
+            ..Default::default()
+        };
+        let strikes = expand_mordent(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap();
+        assert_eq!(strikes.iter().map(|s| s.pitch).collect::<Vec<_>>(), [59, 60, 59, 60]);
+        assert_eq!(strikes.iter().map(|s| s.onset).collect::<Vec<_>>(), [ScoreTime::default(), ScoreTime::new(1, 4), ScoreTime::new(1, 2), ScoreTime::new(3, 4)]);
     }
 }

@@ -7,7 +7,7 @@ use midi_file::{MidiFile, tempo_track::TempoTrack};
 use serde::{Deserialize, Serialize};
 
 use crate::musicxml::{Pitch, Score, ScoreEvent, ScoreEventId, ScoreTime, Step};
-use crate::score_ornament::expand_trill;
+use crate::score_ornament::{expand_mordent, expand_trill};
 use crate::score_playback::{
     PlaybackLimits, PlaybackPlan, ScoreEventOccurrenceId, build_playback_plan,
     expand_event_occurrences,
@@ -381,10 +381,21 @@ pub fn align_score_occurrences(
             let Some(note) = notes_by_source.get(&event.id.source_id) else {
                 continue;
             };
+            if !note.unsupported_ornaments.is_empty() {
+                result.navigation_complete = false;
+                result.navigation_diagnostics.push(format!(
+                    "声部 {} 第 {} 小节：含未支持的装饰音 {}，无法可靠对齐",
+                    part.id,
+                    note.id.measure_ordinal + 1,
+                    note.unsupported_ornaments.join("、")
+                ));
+                push_unmatched_score(&mut result, event.id, 0);
+                continue;
+            }
             let Some(written_pitch) = note.pitch.as_ref() else {
-                if note.trill.is_some() {
+                if note.trill.is_some() || note.mordent.is_some() {
                     result.navigation_complete = false;
-                    result.navigation_diagnostics.push(format!("声部 {} 第 {} 小节：休止符不能标颤音", part.id, note.id.measure_ordinal + 1));
+                    result.navigation_diagnostics.push(format!("声部 {} 第 {} 小节：休止符不能标装饰音", part.id, note.id.measure_ordinal + 1));
                     push_unmatched_score(&mut result, event.id, 0);
                 }
                 continue;
@@ -393,7 +404,7 @@ pub fn align_score_occurrences(
                 push_unmatched_score(&mut result, event.id, 0);
                 continue;
             };
-            if let Some(mark) = &note.trill {
+            if note.trill.is_some() || note.mordent.is_some() {
                 let Some(score_duration) = event.score_duration else {
                     push_unmatched_score(&mut result, event.id, 0);
                     continue;
@@ -401,14 +412,19 @@ pub fn align_score_occurrences(
                 if note.grace || !note.ties.is_empty() || score_duration != note.duration {
                     result.navigation_complete = false;
                     result.navigation_diagnostics.push(format!(
-                        "声部 {} 第 {} 小节：颤音与倚音、延音线或截断演奏相交，无法可靠对齐",
+                        "声部 {} 第 {} 小节：装饰音与倚音、延音线或截断演奏相交，无法可靠对齐",
                         part.id,
                         note.id.measure_ordinal + 1
                     ));
                     push_unmatched_score(&mut result, event.id, 0);
                     continue;
                 }
-                let strikes = match expand_trill(mark, pitch, event.score_onset, score_duration) {
+                let expanded = if let Some(mark) = &note.trill {
+                    expand_trill(mark, pitch, event.score_onset, score_duration)
+                } else {
+                    expand_mordent(note.mordent.as_ref().unwrap(), pitch, event.score_onset, score_duration)
+                };
+                let strikes = match expanded {
                     Ok(strikes) => strikes,
                     Err(error) => {
                         result.navigation_complete = false;
@@ -496,10 +512,21 @@ pub fn align_score_notes(
             source_id: note.id.clone(),
             measure_occurrence_ordinal: note.id.measure_ordinal,
         };
+        if !note.unsupported_ornaments.is_empty() {
+            result.navigation_complete = false;
+            result.navigation_diagnostics.push(format!(
+                "声部 {} 第 {} 小节：含未支持的装饰音 {}，无法可靠对齐",
+                note.id.part_id,
+                note.id.measure_ordinal + 1,
+                note.unsupported_ornaments.join("、")
+            ));
+            push_unmatched_score(&mut result, occurrence_id, 0);
+            continue;
+        }
         let Some(written_pitch) = note.pitch.as_ref() else {
-            if note.trill.is_some() {
+            if note.trill.is_some() || note.mordent.is_some() {
                 result.navigation_complete = false;
-                result.navigation_diagnostics.push(format!("声部 {} 第 {} 小节：休止符不能标颤音", note.id.part_id, note.id.measure_ordinal + 1));
+                result.navigation_diagnostics.push(format!("声部 {} 第 {} 小节：休止符不能标装饰音", note.id.part_id, note.id.measure_ordinal + 1));
                 push_unmatched_score(&mut result, occurrence_id, 0);
             }
             continue;
@@ -512,18 +539,23 @@ pub fn align_score_notes(
             push_unmatched_score(&mut result, occurrence_id, 0);
             continue;
         };
-        if let Some(mark) = &note.trill {
+        if note.trill.is_some() || note.mordent.is_some() {
             if note.grace || !note.ties.is_empty() {
                 result.navigation_complete = false;
                 result.navigation_diagnostics.push(format!(
-                    "声部 {} 第 {} 小节：颤音与倚音或延音线相交，无法可靠对齐",
+                    "声部 {} 第 {} 小节：装饰音与倚音或延音线相交，无法可靠对齐",
                     note.id.part_id,
                     note.id.measure_ordinal + 1
                 ));
                 push_unmatched_score(&mut result, occurrence_id, 0);
                 continue;
             }
-            let strikes = match expand_trill(mark, pitch, note.onset, note.duration) {
+            let expanded = if let Some(mark) = &note.trill {
+                expand_trill(mark, pitch, note.onset, note.duration)
+            } else {
+                expand_mordent(note.mordent.as_ref().unwrap(), pitch, note.onset, note.duration)
+            };
+            let strikes = match expanded {
                 Ok(strikes) => strikes,
                 Err(error) => {
                     result.navigation_complete = false;
@@ -889,6 +921,39 @@ mod tests {
         let partial = align_score_occurrences(&score, &file.tempo_track, &candidates, PlaybackLimits::default());
         assert_eq!(partial.unmatched_strikes.len(), 1);
         assert_eq!(partial.unmatched_strikes[0].strike_ordinal, 1);
+    }
+
+    #[test]
+    fn repeated_mordents_align_each_attack_and_keep_written_note_principal() {
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>2</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><mordent trill-step="half"/></ornaments></notations></note><note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><inverted-mordent trill-step="half"/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let source = import_musicxml(xml).unwrap();
+        let score = crate::score_performance::normalized(&source).unwrap();
+        let generated = crate::score_performance::generate(&source, 120).unwrap();
+        let file = MidiFile::from_smf("mordent-repeat", &generated.smf).unwrap();
+        let alignment = align_score_to_midi(&score, &file);
+        assert_eq!(alignment.matches.len(), 12);
+        assert_eq!(alignment.coverage_percent, 100);
+        assert_eq!(alignment.matches.iter().filter(|item| item.principal).count(), 4);
+        assert!(alignment.unmatched_strikes.is_empty());
+        let mut candidates = performance_notes(&file);
+        let missing = candidates.iter().find(|note| note.pitch == 59).unwrap().id;
+        candidates.retain(|note| note.id != missing);
+        let partial = align_score_occurrences(&score, &file.tempo_track, &candidates, PlaybackLimits::default());
+        assert_eq!(partial.unmatched_strikes.len(), 1);
+        assert_eq!(partial.unmatched_strikes[0].strike_ordinal, 1);
+    }
+
+    #[test]
+    fn unsupported_turn_cannot_claim_reliable_score_navigation() {
+        let plain = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note></measure></part></score-partwise>"#;
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><turn/></ornaments></notations></note></measure></part></score-partwise>"#;
+        let generated = crate::score_performance::generate(&import_musicxml(plain).unwrap(), 120).unwrap();
+        let file = MidiFile::from_smf("plain", &generated.smf).unwrap();
+        let score = import_musicxml(xml).unwrap();
+        let alignment = align_score_to_midi(&score, &file);
+        assert!(!alignment.navigation_complete);
+        assert!(alignment.navigation_diagnostics.iter().any(|value| value.contains("turn")));
+        assert_eq!(summarize_alignment(&alignment).readiness, AlignmentReadiness::Blocked);
     }
 
     #[test]

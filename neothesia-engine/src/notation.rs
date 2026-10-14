@@ -141,6 +141,10 @@ impl ScoreAsset {
             .flat_map(|measure| &measure.events)
             .filter(|event| matches!(event, neothesia_core::musicxml::ScoreEvent::Note(note) if note.trill.is_some()))
             .count();
+        let mordent_count = self.score.parts.iter().flat_map(|part| &part.measures)
+            .flat_map(|measure| &measure.events)
+            .filter(|event| matches!(event, neothesia_core::musicxml::ScoreEvent::Note(note) if note.mordent.is_some()))
+            .count();
         let route = file.and_then(|file| self.score.parts.first().map(|part| {
             use neothesia_core::score_playback::{build_playback_plan, PlaybackLimits};
             let plan = build_playback_plan(part, PlaybackLimits { max_visits: 20_000, max_repeat_passes: 16 });
@@ -169,7 +173,7 @@ impl ScoreAsset {
             }).collect();
             serde_json::json!({"complete":plan.complete && a.readiness == neothesia_core::score_alignment::AlignmentReadiness::Ready,"visits":visits})
         }));
-        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"sourceFingerprint":self.source_fingerprint,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>(),"trillCount":trill_count})
+        serde_json::json!({"route":route,"bytes":self.bytes,"name":self.name,"sourceFingerprint":self.source_fingerprint,"compressed":self.bytes.starts_with(b"PK"),"title":self.score.title,"coverage":a.coverage_percent,"confidence":a.mean_confidence_percent,"readiness":a.readiness,"diagnostics":a.navigation_diagnostics,"warnings":self.score.warnings.iter().map(score_warning_label).collect::<Vec<_>>(),"trillCount":trill_count,"mordentCount":mordent_count})
     }
     pub fn map(
         &self,

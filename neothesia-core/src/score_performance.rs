@@ -2,7 +2,7 @@
 use crate::{
     musicxml::*,
     practice::PracticePart,
-    score_ornament::{TrillStrike, expand_trill},
+    score_ornament::{TrillStrike, expand_mordent, expand_trill},
     score_playback::{PlaybackLimits, build_playback_plan, grace_note_timing},
 };
 use midi_file::midly::{
@@ -336,23 +336,30 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                 let ScoreEvent::Note(note) = event else {
                     continue;
                 };
-                let Some(mark) = &note.trill else { continue };
+                if let Some(unsupported) = note.unsupported_ornaments.first() {
+                    return Err(format!("第 {} 小节含暂不支持的装饰音：{unsupported}", measure.number));
+                }
+                if note.trill.is_none() && note.mordent.is_none() { continue; }
                 if !note.ties.is_empty() {
                     return Err(format!(
-                        "第 {} 小节的颤音与连音线相交，暂不能可靠展开，请校对原谱",
+                        "第 {} 小节的装饰音与连音线相交，暂不能可靠展开，请校对原谱",
                         measure.number
                     ));
                 }
                 if note.grace || timings.contains_key(&note.id) {
                     return Err(format!(
-                        "第 {} 小节的颤音与倚音借时值相交，暂不能可靠展开，请校对原谱",
+                        "第 {} 小节的装饰音与倚音借时值相交，暂不能可靠展开，请校对原谱",
                         measure.number
                     ));
                 }
                 let Some(written) = &note.pitch else {
-                    return Err(format!("第 {} 小节的休止符不能标颤音", measure.number));
+                    return Err(format!("第 {} 小节的休止符不能标装饰音", measure.number));
                 };
-                let strikes = expand_trill(mark, pitch(written)?, note.onset, note.duration)
+                let strikes = if let Some(mark) = &note.trill {
+                    expand_trill(mark, pitch(written)?, note.onset, note.duration)
+                } else {
+                    expand_mordent(note.mordent.as_ref().unwrap(), pitch(written)?, note.onset, note.duration)
+                }
                     .map_err(|error| format!("第 {} 小节：{error}", measure.number))?;
                 trill_strikes.insert(note.id.clone(), strikes);
             }
@@ -663,7 +670,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                             .is_some_and(|tail| note.onset.subtract(m.start) == tail.onset)
                     {
                         return Err(format!(
-                            "第 {} 小节的跳转或 Fine 切开颤音，请校对演奏范围",
+                            "第 {} 小节的跳转或 Fine 切开装饰音，请校对演奏范围",
                             index + 1
                         ));
                     }
@@ -782,7 +789,7 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                                 let pitch = strike.pitch;
                                 let onset =
                                     start + tick(strike.onset.max(source).subtract(source))?;
-                                let end = if n.trill.is_none() {
+                                let end = if n.trill.is_none() && n.mordent.is_none() {
                                     if let Some(tail) = visit.fine_tail.filter(|tail| {
                                         effective_onset.subtract(m.start) == tail.onset
                                             && n.duration == tail.written_duration
@@ -1218,6 +1225,31 @@ mod tests {
         let error = generate(&score, 120).err().unwrap();
         assert!(error.contains("第 7 小节"), "{error}");
         assert!(error.contains("accelerate"), "{error}");
+    }
+
+    #[test]
+    fn both_mordent_signs_repeat_as_three_distinct_midi_attacks() {
+        for (name, expected) in [("mordent", [60, 58, 60, 60, 58, 60]), ("inverted-mordent", [60, 62, 60, 60, 62, 60])] {
+            let xml = format!(r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><{name}/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#);
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let performance = generate(&score, 120).unwrap();
+            let notes = &performance.tracks[0].notes;
+            assert_eq!(notes.iter().map(|n| n.pitch).collect::<Vec<_>>(), expected);
+            assert_eq!(notes.iter().map(|n| n.start).collect::<Vec<_>>(), [0, 576, 1152, 4800, 5376, 5952]);
+            let midi = midi_file::MidiFile::from_smf("mordent-repeat", &performance.smf).unwrap();
+            assert_eq!(midi.tracks.iter().flat_map(|t| t.notes.iter()).count(), 6);
+        }
+    }
+
+    #[test]
+    fn conflicting_or_unknown_ornaments_stop_performance_generation() {
+        for marks in ["<mordent/><inverted-mordent/>", "<turn/>"] {
+            let xml = format!(r#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="3"><attributes><divisions>4</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments>{marks}</ornaments></notations></note></measure></part></score-partwise>"#);
+            let score = import_musicxml_document(xml.as_bytes()).unwrap();
+            let error = generate(&score, 120).err().unwrap();
+            assert!(error.contains("第 3 小节"), "{error}");
+            assert!(error.contains("装饰音"), "{error}");
+        }
     }
 
     #[test]

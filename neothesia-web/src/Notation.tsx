@@ -29,6 +29,7 @@ interface Asset {
   diagnostics: string[];
   warnings: string[];
   trillCount?: number;
+  mordentCount?: number;
   route?: WrittenRoute | null;
 }
 type Mapping = ScoreMapping;
@@ -664,7 +665,7 @@ export function Notation({
         </button>
         <span>
           {asset
-            ? `配对 ${asset.coverage}% · ${asset.readiness === "Ready" ? "可跟随" : asset.readiness === "Blocked" ? "导航未通过" : "需校对"}${asset.trillCount ? ` · 颤音 ${asset.trillCount} 处` : ""}`
+            ? `配对 ${asset.coverage}% · ${asset.readiness === "Ready" ? "可跟随" : asset.readiness === "Blocked" ? "导航未通过" : "需校对"}${asset.trillCount ? ` · 颤音 ${asset.trillCount} 处` : ""}${asset.mordentCount ? ` · 波音 ${asset.mordentCount} 处` : ""}`
             : ""}
         </span>
       </div>

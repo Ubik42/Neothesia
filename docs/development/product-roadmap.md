@@ -10,7 +10,7 @@
 
 原仓库已有路线见 [roadmap.md](roadmap.md)、[backlog.md](backlog.md) 和 [指法算法文档](../pages/fingering-suggestions.md)。原生已实现、Web 已接入、仍需扩展分开记录。
 
-当前批次：Cycle 234（MusicXML 颤音的演奏与逐音定位）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
+当前批次：Cycle 235（MusicXML 上下波音演奏与谱面定位）。已完成项代表下面描述的范围，未完成的扩展继续保持开放。
 
 ## A. 本地曲目与谱面管理
 
@@ -86,7 +86,8 @@
 - [x] MusicXML 明确写有 `steal-time-following` 的短/长倚音按比例借用唯一主音时间，连续倚音、反复来源与 MIDI 曲长保留；时值不明确或主音冲突时诊断小节（Cycle 214）。
 - [x] 明确写有 `steal-time-previous` 的倚音按比例借用同声部前音；`make-time` 按当前 divisions 换算，仅在主音前已有足够空隙时安放。连续倚音、和弦、反复身份和曲长经过核对（Cycle 215）。
 - [x] MusicXML `trill-mark` 的常见明确播放提示进入演奏 MIDI；每次颤音击键有独立身份，反复经过分别对齐，同一谱面音符可对应多个按键和纸谱位置。谱面指法只交给第一次实际主音击键，辅助击键不会制造导出冲突。无法可靠处理的小数 beats、结尾回转、渐快、倚音/延音线/截断交叉等给出具体诊断；默认击键数及落点按 [MusicXML 4.0 颤音定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/trill-mark/)（Cycle 234）。
-- [ ] 其他文字跳转、mordent/turn 等其他装饰音、无明确播放时值的倚音与其余复杂演奏解释。
+- [x] MusicXML `mordent`（下邻音）及 `inverted-mordent`（上邻音）进入实际演奏、反复经过、逐击键对齐和纸谱定位。默认三次击键、第二次及最后一次分别在 12% 和 24% 处起音；明确的半音/全音、开始音和击键数经过校验。暂不支持的组合装饰音与 `turn` 不会被当成普通音符静默生成；原谱跟随保留阻止导航的诊断。依据 [MusicXML mordent 定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/mordent/) 与 [inverted-mordent 定义](https://www.w3.org/2021/06/musicxml40/musicxml-reference/elements/inverted-mordent/)（Cycle 235）。
+- [ ] 其他文字跳转、turn/inverted-turn 等其他装饰音、无明确播放时值的倚音与其余复杂演奏解释。
 - [x] 可移植 .neopiece 曲目包：MIDI、全部谱面版本、元数据、指法/分手、拍号修正、分组评级、教学备注、手型与练习段落一起导入/导出；预览、内容校验、保留/合并/使用包内内容和导入后恢复（Cycle 114）。
 - [x] 拖放与多文件导入、逐项进度/错误/警告、暂停继续、内容去重和导入后打开（Cycle 113）。
 - [x] 曲目右键菜单、跨选择收藏/队列/检查/复制位置、逐项进度/停止、桌面文件位置与内容保护，以及 Ctrl+F/A/C、F2、Shift+F10/菜单键、菜单焦点与信息编辑保护（Cycle 147）。
