@@ -1440,7 +1440,7 @@ export function LibraryDialog({
                   >
                     学习目标
                   </button>
-                  <button disabled={busy} onClick={() => void open(current)}>
+                  <button disabled={busy} onClick={() => void open(current, entry?.contentId ?? undefined)}>
                     打开练习
                   </button>
                   <button

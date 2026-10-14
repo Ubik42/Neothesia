@@ -179,6 +179,7 @@ pub fn remove_folder(data: &Path, path: &Path) -> Result<(), String> {
 pub fn command_paths(command: &crate::Command) -> Vec<PathBuf> {
     match command {
         crate::Command::Load { path, .. }
+        | crate::Command::LoadIndexed { path, .. }
         | crate::Command::InspectSong { path, .. }
         | crate::Command::SetLibraryCollection { path, .. }
         | crate::Command::SaveSongLearning { path, .. }

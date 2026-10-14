@@ -417,6 +417,7 @@ export default function App() {
         if (
           [
             "load",
+            "loadIndexed",
             "openRecent",
             "favorite",
             "queue",
@@ -959,9 +960,11 @@ export default function App() {
       return false;
     }
     const opened = await run(
-      expectedContentId || record
-        ? { type: "openRecent", content_id: expectedContentId ?? record!.contentId }
-        : { type: "load", path: row.path, title: row.title },
+      record
+        ? { type: "openRecent", content_id: record.contentId }
+        : expectedContentId
+          ? { type: "loadIndexed", path: row.path, title: row.title, content_id: expectedContentId }
+          : { type: "load", path: row.path, title: row.title },
       true,
     );
     if (opened && window.innerWidth < 1000) setLibraryOpen(false);

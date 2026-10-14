@@ -545,6 +545,11 @@ pub enum Command {
         path: PathBuf,
         title: String,
     },
+    LoadIndexed {
+        path: PathBuf,
+        title: String,
+        content_id: String,
+    },
     ImportScore {
         bytes: Vec<u8>,
         name: String,
@@ -2046,6 +2051,7 @@ impl Player {
                     | Command::ImportPackage { .. }
                     | Command::ImportMidi { .. }
                     | Command::Load { .. }
+                    | Command::LoadIndexed { .. }
                     | Command::OpenRecent { .. }
                     | Command::HistoryOpen { .. }
                     | Command::HistoryPracticeRange { .. }
@@ -2184,7 +2190,7 @@ impl Player {
         );
         let _legacy_persist = matches!(
             command,
-            Command::Load { .. }
+            Command::Load { .. } | Command::LoadIndexed { .. }
                 | Command::Speed { .. }
                 | Command::Wait { .. }
                 | Command::Hands { .. }
@@ -3673,6 +3679,16 @@ impl Player {
                 self.persist()?;
                 return self.command(Command::CurrentSong);
             }
+            Command::LoadIndexed { path, title, content_id } => {
+                let file = MidiFile::new(&path)?;
+                if file.content_id != content_id {
+                    return Err("曲库索引中的文件内容已改变，请重新检查这首曲目".into());
+                }
+                if self.routine.is_some() { self.stop_routine()?; }
+                self.install(file, title, None)?;
+                self.persist()?;
+                return self.command(Command::CurrentSong);
+            }
             Command::Play => {
                 if self.state.status!="playing"{self.time_connected=false;}
                 if self.recorder.is_recording() {
@@ -4571,6 +4587,27 @@ mod tests {
       let opened=p.command(Command::OpenRecent{content_id:id.clone()}).unwrap();assert_eq!(opened["contentId"],id);assert_eq!(opened["sourcePath"],moved.to_string_lossy().to_string());
       p.command(Command::HistoryOpen{content_id:id.clone(),id:record,restore:true}).unwrap();assert_eq!(p.file.as_ref().unwrap().source_path.as_ref(),Some(&moved));
       std::fs::write(&moved,include_bytes!("../assets/basic-chords.mid")).unwrap();assert!(p.command(Command::OpenRecent{content_id:id}).is_err());
+    }
+    #[test]
+    fn indexed_library_load_rejects_replaced_content_before_switching_song() {
+        let mut p = player();
+        let previous = p.file.as_ref().unwrap().content_id.clone();
+        let path = p.preferences_path.parent().unwrap().join("indexed-selection.mid");
+        std::fs::write(&path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let expected = MidiFile::new(&path).unwrap().content_id;
+        assert_eq!(library::command_paths(&Command::LoadIndexed {
+            path: path.clone(), title: "已索引曲目".into(), content_id: expected.clone(),
+        }), vec![path.clone()]);
+        std::fs::write(&path, include_bytes!("../assets/basic-chords.mid")).unwrap();
+        assert!(p.command(Command::LoadIndexed {
+            path: path.clone(), title: "已索引曲目".into(), content_id: expected.clone(),
+        }).is_err());
+        assert_eq!(p.file.as_ref().unwrap().content_id, previous);
+        std::fs::write(&path, include_bytes!("../assets/five-finger.mid")).unwrap();
+        let opened = p.command(Command::LoadIndexed {
+            path, title: "已索引曲目".into(), content_id: expected.clone(),
+        }).unwrap();
+        assert_eq!(opened["contentId"], expected);
     }
     #[test]
     fn favorites_queue_and_imported_paths_survive_restart() {
