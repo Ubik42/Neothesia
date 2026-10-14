@@ -1,6 +1,10 @@
 # Development progress
 
-已推送的功能分支为 `feature/pianoteq-vst3`。[最近一次已核对的 GitHub 自动检查](https://github.com/Ubik42/Neothesia/actions/runs/38503789937)没有启动任何步骤；GitHub 注释说明账户因计费问题被锁定。本机按用户要求没有运行构建、测试或桌面程序。Cycle 239–251 仍是源码开发状态，不能当作已验收功能。
+已推送的功能分支为 `feature/pianoteq-vst3`。[最近一次已核对的 GitHub 自动检查](https://github.com/Ubik42/Neothesia/actions/runs/38503789937)没有启动任何步骤；GitHub 注释说明账户因计费问题被锁定。本机按用户要求没有运行构建、测试或桌面程序。Cycle 239–252 仍是源码开发状态，不能当作已验收功能。
+
+### Cycle 252 — WebP 识谱优先保留细线与符号，源码开发中（2026-10-13）
+
+- WebP 谱页在内存中转成白底图片时，先生成无损 PNG。单页 PNG 不超过 8 MB 且当前临时 PDF 图片预算足够时使用 PNG；否则使用高质量 JPEG。软件继续按保存页序生成 PDF，并检查最终 32 MB 上限。此改动减少清晰电子谱的二次压缩，真实图片解码、Audiveris 识别和桌面点击仍待验收。
 
 ### Cycle 251 — WebP 图片谱进入识谱准备流程，源码开发中（2026-10-13）
 

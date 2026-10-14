@@ -16,7 +16,7 @@ type Version = {
 };
 type OriginalSource = { versionId: string; status: string; path: string };
 
-async function webpForRecognition(bytes: Uint8Array, pageNumber: number): Promise<Uint8Array> {
+async function webpForRecognition(bytes: Uint8Array, pageNumber: number, losslessBudget: number): Promise<{ bytes: Uint8Array; kind: "png" | "jpeg" }> {
   const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: "image/webp" }));
   try {
     const source = new Image();
@@ -34,9 +34,17 @@ async function webpForRecognition(bytes: Uint8Array, pageNumber: number): Promis
     context.fillStyle = "#fff";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(source, 0, 0);
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((result) => result ? resolve(result) : reject(new Error(`第 ${pageNumber} 页无法转换 WebP 图片。`)), "image/jpeg", 0.98));
-    return new Uint8Array(await blob.arrayBuffer());
+    const encode = (kind: "image/png" | "image/jpeg") =>
+      new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error(`第 ${pageNumber} 页无法转换 WebP 图片。`)), kind, kind === "image/jpeg" ? 0.98 : undefined));
+    if (losslessBudget > 0) {
+      const png = await encode("image/png");
+      if (png.type === "image/png" && png.size <= Math.min(8_000_000, losslessBudget))
+        return { bytes: new Uint8Array(await png.arrayBuffer()), kind: "png" };
+    }
+    const jpeg = await encode("image/jpeg");
+    if (jpeg.type !== "image/jpeg") throw new Error(`第 ${pageNumber} 页无法转换为识谱图片。`);
+    return { bytes: new Uint8Array(await jpeg.arrayBuffer()), kind: "jpeg" };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -51,15 +59,20 @@ async function recognitionPdf(contentId: string, attachment: PaperAttachment, re
   const { PDFDocument } = await import("pdf-lib");
   const document = await PDFDocument.create();
   document.setTitle(attachment.name);
+  let embeddedImageBytes = 0;
   for (const [index, page] of attachment.pages.entries()) {
     report(`正在整理第 ${index + 1} / ${attachment.pages.length} 页图片…`);
     const bytes = await api.readScoreAttachment(contentId, attachment.id, index, page.kind);
-    const image = page.kind === "png"
-      ? await document.embedPng(bytes)
-      : page.kind === "jpeg"
-        ? await document.embedJpg(bytes)
-        : page.kind === "webp"
-          ? await document.embedJpg(await webpForRecognition(bytes, index + 1))
+    const converted = page.kind === "webp"
+      ? await webpForRecognition(bytes, index + 1, Math.max(0, 28_000_000 - embeddedImageBytes))
+      : { bytes, kind: page.kind };
+    embeddedImageBytes += converted.bytes.length;
+    if (embeddedImageBytes > 32_000_000)
+      throw new Error("整理后的图片超过 32 MB。请分成较小的谱本再识别。");
+    const image = converted.kind === "png"
+      ? await document.embedPng(converted.bytes)
+      : converted.kind === "jpeg"
+        ? await document.embedJpg(converted.bytes)
         : null;
     if (!image) throw new Error(`第 ${index + 1} 页不是 PNG、JPEG 或 WebP 图片。`);
     const width = image.width * 72 / 300;
