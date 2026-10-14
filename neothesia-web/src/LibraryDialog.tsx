@@ -55,8 +55,7 @@ type Workspace = {
   revision: number;
   learning?: Record<string, SongLearning>;
 };
-function reviewLabel(review: CollectionSong["review"]): string {
-  if (!review) return "";
+function reviewReason(review: NonNullable<CollectionSong["review"]>): string {
   const reasons: Record<string, string> = {
     NeedsEvidence: "这次练习缺少有效音符成绩",
     IncompleteConditions: "这次练习缺少完整条件，旧成绩不能证明同条件连胜",
@@ -65,7 +64,11 @@ function reviewLabel(review: CollectionSong["review"]): string {
     Consolidating: "同条件连续达标 2 次",
     Stable: `同条件连续达标 ${review.streak} 次`,
   };
-  const reason = reasons[review.reason ?? ""] ?? "复习日期已根据最近一次练习计算";
+  return reasons[review.reason ?? ""] ?? "复习日期已根据最近一次练习计算";
+}
+function reviewLabel(review: CollectionSong["review"]): string {
+  if (!review) return "";
+  const reason = reviewReason(review);
   return review.due ? `待复习：${reason}` : `${reason}，${review.days} 天后复习`;
 }
 function reviewShort(review: CollectionSong["review"]): string {
@@ -361,6 +364,7 @@ export function LibraryDialog({
   ];
   const current = rows.find((r) => key(r.path) === active),
     entry = active ? data.entries[active] : null;
+  const activeReview = current ? historyFor(current)?.review ?? null : null;
   const inspect = async (list: SongRow[], force = false) => {
     const paths = list
       .filter((r) => !r.path.startsWith("exercise:"))
@@ -1501,6 +1505,13 @@ export function LibraryDialog({
                       <p className="dialog-error">{entry.error}</p>
                     )}
                   </>
+                )}
+                {entry?.contentId && activeReview && (
+                  <p className="library-review-status">
+                    {activeReview.due ? "现在待复习" : "建议复习时间"}
+                    {activeReview.dueAt != null && ` · ${new Date(activeReview.dueAt).toLocaleString("zh-CN")}`}
+                    {` · ${reviewReason(activeReview)}`}
+                  </p>
                 )}
                 {entry?.contentId && current && (
                   <LibraryScoresPane

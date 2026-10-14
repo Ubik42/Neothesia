@@ -2083,7 +2083,7 @@ impl Player {
             let songs: Vec<_> = self.history.recent_songs(usize::MAX).into_iter().map(|s| serde_json::json!({
                 "contentId": s.content_id, "title": s.display_name, "storedPath":s.source_path, "path": library::available_path(&index,&s.content_id,s.source_path.as_deref()),
                 "favorite": s.favorite, "queuePosition": s.queue_position, "lastUsed": s.last_used_unix_ms,
-                "lastPracticed":self.history.song(&s.content_id).and_then(|h|h.sessions.last()).map(|s|s.recorded_at_unix_ms), "sessions": s.session_count, "accuracy": s.latest_accuracy,"available":s.source_path.is_none()||library::available_path(&index,&s.content_id,s.source_path.as_deref()).is_some(),"recommended":s.recommended_measures,"review":s.review.map(|r|serde_json::json!({"due":r.is_due,"days":r.days_until_due,"streak":r.mastery_streak,"intervalDays":r.interval_days,"reason":format!("{:?}",r.reason)})), "generated":self.history.setup(&s.content_id).is_some_and(|s|s.exercise_spec.is_some())
+                "lastPracticed":self.history.song(&s.content_id).and_then(|h|h.sessions.last()).map(|s|s.recorded_at_unix_ms), "sessions": s.session_count, "accuracy": s.latest_accuracy,"available":s.source_path.is_none()||library::available_path(&index,&s.content_id,s.source_path.as_deref()).is_some(),"recommended":s.recommended_measures,"review":s.review.map(|r|serde_json::json!({"due":r.is_due,"dueAt":r.due_at_unix_ms,"days":r.days_until_due,"streak":r.mastery_streak,"intervalDays":r.interval_days,"reason":format!("{:?}",r.reason)})), "generated":self.history.setup(&s.content_id).is_some_and(|s|s.exercise_spec.is_some())
             })).collect();
             return Ok(serde_json::json!({ "songs": songs }));
         }
