@@ -10,9 +10,43 @@ function Test-Endpoint([string]$Uri) {
 }
 if (-not (Test-Endpoint 'http://127.0.0.1:32124/api/state')) {
     $service = Join-Path $repository 'target/debug/neothesia-service.exe'
-    if (-not (Test-Path -LiteralPath $service)) {
+    $serviceStamp = Join-Path $repository 'target/debug/neothesia-service.source-stamp'
+    $buildService = -not (Test-Path -LiteralPath $service -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $serviceStamp -PathType Leaf)
+    if (-not $buildService) {
+        $builtAt = (Get-Item -LiteralPath $serviceStamp).LastWriteTimeUtc
+        $serviceInputs = @('Cargo.toml', 'Cargo.lock')
+        foreach ($crate in @('wgpu-jumpstart', 'neothesia-image', 'piano-layout', 'midi-file', 'midi-io', 'neothesia-core', 'neothesia-engine')) {
+            $serviceInputs += "$crate/Cargo.toml"
+        }
+        foreach ($relative in $serviceInputs) {
+            $inputFile = Join-Path $repository $relative
+            if ((Test-Path -LiteralPath $inputFile -PathType Leaf) -and
+                (Get-Item -LiteralPath $inputFile).LastWriteTimeUtc -gt $builtAt) {
+                $buildService = $true
+                break
+            }
+        }
+        if (-not $buildService) {
+            foreach ($relative in @('wgpu-jumpstart/src', 'neothesia-image/src', 'piano-layout/src', 'midi-file/src', 'midi-io/src', 'neothesia-core/src', 'neothesia-engine/src', 'neothesia-engine/assets')) {
+                $sourceDirectory = Join-Path $repository $relative
+                if (-not (Test-Path -LiteralPath $sourceDirectory -PathType Container)) { continue }
+                $newer = Get-ChildItem -LiteralPath $sourceDirectory -Recurse -File |
+                    Where-Object { $_.LastWriteTimeUtc -gt $builtAt } |
+                    Select-Object -First 1
+                if ($newer) {
+                    $buildService = $true
+                    break
+                }
+            }
+        }
+    }
+    if ($buildService) {
+        Write-Output '音乐服务源码已更新，正在生成当前版本。'
         Push-Location $repository
         try { & cargo build -p neothesia-engine --bin neothesia-service; if ($LASTEXITCODE) { throw '音乐引擎编译失败' } } finally { Pop-Location }
+        if (-not (Test-Path -LiteralPath $service -PathType Leaf)) { throw '编译后没有找到音乐服务程序' }
+        Set-Content -LiteralPath $serviceStamp -Value 'Music service build completed.' -Encoding Ascii
     }
     $process = Start-Process -FilePath $service -WorkingDirectory $repository -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'engine.log') -RedirectStandardError (Join-Path $logs 'engine-error.log')
     $process.Id | Set-Content -LiteralPath (Join-Path $logs 'engine.pid')
