@@ -207,7 +207,12 @@ pub fn expand_turn(
     if duration.numerator <= 0 {
         return Err("回音主音必须有正时值".into());
     }
-    if mark.beats.as_deref().is_some_and(|value| value != "4") {
+    if mark.beats.as_deref().is_some_and(|value| {
+        let value = value.trim().strip_prefix('+').unwrap_or(value.trim());
+        let (whole, fractional) = value.split_once('.').unwrap_or((value, ""));
+        whole.parse::<u32>().ok() != Some(4)
+            || !fractional.bytes().all(|digit| digit == b'0')
+    }) {
         return Err("回音 beats 目前只支持四次击键，请先校对原谱".into());
     }
     if mark.start_note.as_deref().is_some_and(|value| value != "upper") {
@@ -215,12 +220,25 @@ pub fn expand_turn(
     }
     let parse_percent = |value: Option<&str>, default: u32, name: &str| -> Result<u32, String> {
         match value {
-            None => Ok(default),
-            Some(raw) => raw
-                .parse::<u32>()
-                .ok()
-                .filter(|percent| *percent <= 100)
-                .ok_or_else(|| format!("回音 {name} 只支持 0 至 100 的整数百分比")),
+            None => Ok(default * 10_000),
+            Some(raw) => {
+                let raw = raw.trim().strip_prefix('+').unwrap_or(raw.trim());
+                let (whole, fractional_digits) = raw.split_once('.').unwrap_or((raw, ""));
+                if (whole.is_empty() && fractional_digits.is_empty())
+                    || fractional_digits.len() > 4
+                    || !whole.bytes().all(|digit| digit.is_ascii_digit())
+                    || !fractional_digits.bytes().all(|digit| digit.is_ascii_digit())
+                {
+                    return Err(format!("回音 {name} 只支持 0 至 100、最多四位小数的百分比"));
+                }
+                let whole = if whole.is_empty() { 0 } else { whole.parse::<u32>().map_err(|_| format!("回音 {name} 百分比超出范围"))? };
+                let fractional = if fractional_digits.is_empty() { 0 } else { fractional_digits.parse::<u32>().map_err(|_| format!("回音 {name} 百分比超出范围"))? };
+                whole
+                    .checked_mul(10_000)
+                    .and_then(|scaled| scaled.checked_add(fractional * 10_u32.pow(4 - fractional_digits.len() as u32)))
+                    .filter(|scaled| *scaled <= 1_000_000)
+                    .ok_or_else(|| format!("回音 {name} 百分比超出范围"))
+            }
         }
     };
     let second = parse_percent(mark.second_beat.as_deref(), 25, "second-beat")?;
@@ -247,9 +265,9 @@ pub fn expand_turn(
     }
     let starts = [
         onset,
-        add(onset, offset(duration, second, 1)?)?,
-        add(onset, offset(duration, second + last, 2)?)?,
-        add(onset, offset(duration, last, 1)?)?,
+        add(onset, offset(duration, second, 10_000)?)?,
+        add(onset, offset(duration, second + last, 20_000)?)?,
+        add(onset, offset(duration, last, 10_000)?)?,
         add(onset, duration)?,
     ];
     let pitches = [pitch + step as u8, pitch, pitch - step as u8, pitch];
@@ -372,23 +390,23 @@ mod tests {
     #[test]
     fn explicit_four_note_turn_uses_written_landings() {
         let mark = TurnMark {
-            beats: Some("4".into()),
-            second_beat: Some("20".into()),
-            last_beat: Some("80".into()),
+            beats: Some("4.0".into()),
+            second_beat: Some("20.5".into()),
+            last_beat: Some("79.5".into()),
             ..Default::default()
         };
         let strikes = expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap();
         assert_eq!(strikes.iter().map(|strike| strike.pitch).collect::<Vec<_>>(), [62, 60, 58, 60]);
         assert_eq!(strikes.iter().map(|strike| strike.onset).collect::<Vec<_>>(),
-            [ScoreTime::default(), ScoreTime::new(1, 5), ScoreTime::new(1, 2), ScoreTime::new(4, 5)]);
-        assert_eq!(strikes.last().unwrap().duration, ScoreTime::new(1, 5));
+            [ScoreTime::default(), ScoreTime::new(41, 200), ScoreTime::new(1, 2), ScoreTime::new(159, 200)]);
+        assert_eq!(strikes.last().unwrap().duration, ScoreTime::new(41, 200));
     }
 
     #[test]
     fn turn_rejects_invalid_written_landings() {
         let mut mark = TurnMark { second_beat: Some("80".into()), last_beat: Some("20".into()), ..Default::default() };
         assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("落点"));
-        mark.second_beat = Some("20.5".into());
+        mark.second_beat = Some("20.12345".into());
         assert!(expand_turn(&mark, 60, ScoreTime::default(), ScoreTime::new(1, 1)).unwrap_err().contains("second-beat"));
     }
 }

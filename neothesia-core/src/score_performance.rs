@@ -1256,12 +1256,12 @@ mod tests {
 
     #[test]
     fn normal_turn_repeats_as_four_distinct_midi_attacks() {
-        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><turn beats="4" second-beat="20" last-beat="80"/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><barline location="left"><repeat direction="forward"/></barline><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><turn beats="4.0" second-beat="20.5" last-beat="79.5"/></ornaments></notations></note><barline location="right"><repeat direction="backward"/></barline></measure></part></score-partwise>"#;
         let score = import_musicxml_document(xml).unwrap();
         let performance = generate(&score, 120).unwrap();
         let notes = &performance.tracks[0].notes;
         assert_eq!(notes.iter().map(|note| note.pitch).collect::<Vec<_>>(), [62, 60, 58, 60, 62, 60, 58, 60]);
-        assert_eq!(notes.iter().map(|note| note.start).collect::<Vec<_>>(), [0, 960, 2400, 3840, 4800, 5760, 7200, 8640]);
+        assert_eq!(notes.iter().map(|note| note.start).collect::<Vec<_>>(), [0, 984, 2400, 3816, 4800, 5784, 7200, 8616]);
         let midi = midi_file::MidiFile::from_smf("turn-repeat", &performance.smf).unwrap();
         assert_eq!(midi.tracks.iter().flat_map(|track| track.notes.iter()).count(), 8);
     }
