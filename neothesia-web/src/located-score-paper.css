@@ -80,6 +80,7 @@
 }
 
 .located-paper-pages,
+.located-paper-measures,
 .located-paper-notes-heading,
 .located-paper-note-row {
   display: flex;
@@ -98,6 +99,21 @@
 
 .located-paper-pages > span {
   margin-left: auto;
+}
+
+.located-paper-measures {
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+.located-paper-measures label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.located-paper-measures select {
+  max-width: min(280px, 55vw);
 }
 
 .located-paper-notes-heading {

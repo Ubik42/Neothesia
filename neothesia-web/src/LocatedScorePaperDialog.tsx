@@ -21,6 +21,7 @@ export function LocatedScorePaperDialog({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [previewPage, setPreviewPage] = useState(0);
+  const [selectedMeasure, setSelectedMeasure] = useState(0);
   const [previewZoom, setPreviewZoom] = useState(0);
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
   const [focused, setFocused] = useState("");
@@ -31,6 +32,7 @@ export function LocatedScorePaperDialog({
       setPlan(null);
       setExcluded(new Set());
       setPreviewPage(0);
+      setSelectedMeasure(0);
       setFocused("");
       setPlan(buildLocatedPaperPlan(pages, mapping, song));
     } catch (cause) {
@@ -39,6 +41,10 @@ export function LocatedScorePaperDialog({
   }, [pages, mapping, song]);
   const accepted = plan?.notes.filter(note => !excluded.has(identity(note))) ?? [];
   const pageNotes = plan?.notes.filter(note => note.page === previewPage + 1) ?? [];
+  const measures = [...new Set(plan?.notes.map(note => note.measure) ?? [])].sort((a, b) => a - b);
+  const listedNotes = selectedMeasure
+    ? plan?.notes.filter(note => note.measure === selectedMeasure) ?? []
+    : pageNotes;
   const selected = pageNotes.find(note => identity(note) === focused);
   useEffect(() => {
     if (!selected || !previewRef.current) return;
@@ -53,12 +59,21 @@ export function LocatedScorePaperDialog({
       behavior: "smooth",
     });
   }, [focused, previewPage, selected]);
-  const setPageNotes = (keep: boolean) => {
+  const setListedNotes = (keep: boolean) => {
     setExcluded(current => {
       const next = new Set(current);
-      for (const note of pageNotes) keep ? next.delete(identity(note)) : next.add(identity(note));
+      for (const note of listedNotes) keep ? next.delete(identity(note)) : next.add(identity(note));
       return next;
     });
+  };
+  const chooseMeasure = (measure: number) => {
+    setSelectedMeasure(measure);
+    if (!measure) return;
+    const first = plan?.notes.find(note => note.measure === measure);
+    if (first) {
+      setPreviewPage(first.page - 1);
+      setFocused(identity(first));
+    }
   };
   const save = async () => {
     if (!accepted.length || busy || !name.trim()) return;
@@ -117,14 +132,22 @@ export function LocatedScorePaperDialog({
         )}
         {pages.length > 0 && <>
           <div className="located-paper-pages">
-            <button disabled={busy || previewPage === 0} onClick={() => { setPreviewPage(page => page - 1); setFocused(""); }}>上一页</button>
+            <button disabled={busy || previewPage === 0} onClick={() => { setPreviewPage(page => page - 1); setSelectedMeasure(0); setFocused(""); }}>上一页</button>
             <label>预览页码 <input aria-label="预览页码" type="number" min={1} max={pages.length} value={previewPage + 1}
-              disabled={busy} onChange={event => { const next = Number(event.target.value); if (Number.isInteger(next) && next >= 1 && next <= pages.length) { setPreviewPage(next - 1); setFocused(""); } }} /> / {pages.length} 页</label>
-            <button disabled={busy || previewPage >= pages.length - 1} onClick={() => { setPreviewPage(page => page + 1); setFocused(""); }}>下一页</button>
+              disabled={busy} onChange={event => { const next = Number(event.target.value); if (Number.isInteger(next) && next >= 1 && next <= pages.length) { setPreviewPage(next - 1); setSelectedMeasure(0); setFocused(""); } }} /> / {pages.length} 页</label>
+            <button disabled={busy || previewPage >= pages.length - 1} onClick={() => { setPreviewPage(page => page + 1); setSelectedMeasure(0); setFocused(""); }}>下一页</button>
             <label>预览缩放 <select aria-label="谱页预览缩放" value={previewZoom} disabled={busy} onChange={event => setPreviewZoom(Number(event.target.value))}>
               <option value={0}>适合宽度</option><option value={1100}>原尺寸</option><option value={1650}>放大</option>
             </select></label>
             <span>本页保留 {pageNotes.filter(note => !excluded.has(identity(note))).length} / {pageNotes.length} 个位置</span>
+          </div>
+          <div className="located-paper-measures">
+            <label>定位演奏小节 <select aria-label="定位演奏小节" value={selectedMeasure} disabled={busy}
+              onChange={event => chooseMeasure(Number(event.target.value))}>
+              <option value={0}>查看当前页全部音符</option>
+              {measures.map(measure => <option key={measure} value={measure}>第 {measure} 小节</option>)}
+            </select></label>
+            {selectedMeasure > 0 && <span>本节保留 {listedNotes.filter(note => !excluded.has(identity(note))).length} / {listedNotes.length} 个位置；点击音符可跳到所在谱页。</span>}
           </div>
           <div className="located-paper-preview" aria-label={`生成谱页预览 · 第 ${previewPage + 1} 页`} ref={previewRef}>
             <div className="located-paper-sheet" style={{ width: previewZoom ? `${previewZoom}px` : "100%" }}>
@@ -135,19 +158,19 @@ export function LocatedScorePaperDialog({
           </div>
           {plan && <div className="located-paper-notes">
             <div className="located-paper-notes-heading">
-              <strong>本页音符位置</strong>
-              <button disabled={busy || saved || !pageNotes.length} onClick={() => setPageNotes(true)}>保留本页</button>
-              <button disabled={busy || saved || !pageNotes.length} onClick={() => setPageNotes(false)}>跳过本页</button>
+              <strong>{selectedMeasure ? `第 ${selectedMeasure} 小节音符位置` : "本页音符位置"}</strong>
+              <button disabled={busy || saved || !listedNotes.length} onClick={() => setListedNotes(true)}>{selectedMeasure ? "保留本节" : "保留本页"}</button>
+              <button disabled={busy || saved || !listedNotes.length} onClick={() => setListedNotes(false)}>{selectedMeasure ? "跳过本节" : "跳过本页"}</button>
             </div>
             <div className="located-paper-note-list">
-              {pageNotes.map(note => <div className="located-paper-note-row" key={identity(note)}>
+              {listedNotes.map(note => <div className="located-paper-note-row" key={identity(note)}>
                 <input type="checkbox" aria-label={`保留音轨 ${note.track} 音符 ${note.index} 的位置`}
                   checked={!excluded.has(identity(note))} disabled={busy || saved}
                   onChange={event => { const keep = event.target.checked; setExcluded(current => { const next = new Set(current); keep ? next.delete(identity(note)) : next.add(identity(note)); return next; }); }} />
-                <button className={focused === identity(note) ? "selected" : ""} onClick={() => setFocused(identity(note))}
-                  aria-label={`查看第 ${note.measure} 小节 ${pitchName(note.pitch)} 的位置`}>第 {note.measure} 小节 · {pitchName(note.pitch)} · {song.tracks.find(track => track.id === note.track)?.name ?? `音轨 ${note.track}`}</button>
+                <button className={focused === identity(note) ? "selected" : ""} onClick={() => { setPreviewPage(note.page - 1); setFocused(identity(note)); }}
+                  aria-label={`查看第 ${note.measure} 小节 ${pitchName(note.pitch)} 的位置`}>第 {note.measure} 小节 · {pitchName(note.pitch)} · 第 {note.page} 页 · {song.tracks.find(track => track.id === note.track)?.name ?? `音轨 ${note.track}`}</button>
               </div>)}
-              {!pageNotes.length && <p>这一页没有可靠的逐音位置。谱页仍会保存。</p>}
+              {!listedNotes.length && <p>这一页没有可靠的逐音位置。谱页仍会保存。</p>}
             </div>
           </div>}
         </>}
