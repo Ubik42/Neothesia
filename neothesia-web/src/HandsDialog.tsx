@@ -13,6 +13,7 @@ type Proposal = {
   track: number;
   index: number;
   pitch: number;
+  start: number;
   measure: number;
   part: Part;
   saved: Part;
@@ -42,6 +43,7 @@ export function HandsDialog({
     [proof, setProof] = useState<string | null>(null),
     [values, setValues] = useState<Record<number, Part>>({});
   const [accepted, setAccepted] = useState<Set<number>>(new Set()),
+    [selectionTouched, setSelectionTouched] = useState<Set<number>>(new Set()),
     [page, setPage] = useState(0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -108,6 +110,7 @@ export function HandsDialog({
           track,
           index: n.index,
           pitch: n.pitch,
+          start: n.start,
           measure:
             [...song.measures].reverse().find((m) => m.start <= n.start)
               ?.number ?? 1,
@@ -134,6 +137,7 @@ export function HandsDialog({
     setProof(null);
     setValues({});
     setAccepted(new Set());
+    setSelectionTouched(new Set());
     setPage(0);
   };
   const visible = rows.slice(page * 40, (page + 1) * 40);
@@ -279,21 +283,45 @@ export function HandsDialog({
                 });
                 if (data.contentId !== song.contentId)
                   throw new Error("曲目已切换");
+                const previous = new Map(rows.map((row) => [row.index, row]));
+                const sameNote = (item: Proposal) => {
+                  const old = previous.get(item.index);
+                  return (
+                    old?.track === item.track &&
+                    old.pitch === item.pitch &&
+                    old.start === item.start
+                  );
+                };
+                const preservedValues = Object.fromEntries(
+                  data.proposals.flatMap((item) =>
+                    sameNote(item) && values[item.index]
+                      ? [[item.index, values[item.index]]]
+                      : [],
+                  ),
+                ) as Record<number, Part>;
+                const nextAccepted = new Set(
+                  data.proposals
+                    .filter(
+                      (item) =>
+                        item.part !== "Other" &&
+                        item.part !== item.saved &&
+                        item.confidence >= 80,
+                    )
+                    .map((item) => item.index),
+                );
+                const nextTouched = new Set<number>();
+                for (const item of data.proposals) {
+                  if (!sameNote(item) || !selectionTouched.has(item.index))
+                    continue;
+                  nextTouched.add(item.index);
+                  if (accepted.has(item.index)) nextAccepted.add(item.index);
+                  else nextAccepted.delete(item.index);
+                }
                 setProposals(data.proposals);
                 setProof(data.proof);
-                setValues({});
-                setAccepted(
-                  new Set(
-                    data.proposals
-                      .filter(
-                        (p) =>
-                          p.part !== "Other" &&
-                          p.part !== p.saved &&
-                          p.confidence >= 80,
-                      )
-                      .map((p) => p.index),
-                  ),
-                );
+                setValues(preservedValues);
+                setAccepted(nextAccepted);
+                setSelectionTouched(nextTouched);
                 setPage(0);
               })
             }
@@ -307,26 +335,36 @@ export function HandsDialog({
         <div className="fingering-options">
           <button
             disabled={busy || rows.length > 4096}
-            onClick={() => setAccepted(new Set(rows.map((p) => p.index)))}
+            onClick={() => {
+              setAccepted(new Set(rows.map((p) => p.index)));
+              setSelectionTouched(new Set(rows.map((p) => p.index)));
+            }}
           >
             选择全部音符
           </button>
-          <button disabled={busy} onClick={() => setAccepted(new Set())}>
+          <button
+            disabled={busy}
+            onClick={() => {
+              setAccepted(new Set());
+              setSelectionTouched(new Set(rows.map((p) => p.index)));
+            }}
+          >
             取消选择
           </button>
           {(["LeftHand", "RightHand", "Other"] as Part[]).map((part) => (
             <button
               disabled={busy || !accepted.size}
               key={part}
-              onClick={() =>
+              onClick={() => {
                 setValues((v) =>
                   Object.assign(
                     {},
                     v,
                     Object.fromEntries([...accepted].map((i) => [i, part])),
                   ),
-                )
-              }
+                );
+                setSelectionTouched((old) => new Set([...old, ...accepted]));
+              }}
             >
               {part === "LeftHand"
                 ? "所选设为左手"
@@ -339,6 +377,11 @@ export function HandsDialog({
         {error && (
           <p role="alert" className="dialog-error">
             {error}
+          </p>
+        )}
+        {proposals && Object.keys(values).length > 0 && (
+          <p className="parameter-help">
+            重新生成建议时，窗口会按曲目、音轨、音符位置和音高保留手工修改。请在保存前核对保留的选择。
           </p>
         )}
         <div className="fingering-table-wrap">
@@ -362,14 +405,17 @@ export function HandsDialog({
                       type="checkbox"
                       checked={accepted.has(p.index)}
                       disabled={busy}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setAccepted((old) => {
                           const next = new Set(old);
                           if (e.target.checked) next.add(p.index);
                           else next.delete(p.index);
                           return next;
-                        })
-                      }
+                        });
+                        setSelectionTouched((touched) =>
+                          new Set(touched).add(p.index),
+                        );
+                      }}
                     />
                   </td>
                   <td>{p.measure}</td>
@@ -392,6 +438,7 @@ export function HandsDialog({
                           [p.index]: e.target.value as Part,
                         }));
                         setAccepted((v) => new Set(v).add(p.index));
+                        setSelectionTouched((v) => new Set(v).add(p.index));
                       }}
                     >
                       <option value="LeftHand">左手</option>
