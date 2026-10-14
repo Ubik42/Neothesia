@@ -36,7 +36,9 @@ export function LibraryMetadataEditor({
     >({}),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [refreshPending, setRefreshPending] = useState(false),
+    [savedWarnings, setSavedWarnings] = useState<string[] | undefined>();
   const working = useRef(false);
   const reviewRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -97,8 +99,22 @@ export function LibraryMetadataEditor({
       setDraft(reply.value!);
       setConflict(null);
       setNotice(`资料已保存。${reply.warnings?.length?reply.warnings.join("；"):""}`);
+      setSavedWarnings(reply.warnings);
+      setRefreshPending(true);
       try {
         await saved(reply.warnings);
+        setRefreshPending(false);
+      } catch (e) {
+        throw new Error(
+          `资料已保存，曲库刷新失败：${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    });
+  const retryRefresh = () =>
+    void job(async () => {
+      try {
+        await saved(savedWarnings);
+        setRefreshPending(false);
       } catch (e) {
         throw new Error(
           `资料已保存，曲库刷新失败：${e instanceof Error ? e.message : String(e)}`,
@@ -138,7 +154,7 @@ export function LibraryMetadataEditor({
               rows={4}
               maxLength={10000}
               value={draft.notes ?? ""}
-              disabled={busy || !!conflict}
+              disabled={busy || !!conflict || refreshPending}
               onChange={(e) =>
                 setDraft({ ...draft, notes: e.target.value || null })
               }
@@ -150,7 +166,7 @@ export function LibraryMetadataEditor({
               value={
                 key === "tags" ? draft.tags.join("，") : (draft[key] ?? "")
               }
-              disabled={busy || !!conflict}
+              disabled={busy || !!conflict || refreshPending}
               onChange={(e) =>
                 setDraft({
                   ...draft,
@@ -258,14 +274,20 @@ export function LibraryMetadataEditor({
         </section>
       )}
       <div className="file-actions">
-        <button
-          className="primary-button"
-          disabled={busy || !!conflict}
-          onClick={save}
-        >
-          保存曲目信息
-        </button>
-        <button disabled={busy} onClick={review}>
+        {refreshPending ? (
+          <button className="primary-button" disabled={busy} onClick={retryRefresh}>
+            重试刷新已保存的曲库
+          </button>
+        ) : (
+          <button
+            className="primary-button"
+            disabled={busy || !!conflict}
+            onClick={save}
+          >
+            保存曲目信息
+          </button>
+        )}
+        <button disabled={busy || refreshPending} onClick={review}>
           读取最新资料并审阅
         </button>
         <button
@@ -285,11 +307,13 @@ export function LibraryMetadataEditor({
           复制信息草稿
         </button>
         <button disabled={busy} onClick={cancel}>
-          取消信息编辑
+          {refreshPending ? "关闭信息编辑" : "取消信息编辑"}
         </button>
       </div>
       <p className="parameter-help">
-        保存或取消后再切换曲目或关闭曲库。保存只修改这些信息，指法、分手和谱面关联仍保留。
+        {refreshPending
+          ? "资料已经保存。重试只刷新曲库，不会再次写入。关闭后，曲库可能暂时显示旧资料。"
+          : "保存或取消后再切换曲目或关闭曲库。保存只修改这些信息，指法、分手和谱面关联仍保留。"}
       </p>
     </section>
   );
