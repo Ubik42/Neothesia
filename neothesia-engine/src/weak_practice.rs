@@ -124,7 +124,8 @@ fn due_review_suggestion(
     })
 }
 impl Player {
-    fn due_review_candidates(&self) -> (Vec<Suggestion>, usize, usize) {
+    fn due_review_candidates(&self) -> Result<(Vec<Suggestion>, usize, usize), String> {
+        let index = crate::library_workspace::Workspace::load(&self.data)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
         let mut rows = Vec::new();
@@ -132,14 +133,20 @@ impl Player {
         for (cid, history) in self.history.snapshot() {
             if !history.review_status(now).is_some_and(|status| status.is_due) { continue; }
             due_total += 1;
-            if let Some(row) = due_review_suggestion(&cid, &history, now) { rows.push(row); }
+            if let Some(row) = due_review_suggestion(&cid, &history, now) {
+                if row.item.exercise.is_some()
+                    || crate::library::available_path(&index, &cid, row.item.path.as_deref()).is_some()
+                {
+                    rows.push(row);
+                }
+            }
         }
         rows.sort_by(|a, b| a.source_at.cmp(&b.source_at).then_with(|| a.id.cmp(&b.id)));
         let eligible_total = rows.len();
-        (rows, due_total, eligible_total)
+        Ok((rows, due_total, eligible_total))
     }
-    fn due_review_rows(&self) -> Vec<Suggestion> {
-        self.due_review_candidates().0
+    fn due_review_rows(&self) -> Result<Vec<Suggestion>, String> {
+        Ok(self.due_review_candidates()?.0)
     }
     fn weak_practice_rows(&self) -> Vec<Suggestion> {
         let mut rows = vec![];
@@ -416,7 +423,7 @@ impl Player {
         rows
     }
     pub(super) fn due_review(&self, offset: usize, expected: Option<&str>) -> Result<Value, String> {
-        let (rows, due_total, eligible_total) = self.due_review_candidates();
+        let (rows, due_total, eligible_total) = self.due_review_candidates()?;
         let revision = blake3::hash(&serde_json::to_vec(&rows.iter().map(|row| &row.id).collect::<Vec<_>>())
             .map_err(|e| e.to_string())?).to_hex().to_string();
         if expected.is_some_and(|value| value != revision.as_str()) {
@@ -425,7 +432,7 @@ impl Player {
         if offset > rows.len() { return Err("到期复习读取位置无效，请重新生成建议".into()); }
         let suggestions: Vec<_> = rows.into_iter().skip(offset).take(30).collect();
         let next_offset = offset + suggestions.len();
-        Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习只使用条件完整的最近成绩，保留原声部、模式、速度及小节网格；特殊阶梯、非整曲与旧记录请在曲库直接打开核对。"}))
+        Ok(json!({"suggestions":suggestions,"dueTotal":due_total,"eligibleTotal":eligible_total,"revision":revision,"nextOffset":next_offset,"hasMore":next_offset<eligible_total,"note":"到期整曲复习使用条件完整的最近普通整曲成绩，并检查曲库当前有可用文件路径；加入计划后打开时还会核对实际文件内容、声部、模式、速度及小节网格。文件缺失时请先在曲库重新关联。"}))
     }
     pub(super) fn weak_practice(&self) -> Result<Value, String> {
         Ok(
@@ -449,7 +456,7 @@ impl Player {
             return Err("日期无效".into());
         }
         let mut rows = self.weak_practice_rows();
-        rows.extend(self.due_review_rows());
+        rows.extend(self.due_review_rows()?);
         let mut selected = vec![];
         for id in ids {
             selected.push(
@@ -591,6 +598,37 @@ mod tests {
         let saved = p.accept_weak_practice(&[id], None, Some("2026-10-13"), "到期复习").unwrap();
         assert_eq!(saved["added"], 1);
         assert!(p.preferences.routines.iter().any(|routine| Some(routine.id.as_str()) == saved["id"].as_str()));
+    }
+    #[test]
+    fn missing_midi_is_due_but_not_ready_for_a_plan() {
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../work/due-review-missing-unit")
+            .join(format!("{}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut p = Player::new(data, PathBuf::new(), true);
+        let imported = p.command(Command::ImportMidi {
+            bytes: include_bytes!("../assets/five-finger.mid").to_vec(),
+            name: "待复习.mid".into(),
+        }).unwrap();
+        let cid = p.file.as_ref().unwrap().content_id.clone();
+        let mut summary = AttemptSummary::default();
+        summary.overall = neothesia_core::practice::PracticeBreakdown {
+            target_notes: 8, matched_notes: 8, ..Default::default()
+        };
+        let mut session = PracticeSession::new(
+            PracticeSessionKind::WholeSong,
+            neothesia_core::practice::PracticeHands::Both,
+            1., summary,
+        ).with_context(p.history_context()).with_scope(p.practice_scope()).with_mode("wait");
+        session.recorded_at_unix_ms = 1;
+        session.context.as_mut().unwrap().target_notes = 8;
+        session.context.as_mut().unwrap().judged_notes = 8;
+        p.history.record_session(&cid, &p.title.clone(), session).unwrap();
+        std::fs::remove_file(imported["sourcePath"].as_str().unwrap()).unwrap();
+        let due = p.due_review(0, None).unwrap();
+        assert_eq!(due["dueTotal"], 1);
+        assert_eq!(due["eligibleTotal"], 0);
+        assert!(due["suggestions"].as_array().unwrap().is_empty());
     }
     #[test]
     fn repeated_flow_timing_and_wait_exclusion() {

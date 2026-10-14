@@ -105,7 +105,7 @@ export function WeakPracticePanel({
         suggestions.length
           ? ""
           : due.dueTotal
-            ? "待复习曲目的原条件暂不能自动编排。请在曲库打开曲目核对，或完成几轮后重新生成。"
+            ? "待复习曲目的原条件或文件位置暂不能自动编排。请在曲库核对曲目，缺失文件先重新关联。"
             : "暂无足够的重复薄弱证据；完成几轮后再生成。",
       );
     });
@@ -151,7 +151,7 @@ export function WeakPracticePanel({
         <p className="parameter-help">
           曲库中 {duePage.dueTotal} 首曲目待复习；{duePage.eligibleTotal} 首可按原条件加入计划，当前已读取 {shownDue} 首。
           {duePage.dueTotal > duePage.eligibleTotal &&
-            ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库直接打开核对。`}
+            ` 其余 ${duePage.dueTotal - duePage.eligibleTotal} 首请在曲库核对条件；文件缺失时先重新关联。`}
         </p>
       )}
       {note && (
