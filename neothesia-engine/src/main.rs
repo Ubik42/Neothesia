@@ -1,4 +1,4 @@
-use neothesia_engine::{Command, Engine, devices, library};
+use neothesia_engine::{Command, Engine, data_root_lock::DataRootLock, devices, library};
 use std::{path::PathBuf, sync::{Arc,Mutex}};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -16,9 +16,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("内置钢琴音色已加载，真实音频输出流初始化成功（未播放音符）");
         return Ok(());
     }
+    let data_lock = DataRootLock::acquire(&data)?;
+    let data = data_lock.root().to_path_buf();
     let rows = Arc::new(Mutex::new(library::load(&root, &data)?));
     let monitor = neothesia_engine::library_monitor::Monitor::start(root.clone(),data.clone(),rows.clone());
-    let engine = Engine::start(data.clone(), font, args.iter().any(|a| a == "--silent"));
+    let engine = Engine::start(data.clone(), data_lock, font, args.iter().any(|a| a == "--silent"))?;
     let address = std::env::var("NEOTHESIA_SERVICE_ADDR").unwrap_or("127.0.0.1:32124".into());
     if !address.starts_with("127.0.0.1:") {
         return Err("服务只允许监听本机回环地址".into());

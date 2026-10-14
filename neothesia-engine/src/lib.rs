@@ -44,6 +44,7 @@ mod song_learning_evidence;
 mod package_commands;
 mod piece_package;
 mod preferences;
+pub mod data_root_lock;
 use neothesia_core::{
     exercise::{ExercisePlan, ExerciseSpec},
     practice::{AdaptiveTempoCoach, AdaptiveTempoRules, AttemptSummary},
@@ -650,16 +651,22 @@ pub struct Engine {
     state: Arc<Mutex<Snapshot>>,
     indexer: library_index::Indexer,
     data: PathBuf,
+    _data_lock: Arc<data_root_lock::DataRootLock>,
 }
 impl Engine {
-    pub fn start(data: PathBuf, soundfont: PathBuf, silent: bool) -> Self {
+    pub fn start(data: PathBuf, data_lock: data_root_lock::DataRootLock, soundfont: PathBuf, silent: bool) -> Result<Self, String> {
+        data_lock.matches(&data)?;
+        let data = data_lock.root().to_path_buf();
+        let data_lock = Arc::new(data_lock);
         let indexer = library_index::Indexer::start(data.clone());
         let engine_data = data.clone();
         let (tx, rx) =
             mpsc::channel::<(Command, mpsc::SyncSender<Result<serde_json::Value, String>>)>();
         let state = Arc::new(Mutex::new(Snapshot::default()));
         let shared = state.clone();
+        let worker_lock = data_lock.clone();
         thread::spawn(move || {
+            let _data_lock = worker_lock;
             let mut player = Player::new(data, soundfont, silent);
             player.restore();
             if let Ok(mut snapshot) = shared.lock() {
@@ -711,12 +718,13 @@ impl Engine {
                 }
             }
         });
-        Self {
+        Ok(Self {
             tx,
             state,
             indexer,
             data: engine_data,
-        }
+            _data_lock: data_lock,
+        })
     }
     pub fn stage_package(&self,bytes:Vec<u8>)->Result<serde_json::Value,String> {
         let token=blake3::hash(&bytes).to_hex().to_string();

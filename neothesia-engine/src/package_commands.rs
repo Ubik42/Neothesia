@@ -273,13 +273,6 @@ impl Player {
             .data
             .join("packages")
             .join(blake3::hash(&bytes).to_hex().as_str());
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        for (name, data) in &package.files {
-            let path = directory.join(name);
-            std::fs::create_dir_all(path.parent().ok_or("曲目包目录无效")?)
-                .map_err(|e| e.to_string())?;
-            std::fs::write(&path, data).map_err(|e| e.to_string())?;
-        }
         let target = directory.join("performance.mid");
         let mut imported = SongSidecar {
             metadata: m.metadata.clone(),
@@ -487,7 +480,29 @@ impl Player {
                 }
             }
         }
-        // Write a complete sidecar to the owned copy; original user files are never modified.
+        // All merge limits above are checked before touching any user files. The
+        // remaining writes form one recoverable transaction, including the files
+        // changed by Load/persist and the paper attachment directory.
+        let paper_dir = self.data.join("score-attachments").join(blake3::hash(id.as_bytes()).to_hex().as_str());
+        let mut rollback = PackageImportRollback::new(&self.data, &[
+            directory.clone(), paper_dir, self.preferences_path.clone(),
+            self.data.join("library-workspace.json"),
+            self.data.join("web-practice-history.ron"),
+        ])?;
+        let previous_preferences = self.preferences.clone();
+        let previous_song = self.file.clone();
+        let previous_title = self.title.clone();
+        let previous_state = self.state.clone();
+        let previous_config = self.config.clone();
+        let mut loaded = false;
+        let result = (|| -> Result<serde_json::Value, String> {
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        for (name, data) in &package.files {
+            let path = directory.join(name);
+            std::fs::create_dir_all(path.parent().ok_or("曲目包目录无效")?)
+                .map_err(|e| e.to_string())?;
+            std::fs::write(&path, data).map_err(|e| e.to_string())?;
+        }
         score_attachments::import_package(
             &self.data,
             id,
@@ -503,15 +518,6 @@ impl Player {
         save_song_sidecar(&target, id, sidecar).map_err(|e| e.to_string())?;
         preferences.save(&self.preferences_path)?;
         self.preferences = preferences;
-        self.command(Command::Load {
-            path: target.clone(),
-            title: m.title.clone(),
-        })?;
-        if imported_settings {
-            self.state.speed = m.speed;
-            self.state.passage = m.practice_loop.clone();
-            self.persist()?;
-        }
         w.inspect(target.clone(), true)?;
         if policy != "keep" || !local_exists {
             if policy == "replace" {
@@ -549,10 +555,189 @@ impl Player {
             serde_json::to_vec_pretty(m).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
+        loaded = true;
+        self.command(Command::Load {
+            path: target.clone(),
+            title: m.title.clone(),
+        })?;
+        #[cfg(test)]
+        if FAIL_PACKAGE_IMPORT_AFTER_LOAD.with(|flag| flag.get()) {
+            return Err("test: import failed after Load".into());
+        }
+        if imported_settings {
+            self.state.speed = m.speed;
+            self.state.passage = m.practice_loop.clone();
+            self.persist()?;
+        }
         let mut result = self.command(Command::CurrentSong)?;
         result["packageResult"] = serde_json::json!({"policy":policy,"existing":local_exists,"scores":m.scores.len(),"passages":self.preferences.passages.get(id).map_or(0,|p|p.len())});
         Ok(result)
+        })();
+        match result {
+            Ok(mut value) => {
+                if let Err(error) = rollback.finish() {
+                    value["packageResult"]["cleanupWarning"] = serde_json::json!(format!("导入已完成，但临时备份清理失败：{error}"));
+                }
+                Ok(value)
+            }
+            Err(error) => {
+                let restore = rollback.restore();
+                self.preferences = previous_preferences;
+                self.history = PracticeHistoryStore::load(self.data.join("web-practice-history.ron"));
+                let mut live_restore_error = None;
+                if loaded {
+                    if let Some(file) = previous_song {
+                        let was_restoring = self.restoring;
+                        self.restoring = true;
+                        live_restore_error = self.install(file, previous_title, None).err();
+                        self.restoring = was_restoring;
+                    } else {
+                        self.file = None;
+                        self.title = previous_title;
+                        self.notes.clear();
+                        self.events.clear();
+                        self.event_notes.clear();
+                        self.note_hands.clear();
+                        self.fingers.clear();
+                        self.notation = None;
+                        self.original_grid = None;
+                        self.meter_map = None;
+                        self.meter_correction = None;
+                        self.config = previous_config;
+                    }
+                }
+                self.state = previous_state;
+                let mut rollback_errors = Vec::new();
+                if let Err(restore_error) = restore { rollback_errors.push(restore_error); }
+                if let Some(live_error) = live_restore_error { rollback_errors.push(format!("当前曲目恢复失败：{live_error}")); }
+                if rollback_errors.is_empty() {
+                    Err(error)
+                } else {
+                    Err(format!("{error}；导入回滚失败：{}", rollback_errors.join("；")))
+                }
+            }
+        }
     }
+}
+
+struct PackageImportRollback {
+    backup: PathBuf,
+    paths: Vec<(PathBuf, bool)>,
+}
+
+impl PackageImportRollback {
+    fn new(data: &std::path::Path, paths: &[PathBuf]) -> Result<Self, String> {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        std::fs::create_dir_all(data).map_err(|e| e.to_string())?;
+        for path in paths {
+            let relative = path.strip_prefix(data).map_err(|_| "备份路径超出数据目录")?;
+            if relative.components().any(|component| !matches!(component, std::path::Component::Normal(_))) {
+                return Err("备份路径无效".into());
+            }
+            let mut ancestor = data.to_path_buf();
+            for component in relative.components() {
+                ancestor.push(component);
+                if let Ok(metadata) = std::fs::symlink_metadata(&ancestor) {
+                    reject_package_link(&metadata)?;
+                }
+            }
+        }
+        let backup = data.join(format!(
+            ".package-import-rollback-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&backup).map_err(|e| e.to_string())?;
+        let mut transaction = Self { backup, paths: Vec::new() };
+        for (index, path) in paths.iter().enumerate() {
+            let exists = path.exists();
+            if exists {
+                if let Err(error) = copy_package_path(path, &transaction.backup.join(index.to_string())) {
+                    let _ = std::fs::remove_dir_all(&transaction.backup);
+                    return Err(error);
+                }
+            }
+            transaction.paths.push((path.clone(), exists));
+        }
+        Ok(transaction)
+    }
+
+    fn restore(&mut self) -> Result<(), String> {
+        let mut errors = Vec::new();
+        for (index, (path, existed)) in self.paths.iter().enumerate().rev() {
+            let result = (|| -> Result<(), String> {
+                remove_package_path(path)?;
+                if *existed {
+                    copy_package_path(&self.backup.join(index.to_string()), path)?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result { errors.push(error); }
+        }
+        if errors.is_empty() { self.finish() } else { Err(errors.join("；")) }
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        std::fs::remove_dir_all(&self.backup).map_err(|e| e.to_string())
+    }
+}
+
+fn remove_package_path(path: &std::path::Path) -> Result<(), String> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    verify_package_tree(path)?;
+    if metadata.is_dir() {
+        std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+}
+
+fn verify_package_tree(path: &std::path::Path) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    reject_package_link(&metadata)?;
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
+            verify_package_tree(&entry.map_err(|e| e.to_string())?.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_package_path(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(from).map_err(|e| e.to_string())?;
+    reject_package_link(&metadata)?;
+    if from.is_dir() {
+        std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+        for entry in std::fs::read_dir(from).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            copy_package_path(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::create_dir_all(to.parent().ok_or("备份目录无效")?).map_err(|e| e.to_string())?;
+        std::fs::copy(from, to).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn reject_package_link(metadata: &std::fs::Metadata) -> Result<(), String> {
+    if metadata.file_type().is_symlink() { return Err("导入目录含有链接，无法安全备份".into()); }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return Err("导入目录含有重解析点，无法安全备份".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_PACKAGE_IMPORT_AFTER_LOAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 fn read_sidecar(path: &std::path::Path, id: &str) -> Result<SongSidecar, String> {
     match load_song_sidecar(path, id) {
@@ -634,6 +819,81 @@ mod tests {
     }
     fn exported(p: &mut Player) -> Vec<u8> {
         serde_json::from_value(p.command(Command::ExportPackage).unwrap()["bytes"].clone()).unwrap()
+    }
+    #[test]
+    fn failed_workspace_save_restores_imported_files_and_allows_retry() {
+        let mut source = prepared();
+        let cid = source.file.as_ref().unwrap().content_id.clone();
+        score_attachments::add(
+            &source.data,
+            &cid,
+            "练习纸谱",
+            b"%PDF-1.4\nportable score".to_vec(),
+            None,
+        )
+        .unwrap();
+        let bytes = exported(&mut source);
+        let mut target = blank();
+        target.command(Command::ImportPackage { bytes: bytes.clone(), policy: "merge".into() }).unwrap();
+        target.command(Command::NoteHand {
+            track: 1,
+            index: 0,
+            part: Some(PracticePart::RightHand),
+        }).unwrap();
+        let package_dir = target.data.join("packages").join(blake3::hash(&bytes).to_hex().as_str());
+        let paper_dir = target.data.join("score-attachments").join(blake3::hash(cid.as_bytes()).to_hex().as_str());
+        let tracked = [
+            neothesia_core::library::metadata_sidecar_path(&package_dir.join("performance.mid")),
+            paper_dir.join("manifest.json"),
+            target.preferences_path.clone(),
+            target.data.join("library-workspace.json"),
+            target.data.join("web-practice-history.ron"),
+            package_dir.join("manifest.json"),
+        ];
+        let before: Vec<_> = tracked.iter().map(|path| std::fs::read(path).ok()).collect();
+        let blocked_temp = target.data.join("library-workspace.json.tmp");
+        std::fs::create_dir(&blocked_temp).unwrap();
+        assert!(target.command(Command::ImportPackage { bytes: bytes.clone(), policy: "replace".into() }).is_err());
+        let after: Vec<_> = tracked.iter().map(|path| std::fs::read(path).ok()).collect();
+        assert_eq!(after, before);
+        assert_eq!(target.note_hands.get(&(1, 0)), Some(&PracticePart::RightHand));
+        assert_eq!(score_attachments::list(&target.data, &cid).unwrap()["attachments"].as_array().unwrap().len(), 1);
+        std::fs::remove_dir(&blocked_temp).unwrap();
+        target.command(Command::ImportPackage { bytes, policy: "replace".into() }).unwrap();
+        assert_eq!(target.note_hands.get(&(1, 0)), Some(&PracticePart::LeftHand));
+    }
+    #[test]
+    fn failure_after_load_restores_empty_player_and_allows_retry() {
+        let mut source = prepared();
+        let bytes = exported(&mut source);
+        let mut target = blank();
+        FAIL_PACKAGE_IMPORT_AFTER_LOAD.with(|flag| flag.set(true));
+        let failed = target.command(Command::ImportPackage { bytes: bytes.clone(), policy: "merge".into() });
+        FAIL_PACKAGE_IMPORT_AFTER_LOAD.with(|flag| flag.set(false));
+        assert!(failed.is_err());
+        assert!(target.file.is_none());
+        assert!(target.notes.is_empty());
+        assert!(target.preferences.songs.is_empty());
+        assert!(!target.data.join("packages").join(blake3::hash(&bytes).to_hex().as_str()).exists());
+        target.command(Command::ImportPackage { bytes, policy: "merge".into() }).unwrap();
+        assert!(target.file.is_some());
+    }
+    #[test]
+    fn failure_after_load_restores_previous_song() {
+        let mut source = prepared();
+        let bytes = exported(&mut source);
+        let mut target = blank();
+        target.command(Command::ImportPackage { bytes: bytes.clone(), policy: "merge".into() }).unwrap();
+        target.command(Command::NoteHand { track: 1, index: 0, part: Some(PracticePart::RightHand) }).unwrap();
+        let previous_path = target.file.as_ref().unwrap().source_path.clone();
+        FAIL_PACKAGE_IMPORT_AFTER_LOAD.with(|flag| flag.set(true));
+        let failed = target.command(Command::ImportPackage { bytes: bytes.clone(), policy: "replace".into() });
+        FAIL_PACKAGE_IMPORT_AFTER_LOAD.with(|flag| flag.set(false));
+        assert!(failed.is_err());
+        assert_eq!(target.file.as_ref().unwrap().source_path, previous_path);
+        assert_eq!(target.note_hands.get(&(1, 0)), Some(&PracticePart::RightHand));
+        target.command(Command::ImportPackage { bytes, policy: "replace".into() }).unwrap();
+        assert_eq!(target.note_hands.get(&(1, 0)), Some(&PracticePart::LeftHand));
     }
     #[test]
     fn package_note_anchor_v11_roundtrip_and_midi_identity_validation(){

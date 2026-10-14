@@ -1,7 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod score_batch_export;
 mod practice_backup_bridge;
-use neothesia_engine::{Command, Engine, library};
+use neothesia_engine::{Command, Engine, data_root_lock::DataRootLock, library};
 use std::path::PathBuf;
 use tauri::{Manager,Emitter};
 
@@ -17,7 +17,6 @@ struct State {
     score_imports: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::sync::atomic::AtomicBool>>>>,
     generated_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,GeneratedScorePreview>>>,
     located_paper_transfer: std::sync::Mutex<Option<LocatedPaperTransfer>>,
-    _data_lock: std::fs::File,
 }
 struct LocatedPaperTransfer { id:String, size:usize, bytes:Vec<u8> }
 
@@ -947,9 +946,8 @@ fn main() {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(r"D:\Music\MIDI\PracticeLibrary"));
             let data = std::env::var_os("NEOTHESIA_DATA_ROOT").map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
-            std::fs::create_dir_all(&data)?;
-            let data_lock = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(data.join("desktop.lock"))?;
-            data_lock.try_lock().map_err(|_| "Neothesia 已经在运行，请从任务栏打开已有窗口")?;
+            let data_lock = DataRootLock::acquire(&data)?;
+            let data = data_lock.root().to_path_buf();
             let bundled_font = app.path().resource_dir()?.join("default.sf2");
             let font = if bundled_font.exists() {
                 bundled_font
@@ -961,12 +959,12 @@ fn main() {
             let (saved,warning)=saved_soundfont(&data);
             let selected_font=saved.unwrap_or_else(||font.clone());
             let status=soundfont_status(&selected_font,&font,warning);
-            let engine = Engine::start(data.clone(), selected_font.clone(), false);
+            let engine = Engine::start(data.clone(), data_lock, selected_font.clone(), false)?;
             let songs=std::sync::Arc::new(std::sync::Mutex::new(songs));
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
             app.manage(practice_backup_bridge::Sessions::default());
-            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), located_paper_transfer:Default::default(), _data_lock: data_lock });
+            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), located_paper_transfer:Default::default() });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
@@ -1084,7 +1082,8 @@ mod musescore_tests {
         let (restored,warning)=saved_soundfont(&data);
         assert_eq!(restored.as_deref(),Some(path));
         assert!(warning.is_none());
-        let engine=Engine::start(data.clone(),PathBuf::new(),true);
+        let data_lock=DataRootLock::acquire(&data).unwrap();
+        let engine=Engine::start(data.clone(),data_lock,PathBuf::new(),true).unwrap();
         let changed=engine.command(Command::SoundFont{path:path.to_path_buf()}).unwrap();
         let presets=changed["soundPresets"].as_array().unwrap();
         assert!(presets.iter().any(|preset|preset["program"]==40));
@@ -1119,7 +1118,8 @@ mod musescore_tests {
         assert!(xml.contains("<measure"));
         assert!(xml.contains("<note"));
         let data=std::env::temp_dir().join(format!("neothesia-musescore-preview-{}",std::process::id()));
-        let engine=Engine::start(data.clone(),PathBuf::new(),true);
+        let data_lock=DataRootLock::acquire(&data).unwrap();
+        let engine=Engine::start(data.clone(),data_lock,PathBuf::new(),true).unwrap();
         let song=engine.command(Command::Load{path:input.clone(),title:"MuseScore fixture".into()}).unwrap();
         let preview=engine.command(Command::PreviewScoreBytesRoute{
             bytes,name:"MuseScore 转谱初稿.musicxml".into(),
