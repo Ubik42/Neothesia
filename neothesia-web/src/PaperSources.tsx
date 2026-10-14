@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { api } from "./api";
 import { PaperReader, type PaperAttachment } from "./PaperScore";
@@ -7,18 +7,27 @@ type Inspection={rows:Row[];baseline:string};
 type Preview={baseline:string;fingerprint:string;asset:{id:string;name:string;kind:string;size:number};name:string;format:"pdf"|"images";row:Row};
 const labels:Record<string,string>={unlinked:"未关联原件",same:"与副本一致",changed:"原件已更新",ignored:"已忽略这次更新",missing:"原件位置缺失",unavailable:"原件暂时无法读取"};
 export function PaperSources({contentId,attachment,disabled,changed,onBusy}:{contentId:string;attachment:PaperAttachment;disabled:boolean;changed:()=>Promise<void>;onBusy:(value:boolean)=>void}){
-  const [inspection,setInspection]=useState<Inspection|null>(null),[paths,setPaths]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState(""),[preview,setPreview]=useState<Preview|null>(null);
+  const [inspection,setInspection]=useState<Inspection|null>(null),[paths,setPaths]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState(""),[preview,setPreview]=useState<Preview|null>(null),[message,setMessage]=useState("");
+  const working=useRef(false);
   const base={content_id:contentId,book:attachment.id};
   useEffect(()=>{onBusy(busy);return()=>onBusy(false);},[busy,onBusy]);
-  const check=async()=>{const v=await api.command<Inspection>({type:"inspectPaperSources",...base});setInspection(v);setPreview(null);};
-  useEffect(()=>{let live=true;void api.command<Inspection>({type:"inspectPaperSources",...base}).then(v=>live&&setInspection(v)).catch(e=>live&&setError(String(e)));return()=>{live=false;};},[contentId,attachment.id]);
-  async function work(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();}catch(e){setError(String(e));}finally{setBusy(false);}}
-  async function link(row:Row,path:string|null){await api.command({type:"linkPaperSource",...base,asset:row.assetId,path});await changed();await check();}
+  const check=async()=>{setInspection(null);setPreview(null);const v=await api.command<Inspection>({type:"inspectPaperSources",...base});setInspection(v);setPaths({});};
+  useEffect(()=>{let live=true;setInspection(null);setPreview(null);setPaths({});setError("");setMessage("");void api.command<Inspection>({type:"inspectPaperSources",...base}).then(v=>live&&setInspection(v)).catch(e=>live&&setError(String(e)));return()=>{live=false;};},[contentId,attachment.id]);
+  async function work(fn:()=>Promise<void>){if(working.current)return;working.current=true;setBusy(true);setError("");try{await fn();}catch(e){setError(String(e));}finally{working.current=false;setBusy(false);}}
+  async function finishWrite(receipt:string){
+    setMessage(receipt);
+    const issues:string[]=[];
+    try{await changed();}catch(e){issues.push(`曲库状态暂未同步：${String(e)}`);}
+    try{await check();}catch(e){issues.push(`原件状态读取失败：${String(e)}`);}
+    if(issues.length)setError(`${issues.join("；")}。请重新检查原件状态。`);
+  }
+  async function link(row:Row,path:string|null){setMessage("");await api.command({type:"linkPaperSource",...base,asset:row.assetId,path});await finishWrite(path?"原件位置已关联。":"原件关联已解除。");}
   const locked=disabled||busy;
   return <details className="paper-sources"><summary>原件位置与更新</summary>
     <p>导入副本可独立使用。原件更新先核对再保存为新版本，旧版批注与小节对应保留。内容相同的文件可直接重新关联位置。</p>
     <button disabled={locked} onClick={()=>void work(check)}>检查原件更新</button>
     {error&&<p role="alert">{error}</p>}
+    {message&&<p role="status">{message}</p>}
     {inspection?.rows.map(row=><div key={row.assetId} className="paper-source-row">
       <strong>{attachment.format==="pdf"?"PDF 原件":`图片第 ${row.page} 页`} · {labels[row.status]}</strong>
       {row.error&&<small>{row.error}</small>}
@@ -34,7 +43,7 @@ export function PaperSources({contentId,attachment,disabled,changed,onBusy}:{con
       <strong>{preview.asset.name} · 新原件预览</strong><p>保存为新版本会保留其他图片页，重新确认小节对应和批注。原版本及其资料继续保留。</p>
       <PaperReader key={preview.fingerprint} contentId={contentId} attachment={{id:preview.asset.id,name:preview.asset.name,format:preview.asset.kind==="pdf"?"pdf":"images",pages:[{...preview.asset,available:true}],view:{page:1,zoom:100,fit:true,rotation:0}}}
         previewKind={preview.asset.kind} disabled={locked} manage={false} practice={null} update={async()=>{}} saveMapping={async()=>{}} saveAnnotation={async()=>false}/>
-      <div className="paper-source-actions">{["version","ignore"].map(action=><button key={action} disabled={locked} onClick={()=>void work(async()=>{await api.command({type:"applyPaperSource",...base,asset:preview.row.assetId,fingerprint:preview.fingerprint,baseline:preview.baseline,action});await changed();await check();})}>{action==="version"?"保存为新版本":"忽略这次更新"}</button>)}<button disabled={locked} onClick={()=>setPreview(null)}>关闭预览</button></div>
+      <div className="paper-source-actions">{["version","ignore"].map(action=><button key={action} disabled={locked} onClick={()=>void work(async()=>{setMessage("");await api.command({type:"applyPaperSource",...base,asset:preview.row.assetId,fingerprint:preview.fingerprint,baseline:preview.baseline,action});await finishWrite(action==="version"?"新谱页版本已保存。":"这次原件更新已忽略。");})}>{action==="version"?"保存为新版本":"忽略这次更新"}</button>)}<button disabled={locked} onClick={()=>setPreview(null)}>关闭预览</button></div>
     </section>}
   </details>;
 }
