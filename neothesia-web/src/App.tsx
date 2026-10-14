@@ -55,6 +55,7 @@ import { PackageDialog } from "./PackageDialog";
 import { ImportDialog } from "./ImportDialog";
 import { LibraryDialog } from "./LibraryDialog";
 import { ScoresDialog } from "./ScoresDialog";
+import { ScoreRangeDialog } from "./ScoreRangeDialog";
 import { PaperScore } from "./PaperScore";
 import { MeterDialog } from "./MeterDialog";
 import { HandsDialog } from "./HandsDialog";
@@ -143,6 +144,7 @@ export default function App() {
     [fingeringDialog, setFingeringDialog] = useState(false),
     [legacyExerciseDialog, setLegacyExerciseDialog] = useState(false),
     [libraryDialog, setLibraryDialog] = useState(false),
+    [libraryScoreRange, setLibraryScoreRange] = useState<{ song: LoadedSong; first: number; last: number } | null>(null),
     [passageDialog, setPassageDialog] = useState(false),
     [ladderDialog, setLadderDialog] = useState(false),
     [routineDialog, setRoutineDialog] = useState(false),
@@ -2422,17 +2424,22 @@ export default function App() {
           close={() => setLibraryDialog(false)}
           changed={refresh}
           openVersion={async (row, contentId, kind, id, selection) => {
+            const matchesVisit = (route: import("./ScoreRoute").WrittenRoute | null | undefined, expected: import("./ScoreRoutePreview").ScoreRouteVisit) => {
+              const actual = route?.visits.find((entry) => entry.ordinal === expected.ordinal);
+              return actual && actual.measure === expected.measure &&
+                Math.abs(actual.start - expected.start) <= 0.001 &&
+                Math.abs(actual.end - expected.end) <= 0.001;
+            };
             if (selection) {
               if (kind !== "notation") throw new Error("只有可演奏乐谱可以按原谱小节定位");
               const fresh = await api.command<import("./ScoreRoutePreview").ScoreRouteEvidence>({
                 type: "previewLibraryScoreRoute", path: row.path, content_id: contentId, id,
               });
-              const visit = fresh.route?.visits.find((entry) => entry.ordinal === selection.visit.ordinal);
               if (fresh.contentId !== contentId || fresh.versionId !== id ||
                   fresh.fingerprint !== selection.fingerprint || !fresh.route?.complete ||
-                  !visit || visit.measure !== selection.visit.measure ||
-                  Math.abs(visit.start - selection.visit.start) > 0.001 ||
-                  Math.abs(visit.end - selection.visit.end) > 0.001)
+                  selection.first.ordinal > selection.last.ordinal ||
+                  !matchesVisit(fresh.route, selection.first) ||
+                  !matchesVisit(fresh.route, selection.last))
                 throw new Error("曲目网格或谱面演奏顺序已经变化，请重新查看小节位置");
             }
             await api.command({
@@ -2444,24 +2451,39 @@ export default function App() {
             });
             if (selection) {
               const active = await api.command<{contentId: string; route: import("./ScoreRoute").WrittenRoute | null}>({type: "score"});
-              const visit = active.route?.visits.find((entry) => entry.ordinal === selection.visit.ordinal);
-              if (active.contentId !== contentId || !active.route?.complete || !visit ||
-                  visit.measure !== selection.visit.measure ||
-                  Math.abs(visit.start - selection.visit.start) > 0.001 ||
-                  Math.abs(visit.end - selection.visit.end) > 0.001)
+              if (active.contentId !== contentId || !active.route?.complete ||
+                  !matchesVisit(active.route, selection.first) ||
+                  !matchesVisit(active.route, selection.last))
                 throw new Error("打开后的谱面演奏位置与预览不一致，请重新选择原谱小节");
-              await api.command({ type: "loop", start: visit.start, end: visit.end, enabled: true });
+              if (selection.mode === "loop")
+                await api.command({ type: "loop", start: selection.first.start, end: selection.first.end, enabled: true });
             }
-            setSong(await api.song());
+            const loaded = await api.song();
+            setSong(loaded);
             setState(await api.state());
             setView(kind === "paper" ? "paper" : "score");
             setPaperRevision((v) => v + 1);
             await updateCollection();
             setLibraryDialog(false);
+            if (selection?.mode === "range" && loaded)
+              setLibraryScoreRange({ song: loaded, first: selection.first.ordinal, last: selection.last.ordinal });
           }}
           open={async (row) => {
             await load(row);
             setLibraryDialog(false);
+          }}
+        />
+      )}
+      {libraryScoreRange && (
+        <ScoreRangeDialog
+          song={libraryScoreRange.song}
+          first={libraryScoreRange.first}
+          last={libraryScoreRange.last}
+          close={() => setLibraryScoreRange(null)}
+          changed={async () => {
+            setSong(await api.song());
+            setState(await api.state());
+            await updateCollection();
           }}
         />
       )}

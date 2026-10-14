@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("曲库谱面预览反复位置，打开第二次经过并循环练习", async ({ page, request }) => {
+test("曲库谱面选择反复位置并保存跨小节原谱练习段", async ({ page, request }) => {
   test.setTimeout(60000);
   const cmd = async (data: unknown) => {
     const response = await request.post("http://127.0.0.1:32124/api/command", {
@@ -32,13 +32,13 @@ test("曲库谱面预览反复位置，打开第二次经过并循环练习", as
   const panel = dialog.getByRole("region", { name: "曲目谱面版本" });
   const row = panel.getByLabel("版本名称 课堂可编辑原谱.musicxml").locator("..").locator("..");
   await row.getByRole("button", { name: "按原谱小节练习" }).click();
-  await expect(row.getByText("5 次小节经过")).toBeVisible();
+  await expect(row.locator(".library-score-route-header")).toContainText("5 次小节经过");
   expect((await cmd({ type: "currentSong" })).contentId).toBe(prior.contentId);
   const preview = await cmd({ type: "previewLibraryScoreRoute", path: song.sourcePath, content_id: song.contentId, id: version.id });
   const second = preview.route.visits.find((visit: any) => visit.measure === 0 && visit.ordinal === 2);
   expect(second).toBeTruthy();
   await row.getByLabel("曲库原谱小节演奏位置").selectOption(String(second.ordinal));
-  await row.getByRole("button", { name: "打开并循环这次小节" }).click();
+  await row.getByRole("button", { name: "循环起点这次小节" }).click();
   await expect(dialog).not.toBeVisible();
   const opened = await cmd({ type: "currentSong" });
   expect(opened.contentId).toBe(song.contentId);
@@ -55,4 +55,38 @@ test("曲库谱面预览反复位置，打开第二次经过并循环练习", as
   const restored = (await (await request.get("http://127.0.0.1:32124/api/state")).json());
   expect(restored.passage).toEqual(state.passage);
   expect((await cmd({ type: "currentSong" })).hasScore).toBe(true);
+
+  await page.getByRole("button", { name: "曲库管理", exact: true }).click();
+  const reopenedLibrary = page.getByRole("dialog", { name: "曲库管理" });
+  await reopenedLibrary.getByRole("textbox", { name: "管理曲库搜索" }).fill("曲库反复路线课堂");
+  await reopenedLibrary.locator(".library-manager-table tbody tr").first().click();
+  const scoreRow = reopenedLibrary.getByLabel("版本名称 课堂可编辑原谱.musicxml").locator("..").locator("..");
+  await scoreRow.getByRole("button", { name: "按原谱小节练习" }).click();
+  await scoreRow.getByLabel("曲库终点原谱小节").selectOption("1");
+  await scoreRow.getByLabel("曲库终点演奏位置").selectOption("3");
+  await expect(scoreRow).toContainText("实际演奏第 1–4 段");
+  await scoreRow.locator(".library-score-route-header").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "../outputs/Neothesia-曲库原谱选段.png" });
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await scoreRow.locator(".library-score-route-header").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "../outputs/Neothesia-曲库原谱选段-窄窗.png" });
+  await scoreRow.getByRole("button", { name: "打开选段设置" }).click();
+  await expect(reopenedLibrary).not.toBeVisible();
+  const range = page.getByRole("dialog", { name: "原谱选段练习", exact: true });
+  await expect(range).toBeVisible();
+  await expect(range.locator("tbody tr")).toHaveCount(4);
+  await range.getByLabel("按上述实际路径练习，包含返回或跳过的小节").check();
+  const passageName = `曲库反复两遍-${Date.now()}`;
+  await range.getByLabel("原谱练习段名称").fill(passageName);
+  await range.getByRole("button", { name: "保存原谱练习段" }).click();
+  await expect(range).toHaveCount(0);
+  const saved = (await cmd({ type: "passages" })).passages.find((item: any) => item.name === passageName);
+  expect(saved.scoreRange.firstVisit).toBe(0);
+  expect(saved.scoreRange.lastVisit).toBe(3);
+  await cmd({ type: "load", path: other.path, title: other.title });
+  await cmd({ type: "load", path: song.sourcePath, title: song.title });
+  await cmd({ type: "openPassage", id: saved.id });
+  const practiced = (await (await request.get("http://127.0.0.1:32124/api/state")).json());
+  expect(practiced.passage.start).toBeCloseTo(preview.route.visits[0].start, 3);
+  expect(practiced.passage.end).toBeCloseTo(preview.route.visits[3].end, 3);
 });

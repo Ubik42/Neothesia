@@ -8,7 +8,12 @@ import { api, type SongRow } from "./api";
 import { PaperScore, type PaperAttachment } from "./PaperScore";
 import { ScoreRoutePreview, type ScoreRouteEvidence, type ScoreRouteVisit } from "./ScoreRoutePreview";
 import "./libraryScoreRoute.css";
-export type LibraryScoreVisitSelection = { visit: ScoreRouteVisit; fingerprint: string };
+export type LibraryScoreVisitSelection = {
+  first: ScoreRouteVisit;
+  last: ScoreRouteVisit;
+  mode: "loop" | "range";
+  fingerprint: string;
+};
 type Version = {
   id: string;
   name: string;
@@ -65,6 +70,7 @@ export function LibraryScoresPane({
     [preview, setPreview] = useState<string | null>(null),
     [routePreview, setRoutePreview] = useState<{ id: string; evidence: ScoreRouteEvidence } | null>(null),
     [routeOrdinal, setRouteOrdinal] = useState<number | null>(null),
+    [routeEndOrdinal, setRouteEndOrdinal] = useState<number | null>(null),
     [remove, setRemove] = useState<{
       id: string;
       kind: string;
@@ -75,6 +81,7 @@ export function LibraryScoresPane({
   >([]);
   const [progress, setProgress] = useState("");
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const routeRef = useRef<HTMLDivElement>(null);
   const nativeBatch = useRef<string | null>(null);
   const [nativeRunning, setNativeRunning] = useState(false);
   const [pageRemoval, setPageRemoval] = useState<{
@@ -246,6 +253,7 @@ export function LibraryScoresPane({
     setPreview(null);
     setRoutePreview(null);
     setRouteOrdinal(null);
+    setRouteEndOrdinal(null);
     setRemove(null);
     setImports([]);
     setProgress("");
@@ -260,6 +268,9 @@ export function LibraryScoresPane({
     onBusy(busy);
     return () => onBusy(false);
   }, [busy, onBusy]);
+  useEffect(() => {
+    if (routePreview) routeRef.current?.scrollIntoView({ block: "start" });
+  }, [routePreview?.id]);
   useEffect(() => {
     if (!preview) return;
     const key = (e: KeyboardEvent) => {
@@ -295,6 +306,7 @@ export function LibraryScoresPane({
     setError("");
     setRoutePreview(null);
     setRouteOrdinal(null);
+    setRouteEndOrdinal(null);
     try {
       const evidence = await api.command<ScoreRouteEvidence>({
         type: "previewLibraryScoreRoute", path: row.path, content_id: contentId, id,
@@ -303,6 +315,7 @@ export function LibraryScoresPane({
         throw new Error("谱面预览与当前曲目不一致，请重新查看版本");
       setRoutePreview({ id, evidence });
       setRouteOrdinal(evidence.route?.visits[0]?.ordinal ?? null);
+      setRouteEndOrdinal(evidence.route?.visits[0]?.ordinal ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -354,9 +367,18 @@ export function LibraryScoresPane({
   };
   const routeVisits = routePreview?.evidence.route?.visits ?? [];
   const routeSelected = routeVisits.find((visit) => visit.ordinal === routeOrdinal);
+  const routeEndSelected = routeVisits.find((visit) => visit.ordinal === routeEndOrdinal);
   const routeMeasures = Array.from(new Map(routeVisits.map((visit) => [visit.measure, visit])).values())
     .sort((a, b) => a.measure - b.measure);
   const routeOccurrences = routeVisits.filter((visit) => visit.measure === routeSelected?.measure);
+  const routeEndOptions = routeVisits.filter((visit) => visit.ordinal >= (routeOrdinal ?? 0));
+  const routeEndMeasures = Array.from(new Map(routeEndOptions.map((visit) => [visit.measure, visit])).values())
+    .sort((a, b) => a.measure - b.measure);
+  const routeEndOccurrences = routeEndOptions.filter((visit) => visit.measure === routeEndSelected?.measure);
+  const chooseRouteStart = (ordinal: number) => {
+    setRouteOrdinal(ordinal);
+    if (routeEndOrdinal == null || routeEndOrdinal < ordinal) setRouteEndOrdinal(ordinal);
+  };
   return (
     <section className="library-score-versions" aria-label="曲目谱面版本">
       <input
@@ -553,32 +575,75 @@ export function LibraryScoresPane({
                 </button>
               </div>
               {routePreview?.id === v.id && (
-                <div className="library-score-route" aria-label={`${v.name}的小节演奏顺序`}>
-                  <ScoreRoutePreview evidence={routePreview.evidence} title="原谱小节的演奏顺序" initialVisible={16} />
+                <div ref={routeRef} className="library-score-route" aria-label={`${v.name}的小节演奏顺序`}>
+                  <header className="library-score-route-header">
+                    <strong>按原谱选段</strong>
+                    <span>{routeVisits.length} 次小节经过 · 与演奏音符对应 {routePreview.evidence.coverage}%</span>
+                  </header>
                   {routePreview.evidence.route?.complete && routeSelected && (
                     <div className="library-score-route-pick">
-                      <label>书面小节
-                        <select aria-label="曲库原谱小节" value={routeSelected.measure}
-                          onChange={(event) => {
-                            const first = routeVisits.find((visit) => visit.measure === Number(event.target.value));
-                            setRouteOrdinal(first?.ordinal ?? null);
-                          }}>
-                          {routeMeasures.map((visit) => <option key={visit.measure} value={visit.measure}>第 {visit.number || visit.measure + 1} 小节</option>)}
-                        </select>
-                      </label>
-                      <label>演奏位置
-                        <select aria-label="曲库原谱小节演奏位置" value={routeSelected.ordinal}
-                          onChange={(event) => setRouteOrdinal(Number(event.target.value))}>
-                          {routeOccurrences.map((visit, index) => <option key={visit.ordinal} value={visit.ordinal}>第 {index + 1} 次 · 全曲第 {visit.ordinal + 1} 段{visit.partialStart || visit.partialEnd ? " · 局部" : ""}</option>)}
-                        </select>
-                      </label>
-                      <button disabled={busy || !routePreview.evidence.fingerprint}
-                        onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
-                          visit: routeSelected, fingerprint: routePreview.evidence.fingerprint!,
-                        }))}>
-                        打开并循环这次小节
-                      </button>
+                      <fieldset>
+                        <legend>起点</legend>
+                        <label>书面小节
+                          <select aria-label="曲库原谱小节" value={routeSelected.measure}
+                            onChange={(event) => {
+                              const first = routeVisits.find((visit) => visit.measure === Number(event.target.value));
+                              if (first) chooseRouteStart(first.ordinal);
+                            }}>
+                            {routeMeasures.map((visit) => <option key={visit.measure} value={visit.measure}>第 {visit.number || visit.measure + 1} 小节</option>)}
+                          </select>
+                        </label>
+                        <label>演奏位置
+                          <select aria-label="曲库原谱小节演奏位置" value={routeSelected.ordinal}
+                            onChange={(event) => chooseRouteStart(Number(event.target.value))}>
+                            {routeOccurrences.map((visit, index) => <option key={visit.ordinal} value={visit.ordinal}>第 {index + 1} 次 · 全曲第 {visit.ordinal + 1} 段{visit.partialStart || visit.partialEnd ? " · 局部" : ""}</option>)}
+                          </select>
+                        </label>
+                      </fieldset>
+                      {routeEndSelected && (
+                        <fieldset>
+                          <legend>终点</legend>
+                          <label>书面小节
+                            <select aria-label="曲库终点原谱小节" value={routeEndSelected.measure}
+                              onChange={(event) => {
+                                const first = routeEndOptions.find((visit) => visit.measure === Number(event.target.value));
+                                if (first) setRouteEndOrdinal(first.ordinal);
+                              }}>
+                              {routeEndMeasures.map((visit) => <option key={visit.measure} value={visit.measure}>第 {visit.number || visit.measure + 1} 小节</option>)}
+                            </select>
+                          </label>
+                          <label>演奏位置
+                            <select aria-label="曲库终点演奏位置" value={routeEndSelected.ordinal}
+                              onChange={(event) => setRouteEndOrdinal(Number(event.target.value))}>
+                              {routeEndOccurrences.map((visit) => <option key={visit.ordinal} value={visit.ordinal}>第 {routeVisits.filter((earlier) => earlier.measure === visit.measure && earlier.ordinal <= visit.ordinal).length} 次 · 全曲第 {visit.ordinal + 1} 段{visit.partialStart || visit.partialEnd ? " · 局部" : ""}</option>)}
+                            </select>
+                          </label>
+                        </fieldset>
+                      )}
+                      <div className="library-score-route-open">
+                        <span>实际演奏第 {routeSelected.ordinal + 1}–{(routeEndSelected ?? routeSelected).ordinal + 1} 段</span>
+                        <button disabled={busy || !routePreview.evidence.fingerprint}
+                          onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
+                            first: routeSelected, last: routeSelected, mode: "loop", fingerprint: routePreview.evidence.fingerprint!,
+                          }))}>
+                          循环起点这次小节
+                        </button>
+                        <button disabled={busy || !routePreview.evidence.fingerprint || !routeEndSelected}
+                          onClick={() => void work(() => openVersion(row, contentId, "notation", v.id, {
+                            first: routeSelected, last: routeEndSelected!, mode: "range", fingerprint: routePreview.evidence.fingerprint!,
+                          }))}>
+                          打开选段设置
+                        </button>
+                      </div>
                     </div>
+                  )}
+                  {routePreview.evidence.route?.complete ? (
+                    <details className="library-score-route-details">
+                      <summary>查看完整演奏顺序与谱面对应</summary>
+                      <ScoreRoutePreview evidence={routePreview.evidence} title="原谱小节的演奏顺序" initialVisible={16} />
+                    </details>
+                  ) : (
+                    <ScoreRoutePreview evidence={routePreview.evidence} title="演奏顺序需校对" initialVisible={16} />
                   )}
                 </div>
               )}

@@ -8,12 +8,43 @@
 .library-score-route .score-route-preview {
   margin: 0;
 }
+.library-score-route-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: #d4e0e8;
+}
+.library-score-route-header strong {
+  color: #f0f5f8;
+  font-size: 13px;
+}
+.library-score-route-header span {
+  font-size: 11px;
+}
 .library-score-route-pick {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: stretch;
   gap: 10px;
   margin-top: 12px;
+}
+.library-score-route-pick fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid #526476;
+  border-radius: 5px;
+}
+.library-score-route-pick legend {
+  padding: 0 5px;
+  color: #e4ebf3;
+  font-size: 12px;
+  font-weight: 600;
 }
 .library-score-route-pick label {
   display: grid;
@@ -28,4 +59,25 @@
 }
 .library-score-route-pick button {
   min-height: 34px;
+  align-self: end;
+}
+.library-score-route-open {
+  display: grid;
+  align-content: end;
+  gap: 5px;
+  color: #b8c6d2;
+  font-size: 12px;
+}
+.library-score-route-details {
+  margin-top: 10px;
+  border-top: 1px solid #425263;
+  padding-top: 7px;
+}
+.library-score-route-details summary {
+  cursor: pointer;
+  color: #c6d7e8;
+  font-size: 12px;
+}
+.library-score-route-details .score-route-preview {
+  margin-top: 10px;
 }
