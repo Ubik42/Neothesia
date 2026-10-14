@@ -124,6 +124,8 @@ pub struct Snapshot {
     pub score: PracticeSnapshot,
     pub input: Option<String>,
     pub output: String,
+    pub soundfont: PathBuf,
+    pub soundfont_status: String,
     pub error: Option<String>,
     pub saved: bool,
     pub current_history_id: Option<String>,
@@ -167,6 +169,8 @@ impl Default for Snapshot {
             score: PracticeSnapshot::default(),
             input: None,
             output: "内置钢琴".into(),
+            soundfont: PathBuf::new(),
+            soundfont_status: "ready".into(),
             error: None,
             saved: false,
             current_history_id: None,
@@ -210,6 +214,7 @@ pub enum Command {
     UpdateFileLocation {kind:String,path:Option<PathBuf>,clear:bool},
     TrackAppearance {id:usize,appearance:Option<track_appearance::TrackAppearance>},
     TrackSound { id:usize, sound:Option<track_sound::TrackSound> },
+    SoundFont { path: PathBuf },
     Mode {
         value: String,
     },
@@ -813,6 +818,7 @@ impl Engine {
         let timeout = if matches!(
             command,
             Command::ImportScore { .. }
+                | Command::SoundFont { .. }
                 | Command::ImportMidi { .. }
                 | Command::ImportPackage { .. }
                 | Command::ExportPackage | Command::ExportPackageFile | Command::PracticeBackupSnapshot{..} | Command::InspectPracticeBackup{..} | Command::ApplyPracticeBackup{..}
@@ -902,6 +908,7 @@ struct Player {
     output_connection: Option<midir::MidiOutputConnection>,
     audio: Option<audio::Audio>,
     soundfont: PathBuf,
+    soundfont_presets: Vec<track_sound::Preset>,
     silent: bool,
     preferences: Preferences,
     preferences_path: PathBuf,
@@ -935,9 +942,12 @@ impl Player {
         let recovery_error = practice_backup::recover(&data).err();
         let loaded = Preferences::load(&preferences_path);
         let settings_error = recovery_error.or_else(||loaded.as_ref().err().cloned());
+        let soundfont_presets = track_sound::presets(&soundfont);
         Self {
             state: Snapshot {
                 error: settings_error,
+                soundfont: soundfont.clone(),
+                soundfont_status: if soundfont_presets.is_empty() { "unavailable" } else { "ready" }.into(),
                 ..Snapshot::default()
             },
             file: None,
@@ -962,6 +972,7 @@ impl Player {
             input_overflow: Arc::new(AtomicBool::new(false)),
             output_connection: None,
             audio: None,
+            soundfont_presets,
             soundfont,
             silent,
             preferences: loaded.unwrap_or_default(),
@@ -1736,6 +1747,42 @@ impl Player {
         }
         Ok(())
     }
+    fn set_soundfont(&mut self, path: PathBuf) -> Result<serde_json::Value, String> {
+        if self.routine.is_some() || self.ladder.is_some() {
+            return Err("请先结束当前计划项目再更换音源".into());
+        }
+        let path = std::fs::canonicalize(&path)
+            .map_err(|e| format!("找不到音色文件：{e}"))?;
+        audio::Audio::check_soundfont_path(&path)?;
+        let presets = track_sound::presets(&path);
+        if presets.is_empty() {
+            return Err("音色文件缺少可用的旋律音色预设".into());
+        }
+        // Construct and start the replacement before touching the active stream.
+        let replacement = if !self.silent
+            && (self.audio.is_some()
+                || (self.vst.is_none() && self.output_connection.is_none()))
+        {
+            let audio = audio::Audio::open(&path)?;
+            audio.set_volume(self.state.volume);
+            Some(audio)
+        } else {
+            audio::Audio::validate_soundfont(&path)?;
+            None
+        };
+        self.panic();
+        self.audio = replacement;
+        self.soundfont = path.clone();
+        self.soundfont_presets = presets;
+        self.state.soundfont = path.clone();
+        self.state.soundfont_status = "ready".into();
+        if matches!(self.state.status.as_str(), "playing" | "countIn") {
+            self.state.status = "paused".into();
+            self.state.count_remaining = 0.;
+        }
+        self.restore_track_sound();
+        Ok(serde_json::json!({"ok":true,"path":path,"soundPresets":self.soundfont_presets}))
+    }
     fn panic(&mut self) {
         self.performance_capture.close(self.session_clock.as_secs_f64(),self.state.position);
         self.finger_demo = None;
@@ -1874,7 +1921,7 @@ impl Player {
         if let Command::ApplyLegacyExerciseTracks { content_id, fingerprint, restore_conditions } = command {
             return legacy_exercise_tracks::apply(self, &content_id, &fingerprint, restore_conditions);
         }
-        if self.finger_demo.is_some() && !matches!(&command, Command::StartFingerDemo{..}|Command::FingerDemoControl{..}|Command::StartHeldFingerDemo{..}|Command::StartHistoryReplay{..}|Command::HistoryReplayControl{..}|Command::HistoryReplayLoop{..}|Command::HistoryProblemNotes{..}|Command::PreviewProblemCuts{..}|Command::PreviewMultiProblemPlan{..}|Command::SaveMultiProblemPlan{..}|Command::PreviewHistoryProblemPlan{..}|Command::SaveHistoryProblemPlan{..}|Command::HistoryReplayClips{..}|Command::SaveHistoryReplayClip{..}|Command::DeleteHistoryReplayClip{..}|Command::HistoryPerformance{..}|Command::StopFingerDemo{..}|Command::FingerDemoState|Command::CurrentSong|Command::Volume{..}) {
+        if self.finger_demo.is_some() && !matches!(&command, Command::StartFingerDemo{..}|Command::FingerDemoControl{..}|Command::StartHeldFingerDemo{..}|Command::StartHistoryReplay{..}|Command::HistoryReplayControl{..}|Command::HistoryReplayLoop{..}|Command::HistoryProblemNotes{..}|Command::PreviewProblemCuts{..}|Command::PreviewMultiProblemPlan{..}|Command::SaveMultiProblemPlan{..}|Command::PreviewHistoryProblemPlan{..}|Command::SaveHistoryProblemPlan{..}|Command::HistoryReplayClips{..}|Command::SaveHistoryReplayClip{..}|Command::DeleteHistoryReplayClip{..}|Command::HistoryPerformance{..}|Command::StopFingerDemo{..}|Command::FingerDemoState|Command::CurrentSong|Command::Volume{..}|Command::SoundFont{..}) {
             self.panic();
         }
         if self.routine.is_some() && matches!(command,
@@ -2116,7 +2163,7 @@ impl Player {
                     self.notation.is_some(),
                     self.score_revision,
                 ))
-                .map_err(|e| e.to_string()).map(|mut v|{v["meterMap"]=serde_json::json!(self.current_meter_map());v["fingerUndoAvailable"]=serde_json::json!(!self.finger_undo.is_empty());v["trackSounds"]=serde_json::json!(self.track_sound_settings());v["soundPresets"]=serde_json::json!(track_sound::presets(&self.soundfont));self.decorate_tracks(&mut v);self.decorate_finger_actions(&mut v);v}),
+                .map_err(|e| e.to_string()).map(|mut v|{v["meterMap"]=serde_json::json!(self.current_meter_map());v["fingerUndoAvailable"]=serde_json::json!(!self.finger_undo.is_empty());v["trackSounds"]=serde_json::json!(self.track_sound_settings());v["soundPresets"]=serde_json::json!(self.soundfont_presets);self.decorate_tracks(&mut v);self.decorate_finger_actions(&mut v);v}),
                 None => Ok(serde_json::Value::Null),
             };
         }
@@ -2124,6 +2171,7 @@ impl Player {
         match command {
             Command::TrackAppearance{id,appearance} => return self.set_track_appearance(id,appearance),
             Command::TrackSound{id,sound} => return self.set_track_sound(id,sound),
+            Command::SoundFont { path } => return self.set_soundfont(path),
             Command::ExportPackage | Command::ExportPackageFile => {
                 self.command(Command::Pause)?;
                 return self.export_piece_package(matches!(command,Command::ExportPackageFile));
@@ -4068,6 +4116,14 @@ impl Player {
 
 /// Open the actual output stream without emitting notes, for background
 /// validation of the installed audio device and packaged SoundFont.
+pub fn validate_soundfont(path: &std::path::Path) -> Result<(), String> {
+    audio::Audio::validate_soundfont(path)?;
+    if track_sound::presets(path).is_empty() {
+        return Err("音色文件缺少可用的旋律音色预设".into());
+    }
+    Ok(())
+}
+
 pub fn probe_audio(soundfont: &std::path::Path) -> Result<(), String> {
     let audio = audio::Audio::open(soundfont)?;
     std::thread::sleep(Duration::from_millis(100));

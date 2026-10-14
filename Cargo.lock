@@ -3270,6 +3270,7 @@ dependencies = [
  "midi-file",
  "neothesia-engine",
  "rfd",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

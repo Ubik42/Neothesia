@@ -62,6 +62,12 @@ export interface TrackSound {
   pan: number | null;
   program: number | null;
 }
+export interface SoundFontStatus {
+  path: string | null;
+  label: string;
+  isDefault: boolean;
+  warning?: string | null;
+}
 export interface MeterMapSegment {
   measure: number;
   numerator: number;
@@ -340,6 +346,9 @@ export const api = {
     return value as Result;
   },
   desktop: isTauri(),
+  soundfontStatus: () => invoke<SoundFontStatus>("get_soundfont_status"),
+  selectSoundfont: () => invoke<SoundFontStatus | null>("select_soundfont"),
+  resetSoundfont: () => invoke<SoundFontStatus>("reset_soundfont"),
   library: () =>
     isTauri()
       ? invoke<{ songs: SongRow[] }>("library_list")

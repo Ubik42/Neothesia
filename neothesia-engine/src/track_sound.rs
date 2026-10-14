@@ -148,7 +148,7 @@ pub fn presets(path: &std::path::Path) -> Vec<Preset> {
         }
         out
     }
-    if std::fs::metadata(path).map_or(true, |m| m.len() > 256 * 1024 * 1024) {
+    if std::fs::metadata(path).map_or(true, |m| m.len() > 512 * 1024 * 1024) {
         return vec![];
     }
     let Ok(bytes) = std::fs::read(path) else {
@@ -187,6 +187,12 @@ impl Player {
         if self.vst.is_some() || self.output_connection.is_some() {
             for sound in s.values_mut() {
                 sound.program = None;
+            }
+        } else {
+            for sound in s.values_mut() {
+                if sound.program.is_some_and(|program| !self.soundfont_presets.iter().any(|preset| preset.program == program)) {
+                    sound.program = None;
+                }
             }
         }
         s
@@ -308,7 +314,7 @@ impl Player {
                 return Err("音量或声像超出范围".into());
             }
             if s.program
-                .is_some_and(|p| !presets(&self.soundfont).iter().any(|a| a.program == p))
+                .is_some_and(|p| !self.soundfont_presets.iter().any(|a| a.program == p))
             {
                 return Err("当前钢琴音源不含此预设".into());
             }
@@ -340,6 +346,33 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn soundfont_switch_keeps_old_source_after_validation_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "neothesia-soundfont-switch-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bundled = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../default.sf2");
+        let custom = dir.join("chosen.sf2");
+        let invalid = dir.join("invalid.sf2");
+        std::fs::copy(&bundled, &custom).unwrap();
+        std::fs::write(&invalid, b"not a soundfont").unwrap();
+        let mut player = Player::new(dir.join("data"), bundled.clone(), true);
+        let result = player.command(crate::Command::SoundFont { path: custom.clone() }).unwrap();
+        let canonical = std::fs::canonicalize(custom).unwrap();
+        assert_eq!(result["path"], canonical.to_string_lossy().as_ref());
+        assert!(!result["soundPresets"].as_array().unwrap().is_empty());
+        assert_eq!(player.snapshot().soundfont, canonical);
+        assert!(player.command(crate::Command::SoundFont { path: invalid }).is_err());
+        assert_eq!(player.snapshot().soundfont, canonical);
+        assert_eq!(player.soundfont, canonical);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn independent_channels_and_expression() {
         let r = Routing {

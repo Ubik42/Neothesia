@@ -56,6 +56,23 @@ fn send(synth: &mut oxisynth::Synth, bytes: &[u8]) {
 }
 
 impl Audio {
+    pub fn check_soundfont_path(path: &Path) -> Result<(), String> {
+        if !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("sf2")) {
+            return Err("请选择 .sf2 音色文件".into());
+        }
+        let metadata = std::fs::metadata(path).map_err(|e| format!("无法读取音色文件：{e}"))?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 512 * 1024 * 1024 {
+            return Err("音色文件必须是大小不超过 512 MB 的有效 .sf2 文件".into());
+        }
+        Ok(())
+    }
+    pub fn validate_soundfont(path: &Path) -> Result<(), String> {
+        Self::check_soundfont_path(path)?;
+        let mut file = std::fs::File::open(path).map_err(|e| format!("无法读取音色文件：{e}"))?;
+        oxisynth::SoundFont::load(&mut file)
+            .map_err(|e| format!("音色文件无效：{e}"))?;
+        Ok(())
+    }
     pub fn open(path: &Path) -> Result<Self, String> {
         let device = cpal::default_host()
             .default_output_device()
@@ -69,9 +86,9 @@ impl Audio {
             ..Default::default()
         })
         .map_err(|e| e.to_string())?;
-        let mut file = std::fs::File::open(path).map_err(|e| format!("无法读取钢琴音色：{e}"))?;
+        let mut file = std::fs::File::open(path).map_err(|e| format!("无法读取音色文件：{e}"))?;
         let font =
-            oxisynth::SoundFont::load(&mut file).map_err(|e| format!("钢琴音色文件无效：{e}"))?;
+            oxisynth::SoundFont::load(&mut file).map_err(|e| format!("音色文件无效：{e}"))?;
         synth.add_font(font, true);
         let (tx, rx) = mpsc::sync_channel::<(u64,Vec<u8>)>(2048);
         let panic = Arc::new(AtomicBool::new(false));

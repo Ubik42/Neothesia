@@ -881,6 +881,39 @@ button.icon-button {
   color: #a9b2bf;
   line-height: 1.8;
 }
+.device-soundfont {
+  border-top: 1px solid #414b56;
+  border-bottom: 1px solid #414b56;
+  padding: 14px 0;
+}
+.device-soundfont h3 {
+  margin: 0 0 9px;
+  font-size: 13px;
+}
+.device-soundfont p {
+  margin: 7px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #b8c2ce;
+}
+.device-soundfont strong {
+  color: #edf2f5;
+  font-weight: 600;
+}
+.device-soundfont .device-soundfont-path {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: #9caab9;
+}
+.device-soundfont .device-soundfont-warning {
+  color: #ffd594;
+}
+.device-soundfont-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

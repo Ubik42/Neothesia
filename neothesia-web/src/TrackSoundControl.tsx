@@ -27,11 +27,17 @@ export function TrackSoundControl({
     volume !== (sound?.volume ?? 100) ||
     pan !== (sound?.pan?.toString() ?? "") ||
     program !== (sound?.program?.toString() ?? "");
+  const missingProgram =
+    sound?.program != null &&
+    presets != null &&
+    !presets.some((preset) => preset.program === sound.program)
+      ? sound.program
+      : null;
   return (
     <details className="track-sound">
       <summary>
         {sound
-          ? `声音 · ${sound.volume}%${sound.program != null ? " · 自选音色" : ""}`
+          ? `声音 · ${sound.volume}%${missingProgram !== null ? ` · 音色 ${missingProgram} 不可用` : sound.program != null ? " · 自选音色" : ""}`
           : "声音设置"}
       </summary>
       <div className="track-sound-fields">
@@ -70,7 +76,7 @@ export function TrackSoundControl({
           </select>
         </label>
         <label>
-          内置钢琴音色
+          内置音源音色
           <select
             aria-label={`${track.name}音色`}
             value={program}
@@ -78,6 +84,11 @@ export function TrackSoundControl({
             onChange={(e) => setProgram(e.target.value)}
           >
             <option value="">跟随原曲</option>
+            {missingProgram !== null && (
+              <option value={missingProgram}>
+                原音色编号 {missingProgram}（当前音源没有）
+              </option>
+            )}
             {presets?.map((p) => (
               <option key={p.program} value={p.program}>
                 {p.name}
@@ -85,6 +96,11 @@ export function TrackSoundControl({
             ))}
           </select>
         </label>
+        {missingProgram !== null && (
+          <p className="parameter-help" role="status">
+            当前音源没有原音色编号 {missingProgram}。播放会按 MIDI 原音色或音源可用音色发声。你可以在上方选择新音色并应用。
+          </p>
+        )}
         <div className="track-sound-actions">
           <button
             disabled={disabled || !dirty}
@@ -121,7 +137,7 @@ export function TrackSoundControl({
           用于此音轨的伴奏和试听，保留音符力度。应用会暂停并重置当前轮次，按曲目自动保存；键盘输入单独使用通道
           1。
           {!builtin
-            ? "外部音源的音量、声像取决于设备支持；自选钢琴音色仅用于内置音源。"
+            ? "外部音源的音量、声像取决于设备支持；自选音色仅用于内置音源。"
             : ""}
         </p>
       </div>

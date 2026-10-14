@@ -11,6 +11,7 @@ midi-file.workspace=true
 tauri = { version = "2", features = [] }
 neothesia-engine = { path = "../../neothesia-engine" }
 serde_json.workspace = true
+serde.workspace = true
 blake3.workspace = true
 rfd.workspace = true
 

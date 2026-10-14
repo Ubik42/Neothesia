@@ -11,9 +11,109 @@ struct State {
     monitor: neothesia_engine::library_monitor::Monitor,
     data: PathBuf,
     font: PathBuf,
+    bundled_font: PathBuf,
+    soundfont_status: std::sync::Arc<std::sync::Mutex<SoundFontStatus>>,
+    soundfont_change: std::sync::Arc<std::sync::Mutex<()>>,
     score_imports: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,std::sync::Arc<std::sync::atomic::AtomicBool>>>>,
     generated_scores: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String,GeneratedScorePreview>>>,
     _data_lock: std::fs::File,
+}
+
+#[derive(Clone,serde::Serialize)]
+#[serde(rename_all="camelCase")]
+struct SoundFontStatus {
+    path: Option<String>,
+    label: String,
+    is_default: bool,
+    warning: Option<String>,
+}
+
+fn soundfont_config(data:&std::path::Path)->PathBuf {data.join("soundfont.json")}
+
+fn save_soundfont(data:&std::path::Path,path:&std::path::Path)->Result<(),String>{
+    use std::io::Write;
+    let target=soundfont_config(data);
+    let temporary=target.with_extension("json.tmp");
+    let bytes=serde_json::to_vec_pretty(&serde_json::json!({"path":path})).map_err(|e|e.to_string())?;
+    let mut file=std::fs::File::create(&temporary).map_err(|e|e.to_string())?;
+    file.write_all(&bytes).map_err(|e|e.to_string())?;
+    file.sync_all().map_err(|e|e.to_string())?;
+    drop(file);
+    std::fs::rename(&temporary,&target).map_err(|e|format!("无法写入音源设置：{e}"))
+}
+
+fn saved_soundfont(data:&std::path::Path)->(Option<PathBuf>,Option<String>){
+    let file=soundfont_config(data);
+    if !file.exists(){return (None,None)}
+    let value=std::fs::read(&file).ok().and_then(|bytes|serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let Some(path)=value.as_ref().and_then(|value|value["path"].as_str()).map(PathBuf::from) else {
+        return (None,Some("已保存的音源设置无效，已使用随包钢琴音源".into()))
+    };
+    if !path.is_absolute(){return (None,Some("已保存的音源路径不是绝对路径，已使用随包钢琴音源".into()))}
+    if !path.is_file(){return (None,Some(format!("上次使用的音源已找不到：{}；已使用随包钢琴音源",path.display())))}
+    match neothesia_engine::validate_soundfont(&path){
+        Ok(())=>(Some(path),None),
+        Err(error)=>(None,Some(format!("上次使用的音源无法加载：{error}；已使用随包钢琴音源"))),
+    }
+}
+
+fn soundfont_status(path:&std::path::Path,bundled:&std::path::Path,warning:Option<String>)->SoundFontStatus{
+    let is_default=path==bundled;
+    SoundFontStatus{
+        path:if is_default{None}else{Some(path.to_string_lossy().to_string())},
+        label:if is_default{"随包钢琴音源".into()}else{path.file_name().unwrap_or_default().to_string_lossy().to_string()},
+        is_default,
+        warning,
+    }
+}
+
+#[tauri::command]
+fn get_soundfont_status(state:tauri::State<'_,State>)->Result<SoundFontStatus,String>{
+    state.soundfont_status.lock().map(|status|status.clone()).map_err(|e|e.to_string())
+}
+
+#[tauri::command]
+async fn select_soundfont(state:tauri::State<'_,State>)->Result<Option<SoundFontStatus>,String>{
+    let Some(file)=file_dialog(&state.data,"soundfont").set_title("选择本机 SoundFont 音源").add_filter("SoundFont 音源", &["sf2"]).pick_file().await else{return Ok(None)};
+    let path=file.path().canonicalize().map_err(|e|format!("无法读取音源文件：{e}"))?;
+    if !path.extension().and_then(|extension|extension.to_str()).is_some_and(|extension|extension.eq_ignore_ascii_case("sf2")){return Err("请选择 .sf2 音源文件".into())}
+    let engine=state.engine.clone();let data=state.data.clone();let bundled=state.bundled_font.clone();
+    let status=state.soundfont_status.clone();let change=state.soundfont_change.clone();
+    let selected=tauri::async_runtime::spawn_blocking(move||{
+        let _guard=change.lock().map_err(|e|e.to_string())?;
+        let previous=status.lock().map_err(|e|e.to_string())?.clone();
+        engine.command(Command::SoundFont{path:path.clone()})?;
+        if let Err(error)=save_soundfont(&data,&path){
+            let restore=previous.path.as_ref().map(PathBuf::from).unwrap_or(bundled.clone());
+            let _=engine.command(Command::SoundFont{path:restore});
+            return Err(format!("音源设置保存失败：{error}"))
+        }
+        remember_location(&data,"soundfont",&path,false);
+        let current=soundfont_status(&path,&bundled,None);
+        *status.lock().map_err(|e|e.to_string())?=current.clone();
+        Ok::<_,String>(current)
+    }).await.map_err(|e|e.to_string())??;
+    Ok(Some(selected))
+}
+
+#[tauri::command]
+async fn reset_soundfont(state:tauri::State<'_,State>)->Result<SoundFontStatus,String>{
+    let engine=state.engine.clone();let bundled=state.bundled_font.clone();let data=state.data.clone();
+    let status=state.soundfont_status.clone();let change=state.soundfont_change.clone();
+    tauri::async_runtime::spawn_blocking(move||{
+        let _guard=change.lock().map_err(|e|e.to_string())?;
+        let previous=status.lock().map_err(|e|e.to_string())?.clone();
+        engine.command(Command::SoundFont{path:bundled.clone()})?;
+        let config=soundfont_config(&data);
+        if let Err(error)=std::fs::remove_file(&config){if error.kind()!=std::io::ErrorKind::NotFound{
+            let restore=previous.path.as_ref().map(PathBuf::from).unwrap_or(bundled.clone());
+            let _=engine.command(Command::SoundFont{path:restore});
+            return Err(format!("恢复钢琴音源后无法保存设置：{error}"))
+        }}
+        let current=soundfont_status(&bundled,&bundled,None);
+        *status.lock().map_err(|e|e.to_string())?=current.clone();
+        Ok::<_,String>(current)
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[derive(Clone)]
@@ -821,12 +921,15 @@ fn main() {
             };
             let songs = library::load(&root, &data)?;
             if !font.is_file() { return Err(format!("找不到钢琴音色文件：{}", font.display()).into()); }
-            let engine = Engine::start(data.clone(), font.clone(), false);
+            let (saved,warning)=saved_soundfont(&data);
+            let selected_font=saved.unwrap_or_else(||font.clone());
+            let status=soundfont_status(&selected_font,&font,warning);
+            let engine = Engine::start(data.clone(), selected_font.clone(), false);
             let songs=std::sync::Arc::new(std::sync::Mutex::new(songs));
             let monitor=neothesia_engine::library_monitor::Monitor::start(root,data.clone(),songs.clone());
             app.manage(score_batch_export::Sessions::default());
             app.manage(practice_backup_bridge::Sessions::default());
-            app.manage(State { engine, songs,monitor,data, font, score_imports:Default::default(), generated_scores:Default::default(), _data_lock: data_lock });
+            app.manage(State { engine, songs,monitor,data, font:selected_font, bundled_font:font, soundfont_status:std::sync::Arc::new(std::sync::Mutex::new(status)), soundfont_change:Default::default(), score_imports:Default::default(), generated_scores:Default::default(), _data_lock: data_lock });
             if !headless_check() {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show()?;
@@ -838,6 +941,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             score_batch_export::begin_score_batch_export,score_batch_export::begin_workspace_export,score_batch_export::write_score_batch_export,score_batch_export::finish_score_batch_export,score_batch_export::cancel_score_batch_export,
             reveal_library_file,
+            get_soundfont_status,
+            select_soundfont,
+            reset_soundfont,
             open_score_in_musescore,
             add_musescore_pdf,
             generate_musescore_score,
@@ -916,6 +1022,40 @@ fn main() {
 #[cfg(all(test,target_os="windows"))]
 mod musescore_tests {
     use super::*;
+    #[test]
+    fn missing_saved_soundfont_returns_to_bundled_font_with_warning(){
+        let data=std::env::temp_dir().join(format!("neothesia-soundfont-setting-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&data).unwrap();
+        assert_eq!(saved_soundfont(&data),(None,None));
+        let missing=data.join("removed.sf2");
+        save_soundfont(&data,&missing).unwrap();
+        save_soundfont(&data,&missing).unwrap();
+        let (selected,warning)=saved_soundfont(&data);
+        assert!(selected.is_none());
+        assert!(warning.unwrap().contains("已找不到"));
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+    #[test]
+    fn installed_musescore_general_exposes_gm_instruments_and_audio(){
+        let path=std::path::Path::new(r"D:\Music\SoundFonts\MuseScore General\MuseScore_General.sf2");
+        if !path.is_file(){return}
+        neothesia_engine::validate_soundfont(path).unwrap();
+        let data=std::env::temp_dir().join(format!("neothesia-gm-font-{}",std::process::id()));
+        std::fs::create_dir_all(&data).unwrap();
+        save_soundfont(&data,path).unwrap();
+        let (restored,warning)=saved_soundfont(&data);
+        assert_eq!(restored.as_deref(),Some(path));
+        assert!(warning.is_none());
+        let engine=Engine::start(data.clone(),PathBuf::new(),true);
+        let changed=engine.command(Command::SoundFont{path:path.to_path_buf()}).unwrap();
+        let presets=changed["soundPresets"].as_array().unwrap();
+        assert!(presets.iter().any(|preset|preset["program"]==40));
+        neothesia_engine::probe_audio(path).unwrap();
+        drop(engine);
+        if data.parent()==Some(std::env::temp_dir().as_path()) && data.file_name().and_then(|name|name.to_str()).is_some_and(|name|name.starts_with("neothesia-gm-font-")){
+            let _=std::fs::remove_dir_all(data);
+        }
+    }
     #[test]
     fn score_path_arg_removes_extended_prefix(){
         assert_eq!(musescore_path_arg(std::path::Path::new(r"\\?\C:\Music\score.mxl")),r"C:\Music\score.mxl");

@@ -46,6 +46,7 @@ import {
   type EngineCommand,
   type LoadedSong,
   type Snapshot,
+  type SoundFontStatus,
   type SongRow,
 } from "./api";
 import { Notation } from "./Notation";
@@ -166,6 +167,44 @@ export default function App() {
       message: string;
       suggested: number | null;
     } | null>(null);
+  const [soundfontStatus, setSoundfontStatus] =
+    useState<SoundFontStatus | null>(null);
+  const [soundfontBusy, setSoundfontBusy] = useState(false);
+  useEffect(() => {
+    if (!settings || !api.desktop) return;
+    let cancelled = false;
+    void api
+      .soundfontStatus()
+      .then((status) => {
+        if (!cancelled) setSoundfontStatus(status);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e instanceof Error ? e.message : e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings]);
+  const changeSoundfont = async (restoreDefault: boolean) => {
+    if (soundfontBusy) return;
+    setSoundfontBusy(true);
+    try {
+      const status = restoreDefault
+        ? await api.resetSoundfont()
+        : await api.selectSoundfont();
+      if (status) {
+        setSoundfontStatus(status);
+        const [current, snapshot] = await Promise.all([api.song(), api.state()]);
+        setSong(current);
+        setState(snapshot);
+        setError("");
+      }
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setSoundfontBusy(false);
+    }
+  };
   const [historyScoreReview, setHistoryScoreReview] =
     useState<HistoryScoreReview | null>(null);
   const [historyScoreFocus, setHistoryScoreFocus] =
@@ -2793,7 +2832,7 @@ export default function App() {
                   action({ type: "output", name: e.target.value || null })
                 }
               >
-                <option value="">内置钢琴</option>
+                <option value="">内置音源</option>
                 {devices.vst3.map((path) => (
                   <option key={path} value={`vst3:${path}`}>
                     VST3 ·{" "}
@@ -2808,6 +2847,49 @@ export default function App() {
                 ))}
               </select>
             </label>
+            {api.desktop && (
+              <section className="device-soundfont" aria-label="内置音源文件">
+                <h3>内置音源文件</h3>
+                <p>
+                  当前使用：<strong>{soundfontStatus?.label ?? "正在读取…"}</strong>
+                </p>
+                {soundfontStatus?.path && (
+                  <p
+                    className="device-soundfont-path"
+                    title={soundfontStatus.path}
+                  >
+                    {soundfontStatus.path}
+                  </p>
+                )}
+                {soundfontStatus?.warning && (
+                  <p className="device-soundfont-warning" role="alert">
+                    {soundfontStatus.warning}
+                  </p>
+                )}
+                <div className="device-soundfont-actions">
+                  <button
+                    disabled={busy || soundfontBusy}
+                    onClick={() => void changeSoundfont(false)}
+                  >
+                    选择本机 .sf2
+                  </button>
+                  <button
+                    disabled={
+                      busy ||
+                      soundfontBusy ||
+                      !soundfontStatus ||
+                      soundfontStatus.isDefault
+                    }
+                    onClick={() => void changeSoundfont(true)}
+                  >
+                    恢复随包钢琴
+                  </button>
+                </div>
+                {state.output !== "内置钢琴" && (
+                  <p>这份音源会在演奏音源切回「内置音源」后使用。</p>
+                )}
+              </section>
+            )}
             <p>MIDI 键盘断开时会暂停播放。重新连接后，点击开始练习继续。</p>
             <p>
               可直接选择本机 VST3 乐器。选择 Pianoteq
