@@ -25,6 +25,7 @@ interface Preview {
   range: ScoreRange;
   crossings: number;
   notes: number;
+  targets: number;
   rows: WrittenVisit[];
 }
 const beatText = (value: number) => String(Number(value.toFixed(9)));
@@ -492,11 +493,14 @@ export function ScoreRangeDialog({
           <div className="score-range-preview">
             <h3>{preview.range.description}</h3>
             <p>
-              {preview.rows.length} 个演奏段 · {preview.notes} 个音符
+              {preview.rows.length} 个演奏段 · 范围音符 {preview.notes} 个 · 当前需弹 {preview.targets} 个
               {preview.crossings > 0
                 ? ` · 经过 ${preview.crossings} 处反复或跳转`
                 : ""}
             </p>
+            {preview.targets === 0 && (
+              <p role="status">当前手别和音轨在这段没有需弹音符。请检查声部设置，或选择其他小节。</p>
+            )}
             <div
               className="score-range-path"
               tabIndex={0}

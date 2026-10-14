@@ -5,6 +5,7 @@ use crate::{
 use neothesia_core::{
     musicxml::ScoreTime,
     score_playback::{PlaybackLimits, build_playback_plan},
+    song_config::PlayerConfig,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -360,11 +361,19 @@ impl Player {
             .windows(2)
             .filter(|w| w[1].source_measure_ordinal != w[0].source_measure_ordinal + 1)
             .count();
-        let notes = file
-            .tracks
+        let notes = self
+            .notes
             .iter()
-            .flat_map(|t| t.notes.iter())
             .filter(|n| n.start.as_secs_f64() >= start && n.start.as_secs_f64() < end)
+            .count();
+        let targets = self
+            .notes
+            .iter()
+            .filter(|n| {
+                n.start.as_secs_f64() >= start
+                    && n.start.as_secs_f64() < end
+                    && self.note_player(n.track_id, n.index) == PlayerConfig::Human
+            })
             .count();
         let start_bar = file
             .musical_time
@@ -382,7 +391,7 @@ impl Player {
         selected_rows[last_index]["end"]=json!(end);selected_rows[last_index]["endBeat"]=json!(last_beat);if end_trim>0{selected_rows[last_index]["partialEnd"]=json!(true)}
         Ok(
             json!({"firstLimits":first_limits,"lastLimits":last_limits,"range":range,"start":start,"end":end,"startBar":start_bar,"endBar":end_bar,
-            "crossings":crossed,"notes":notes,"rows":selected_rows}),
+            "crossings":crossed,"notes":notes,"targets":targets,"rows":selected_rows}),
         )
     }
     pub(super) fn validate_score_range(&self, range: &ScoreRange) -> Result<Value, String> {
