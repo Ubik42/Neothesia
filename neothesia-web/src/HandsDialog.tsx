@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api, pitchName, type LoadedSong } from "./api";
 type Part = "LeftHand" | "RightHand" | "Other";
@@ -48,7 +48,9 @@ export function HandsDialog({
     [undoAvailable, setUndoAvailable] = useState(false),
     [page, setPage] = useState(0),
     [busy, setBusy] = useState(false),
+    [pendingRefresh, setPendingRefresh] = useState<"saved" | "undone" | null>(null),
     [error, setError] = useState("");
+  const working = useRef(false);
   const [spans, setSpans] = useState<Record<Side, SpanProfile | null>>({
     left: null,
     right: null,
@@ -158,7 +160,9 @@ export function HandsDialog({
       ),
     [song],
   );
-  const perform = async (work: () => Promise<void>) => {
+  const perform = async (work: () => Promise<void>, allowPending = false) => {
+    if (working.current || (pendingRefresh && !allowPending)) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
@@ -166,9 +170,20 @@ export function HandsDialog({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   };
+  const retryRefresh = () => perform(async () => {
+    if (!pendingRefresh) return;
+    try {
+      await changed();
+      await refreshUndo();
+      setPendingRefresh(null);
+    } catch (cause) {
+      throw new Error(`${pendingRefresh === "saved" ? "分手已保存" : "上次分手修改已撤销"}，但界面刷新失败：${String(cause)}。请只重试读取。`);
+    }
+  }, true);
   const reset = () => {
     setProposals(null);
     setProof(null);
@@ -179,7 +194,7 @@ export function HandsDialog({
   };
   const visible = rows.slice(page * 40, (page + 1) * 40);
   return (
-    <div className="modal-backdrop" onClick={close}>
+    <div className="modal-backdrop" onClick={() => { if (!working.current) close(); }}>
       <section
         className="settings-dialog fingering-dialog"
         role="dialog"
@@ -192,7 +207,7 @@ export function HandsDialog({
             <h2 id="hands-title">逐音分手</h2>
             <p>{song.title}</p>
           </div>
-          <button autoFocus aria-label="关闭逐音分手" onClick={close}>
+          <button autoFocus aria-label="关闭逐音分手" disabled={busy} onClick={close}>
             <X size={18} />
           </button>
         </div>
@@ -252,7 +267,7 @@ export function HandsDialog({
               <select
                 aria-label={`${side === "left" ? "左手" : "右手"}分手跨度`}
                 value={spans[side] ?? ""}
-                disabled={busy || spanStatus !== "ready"}
+                disabled={busy || !!pendingRefresh || spanStatus !== "ready"}
                 onChange={(e) => {
                   const profile = (e.target.value || null) as SpanProfile | null;
                   void perform(async () => {
@@ -305,7 +320,7 @@ export function HandsDialog({
           </label>
           <button
             className="primary-button"
-            disabled={busy || spanStatus !== "ready"}
+            disabled={busy || !!pendingRefresh || spanStatus !== "ready"}
             onClick={() =>
               void perform(async () => {
                 const data = await api.command<{
@@ -420,6 +435,12 @@ export function HandsDialog({
             {error}
           </p>
         )}
+        {pendingRefresh && (
+          <p role="status">
+            {pendingRefresh === "saved" ? "所选分手已保存。" : "上次分手修改已撤销。"}
+            <button disabled={busy} onClick={() => void retryRefresh()}>重试读取实际分手</button>
+          </p>
+        )}
         {proposals && Object.keys(values).length > 0 && (
           <p className="parameter-help">
             重新生成建议时，窗口会按曲目、音轨、音符位置和音高保留手工修改。请在保存前核对保留的选择。
@@ -509,13 +530,20 @@ export function HandsDialog({
         </div>
         <div className="dialog-actions">
           <button
-            disabled={busy || !undoAvailable}
+            disabled={busy || !!pendingRefresh || !undoAvailable}
             onClick={() =>
               void perform(async () => {
                 await api.command({ type: "undoHands" });
-                await changed();
+                setPendingRefresh("undone");
+                setUndoAvailable(false);
                 reset();
-                await refreshUndo();
+                try {
+                  await changed();
+                  await refreshUndo();
+                  setPendingRefresh(null);
+                } catch (cause) {
+                  setError(`上次分手修改已撤销，但界面刷新失败：${String(cause)}。请只重试读取，不要再次撤销。`);
+                }
               })
             }
           >
@@ -538,7 +566,7 @@ export function HandsDialog({
           </button>
           <button
             className="primary-button"
-            disabled={busy || !accepted.size || accepted.size > 4096}
+            disabled={busy || !!pendingRefresh || !accepted.size || accepted.size > 4096}
             onClick={() =>
               void perform(async () => {
                 if (proposals && !proof)
@@ -565,15 +593,21 @@ export function HandsDialog({
                     )
                     .map((p) => [p.track, p.index]),
                 });
-                await changed();
+                setPendingRefresh("saved");
                 reset();
-                await refreshUndo();
+                try {
+                  await changed();
+                  await refreshUndo();
+                  setPendingRefresh(null);
+                } catch (cause) {
+                  setError(`所选分手已保存，但界面刷新失败：${String(cause)}。请只重试读取，不要再次保存。`);
+                }
               })
             }
           >
             保存所选分手
           </button>
-          <button onClick={close}>完成</button>
+          <button disabled={busy} onClick={close}>完成</button>
         </div>
       </section>
     </div>
