@@ -1,7 +1,25 @@
-.located-paper-dialog {
-  width: min(760px, 94vw);
-  max-height: 90vh;
+.settings-dialog.located-paper-dialog {
+  width: min(900px, 94vw);
+  max-width: calc(100vw - 40px);
+  max-height: 92vh;
   overflow: auto;
+}
+
+.located-paper-dialog > .dialog-heading,
+.located-paper-dialog > .dialog-actions {
+  position: sticky;
+  z-index: 2;
+  background: #252a32;
+}
+
+.located-paper-dialog > .dialog-heading {
+  top: 0;
+}
+
+.located-paper-dialog > .dialog-actions {
+  bottom: 0;
+  border-top: 1px solid #414b56;
+  padding: 10px 0;
 }
 
 .located-paper-dialog > label {
@@ -18,8 +36,10 @@
 
 .located-paper-summary {
   padding: 10px 14px;
-  background: var(--surface-2, #f3f0e9);
-  border-radius: 8px;
+  background: #2b343b;
+  border: 1px solid #48535f;
+  color: #dce4ec;
+  border-radius: 4px;
 }
 
 .located-paper-summary p {
@@ -27,15 +47,82 @@
 }
 
 .located-paper-preview {
-  height: min(42vh, 440px);
+  height: min(32vh, 300px);
   overflow: auto;
-  margin: 12px 0;
+  margin: 8px 0 12px;
   border: 1px solid var(--border, #d6d1c8);
   background: white;
 }
 
-.located-paper-preview svg {
+.located-paper-sheet {
+  position: relative;
+}
+
+.located-paper-svg svg {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.located-paper-highlight {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 10px;
+  min-height: 10px;
+  border: 2px solid #1b729c;
+  background: #1b729c30;
+  pointer-events: none;
+}
+
+.located-paper-highlight.excluded {
+  border-color: #a64937;
+  background: #a6493728;
+}
+
+.located-paper-pages,
+.located-paper-notes-heading,
+.located-paper-note-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.located-paper-pages {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.located-paper-pages input {
+  width: 3.5em;
+}
+
+.located-paper-pages > span {
+  margin-left: auto;
+}
+
+.located-paper-notes-heading {
+  margin-bottom: 6px;
+}
+
+.located-paper-notes-heading strong {
+  margin-right: auto;
+}
+
+.located-paper-note-list {
+  max-height: 130px;
+  overflow: auto;
+  border: 1px solid var(--border, #d6d1c8);
+}
+
+.located-paper-note-row {
+  padding: 2px 8px;
+}
+
+.located-paper-note-row + .located-paper-note-row {
+  border-top: 1px solid var(--border, #d6d1c8);
+}
+
+.located-paper-note-row button {
+  text-align: left;
+  flex: 1;
 }

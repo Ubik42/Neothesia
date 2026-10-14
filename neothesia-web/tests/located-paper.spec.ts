@@ -51,6 +51,13 @@ test("关联乐谱生成可定位纸谱并持久保存逐音位置", async ({ pa
   await generate.click();
   const dialog = page.getByRole("dialog", { name: "生成可定位纸谱" });
   await expect(dialog).toContainText("可定位 8 个演奏音符");
+  const firstLocation = dialog.getByRole("checkbox", { name: /保留音轨 .* 的位置/ }).first();
+  await firstLocation.uncheck();
+  await expect(dialog).toContainText("本次保留 7 个");
+  await firstLocation.check();
+  await expect(dialog).toContainText("本次保留 8 个");
+  await dialog.getByRole("button", { name: /查看第 1 小节 .* 的位置/ }).first().click();
+  await expect(dialog.locator(".located-paper-highlight")).toBeVisible();
   await dialog.getByRole("button", { name: "采用并保存" }).click();
   await expect(dialog).toContainText("已保存。纸谱管理中可以查看这份谱", { timeout: 30_000 });
   const saved = await command({ type: "scoreAttachments", content_id: song.contentId });
@@ -131,4 +138,48 @@ test("反复演奏音符共用对应的书面音符位置", async ({ page, reque
   expect(anchors).toHaveLength(5);
   expect(anchors[0].region).toEqual(anchors[2].region);
   expect(anchors[1].region).toEqual(anchors[3].region);
+});
+
+test("长谱逐页核对并跳过整页后仍保存全部谱页", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const command = async (data: unknown) => {
+    const response = await request.post("http://127.0.0.1:32124/api/command", {
+      headers: { "X-Neothesia-Client": "web" }, data,
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const steps = ["C", "D", "E", "F", "G", "A", "B"];
+  const measures = Array.from({ length: 72 }, (_, bar) => `<measure number="${bar + 1}">${bar === 0 ? '<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>' : ""}${Array.from({ length: 4 }, (_, beat) => `<note><pitch><step>${steps[(bar * 4 + beat) % steps.length]}</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>`).join("")}</measure>`).join("");
+  const xml = `<score-partwise><work><work-title>长谱逐页校对验收</work-title></work><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">${measures}</part></score-partwise>`;
+  await command({ type: "importScore", bytes: [...Buffer.from(xml)], name: "长谱逐页校对验收.musicxml", default_bpm: 120 });
+  const song = await command({ type: "currentSong" });
+  await command({ type: "pairScore", content_id: song.contentId, name: "长谱逐页校对验收.musicxml", bytes: [...Buffer.from(xml)] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "乐谱", exact: true }).click();
+  const generate = page.getByRole("button", { name: "生成可定位纸谱", exact: true });
+  await expect(generate).toBeEnabled({ timeout: 30_000 });
+  await generate.click();
+  const dialog = page.getByRole("dialog", { name: "生成可定位纸谱" });
+  const summary = await dialog.getByRole("status").first().innerText();
+  const totalPages = Number(summary.match(/共 (\d+) 页/)?.[1]);
+  expect(totalPages).toBeGreaterThan(1);
+  await dialog.getByRole("button", { name: "下一页" }).click();
+  await expect(dialog.getByLabel("生成谱页预览 · 第 2 页")).toBeVisible();
+  const secondPageNotes = await dialog.getByRole("checkbox", { name: /保留音轨 .* 的位置/ }).count();
+  expect(secondPageNotes).toBeGreaterThan(0);
+  await dialog.getByRole("button", { name: /查看第 .* 小节 .* 的位置/ }).first().click();
+  await expect(dialog.locator(".located-paper-highlight")).toBeVisible();
+  await dialog.getByLabel("谱页预览缩放").selectOption("1100");
+  await page.screenshot({ path: "../outputs/Neothesia-可定位纸谱逐页校对.png" });
+  await dialog.getByRole("button", { name: "跳过本页" }).click();
+  await expect(dialog.getByRole("checkbox", { name: /保留音轨 .* 的位置/ }).first()).not.toBeChecked();
+  await dialog.getByRole("button", { name: "采用并保存" }).click();
+  await expect(dialog).toContainText("已保存。纸谱管理中可以查看这份谱", { timeout: 30_000 });
+  const saved = await command({ type: "scoreAttachments", content_id: song.contentId });
+  const book = saved.attachments.find((item: any) => item.name.includes("可定位谱"));
+  expect(book.pages).toHaveLength(totalPages);
+  expect(book.noteAnchors.length).toBeGreaterThan(0);
+  expect(book.noteAnchors.length).toBeLessThan(song.notes.length);
+  expect(book.noteAnchors.every((item: any) => item.page !== 2)).toBe(true);
 });
