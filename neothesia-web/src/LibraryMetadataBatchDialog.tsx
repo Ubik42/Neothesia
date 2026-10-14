@@ -193,6 +193,24 @@ export function LibraryMetadataBatchDialog({
           } else throw new Error("保存结果无法确认，请重新读取资料。");
         } catch (e) {
           result = { status: "error", include: false, message: String(e) };
+          try {
+            const current = await api.command<{ base: Metadata; contentId: string }>({
+              type: "previewLibraryMetadata",
+              rules,
+              path: item.path,
+              content_id: item.contentId,
+            });
+            if (current.contentId === item.contentId && item.value && item.fields?.length &&
+                item.fields.every((field) =>
+                  JSON.stringify(current.base[field]) === JSON.stringify(item.value?.[field]),
+                )) {
+              written++;
+              result = { status: "saved", include: false,
+                message: "保存回执未收到；重新读取后，本次修改的字段已与目标值一致。" };
+            }
+          } catch {
+            // Retain the original error when the latest metadata cannot be read.
+          }
         }
         next = next.map((row) =>
           row.path === item.path ? { ...row, ...result } : row,
