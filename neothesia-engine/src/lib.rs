@@ -2987,6 +2987,8 @@ impl Player {
             }
             Command::RemoveScoreVersion { id, content_id } => {
                 self.score_content_guard(&content_id)?;
+                let previous = self.preferences.score_versions.get(&content_id).cloned()
+                    .ok_or("没有谱面版本")?;
                 let f = self.file.as_ref().unwrap();
                 let midi = self.annotation_path(f)?;
                 let current = neothesia_core::library::load_song_sidecar(&midi, &content_id)
@@ -3003,7 +3005,10 @@ impl Player {
                     return Err("请先解除当前谱面的关联，再移除版本".into());
                 }
                 rows.retain(|v| v.id != id);
-                self.preferences.save(&self.preferences_path)?;
+                if let Err(error) = self.preferences.save(&self.preferences_path) {
+                    self.preferences.score_versions.insert(content_id, previous);
+                    return Err(error);
+                }
             }
             Command::RenameScoreVersion {
                 id,
@@ -3011,6 +3016,8 @@ impl Player {
                 name,
             } => {
                 self.score_content_guard(&content_id)?;
+                let previous = self.preferences.score_versions.get(&content_id).cloned()
+                    .ok_or("没有谱面版本")?;
                 let name = name.trim();
                 if name.is_empty() || name.chars().count() > 120 {
                     return Err("请输入 1 至 120 字的谱面名称".into());
@@ -3022,7 +3029,10 @@ impl Player {
                     .and_then(|rows| rows.iter_mut().find(|v| v.id == id))
                     .ok_or("谱面版本不存在")?;
                 v.name = name.into();
-                self.preferences.save(&self.preferences_path)?;
+                if let Err(error) = self.preferences.save(&self.preferences_path) {
+                    self.preferences.score_versions.insert(content_id, previous);
+                    return Err(error);
+                }
             }
             Command::Score => {
                 let mut payload = self
@@ -5250,6 +5260,18 @@ mod tests {
         })
         .unwrap();
         assert!(p.notation.is_none());
+        let original_preferences_path = p.preferences_path.clone();
+        let before_versions = serde_json::to_value(p.preferences.score_versions.get(&id)).unwrap();
+        p.preferences_path = p.data.clone();
+        assert!(p.command(Command::RenameScoreVersion {
+            id: first.clone(), content_id: id.clone(), name: "未写入的名称".into(),
+        }).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&id)).unwrap(), before_versions);
+        assert!(p.command(Command::RemoveScoreVersion {
+            id: first.clone(), content_id: id.clone(),
+        }).is_err());
+        assert_eq!(serde_json::to_value(p.preferences.score_versions.get(&id)).unwrap(), before_versions);
+        p.preferences_path = original_preferences_path;
         std::fs::write(&file,b"changed source").unwrap();
         assert!(p.command(Command::PreviewScoreVersionRoute{id:first.clone(),content_id:id.clone()}).is_err());
         p.command(Command::RemoveScoreVersion {
