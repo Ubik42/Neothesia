@@ -4,7 +4,7 @@ import {
   expressionGoalText,
   type ExpressionGoal,
 } from "./ExpressionGoalControl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { WeakPracticePanel } from "./WeakPracticePanel";
 import {
   RoutineScheduleEditor,
@@ -158,6 +158,8 @@ export function RoutineStatus({
 }
 export function RoutineDialog({
   initialPlan,
+  suspended,
+  resumeRevision,
   song,
   songs,
   state,
@@ -167,14 +169,18 @@ export function RoutineDialog({
   openLibrary,
 }: {
   initialPlan?: { id: string; day: string | null } | null;
+  suspended: boolean;
+  resumeRevision: number;
   song: LoadedSong | null;
   songs: SongRow[];
   state: Snapshot;
   close: () => void;
   changed: () => Promise<void>;
   backup: () => void;
-  openLibrary: (focus: "missing" | "review", returnTo: { id: string; day: string | null }) => void;
+  openLibrary: (focus: "missing" | "review") => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const wasSuspended = useRef(suspended);
   const [day, setDay] = useState(
       () => initialPlan?.day ?? state.routine?.day ?? localDay(),
     ),
@@ -295,12 +301,16 @@ export function RoutineDialog({
   }, [song?.contentId]);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented && !busy && !compose)
+      if (e.key === "Escape" && !suspended && !e.defaultPrevented && !busy && !compose)
         close();
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [close, busy, compose]);
+  }, [close, busy, compose, suspended]);
+  useEffect(() => {
+    if (wasSuspended.current && !suspended) dialogRef.current?.focus();
+    wasSuspended.current = suspended;
+  }, [suspended]);
   const work = async (job: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -382,15 +392,19 @@ export function RoutineDialog({
   return (
     <div
       className="modal-backdrop"
+      style={suspended ? { display: "none" } : undefined}
+      aria-hidden={suspended || undefined}
       onClick={() => {
         if (!busy) close();
       }}
     >
       <section
+        ref={dialogRef}
         className="settings-dialog routine-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="routine-title"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {compose && plan && (
@@ -518,7 +532,8 @@ export function RoutineDialog({
               day={editDay}
               disabled={locked}
               work={work}
-              openLibrary={(focus) => openLibrary(focus, { id: selected ?? "", day: editDay })}
+              openLibrary={openLibrary}
+              resumeRevision={resumeRevision}
               added={async (id) => {
                 setSelected(id);
                 await reload();

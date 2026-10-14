@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import {
   expressionGoalText,
@@ -63,6 +63,7 @@ export function WeakPracticePanel({
   work,
   added,
   openLibrary,
+  resumeRevision,
 }: {
   routineId: string | null;
   day: string | null;
@@ -70,7 +71,9 @@ export function WeakPracticePanel({
   work: (job: () => Promise<void>) => Promise<void>;
   added: (id: string) => Promise<void>;
   openLibrary: (focus: "missing" | "review") => void;
+  resumeRevision: number;
 }) {
+  const lastResume = useRef(resumeRevision);
   const [rows, setRows] = useState<Suggestion[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
     [note, setNote] = useState(""),
@@ -84,6 +87,15 @@ export function WeakPracticePanel({
     } | null>(null),
     [name, setName] = useState("专项复习"),
     [message, setMessage] = useState("");
+  useEffect(() => {
+    if (lastResume.current === resumeRevision) return;
+    lastResume.current = resumeRevision;
+    setRows([]);
+    setChosen([]);
+    setNote("");
+    setDuePage(null);
+    setMessage("曲库资料可能已变化，请重新生成复习建议。");
+  }, [resumeRevision]);
   const generate = () =>
     void work(async () => {
       const [due, weak] = await Promise.all([
@@ -172,7 +184,7 @@ export function WeakPracticePanel({
             </button>
           )}
           {duePage.dueTotal > duePage.eligibleTotal &&
-            <small>关闭曲库后会返回当前计划；未保存的输入会丢失，请先保存。</small>}
+            <small>关闭曲库后会返回当前计划，保留已输入的内容；复习建议需要重新生成。</small>}
         </div>
       )}
       {note && (
