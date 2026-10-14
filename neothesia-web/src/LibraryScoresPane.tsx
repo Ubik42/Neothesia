@@ -301,6 +301,7 @@ export function LibraryScoresPane({
   };
   const inspectRoute = async (id: string) => {
     if (working.current) return;
+    const requestGeneration = generation.current;
     working.current = true;
     setBusy(true);
     setError("");
@@ -311,13 +312,15 @@ export function LibraryScoresPane({
       const evidence = await api.command<ScoreRouteEvidence>({
         type: "previewLibraryScoreRoute", path: row.path, content_id: contentId, id,
       });
+      if (!alive.current || requestGeneration !== generation.current) return;
       if (evidence.contentId !== contentId || evidence.versionId !== id)
         throw new Error("谱面预览与当前曲目不一致，请重新查看版本");
       setRoutePreview({ id, evidence });
       setRouteOrdinal(evidence.route?.visits[0]?.ordinal ?? null);
       setRouteEndOrdinal(evidence.route?.visits[0]?.ordinal ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (alive.current && requestGeneration === generation.current)
+        setError(e instanceof Error ? e.message : String(e));
     } finally {
       working.current = false;
       setBusy(false);
