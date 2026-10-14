@@ -322,21 +322,39 @@ export function FeedbackDialog({
     [error, setError] = useState(""),
     [planSource, setPlanSource] = useState<FeedbackPlanSource | null>(null),
     [planLoading, setPlanLoading] = useState(false),
+    [planError, setPlanError] = useState<{ contentId: string; id: string; message: string } | null>(null),
+    [planRevision, setPlanRevision] = useState(0),
     [selectedPart, setSelectedPart] = useState<MeasurePartFeedback | null>(null),
     [partLoading, setPartLoading] = useState(false);
   useEffect(() => {
-    api
-      .command<Feedback>({ type: "feedback" })
-      .then(setSummary)
-      .catch((e) => setError(String(e.message)));
-  }, []);
+    let cancelled = false;
+    setSummary(state.summary);
+    setError("");
+    if (!contentId) return;
+    void (async () => {
+      if ((await api.song())?.contentId !== contentId)
+        throw new Error("曲目已切换，请重新打开练习反馈");
+      const result = await api.command<Feedback>({ type: "feedback" });
+      const [currentSong, currentState] = await Promise.all([api.song(), api.state()]);
+      if (currentSong?.contentId !== contentId ||
+          currentState.currentHistoryId !== state.currentHistoryId)
+        throw new Error("练习记录已切换，请重新打开练习反馈");
+      if (!cancelled) setSummary(result);
+    })().catch((e) => {
+      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+    });
+    return () => { cancelled = true; };
+  }, [contentId, state.currentHistoryId, state.saved]);
   useEffect(() => {
     const id = state.currentHistoryId;
     if (!state.saved || !contentId || !id || state.routine || state.ladder?.active) {
       setPlanSource(null);
+      setPlanError(null);
       return;
     }
     let cancelled = false;
+    setPlanSource(null);
+    setPlanError(null);
     setPlanLoading(true);
     void api.command<FeedbackPlanSource>({
       type: "historyProblemNotes",
@@ -344,15 +362,26 @@ export function FeedbackDialog({
       id,
       offset: 0,
     }).then((source) => {
-      if (!cancelled && source.contentId === contentId && source.id === id)
-        setPlanSource(source.total > 0 && source.notes.length > 0 ? source : null);
-    }).catch(() => {
-      if (!cancelled) setPlanSource(null);
+      if (cancelled) return;
+      if (source.contentId !== contentId || source.id !== id) {
+        setPlanError({ contentId, id, message: "练习记录已变化，请重新读取本轮问题音。" });
+        return;
+      }
+      setPlanSource(source.total > 0 && source.notes.length > 0 ? source : null);
+    }).catch((e) => {
+      if (!cancelled) {
+        setPlanSource(null);
+        setPlanError({
+          contentId,
+          id,
+          message: `本轮问题音读取失败：${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
     }).finally(() => {
       if (!cancelled) setPlanLoading(false);
     });
     return () => { cancelled = true; };
-  }, [contentId, state.saved, state.currentHistoryId, state.routine, state.ladder?.active]);
+  }, [contentId, state.saved, state.currentHistoryId, state.routine, state.ladder?.active, planRevision]);
   const weakest = summary?.measures
     .filter((m) => m.breakdown.missed_notes + m.breakdown.wrong_notes > 0)
     .sort(
@@ -522,7 +551,15 @@ export function FeedbackDialog({
                 重练第 {weakest.measure} 小节
               </button>
             )}
-            {planSource && state.saved && state.currentHistoryId === planSource.id && (
+            {planError && planError.contentId === contentId && planError.id === state.currentHistoryId && state.saved && !state.routine && !state.ladder?.active && (
+              <div className="feedback-next-practice" role="alert">
+                <p>{planError.message}</p>
+                <button disabled={planLoading} onClick={() => setPlanRevision((revision) => revision + 1)}>
+                  重试读取本轮问题音
+                </button>
+              </div>
+            )}
+            {planSource && state.saved && contentId === planSource.contentId && state.currentHistoryId === planSource.id && (
               <div className="feedback-next-practice">
                 <p>本轮保存的演奏记录发现 {planSource.total} 个偏早、偏晚、漏音或逐音力度超限。这是单次练习证据，不代表长期弱项。</p>
                 <button className="primary" disabled={planLoading} onClick={() => arrangeNext(planSource)}>
