@@ -394,31 +394,33 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
         }
         a
     };
-    let mut include = |t: ScoreTime| -> Result<(), String> {
+    let mut rounded_ornament = false;
+    let mut include = |t: ScoreTime, ornament: bool| -> Result<(), String> {
         let d = u64::from(t.denominator);
-        ppq = ppq
+        let exact_ppq = ppq
             .checked_div(gcd(ppq, d))
-            .and_then(|v| v.checked_mul(d))
-            .ok_or("乐谱时间精度超出范围")?;
-        if ppq > 32767 {
-            return Err("谱面时间精度超出 MIDI 分辨率，请调整装饰音或连音时值".into());
+            .and_then(|v| v.checked_mul(d));
+        match exact_ppq {
+            Some(value) if value <= 32767 => ppq = value,
+            _ if ornament => rounded_ornament = true,
+            _ => return Err("谱面时间精度超出 MIDI 分辨率，请调整装饰音或连音时值".into()),
         }
         Ok(())
     };
     for p in &score.parts {
         for m in &p.measures {
-            include(m.start)?;
-            include(m.duration)?;
+            include(m.start, false)?;
+            include(m.duration, false)?;
             for e in &m.events {
                 match e {
                     ScoreEvent::Note(n) => {
-                        include(n.onset)?;
-                        include(n.duration)?;
+                        include(n.onset, false)?;
+                        include(n.duration, false)?;
                     }
                     ScoreEvent::Direction(d) => {
-                        include(d.onset)?;
+                        include(d.onset, false)?;
                         for n in &d.navigation {
-                            include(n.onset)?;
+                            include(n.onset, false)?;
                         }
                     }
                 }
@@ -427,33 +429,38 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
     }
     for spans in &grace_timings {
         for span in spans.values() {
-            include(span.onset)?;
-            include(span.duration)?;
+            include(span.onset, false)?;
+            include(span.duration, false)?;
         }
     }
     for strikes in trill_strikes.values() {
         for strike in strikes {
-            include(strike.onset)?;
-            include(strike.duration)?;
+            include(strike.onset, true)?;
+            include(strike.duration, true)?;
         }
     }
     for visit in &plan.visits {
         if let Some(tail) = visit.fine_tail {
-            include(tail.actual_duration)?;
-            include(visit.performed_end())?;
+            include(tail.actual_duration, false)?;
+            include(visit.performed_end(), false)?;
         }
     }
     let tick = |t: ScoreTime| -> Result<u64, String> {
         if t.numerator < 0 {
             return Err("谱面存在负时间音符或标记".into());
         }
-        let v = (t.numerator as u128) * (ppq as u128) / u128::from(t.denominator);
+        let numerator = (t.numerator as u128) * (ppq as u128);
+        let denominator = u128::from(t.denominator);
+        let v = (numerator + denominator / 2) / denominator;
         if v > 0x0fff_ffff {
             return Err("谱面演奏时间过长".into());
         }
         Ok(v as u64)
     };
     let mut warnings: Vec<_> = score.warnings.iter().map(|w| w.message.clone()).collect();
+    if rounded_ornament {
+        warnings.push("装饰音落点超过 MIDI 精确分辨率，已按最近的 MIDI 脉冲生成；请检查击键时机".into());
+    }
     if !score
         .parts
         .iter()
@@ -811,6 +818,12 @@ pub fn generate(source: &Score, default_bpm: u16) -> Result<Performance, String>
                                     start
                                         + tick(strike.onset.add(strike.duration).subtract(source))?
                                 };
+                                if end <= onset {
+                                    return Err(format!(
+                                        "第 {} 小节的装饰音击键在 MIDI 时间精度下没有正时值，请调整落点或时值",
+                                        index + 1
+                                    ));
+                                }
                                 let key = (pitch, n.voice.clone());
                                 let stop = n.ties.contains(&SpanType::Stop);
                                 let begin = n.ties.contains(&SpanType::Start);
@@ -1264,6 +1277,26 @@ mod tests {
         assert_eq!(notes.iter().map(|note| note.start).collect::<Vec<_>>(), [0, 984, 2400, 3816, 4800, 5784, 7200, 8616]);
         let midi = midi_file::MidiFile::from_smf("turn-repeat", &performance.smf).unwrap();
         assert_eq!(midi.tracks.iter().flat_map(|track| track.notes.iter()).count(), 8);
+    }
+
+    #[test]
+    fn precise_turn_landings_round_to_midi_pulses_and_keep_score_alignment() {
+        let xml = br#"<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>4</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><notations><ornaments><turn second-beat="20.1234" last-beat="79.8766"/></ornaments></notations></note></measure></part></score-partwise>"#;
+        let source = import_musicxml_document(xml).unwrap();
+        let performance = generate(&source, 120).unwrap();
+        assert_eq!(performance.tracks[0].notes.iter().map(|note| note.start).collect::<Vec<_>>(), [0, 193, 480, 767]);
+        assert!(performance.warnings.iter().any(|warning| warning.contains("最近的 MIDI 脉冲")));
+        let midi = midi_file::MidiFile::from_smf("precise-turn", &performance.smf).unwrap();
+        let score = normalized(&source).unwrap();
+        let alignment = crate::score_alignment::align_score_to_midi(&score, &midi);
+        assert_eq!(alignment.matches.len(), 4);
+        assert!(alignment.unmatched_score.is_empty());
+        assert!(alignment.navigation_complete);
+        assert!(alignment.matches.iter().any(|note| !note.exact_score_projection));
+
+        let too_close = String::from_utf8(xml.to_vec()).unwrap().replace("20.1234", "0.0001");
+        let source = import_musicxml_document(too_close.as_bytes()).unwrap();
+        assert!(generate(&source, 120).err().unwrap().contains("MIDI 时间精度"));
     }
 
     #[test]
